@@ -15,6 +15,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 
 use crate::FSSTArray;
+use crate::FSSTVTable;
 
 /// Compress a string array using FSST.
 pub fn fsst_compress<A: ArrayAccessor<[u8]> + AsRef<dyn DynArray>>(
@@ -103,7 +104,7 @@ where
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
+    FSSTVTable::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
         .vortex_expect("building FSSTArray from parts")
 }
 

@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::SequenceArray;
+use crate::SequenceArrayExt;
 use crate::SequenceVTable;
 
 impl FilterKernel for SequenceVTable {
@@ -54,20 +55,21 @@ mod tests {
     use vortex_array::dtype::Nullability;
 
     use crate::SequenceArray;
+    use crate::SequenceVTable;
 
     #[rstest]
-    #[case(SequenceArray::try_new_typed(0i32, 1, Nullability::NonNullable, 5).unwrap())]
-    #[case(SequenceArray::try_new_typed(10i32, 2, Nullability::NonNullable, 5).unwrap())]
-    #[case(SequenceArray::try_new_typed(100i32, -3, Nullability::NonNullable, 5).unwrap())]
-    #[case(SequenceArray::try_new_typed(0i32, 1, Nullability::NonNullable, 1).unwrap())]
-    #[case(SequenceArray::try_new_typed(0i32, 1, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
-    #[case(SequenceArray::try_new_typed(0i32, 1, Nullability::NonNullable, LARGE_SIZE).unwrap())]
-    #[case(SequenceArray::try_new_typed(0i64, 1, Nullability::NonNullable, 5).unwrap())]
-    #[case(SequenceArray::try_new_typed(1000i64, 50, Nullability::NonNullable, 5).unwrap())]
-    #[case(SequenceArray::try_new_typed(-100i64, 10, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
-    #[case(SequenceArray::try_new_typed(0u32, 1, Nullability::NonNullable, 5).unwrap())]
-    #[case(SequenceArray::try_new_typed(0u32, 5, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
-    #[case(SequenceArray::try_new_typed(0u64, 1, Nullability::NonNullable, LARGE_SIZE).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0i32, 1, Nullability::NonNullable, 5).unwrap())]
+    #[case(SequenceVTable::try_new_typed(10i32, 2, Nullability::NonNullable, 5).unwrap())]
+    #[case(SequenceVTable::try_new_typed(100i32, -3, Nullability::NonNullable, 5).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0i32, 1, Nullability::NonNullable, 1).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0i32, 1, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0i32, 1, Nullability::NonNullable, LARGE_SIZE).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0i64, 1, Nullability::NonNullable, 5).unwrap())]
+    #[case(SequenceVTable::try_new_typed(1000i64, 50, Nullability::NonNullable, 5).unwrap())]
+    #[case(SequenceVTable::try_new_typed(-100i64, 10, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0u32, 1, Nullability::NonNullable, 5).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0u32, 5, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
+    #[case(SequenceVTable::try_new_typed(0u64, 1, Nullability::NonNullable, LARGE_SIZE).unwrap())]
     fn test_filter_sequence_conformance(#[case] array: SequenceArray) {
         test_filter_conformance(&array.into_array());
     }

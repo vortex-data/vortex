@@ -13,25 +13,24 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FoRArray;
+use crate::FoRVTable;
 
-impl FoRArray {
-    pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
-        let stats = ArrayStats::from(array.statistics().to_owned());
-        let min = array
-            .statistics()
-            .compute_stat(Stat::Min)?
-            .ok_or_else(|| vortex_err!("Min stat not found"))?;
+pub(crate) fn encode_for(array: PrimitiveArray) -> VortexResult<FoRArray> {
+    let stats = ArrayStats::from(array.statistics().to_owned());
+    let min = array
+        .statistics()
+        .compute_stat(Stat::Min)?
+        .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
-        let encoded = match_each_integer_ptype!(array.ptype(), |T| {
-            compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
-        });
-        let for_array = FoRArray::try_new(encoded, min)?;
-        for_array
-            .stats_set()
-            .to_ref(for_array.as_ref())
-            .inherit_from(stats.to_ref(for_array.as_ref()));
-        Ok(for_array)
-    }
+    let encoded = match_each_integer_ptype!(array.ptype(), |T| {
+        compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
+    });
+    let for_array = FoRVTable::try_new(encoded, min)?;
+    for_array
+        .stats_set()
+        .to_ref(for_array.as_ref())
+        .inherit_from(stats.to_ref(for_array.as_ref()));
+    Ok(for_array)
 }
 
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
@@ -67,7 +66,8 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::BitPackedArray;
+    use crate::BitPackedVTable;
+    use crate::FoRArrayExt;
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 
@@ -80,7 +80,7 @@ mod test {
             (1i32..10).collect::<vortex_buffer::Buffer<_>>(),
             Validity::NonNullable,
         );
-        let compressed = FoRArray::encode(array.clone()).unwrap();
+        let compressed = FoRVTable::encode(array.clone()).unwrap();
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
 
         assert_arrays_eq!(compressed, array);
@@ -95,7 +95,7 @@ mod test {
                 .collect::<vortex_buffer::Buffer<_>>(),
             Validity::NonNullable,
         );
-        let compressed = FoRArray::encode(array).unwrap();
+        let compressed = FoRVTable::encode(array).unwrap();
         assert_eq!(
             u32::try_from(compressed.reference_scalar()).unwrap(),
             1_000_000u32
@@ -108,7 +108,7 @@ mod test {
         assert_eq!(array.statistics().len(), 0);
 
         let dtype = array.dtype().clone();
-        let compressed = FoRArray::encode(array).unwrap();
+        let compressed = FoRVTable::encode(array).unwrap();
         assert_eq!(compressed.reference_scalar().dtype(), &dtype);
         assert!(compressed.reference_scalar().dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_signed_int());
@@ -121,7 +121,7 @@ mod test {
     fn test_decompress() {
         // Create a range offset by a million.
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
-        let compressed = FoRArray::encode(array.clone()).unwrap();
+        let compressed = FoRVTable::encode(array.clone()).unwrap();
         assert_arrays_eq!(compressed, array);
     }
 
@@ -130,8 +130,8 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(&array.into_array(), 3).unwrap();
-        let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
+        let bp = BitPackedVTable::encode(&array.into_array(), 3).unwrap();
+        let compressed = FoRVTable::try_new(bp.into_array(), 10u32.into()).unwrap();
         assert_arrays_eq!(compressed, expect);
     }
 
@@ -140,8 +140,8 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(&array.into_array(), 2).unwrap();
-        let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
+        let bp = BitPackedVTable::encode(&array.into_array(), 2).unwrap();
+        let compressed = FoRVTable::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
         let decompressed =
             fused_decompress::<u32>(&compressed, &bp, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, expect);
@@ -151,7 +151,7 @@ mod test {
     #[test]
     fn test_overflow() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
-        let compressed = FoRArray::encode(array.clone()).unwrap();
+        let compressed = FoRVTable::encode(array.clone()).unwrap();
         assert_eq!(
             i8::MIN,
             compressed

@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::ConstantArray;
 use crate::SparseArray;
+use crate::SparseArrayExt;
 use crate::SparseVTable;
 
 impl TakeExecute for SparseVTable {
@@ -41,7 +42,7 @@ impl TakeExecute for SparseVTable {
         }
 
         Ok(Some(
-            SparseArray::try_new_from_patches(
+            SparseVTable::try_new_from_patches(
                 new_patches,
                 array.fill_scalar().cast(
                     &array
@@ -69,6 +70,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::SparseArray;
+    use crate::SparseVTable;
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying
@@ -76,7 +78,7 @@ mod test {
     }
 
     fn sparse_array() -> ArrayRef {
-        SparseArray::try_new(
+        SparseVTable::try_new(
             buffer![0u64, 37, 47, 99].into_array(),
             PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
             100,
@@ -129,7 +131,7 @@ mod test {
 
     #[test]
     fn nullable_take() {
-        let arr = SparseArray::try_new(
+        let arr = SparseVTable::try_new(
             buffer![1u32].into_array(),
             buffer![10].into_array(),
             10,
@@ -150,7 +152,7 @@ mod test {
 
     #[test]
     fn nullable_take_with_many_patches() {
-        let arr = SparseArray::try_new(
+        let arr = SparseVTable::try_new(
             buffer![1u32, 3, 7, 8, 9].into_array(),
             buffer![10, 8, 3, 2, 1].into_array(),
             10,
@@ -170,13 +172,13 @@ mod test {
     }
 
     #[rstest]
-    #[case(SparseArray::try_new(
+    #[case(SparseVTable::try_new(
         buffer![0u64, 37, 47, 99].into_array(),
         PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
         100,
         Scalar::null_native::<f64>(),
     ).unwrap())]
-    #[case(SparseArray::try_new(
+    #[case(SparseVTable::try_new(
         buffer![1u32, 3, 7, 8, 9].into_array(),
         buffer![10, 8, 3, 2, 1].into_array(),
         10,
@@ -184,14 +186,14 @@ mod test {
     ).unwrap())]
     #[case({
         let nullable_values = PrimitiveArray::from_option_iter([Some(100i64), None, Some(300)]);
-        SparseArray::try_new(
+        SparseVTable::try_new(
             buffer![2u64, 4, 6].into_array(),
             nullable_values.into_array(),
             10,
             Scalar::null_native::<i64>(),
         ).unwrap()
     })]
-    #[case(SparseArray::try_new(
+    #[case(SparseVTable::try_new(
         buffer![5u64].into_array(),
         buffer![999i32].into_array(),
         20,

@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FSSTArray;
+use crate::FSSTArrayExt;
 use crate::FSSTVTable;
 
 impl SliceReduce for FSSTVTable {

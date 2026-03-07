@@ -14,6 +14,7 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_native_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
+use vortex::encodings::sequence::SequenceArrayExt;
 use vortex::encodings::sequence::SequenceArrayParts;
 use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexResult;
@@ -89,7 +90,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
-    use vortex::encodings::sequence::SequenceArray;
+    use vortex::encodings::sequence::SequenceVTable;
     use vortex::scalar::PValue;
     use vortex::session::VortexSession;
 
@@ -126,7 +127,7 @@ mod tests {
     ) {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
 
-        let array = SequenceArray::try_new_typed(base, multiplier, nullability, len).unwrap();
+        let array = SequenceVTable::try_new_typed(base, multiplier, nullability, len).unwrap();
 
         let cpu_result = array.to_canonical().unwrap().into_array();
 

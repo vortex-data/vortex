@@ -7,6 +7,7 @@ use vortex_array::vtable::ValidityChildSliceHelper;
 
 use super::RLEVTable;
 use crate::RLEArray;
+use crate::RLEArrayExt;
 
 impl ValidityChild<RLEVTable> for RLEVTable {
     fn validity_child(array: &RLEArray) -> &ArrayRef {

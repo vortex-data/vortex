@@ -136,7 +136,7 @@ impl VTable for ZigZagVTable {
         let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
 
         let encoded = children.get(0, &encoded_type, len)?;
-        ZigZagArray::try_new(encoded)
+        Self::try_new(encoded)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -180,16 +180,17 @@ pub struct ZigZagArray {
 #[derive(Debug)]
 pub struct ZigZagVTable;
 
+#[allow(clippy::new_ret_no_self)]
 impl ZigZagVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
-}
 
-impl ZigZagArray {
-    pub fn new(encoded: ArrayRef) -> Self {
+    /// Build a new `ZigZagArray`, panicking on validation failure.
+    pub fn new(encoded: ArrayRef) -> ZigZagArray {
         Self::try_new(encoded).vortex_expect("ZigZagArray new")
     }
 
-    pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
+    /// Build a new `ZigZagArray` from an unsigned integer encoded array.
+    pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
         let encoded_dtype = encoded.dtype().clone();
         if !encoded_dtype.is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
@@ -199,17 +200,28 @@ impl ZigZagArray {
             .with_nullability(encoded_dtype.nullability());
         let len = encoded.len();
 
-        Ok(Self {
+        Ok(ZigZagArray {
             common: ArrayCommon::new(len, dtype),
             encoded,
         })
     }
+}
 
-    pub fn ptype(&self) -> PType {
+/// Extension trait for [`ZigZagArray`] methods.
+pub trait ZigZagArrayExt {
+    /// Returns the primitive type of the array.
+    fn ptype(&self) -> PType;
+
+    /// Returns a reference to the encoded child array.
+    fn encoded(&self) -> &ArrayRef;
+}
+
+impl ZigZagArrayExt for ZigZagArray {
+    fn ptype(&self) -> PType {
         self.dtype().as_ptype()
     }
 
-    pub fn encoded(&self) -> &ArrayRef {
+    fn encoded(&self) -> &ArrayRef {
         &self.encoded
     }
 }

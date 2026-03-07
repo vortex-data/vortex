@@ -27,6 +27,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::RLEArray;
+use crate::RLEArrayExt;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
 use crate::rle::vtable::rules::RULES;
@@ -212,7 +213,7 @@ impl VTable for RLEVTable {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEArray::try_new(
+        Self::try_new(
             values,
             indices,
             values_idx_offsets,
@@ -240,6 +241,47 @@ pub struct RLEVTable;
 
 impl RLEVTable {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
+
+    /// Create a new chunk-based RLE array from its components.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - Unique values from all chunks
+    /// * `indices` - Chunk-local indices from all chunks
+    /// * `values_idx_offsets` - Start indices for each value chunk.
+    /// * `offset` - Offset into the first chunk
+    /// * `length` - Array length
+    pub fn try_new(
+        values: ArrayRef,
+        indices: ArrayRef,
+        values_idx_offsets: ArrayRef,
+        offset: usize,
+        length: usize,
+    ) -> VortexResult<RLEArray> {
+        use vortex_array::ArrayCommon;
+
+        use crate::FL_CHUNK_SIZE;
+        use crate::rle::array::validate;
+
+        assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
+        validate(&values, &indices, &values_idx_offsets, offset)?;
+
+        // Ensure that the DType has the same nullability as the indices array.
+        let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+
+        Ok(RLEArray {
+            common: ArrayCommon::new(length, dtype),
+            values,
+            indices,
+            values_idx_offsets,
+            offset,
+        })
+    }
+
+    /// Encodes a primitive array of unsigned integers using FastLanes RLE.
+    pub fn encode(array: &vortex_array::arrays::PrimitiveArray) -> VortexResult<RLEArray> {
+        crate::rle::array::rle_compress::encode_rle(array)
+    }
 }
 
 #[cfg(test)]

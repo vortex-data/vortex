@@ -14,6 +14,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 use crate::compress::runend_decode_bools;
 
@@ -55,9 +56,10 @@ mod test {
     use vortex_array::scalar_fn::fns::operators::Operator;
 
     use crate::RunEndArray;
+    use crate::RunEndVTable;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
+        RunEndVTable::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()

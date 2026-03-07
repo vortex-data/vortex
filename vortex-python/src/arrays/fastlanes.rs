@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
+use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedVTable;
 use vortex::encodings::fastlanes::DeltaVTable;
 use vortex::encodings::fastlanes::FoRVTable;

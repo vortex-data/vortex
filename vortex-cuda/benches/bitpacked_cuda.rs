@@ -24,6 +24,7 @@ use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::encodings::fastlanes::BitPackedVTable;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
@@ -56,7 +57,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(&primitive_array.into_array(), bit_width)
+    BitPackedVTable::encode(&primitive_array.into_array(), bit_width)
         .vortex_expect("failed to create BitPacked array")
 }
 
@@ -96,7 +97,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-    BitPackedArray::encode(&primitive_array, bit_width)
+    BitPackedVTable::encode(&primitive_array, bit_width)
         .vortex_expect("failed to create BitPacked array with patches")
 }
 

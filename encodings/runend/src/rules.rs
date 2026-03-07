@@ -15,6 +15,7 @@ use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 
 pub(super) const RULES: ParentRuleSet<RunEndVTable> = ParentRuleSet::new(&[

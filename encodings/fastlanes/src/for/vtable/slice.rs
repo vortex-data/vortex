@@ -9,6 +9,7 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::FoRArray;
+use crate::FoRArrayExt;
 use crate::FoRVTable;
 
 impl SliceReduce for FoRVTable {

@@ -5,7 +5,8 @@
 use num_traits::NumCast;
 use rand::Rng;
 use rand::rngs::StdRng;
-use vortex_alp::ALPArray;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPVTable;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -56,7 +57,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")
         .into_array();
-    ALPArray::new(bp, alp.exponents(), None).into_array()
+    ALPVTable::new(bp, alp.exponents(), None).into_array()
 }
 
 const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];

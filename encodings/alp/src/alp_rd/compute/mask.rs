@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
+use crate::ALPRDArrayExt;
 use crate::ALPRDVTable;
 
 impl MaskReduce for ALPRDVTable {
@@ -20,7 +21,7 @@ impl MaskReduce for ALPRDVTable {
             [array.left_parts().clone(), mask.clone()],
         )?;
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRDVTable::try_new(
                 array.dtype().as_nullable(),
                 masked_left_parts,
                 array.left_parts_dictionary().clone(),

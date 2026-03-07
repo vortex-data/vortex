@@ -23,12 +23,15 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_fsst::FSSTArray;
+use vortex_fsst::FSSTArrayExt;
+use vortex_fsst::FSSTVTable;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
-use vortex_sparse::SparseArray;
+use vortex_sparse::SparseArrayExt;
 use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_set::HashSet;
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+use vortex_zstd::ZstdBuffersVTable;
 
 use super::integer::DictScheme as IntDictScheme;
 use super::integer::SequenceScheme as IntSequenceScheme;
@@ -378,7 +381,7 @@ impl Scheme for FSSTScheme {
             fsst.codes().validity().clone(),
         )?;
 
-        let fsst = FSSTArray::try_new(
+        let fsst = FSSTVTable::try_new(
             fsst.dtype().clone(),
             fsst.symbols().clone(),
             fsst.symbol_lengths().clone(),
@@ -496,7 +499,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated string arrays
-        let sparse_encoded = SparseArray::encode(&stats.src.clone().into_array(), None)?;
+        let sparse_encoded = SparseVTable::encode(&stats.src.clone().into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the indices only (not the values for strings)
@@ -509,7 +512,7 @@ impl Scheme for NullDominated {
                 Excludes::int_only(&new_excludes),
             )?;
 
-            SparseArray::try_new(
+            SparseVTable::try_new(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
@@ -540,7 +543,7 @@ impl Scheme for ZstdScheme {
     ) -> VortexResult<ArrayRef> {
         let compacted = stats.source().compact_buffers()?;
         Ok(
-            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(&compacted, 3, 8192)?
+            vortex_zstd::ZstdVTable::from_var_bin_view_without_dict(&compacted, 3, 8192)?
                 .into_array(),
         )
     }
@@ -562,10 +565,7 @@ impl Scheme for ZstdBuffersScheme {
         _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(
-            vortex_zstd::ZstdBuffersArray::compress(&stats.source().clone().into_array(), 3)?
-                .into_array(),
-        )
+        Ok(ZstdBuffersVTable::compress(&stats.source().clone().into_array(), 3)?.into_array())
     }
 }
 

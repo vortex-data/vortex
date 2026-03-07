@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALPRDArray;
+use crate::ALPRDArrayExt;
 use crate::ALPRDVTable;
 
 impl FilterKernel for ALPRDVTable {
@@ -24,7 +25,7 @@ impl FilterKernel for ALPRDVTable {
             .flatten();
 
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRDVTable::try_new(
                 array.dtype().clone(),
                 array.left_parts().filter(mask.clone())?,
                 array.left_parts_dictionary().clone(),
@@ -48,6 +49,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

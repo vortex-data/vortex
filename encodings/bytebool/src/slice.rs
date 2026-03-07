@@ -10,12 +10,13 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use crate::ByteBoolArray;
+use crate::ByteBoolArrayExt;
 use crate::ByteBoolVTable;
 
 impl SliceReduce for ByteBoolVTable {
     fn slice(array: &ByteBoolArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolArray::new(
+            ByteBoolVTable::new(
                 array.buffer().slice(range.clone()),
                 array.validity().slice(range)?,
             )

@@ -245,7 +245,7 @@ impl VTable for ZstdVTable {
             )
         };
 
-        Ok(ZstdArray::new(
+        Ok(ZstdVTable::new(
             dictionary_buffer,
             compressed_buffers,
             dtype.clone(),
@@ -289,6 +289,129 @@ pub struct ZstdVTable;
 
 impl ZstdVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
+
+    /// Creates a new ZstdArray from its constituent parts.
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(
+        dictionary: Option<ByteBuffer>,
+        frames: Vec<ByteBuffer>,
+        dtype: DType,
+        metadata: ZstdMetadata,
+        n_rows: usize,
+        validity: Validity,
+    ) -> ZstdArray {
+        ZstdArray {
+            dictionary,
+            frames,
+            metadata,
+            common: ArrayCommon::new(n_rows, dtype),
+            unsliced_validity: validity,
+            unsliced_n_rows: n_rows,
+            slice_start: 0,
+            slice_stop: n_rows,
+        }
+    }
+
+    /// Creates a ZstdArray from a primitive array.
+    ///
+    /// # Arguments
+    /// * `parray` - The primitive array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
+    pub fn from_primitive(
+        parray: &PrimitiveArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<ZstdArray> {
+        from_primitive_impl(parray, level, values_per_frame, true)
+    }
+
+    /// Creates a ZstdArray from a primitive array without using a dictionary.
+    ///
+    /// This is useful when the compressed data will be decompressed by systems
+    /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
+    ///
+    /// Note: Without a dictionary, each frame is compressed independently.
+    /// Dictionaries are trained from sample data from previously seen frames,
+    /// to improve compression ratio.
+    ///
+    /// # Arguments
+    /// * `parray` - The primitive array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
+    pub fn from_primitive_without_dict(
+        parray: &PrimitiveArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<ZstdArray> {
+        from_primitive_impl(parray, level, values_per_frame, false)
+    }
+
+    /// Creates a ZstdArray from a VarBinView array.
+    ///
+    /// # Arguments
+    /// * `vbv` - The VarBinView array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
+    pub fn from_var_bin_view(
+        vbv: &VarBinViewArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<ZstdArray> {
+        from_var_bin_view_impl(vbv, level, values_per_frame, true)
+    }
+
+    /// Creates a ZstdArray from a VarBinView array without using a dictionary.
+    ///
+    /// This is useful when the compressed data will be decompressed by systems
+    /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
+    ///
+    /// Note: Without a dictionary, each frame is compressed independently.
+    /// Dictionaries are trained from sample data from previously seen frames,
+    /// to improve compression ratio.
+    ///
+    /// # Arguments
+    /// * `vbv` - The VarBinView array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
+    pub fn from_var_bin_view_without_dict(
+        vbv: &VarBinViewArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<ZstdArray> {
+        from_var_bin_view_impl(vbv, level, values_per_frame, false)
+    }
+
+    /// Creates a ZstdArray from a canonical array representation.
+    pub fn from_canonical(
+        canonical: &Canonical,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<Option<ZstdArray>> {
+        match canonical {
+            Canonical::Primitive(parray) => Ok(Some(ZstdVTable::from_primitive(
+                parray,
+                level,
+                values_per_frame,
+            )?)),
+            Canonical::VarBinView(vbv) => Ok(Some(ZstdVTable::from_var_bin_view(
+                vbv,
+                level,
+                values_per_frame,
+            )?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Creates a ZstdArray from any array by first converting it to canonical form.
+    pub fn from_array(
+        array: ArrayRef,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<ZstdArray> {
+        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
+            .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -397,51 +520,29 @@ pub fn reconstruct_views(buffer: &ByteBuffer) -> Buffer<BinaryView> {
     res.freeze()
 }
 
-impl ZstdArray {
-    pub fn new(
-        dictionary: Option<ByteBuffer>,
-        frames: Vec<ByteBuffer>,
-        dtype: DType,
-        metadata: ZstdMetadata,
-        n_rows: usize,
-        validity: Validity,
-    ) -> Self {
-        Self {
-            dictionary,
-            frames,
-            metadata,
-            common: ArrayCommon::new(n_rows, dtype),
-            unsliced_validity: validity,
-            unsliced_n_rows: n_rows,
-            slice_start: 0,
-            slice_stop: n_rows,
-        }
+fn compress_values(
+    value_bytes: &ByteBuffer,
+    frame_byte_starts: &[usize],
+    level: i32,
+    values_per_frame: usize,
+    n_values: usize,
+    use_dictionary: bool,
+) -> VortexResult<Frames> {
+    let n_frames = frame_byte_starts.len();
+
+    // Would-be sample sizes if we end up applying zstd dictionary
+    let mut sample_sizes = Vec::with_capacity(n_frames);
+    for i in 0..n_frames {
+        let frame_byte_end = frame_byte_starts
+            .get(i + 1)
+            .copied()
+            .unwrap_or(value_bytes.len());
+        sample_sizes.push(frame_byte_end - frame_byte_starts[i]);
     }
+    debug_assert_eq!(sample_sizes.iter().sum::<usize>(), value_bytes.len());
 
-    fn compress_values(
-        value_bytes: &ByteBuffer,
-        frame_byte_starts: &[usize],
-        level: i32,
-        values_per_frame: usize,
-        n_values: usize,
-        use_dictionary: bool,
-    ) -> VortexResult<Frames> {
-        let n_frames = frame_byte_starts.len();
-
-        // Would-be sample sizes if we end up applying zstd dictionary
-        let mut sample_sizes = Vec::with_capacity(n_frames);
-        for i in 0..n_frames {
-            let frame_byte_end = frame_byte_starts
-                .get(i + 1)
-                .copied()
-                .unwrap_or(value_bytes.len());
-            sample_sizes.push(frame_byte_end - frame_byte_starts[i]);
-        }
-        debug_assert_eq!(sample_sizes.iter().sum::<usize>(), value_bytes.len());
-
-        let (dictionary, mut compressor) = if !use_dictionary
-            || sample_sizes.len() < MIN_SAMPLES_FOR_DICTIONARY
-        {
+    let (dictionary, mut compressor) =
+        if !use_dictionary || sample_sizes.len() < MIN_SAMPLES_FOR_DICTIONARY {
             // no dictionary
             (None, zstd::bulk::Compressor::new(level)?)
         } else {
@@ -454,252 +555,167 @@ impl ZstdArray {
             (Some(ByteBuffer::from(dict)), compressor)
         };
 
-        let mut frame_metas = vec![];
-        let mut frames = vec![];
-        for i in 0..n_frames {
-            let frame_byte_end = frame_byte_starts
-                .get(i + 1)
-                .copied()
-                .unwrap_or(value_bytes.len());
+    let mut frame_metas = vec![];
+    let mut frames = vec![];
+    for i in 0..n_frames {
+        let frame_byte_end = frame_byte_starts
+            .get(i + 1)
+            .copied()
+            .unwrap_or(value_bytes.len());
 
-            let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
-            let compressed = compressor
-                .compress(uncompressed)
-                .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
-            frame_metas.push(ZstdFrameMetadata {
-                uncompressed_size: uncompressed.len() as u64,
-                n_values: values_per_frame.min(n_values - i * values_per_frame) as u64,
-            });
-            frames.push(ByteBuffer::from(compressed));
-        }
-
-        Ok(Frames {
-            dictionary,
-            frames,
-            frame_metas,
-        })
+        let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
+        let compressed = compressor
+            .compress(uncompressed)
+            .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
+        frame_metas.push(ZstdFrameMetadata {
+            uncompressed_size: uncompressed.len() as u64,
+            n_values: values_per_frame.min(n_values - i * values_per_frame) as u64,
+        });
+        frames.push(ByteBuffer::from(compressed));
     }
 
-    /// Creates a ZstdArray from a primitive array.
-    ///
-    /// # Arguments
-    /// * `parray` - The primitive array to compress
-    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
-    /// * `values_per_frame` - Number of values per frame (0 = single frame)
-    pub fn from_primitive(
-        parray: &PrimitiveArray,
-        level: i32,
-        values_per_frame: usize,
-    ) -> VortexResult<Self> {
-        Self::from_primitive_impl(parray, level, values_per_frame, true)
+    Ok(Frames {
+        dictionary,
+        frames,
+        frame_metas,
+    })
+}
+
+fn from_primitive_impl(
+    parray: &PrimitiveArray,
+    level: i32,
+    values_per_frame: usize,
+    use_dictionary: bool,
+) -> VortexResult<ZstdArray> {
+    let dtype = parray.dtype().clone();
+    let byte_width = parray.ptype().byte_width();
+
+    // We compress only the valid elements.
+    let values = collect_valid_primitive(parray)?;
+    let n_values = values.len();
+    let values_per_frame = if values_per_frame > 0 {
+        values_per_frame
+    } else {
+        n_values
+    };
+
+    let value_bytes = values.buffer_handle().try_to_host_sync()?;
+    // Align frames to buffer alignment. This is necessary for overaligned buffers.
+    let alignment = *value_bytes.alignment();
+    let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
+
+    let frame_byte_starts = (0..n_values * byte_width)
+        .step_by(step_width)
+        .collect::<Vec<_>>();
+    let Frames {
+        dictionary,
+        frames,
+        frame_metas,
+    } = compress_values(
+        &value_bytes,
+        &frame_byte_starts,
+        level,
+        values_per_frame,
+        n_values,
+        use_dictionary,
+    )?;
+
+    let metadata = ZstdMetadata {
+        dictionary_size: dictionary
+            .as_ref()
+            .map_or(0, |dict| dict.len())
+            .try_into()?,
+        frames: frame_metas,
+    };
+
+    Ok(ZstdVTable::new(
+        dictionary,
+        frames,
+        dtype,
+        metadata,
+        parray.len(),
+        parray.validity().clone(),
+    ))
+}
+
+fn from_var_bin_view_impl(
+    vbv: &VarBinViewArray,
+    level: i32,
+    values_per_frame: usize,
+    use_dictionary: bool,
+) -> VortexResult<ZstdArray> {
+    // Approach for strings: we prefix each string with its length as a u32.
+    // This is the same as what Parquet does. In some cases it may be better
+    // to separate the binary data and lengths as two separate streams, but
+    // this approach is simpler and can be best in cases when there is
+    // mutual information between strings and their lengths.
+    let dtype = vbv.dtype().clone();
+
+    // We compress only the valid elements.
+    let (value_bytes, value_byte_indices) = collect_valid_vbv(vbv)?;
+    let n_values = value_byte_indices.len();
+    let values_per_frame = if values_per_frame > 0 {
+        values_per_frame
+    } else {
+        n_values
+    };
+
+    let frame_byte_starts = (0..n_values)
+        .step_by(values_per_frame)
+        .map(|i| value_byte_indices[i])
+        .collect::<Vec<_>>();
+    let Frames {
+        dictionary,
+        frames,
+        frame_metas,
+    } = compress_values(
+        &value_bytes,
+        &frame_byte_starts,
+        level,
+        values_per_frame,
+        n_values,
+        use_dictionary,
+    )?;
+
+    let metadata = ZstdMetadata {
+        dictionary_size: dictionary
+            .as_ref()
+            .map_or(0, |dict| dict.len())
+            .try_into()?,
+        frames: frame_metas,
+    };
+    Ok(ZstdVTable::new(
+        dictionary,
+        frames,
+        dtype,
+        metadata,
+        vbv.len(),
+        vbv.validity().clone(),
+    ))
+}
+
+fn byte_width(array: &ZstdArray) -> usize {
+    if array.common.dtype().is_primitive() {
+        array.common.dtype().as_ptype().byte_width()
+    } else {
+        1
     }
+}
 
-    /// Creates a ZstdArray from a primitive array without using a dictionary.
-    ///
-    /// This is useful when the compressed data will be decompressed by systems
-    /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
-    ///
-    /// Note: Without a dictionary, each frame is compressed independently.
-    /// Dictionaries are trained from sample data from previously seen frames,
-    /// to improve compression ratio.
-    ///
-    /// # Arguments
-    /// * `parray` - The primitive array to compress
-    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
-    /// * `values_per_frame` - Number of values per frame (0 = single frame)
-    pub fn from_primitive_without_dict(
-        parray: &PrimitiveArray,
-        level: i32,
-        values_per_frame: usize,
-    ) -> VortexResult<Self> {
-        Self::from_primitive_impl(parray, level, values_per_frame, false)
-    }
+/// Extension trait for [`ZstdArray`] instance methods.
+pub trait ZstdArrayExt: Sized {
+    /// Decompresses the array, returning the uncompressed array.
+    fn decompress(&self) -> VortexResult<ArrayRef>;
 
-    fn from_primitive_impl(
-        parray: &PrimitiveArray,
-        level: i32,
-        values_per_frame: usize,
-        use_dictionary: bool,
-    ) -> VortexResult<Self> {
-        let dtype = parray.dtype().clone();
-        let byte_width = parray.ptype().byte_width();
+    /// Consumes the array and returns its parts.
+    fn into_parts(self) -> ZstdArrayParts;
+}
 
-        // We compress only the valid elements.
-        let values = collect_valid_primitive(parray)?;
-        let n_values = values.len();
-        let values_per_frame = if values_per_frame > 0 {
-            values_per_frame
-        } else {
-            n_values
-        };
-
-        let value_bytes = values.buffer_handle().try_to_host_sync()?;
-        // Align frames to buffer alignment. This is necessary for overaligned buffers.
-        let alignment = *value_bytes.alignment();
-        let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
-
-        let frame_byte_starts = (0..n_values * byte_width)
-            .step_by(step_width)
-            .collect::<Vec<_>>();
-        let Frames {
-            dictionary,
-            frames,
-            frame_metas,
-        } = Self::compress_values(
-            &value_bytes,
-            &frame_byte_starts,
-            level,
-            values_per_frame,
-            n_values,
-            use_dictionary,
-        )?;
-
-        let metadata = ZstdMetadata {
-            dictionary_size: dictionary
-                .as_ref()
-                .map_or(0, |dict| dict.len())
-                .try_into()?,
-            frames: frame_metas,
-        };
-
-        Ok(ZstdArray::new(
-            dictionary,
-            frames,
-            dtype,
-            metadata,
-            parray.len(),
-            parray.validity().clone(),
-        ))
-    }
-
-    /// Creates a ZstdArray from a VarBinView array.
-    ///
-    /// # Arguments
-    /// * `vbv` - The VarBinView array to compress
-    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
-    /// * `values_per_frame` - Number of values per frame (0 = single frame)
-    pub fn from_var_bin_view(
-        vbv: &VarBinViewArray,
-        level: i32,
-        values_per_frame: usize,
-    ) -> VortexResult<Self> {
-        Self::from_var_bin_view_impl(vbv, level, values_per_frame, true)
-    }
-
-    /// Creates a ZstdArray from a VarBinView array without using a dictionary.
-    ///
-    /// This is useful when the compressed data will be decompressed by systems
-    /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
-    ///
-    /// Note: Without a dictionary, each frame is compressed independently.
-    /// Dictionaries are trained from sample data from previously seen frames,
-    /// to improve compression ratio.
-    ///
-    /// # Arguments
-    /// * `vbv` - The VarBinView array to compress
-    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
-    /// * `values_per_frame` - Number of values per frame (0 = single frame)
-    pub fn from_var_bin_view_without_dict(
-        vbv: &VarBinViewArray,
-        level: i32,
-        values_per_frame: usize,
-    ) -> VortexResult<Self> {
-        Self::from_var_bin_view_impl(vbv, level, values_per_frame, false)
-    }
-
-    fn from_var_bin_view_impl(
-        vbv: &VarBinViewArray,
-        level: i32,
-        values_per_frame: usize,
-        use_dictionary: bool,
-    ) -> VortexResult<Self> {
-        // Approach for strings: we prefix each string with its length as a u32.
-        // This is the same as what Parquet does. In some cases it may be better
-        // to separate the binary data and lengths as two separate streams, but
-        // this approach is simpler and can be best in cases when there is
-        // mutual information between strings and their lengths.
-        let dtype = vbv.dtype().clone();
-
-        // We compress only the valid elements.
-        let (value_bytes, value_byte_indices) = collect_valid_vbv(vbv)?;
-        let n_values = value_byte_indices.len();
-        let values_per_frame = if values_per_frame > 0 {
-            values_per_frame
-        } else {
-            n_values
-        };
-
-        let frame_byte_starts = (0..n_values)
-            .step_by(values_per_frame)
-            .map(|i| value_byte_indices[i])
-            .collect::<Vec<_>>();
-        let Frames {
-            dictionary,
-            frames,
-            frame_metas,
-        } = Self::compress_values(
-            &value_bytes,
-            &frame_byte_starts,
-            level,
-            values_per_frame,
-            n_values,
-            use_dictionary,
-        )?;
-
-        let metadata = ZstdMetadata {
-            dictionary_size: dictionary
-                .as_ref()
-                .map_or(0, |dict| dict.len())
-                .try_into()?,
-            frames: frame_metas,
-        };
-        Ok(ZstdArray::new(
-            dictionary,
-            frames,
-            dtype,
-            metadata,
-            vbv.len(),
-            vbv.validity().clone(),
-        ))
-    }
-
-    pub fn from_canonical(
-        canonical: &Canonical,
-        level: i32,
-        values_per_frame: usize,
-    ) -> VortexResult<Option<Self>> {
-        match canonical {
-            Canonical::Primitive(parray) => Ok(Some(ZstdArray::from_primitive(
-                parray,
-                level,
-                values_per_frame,
-            )?)),
-            Canonical::VarBinView(vbv) => Ok(Some(ZstdArray::from_var_bin_view(
-                vbv,
-                level,
-                values_per_frame,
-            )?)),
-            _ => Ok(None),
-        }
-    }
-
-    pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
-            .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
-    }
-
-    fn byte_width(&self) -> usize {
-        if self.common.dtype().is_primitive() {
-            self.common.dtype().as_ptype().byte_width()
-        } else {
-            1
-        }
-    }
-
-    pub fn decompress(&self) -> VortexResult<ArrayRef> {
+impl ZstdArrayExt for ZstdArray {
+    fn decompress(&self) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
-        let byte_width = self.byte_width();
+        let bw = byte_width(self);
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
@@ -722,7 +738,7 @@ impl ZstdArray {
                 .vortex_expect("Uncompressed size must fit in usize");
             let frame_n_values = if frame_meta.n_values == 0 {
                 // possibly older primitive-only metadata that just didn't store this
-                frame_uncompressed_size / byte_width
+                frame_uncompressed_size / bw
             } else {
                 usize::try_from(frame_meta.n_values).vortex_expect("frame size must fit usize")
             };
@@ -746,7 +762,7 @@ impl ZstdArray {
         };
         let mut decompressed = ByteBufferMut::with_capacity_aligned(
             uncompressed_size_to_decompress,
-            Alignment::new(byte_width),
+            Alignment::new(bw),
         );
         unsafe {
             // safety: we immediately fill all bytes in the following loop,
@@ -799,8 +815,8 @@ impl ZstdArray {
         match dtype {
             DType::Primitive(..) => {
                 let slice_values_buffer = decompressed.slice(
-                    (slice_value_idx_start - n_skipped_values) * byte_width
-                        ..(slice_value_idx_stop - n_skipped_values) * byte_width,
+                    (slice_value_idx_start - n_skipped_values) * bw
+                        ..(slice_value_idx_stop - n_skipped_values) * bw,
                 );
                 let primitive = PrimitiveArray::from_values_byte_buffer(
                     slice_values_buffer,
@@ -869,6 +885,21 @@ impl ZstdArray {
         }
     }
 
+    fn into_parts(self) -> ZstdArrayParts {
+        ZstdArrayParts {
+            dictionary: self.dictionary,
+            frames: self.frames,
+            metadata: self.metadata,
+            dtype: self.common.into_dtype(),
+            validity: self.unsliced_validity,
+            n_rows: self.unsliced_n_rows,
+            slice_start: self.slice_start,
+            slice_stop: self.slice_stop,
+        }
+    }
+}
+
+impl ZstdArray {
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> ZstdArray {
         let new_start = self.slice_start + start;
         let new_stop = self.slice_start + stop;
@@ -892,20 +923,6 @@ impl ZstdArray {
             slice_start: new_start,
             slice_stop: new_stop,
             ..self.clone()
-        }
-    }
-
-    /// Consumes the array and returns its parts.
-    pub fn into_parts(self) -> ZstdArrayParts {
-        ZstdArrayParts {
-            dictionary: self.dictionary,
-            frames: self.frames,
-            metadata: self.metadata,
-            dtype: self.common.into_dtype(),
-            validity: self.unsliced_validity,
-            n_rows: self.unsliced_n_rows,
-            slice_start: self.slice_start,
-            slice_stop: self.slice_stop,
         }
     }
 

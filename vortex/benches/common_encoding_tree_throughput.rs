@@ -26,16 +26,20 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
+use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::alp_encode;
-use vortex::encodings::datetime_parts::DateTimePartsArray;
+use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::encodings::datetime_parts::split_temporal;
-use vortex::encodings::fastlanes::FoRArray;
-use vortex::encodings::fsst::FSSTArray;
+use vortex::encodings::fastlanes::FoRArrayExt;
+use vortex::encodings::fastlanes::FoRVTable;
+use vortex::encodings::fsst::FSSTArrayExt;
+use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
-use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::runend::RunEndArrayExt;
+use vortex::encodings::runend::RunEndVTable;
 use vortex::extension::datetime::TimeUnit;
-use vortex_fastlanes::BitPackedArray;
+use vortex_fastlanes::BitPackedVTable;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -86,10 +90,10 @@ mod setup {
     /// Create FoR <- BitPacked encoding tree for u64
     pub fn for_bp_u64() -> ArrayRef {
         let (uint_array, ..) = setup_primitive_arrays();
-        let compressed = FoRArray::encode(uint_array).unwrap();
+        let compressed = FoRVTable::encode(uint_array).unwrap();
         let inner = compressed.encoded();
-        let bp = BitPackedArray::encode(inner, 8).unwrap();
-        FoRArray::try_new(bp.into_array(), compressed.reference_scalar().clone())
+        let bp = BitPackedVTable::encode(inner, 8).unwrap();
+        FoRVTable::try_new(bp.into_array(), compressed.reference_scalar().clone())
             .unwrap()
             .into_array()
     }
@@ -100,13 +104,13 @@ mod setup {
         let alp_compressed = alp_encode(&float_array, None).unwrap();
 
         // Manually construct ALP <- FoR <- BitPacked tree
-        let for_array = FoRArray::encode(alp_compressed.encoded().to_primitive()).unwrap();
+        let for_array = FoRVTable::encode(alp_compressed.encoded().to_primitive()).unwrap();
         let inner = for_array.encoded();
-        let bp = BitPackedArray::encode(inner, 8).unwrap();
+        let bp = BitPackedVTable::encode(inner, 8).unwrap();
         let for_with_bp =
-            FoRArray::try_new(bp.into_array(), for_array.reference_scalar().clone()).unwrap();
+            FoRVTable::try_new(bp.into_array(), for_array.reference_scalar().clone()).unwrap();
 
-        vortex::encodings::alp::ALPArray::try_new(
+        vortex::encodings::alp::ALPVTable::try_new(
             for_with_bp.into_array(),
             alp_compressed.exponents(),
             alp_compressed.patches().cloned(),
@@ -137,7 +141,7 @@ mod setup {
         let codes_prim = PrimitiveArray::from_iter(codes);
 
         // Compress codes with BitPacked (6 bits should be enough for ~50 unique values)
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), 6)
+        let codes_bp = BitPackedVTable::encode(&codes_prim.into_array(), 6)
             .unwrap()
             .into_array();
 
@@ -168,25 +172,25 @@ mod setup {
         }
 
         let prim_array = PrimitiveArray::from_iter(values);
-        let runend = RunEndArray::encode(prim_array.into_array()).unwrap();
+        let runend = RunEndVTable::encode(prim_array.into_array()).unwrap();
 
         // Compress the ends with FoR <- BitPacked
         let ends_prim = runend.ends().to_primitive();
-        let ends_for = FoRArray::encode(ends_prim).unwrap();
+        let ends_for = FoRVTable::encode(ends_prim).unwrap();
         let ends_inner = ends_for.encoded();
-        let ends_bp = BitPackedArray::encode(ends_inner, 8).unwrap();
+        let ends_bp = BitPackedVTable::encode(ends_inner, 8).unwrap();
         let compressed_ends =
-            FoRArray::try_new(ends_bp.into_array(), ends_for.reference_scalar().clone())
+            FoRVTable::try_new(ends_bp.into_array(), ends_for.reference_scalar().clone())
                 .unwrap()
                 .into_array();
 
         // Compress the values with BitPacked
         let values_prim = runend.values().to_primitive();
-        let compressed_values = BitPackedArray::encode(&values_prim.into_array(), 8)
+        let compressed_values = BitPackedVTable::encode(&values_prim.into_array(), 8)
             .unwrap()
             .into_array();
 
-        RunEndArray::try_new(compressed_ends, compressed_values)
+        RunEndVTable::try_new(compressed_ends, compressed_values)
             .unwrap()
             .into_array()
     }
@@ -246,7 +250,7 @@ mod setup {
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();
         let offsets_prim = codes.offsets().to_primitive();
-        let offsets_bp = BitPackedArray::encode(&offsets_prim.into_array(), 20).unwrap();
+        let offsets_bp = BitPackedVTable::encode(&offsets_prim.into_array(), 20).unwrap();
 
         // Rebuild VarBin with compressed offsets
         let compressed_codes = VarBinArray::try_new(
@@ -258,7 +262,7 @@ mod setup {
         .unwrap();
 
         // Rebuild FSST with compressed codes
-        let compressed_fsst = FSSTArray::try_new(
+        let compressed_fsst = FSSTVTable::try_new(
             fsst.dtype().clone(),
             fsst.symbols().clone(),
             fsst.symbol_lengths().clone(),
@@ -297,20 +301,20 @@ mod setup {
 
         // Compress days with FoR <- BitPacked
         let days_prim = parts.days.to_primitive();
-        let days_for = FoRArray::encode(days_prim).unwrap();
+        let days_for = FoRVTable::encode(days_prim).unwrap();
         let days_inner = days_for.encoded();
-        let days_bp = BitPackedArray::encode(days_inner, 16).unwrap();
+        let days_bp = BitPackedVTable::encode(days_inner, 16).unwrap();
         let compressed_days =
-            FoRArray::try_new(days_bp.into_array(), days_for.reference_scalar().clone())
+            FoRVTable::try_new(days_bp.into_array(), days_for.reference_scalar().clone())
                 .unwrap()
                 .into_array();
 
         // Compress seconds with FoR <- BitPacked
         let seconds_prim = parts.seconds.to_primitive();
-        let seconds_for = FoRArray::encode(seconds_prim).unwrap();
+        let seconds_for = FoRVTable::encode(seconds_prim).unwrap();
         let seconds_inner = seconds_for.encoded();
-        let seconds_bp = BitPackedArray::encode(seconds_inner, 17).unwrap();
-        let compressed_seconds = FoRArray::try_new(
+        let seconds_bp = BitPackedVTable::encode(seconds_inner, 17).unwrap();
+        let compressed_seconds = FoRVTable::try_new(
             seconds_bp.into_array(),
             seconds_for.reference_scalar().clone(),
         )
@@ -319,17 +323,17 @@ mod setup {
 
         // Compress subseconds with FoR <- BitPacked
         let subseconds_prim = parts.subseconds.to_primitive();
-        let subseconds_for = FoRArray::encode(subseconds_prim).unwrap();
+        let subseconds_for = FoRVTable::encode(subseconds_prim).unwrap();
         let subseconds_inner = subseconds_for.encoded();
-        let subseconds_bp = BitPackedArray::encode(subseconds_inner, 20).unwrap();
-        let compressed_subseconds = FoRArray::try_new(
+        let subseconds_bp = BitPackedVTable::encode(subseconds_inner, 20).unwrap();
+        let compressed_subseconds = FoRVTable::try_new(
             subseconds_bp.into_array(),
             subseconds_for.reference_scalar().clone(),
         )
         .unwrap()
         .into_array();
 
-        DateTimePartsArray::try_new(
+        DateTimePartsVTable::try_new(
             DType::Extension(temporal_array.ext_dtype()),
             compressed_days,
             compressed_seconds,

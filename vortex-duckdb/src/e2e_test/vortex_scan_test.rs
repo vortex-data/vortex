@@ -36,8 +36,8 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
-use vortex_runend::RunEndArray;
-use vortex_sequence::SequenceArray;
+use vortex_runend::RunEndVTable;
+use vortex_sequence::SequenceVTable;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -789,10 +789,10 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     // 4. Run-End
     let run_ends = buffer![3u32, 5];
     let run_values = buffer![100i32, 200];
-    let rle_array = RunEndArray::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
+    let rle_array = RunEndVTable::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
 
     // 5. Sequence array
-    let sequence_array = SequenceArray::try_new(
+    let sequence_array = SequenceVTable::try_new(
         PValue::I64(0),
         PValue::I64(10),
         PType::I64,

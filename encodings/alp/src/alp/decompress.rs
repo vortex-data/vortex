@@ -16,6 +16,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
+use crate::ALPArrayExt;
 use crate::ALPFloat;
 use crate::Exponents;
 use crate::match_each_alp_float_ptype;

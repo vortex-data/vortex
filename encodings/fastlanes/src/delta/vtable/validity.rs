@@ -5,6 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::vtable::ValidityChildSliceHelper;
 
 use crate::DeltaArray;
+use crate::DeltaArrayExt;
 
 impl ValidityChildSliceHelper for DeltaArray {
     fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize) {

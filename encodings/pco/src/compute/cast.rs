@@ -30,7 +30,7 @@ impl CastReduce for PcoVTable {
                 .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
-                PcoArray::new(
+                PcoVTable::new(
                     array.chunk_metas.clone(),
                     array.pages.clone(),
                     dtype.clone(),
@@ -62,12 +62,12 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::PcoArray;
+    use crate::PcoVTable;
 
     #[test]
     fn test_cast_pco_f32_to_f64() {
         let values = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0]);
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco = PcoVTable::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco
             .into_array()
@@ -88,7 +88,7 @@ mod tests {
     fn test_cast_pco_nullability_change() {
         // Test casting from NonNullable to Nullable
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco = PcoVTable::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco
             .into_array()
@@ -106,7 +106,7 @@ mod tests {
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
         );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco = PcoVTable::from_primitive(&values, 0, 128).unwrap();
         let sliced = pco.slice(1..5).unwrap();
         let casted = sliced
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
@@ -129,7 +129,7 @@ mod tests {
             Some(50),
             Some(60),
         ]);
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco = PcoVTable::from_primitive(&values, 0, 128).unwrap();
         let sliced = pco.slice(1..5).unwrap();
         let casted = sliced
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
@@ -163,7 +163,7 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco = PcoVTable::from_primitive(&values, 0, 128).unwrap();
         test_cast_conformance(&pco.into_array());
     }
 }

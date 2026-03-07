@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
+use crate::ALPRDArrayExt;
 use crate::ALPRDVTable;
 
 impl TakeExecute for ALPRDVTable {
@@ -39,7 +40,7 @@ impl TakeExecute for ALPRDVTable {
             .fill_null(Scalar::zero_value(array.right_parts().dtype()))?;
 
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRDVTable::try_new(
                 array
                     .dtype()
                     .with_nullability(taken_left_parts.dtype().nullability()),
@@ -63,6 +64,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

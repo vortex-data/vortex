@@ -26,6 +26,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::SequenceArray;
+use crate::SequenceArrayExt;
 use crate::SequenceVTable;
 
 fn take_inner<T: IntegerPType, S: NativePType>(
@@ -112,51 +113,52 @@ mod test {
     use vortex_array::dtype::Nullability;
 
     use crate::SequenceArray;
+    use crate::SequenceVTable;
 
     #[rstest]
-    #[case::basic_sequence(SequenceArray::try_new_typed(
+    #[case::basic_sequence(SequenceVTable::try_new_typed(
         0i32,
         1i32,
         Nullability::NonNullable,
         10
     ).unwrap())]
-    #[case::sequence_with_multiplier(SequenceArray::try_new_typed(
+    #[case::sequence_with_multiplier(SequenceVTable::try_new_typed(
         10i32,
         5i32,
         Nullability::Nullable,
         20
     ).unwrap())]
-    #[case::sequence_i64(SequenceArray::try_new_typed(
+    #[case::sequence_i64(SequenceVTable::try_new_typed(
         100i64,
         10i64,
         Nullability::NonNullable,
         50
     ).unwrap())]
-    #[case::sequence_u32(SequenceArray::try_new_typed(
+    #[case::sequence_u32(SequenceVTable::try_new_typed(
         0u32,
         2u32,
         Nullability::NonNullable,
         100
     ).unwrap())]
-    #[case::sequence_negative_step(SequenceArray::try_new_typed(
+    #[case::sequence_negative_step(SequenceVTable::try_new_typed(
         1000i32,
         -10i32,
         Nullability::Nullable,
         30
     ).unwrap())]
-    #[case::sequence_constant(SequenceArray::try_new_typed(
+    #[case::sequence_constant(SequenceVTable::try_new_typed(
         42i32,
         0i32,  // multiplier of 0 means all values are the same
         Nullability::Nullable,
         15
     ).unwrap())]
-    #[case::sequence_i16(SequenceArray::try_new_typed(
+    #[case::sequence_i16(SequenceVTable::try_new_typed(
         -100i16,
         3i16,
         Nullability::NonNullable,
         25
     ).unwrap())]
-    #[case::sequence_large(SequenceArray::try_new_typed(
+    #[case::sequence_large(SequenceVTable::try_new_typed(
         0i64,
         1i64,
         Nullability::Nullable,
@@ -170,7 +172,8 @@ mod test {
     #[test]
     #[should_panic(expected = "out of bounds")]
     fn test_bounds_check() {
-        let array = SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
+        let array =
+            SequenceVTable::try_new_typed(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
         let indices = PrimitiveArray::from_iter([0i32, 20]);
         let _array = array
             .take(indices.into_array())

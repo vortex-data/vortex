@@ -15,6 +15,7 @@ use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::zigzag::ZigZagArray;
+use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -102,7 +103,6 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::encodings::zigzag::ZigZagArray;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
@@ -119,7 +119,7 @@ mod tests {
         // So encoded [0, 2, 4, 1, 3] should decode to [0, 1, 2, -1, -2]
         let encoded_data: Vec<u32> = vec![0, 2, 4, 1, 3];
 
-        let zigzag_array = ZigZagArray::try_new(
+        let zigzag_array = ZigZagVTable::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data), NonNullable).into_array(),
         )?;
 

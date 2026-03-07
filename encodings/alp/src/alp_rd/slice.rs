@@ -10,6 +10,7 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
 use crate::alp_rd::ALPRDArray;
+use crate::alp_rd::ALPRDArrayExt;
 use crate::alp_rd::ALPRDVTable;
 
 impl SliceKernel for ALPRDVTable {

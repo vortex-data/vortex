@@ -9,6 +9,7 @@ use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::SequenceArray;
+use crate::SequenceArrayExt;
 use crate::SequenceVTable;
 
 impl IsSortedKernel for SequenceVTable {

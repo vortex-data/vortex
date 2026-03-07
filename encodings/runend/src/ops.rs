@@ -11,6 +11,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 
 impl OperationsVTable<RunEndVTable> for RunEndVTable {
@@ -54,11 +55,11 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
 
-    use crate::RunEndArray;
+    use crate::RunEndVTable;
 
     #[test]
     fn slice_array() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEndVTable::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -77,7 +78,7 @@ mod tests {
 
     #[test]
     fn double_slice() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEndVTable::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -94,7 +95,7 @@ mod tests {
 
     #[test]
     fn slice_end_inclusive() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEndVTable::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -113,7 +114,7 @@ mod tests {
 
     #[test]
     fn slice_at_end() {
-        let re_array = RunEndArray::try_new(
+        let re_array = RunEndVTable::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
         )
@@ -127,7 +128,7 @@ mod tests {
 
     #[test]
     fn slice_single_end() {
-        let re_array = RunEndArray::try_new(
+        let re_array = RunEndVTable::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
         )
@@ -151,7 +152,7 @@ mod tests {
 
     #[test]
     fn ree_scalar_at_end() {
-        let scalar = RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
+        let scalar = RunEndVTable::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
             .unwrap()
             .scalar_at(11)
             .unwrap();
@@ -163,7 +164,7 @@ mod tests {
     fn slice_along_run_boundaries() {
         // Create a runend array with runs: [1, 1, 1] [4, 4, 4] [2, 2] [5, 5, 5, 5]
         // Run ends at indices: 3, 6, 8, 12
-        let arr = RunEndArray::try_new(
+        let arr = RunEndVTable::try_new(
             buffer![3u32, 6, 8, 12].into_array(),
             buffer![1i32, 4, 2, 5].into_array(),
         )

@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
+use crate::FSSTArrayExt;
 use crate::FSSTVTable;
 
 impl CastReduce for FSSTVTable {
@@ -25,7 +26,7 @@ impl CastReduce for FSSTVTable {
                 .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
-                FSSTArray::try_new(
+                FSSTVTable::try_new(
                     dtype.clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),

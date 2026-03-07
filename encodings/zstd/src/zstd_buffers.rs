@@ -41,6 +41,49 @@ pub struct ZstdBuffersVTable;
 
 impl ZstdBuffersVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd_buffers");
+
+    /// Compresses the buffers of the given array using ZSTD.
+    ///
+    /// Each buffer of the input array is independently ZSTD-compressed. The children
+    /// and metadata of the input array are preserved as-is.
+    pub fn compress(array: &ArrayRef, level: i32) -> VortexResult<ZstdBuffersArray> {
+        let encoding_id = array.encoding_id();
+        let metadata = array
+            .metadata()?
+            .ok_or_else(|| vortex_err!("Array does not support serialization"))?;
+        let buffer_handles = array.buffer_handles();
+        let children = array.children();
+
+        let mut compressed_buffers = Vec::with_capacity(buffer_handles.len());
+        let mut uncompressed_sizes = Vec::with_capacity(buffer_handles.len());
+        let mut buffer_alignments = Vec::with_capacity(buffer_handles.len());
+
+        let mut compressor = zstd::bulk::Compressor::new(level)?;
+        // Compression is currently CPU-only, so we gather all buffers on the host.
+        for handle in &buffer_handles {
+            buffer_alignments.push(u32::from(handle.alignment()));
+            let host_buf = handle.clone().try_to_host_sync()?;
+            uncompressed_sizes.push(host_buf.len() as u64);
+            let compressed = compressor.compress(&host_buf)?;
+            compressed_buffers.push(BufferHandle::new_host(ByteBuffer::from(compressed)));
+        }
+
+        let compressed = ZstdBuffersArray {
+            inner_encoding_id: encoding_id,
+            inner_metadata: metadata,
+            compressed_buffers,
+            uncompressed_sizes,
+            buffer_alignments,
+            children,
+            common: ArrayCommon::new(array.len(), array.dtype().clone()),
+        };
+        compressed
+            .common
+            .stats()
+            .to_ref(compressed.as_ref())
+            .inherit_from(array.statistics());
+        Ok(compressed)
+    }
 }
 
 /// An encoding that ZSTD-compresses the buffers of any wrapped array.
@@ -118,123 +161,24 @@ impl ZstdBuffersDecodePlan {
     }
 }
 
-impl ZstdBuffersArray {
-    fn validate(&self) -> VortexResult<()> {
-        vortex_ensure_eq!(
-            self.compressed_buffers.len(),
-            self.uncompressed_sizes.len(),
-            "zstd_buffers metadata mismatch: {} compressed buffers vs {} sizes",
-            self.compressed_buffers.len(),
-            self.uncompressed_sizes.len()
-        );
-        vortex_ensure_eq!(
-            self.compressed_buffers.len(),
-            self.buffer_alignments.len(),
-            "zstd_buffers metadata mismatch: {} compressed buffers vs {} alignments",
-            self.compressed_buffers.len(),
-            self.buffer_alignments.len()
-        );
-        Ok(())
-    }
-
-    /// Compresses the buffers of the given array using ZSTD.
+/// Extension trait providing instance methods for [`ZstdBuffersArray`].
+pub trait ZstdBuffersArrayExt {
+    /// Build the inner array from the given (decompressed) buffer handles.
     ///
-    /// Each buffer of the input array is independently ZSTD-compressed. The children
-    /// and metadata of the input array are preserved as-is.
-    pub fn compress(array: &ArrayRef, level: i32) -> VortexResult<Self> {
-        let encoding_id = array.encoding_id();
-        let metadata = array
-            .metadata()?
-            .ok_or_else(|| vortex_err!("Array does not support serialization"))?;
-        let buffer_handles = array.buffer_handles();
-        let children = array.children();
+    /// This is exposed to help non-CPU executors pass uncompressed buffer handles
+    /// to build the inner array.
+    fn build_inner(
+        &self,
+        buffer_handles: &[BufferHandle],
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef>;
 
-        let mut compressed_buffers = Vec::with_capacity(buffer_handles.len());
-        let mut uncompressed_sizes = Vec::with_capacity(buffer_handles.len());
-        let mut buffer_alignments = Vec::with_capacity(buffer_handles.len());
+    /// Create a [`ZstdBuffersDecodePlan`] describing how to decompress all buffers.
+    fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan>;
+}
 
-        let mut compressor = zstd::bulk::Compressor::new(level)?;
-        // Compression is currently CPU-only, so we gather all buffers on the host.
-        for handle in &buffer_handles {
-            buffer_alignments.push(u32::from(handle.alignment()));
-            let host_buf = handle.clone().try_to_host_sync()?;
-            uncompressed_sizes.push(host_buf.len() as u64);
-            let compressed = compressor.compress(&host_buf)?;
-            compressed_buffers.push(BufferHandle::new_host(ByteBuffer::from(compressed)));
-        }
-
-        let compressed = Self {
-            inner_encoding_id: encoding_id,
-            inner_metadata: metadata,
-            compressed_buffers,
-            uncompressed_sizes,
-            buffer_alignments,
-            children,
-            common: ArrayCommon::new(array.len(), array.dtype().clone()),
-        };
-        compressed
-            .common
-            .stats()
-            .to_ref(compressed.as_ref())
-            .inherit_from(array.statistics());
-        Ok(compressed)
-    }
-
-    fn decompress_buffers(&self) -> VortexResult<Vec<BufferHandle>> {
-        // CPU decode path: zstd::bulk works on host bytes, so compressed buffers are
-        // materialized on the host via `try_to_host_sync`.
-        let mut decompressor = zstd::bulk::Decompressor::new()?;
-        let mut result = Vec::with_capacity(self.compressed_buffers.len());
-        for (i, (buf, &uncompressed_size)) in self
-            .compressed_buffers
-            .iter()
-            .zip(&self.uncompressed_sizes)
-            .enumerate()
-        {
-            let size = usize::try_from(uncompressed_size)?;
-            let alignment = self.buffer_alignments.get(i).copied().unwrap_or(1);
-
-            let aligned = Alignment::try_from(alignment)?;
-            let mut output = ByteBufferMut::with_capacity_aligned(size, aligned);
-            let spare = output.spare_capacity_mut();
-
-            // This is currently guaranteed, but still good to check because
-            // of the unsafe calls below.
-            if spare.len() < size {
-                return Err(vortex_err!(
-                    "Insufficient output capacity: expected at least {}, got {}",
-                    size,
-                    spare.len()
-                ));
-            }
-            // SAFETY: we only expose the first `size` bytes and mark them initialized via
-            // `set_len(size)` after zstd reports how many bytes were written.
-            let dst =
-                unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), size) };
-            let compressed = buf.clone().try_to_host_sync()?;
-            let written = decompressor.decompress_to_buffer(compressed.as_slice(), dst)?;
-            if written != size {
-                return Err(vortex_err!(
-                    "Decompressed size mismatch: expected {}, got {}",
-                    size,
-                    written
-                ));
-            }
-            // SAFETY: zstd wrote exactly `size` initialized bytes into `dst`.
-            unsafe { output.set_len(size) };
-            result.push(BufferHandle::new_host(output.freeze()));
-        }
-        Ok(result)
-    }
-
-    fn decompress_and_build_inner(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        let decompressed_buffers = self.decompress_buffers()?;
-        self.build_inner(&decompressed_buffers, session)
-    }
-
-    // This is exposed to help non-CPU executors pass uncompressed buffer handles
-    // to build the inner array.
-    pub fn build_inner(
+impl ZstdBuffersArrayExt for ZstdBuffersArray {
+    fn build_inner(
         &self,
         buffer_handles: &[BufferHandle],
         session: &VortexSession,
@@ -256,10 +200,10 @@ impl ZstdBuffersArray {
         )
     }
 
-    pub fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
+    fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
-        self.validate()?;
+        validate(self)?;
 
         let output_sizes = self
             .uncompressed_sizes
@@ -295,6 +239,78 @@ impl ZstdBuffersArray {
             output_size_max,
         })
     }
+}
+
+fn validate(array: &ZstdBuffersArray) -> VortexResult<()> {
+    vortex_ensure_eq!(
+        array.compressed_buffers.len(),
+        array.uncompressed_sizes.len(),
+        "zstd_buffers metadata mismatch: {} compressed buffers vs {} sizes",
+        array.compressed_buffers.len(),
+        array.uncompressed_sizes.len()
+    );
+    vortex_ensure_eq!(
+        array.compressed_buffers.len(),
+        array.buffer_alignments.len(),
+        "zstd_buffers metadata mismatch: {} compressed buffers vs {} alignments",
+        array.compressed_buffers.len(),
+        array.buffer_alignments.len()
+    );
+    Ok(())
+}
+
+fn decompress_buffers(array: &ZstdBuffersArray) -> VortexResult<Vec<BufferHandle>> {
+    // CPU decode path: zstd::bulk works on host bytes, so compressed buffers are
+    // materialized on the host via `try_to_host_sync`.
+    let mut decompressor = zstd::bulk::Decompressor::new()?;
+    let mut result = Vec::with_capacity(array.compressed_buffers.len());
+    for (i, (buf, &uncompressed_size)) in array
+        .compressed_buffers
+        .iter()
+        .zip(&array.uncompressed_sizes)
+        .enumerate()
+    {
+        let size = usize::try_from(uncompressed_size)?;
+        let alignment = array.buffer_alignments.get(i).copied().unwrap_or(1);
+
+        let aligned = Alignment::try_from(alignment)?;
+        let mut output = ByteBufferMut::with_capacity_aligned(size, aligned);
+        let spare = output.spare_capacity_mut();
+
+        // This is currently guaranteed, but still good to check because
+        // of the unsafe calls below.
+        if spare.len() < size {
+            return Err(vortex_err!(
+                "Insufficient output capacity: expected at least {}, got {}",
+                size,
+                spare.len()
+            ));
+        }
+        // SAFETY: we only expose the first `size` bytes and mark them initialized via
+        // `set_len(size)` after zstd reports how many bytes were written.
+        let dst = unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), size) };
+        let compressed = buf.clone().try_to_host_sync()?;
+        let written = decompressor.decompress_to_buffer(compressed.as_slice(), dst)?;
+        if written != size {
+            return Err(vortex_err!(
+                "Decompressed size mismatch: expected {}, got {}",
+                size,
+                written
+            ));
+        }
+        // SAFETY: zstd wrote exactly `size` initialized bytes into `dst`.
+        unsafe { output.set_len(size) };
+        result.push(BufferHandle::new_host(output.freeze()));
+    }
+    Ok(result)
+}
+
+fn decompress_and_build_inner(
+    array: &ZstdBuffersArray,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    let decompressed_buffers = decompress_buffers(array)?;
+    array.build_inner(&decompressed_buffers, session)
 }
 
 fn compute_output_layout(
@@ -452,7 +468,7 @@ impl VTable for ZstdBuffersVTable {
             common: ArrayCommon::new(len, dtype.clone()),
         };
 
-        array.validate()?;
+        validate(&array)?;
         Ok(array)
     }
 
@@ -463,7 +479,7 @@ impl VTable for ZstdBuffersVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let session = ctx.session();
-        let inner_array = array.decompress_and_build_inner(session)?;
+        let inner_array = decompress_and_build_inner(array, session)?;
         inner_array.execute::<ArrayRef>(ctx)
     }
 }
@@ -473,7 +489,7 @@ impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical
-        let inner_array = array.decompress_and_build_inner(&vortex_array::LEGACY_SESSION)?;
+        let inner_array = decompress_and_build_inner(array, &vortex_array::LEGACY_SESSION)?;
         inner_array.scalar_at(index)
     }
 }
@@ -484,7 +500,7 @@ impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
             return Ok(vortex_array::validity::Validity::NonNullable);
         }
 
-        let inner_array = array.decompress_and_build_inner(&vortex_array::LEGACY_SESSION)?;
+        let inner_array = decompress_and_build_inner(array, &vortex_array::LEGACY_SESSION)?;
         inner_array.validity()
     }
 }
@@ -546,7 +562,7 @@ mod tests {
     #[case::empty_primitive(make_empty_primitive_array())]
     #[case::inlined_varbinview(make_inlined_varbinview_array())]
     fn test_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffersVTable::compress(&input, 3)?;
 
         assert_eq!(compressed.common.len(), input.len());
         assert_eq!(compressed.common.dtype(), input.dtype());
@@ -563,7 +579,7 @@ mod tests {
         let input = make_primitive_array();
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffersVTable::compress(&input, 3)?;
 
         assert!(compressed.statistics().get(Stat::Min).is_some());
         Ok(())
@@ -572,7 +588,7 @@ mod tests {
     #[test]
     fn test_validity_delegates_for_nullable_input() -> VortexResult<()> {
         let input = make_nullable_primitive_array();
-        let compressed = ZstdBuffersArray::compress(&input, 3)?.into_array();
+        let compressed = ZstdBuffersVTable::compress(&input, 3)?.into_array();
 
         assert_eq!(compressed.all_valid()?, input.all_valid()?);
         assert_eq!(compressed.all_invalid()?, input.all_invalid()?);

@@ -37,84 +37,53 @@ pub struct RLEArray {
     pub(super) offset: usize,
 }
 
+pub(crate) fn validate(
+    values: &ArrayRef,
+    indices: &ArrayRef,
+    value_idx_offsets: &ArrayRef,
+    offset: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        offset < 1024,
+        "Offset must be smaller than 1024, got {}",
+        offset
+    );
+
+    vortex_ensure!(
+        values.dtype().is_primitive(),
+        "RLE values must be a primitive type, got {}",
+        values.dtype()
+    );
+
+    vortex_ensure!(
+        matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
+        "RLE indices must be u8 or u16, got {}",
+        indices.dtype()
+    );
+
+    vortex_ensure!(
+        value_idx_offsets.dtype().is_unsigned_int() && !value_idx_offsets.dtype().is_nullable(),
+        "RLE value idx offsets must be non-nullable unsigned integer, got {}",
+        value_idx_offsets.dtype()
+    );
+
+    vortex_ensure!(
+        indices.len().div_ceil(FL_CHUNK_SIZE) == value_idx_offsets.len(),
+        "RLE must have one value idx offset per chunk, got {}",
+        value_idx_offsets.len()
+    );
+
+    vortex_ensure!(
+        indices.len() >= values.len(),
+        "RLE must have at least as many indices as values, got {} indices and {} values",
+        indices.len(),
+        values.len()
+    );
+
+    Ok(())
+}
+
 impl RLEArray {
-    fn validate(
-        values: &ArrayRef,
-        indices: &ArrayRef,
-        value_idx_offsets: &ArrayRef,
-        offset: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            offset < 1024,
-            "Offset must be smaller than 1024, got {}",
-            offset
-        );
-
-        vortex_ensure!(
-            values.dtype().is_primitive(),
-            "RLE values must be a primitive type, got {}",
-            values.dtype()
-        );
-
-        vortex_ensure!(
-            matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
-            "RLE indices must be u8 or u16, got {}",
-            indices.dtype()
-        );
-
-        vortex_ensure!(
-            value_idx_offsets.dtype().is_unsigned_int() && !value_idx_offsets.dtype().is_nullable(),
-            "RLE value idx offsets must be non-nullable unsigned integer, got {}",
-            value_idx_offsets.dtype()
-        );
-
-        vortex_ensure!(
-            indices.len().div_ceil(FL_CHUNK_SIZE) == value_idx_offsets.len(),
-            "RLE must have one value idx offset per chunk, got {}",
-            value_idx_offsets.len()
-        );
-
-        vortex_ensure!(
-            indices.len() >= values.len(),
-            "RLE must have at least as many indices as values, got {} indices and {} values",
-            indices.len(),
-            values.len()
-        );
-
-        Ok(())
-    }
-
-    /// Create a new chunk-based RLE array from its components.
-    ///
-    /// # Arguments
-    ///
-    /// * `values` - Unique values from all chunks
-    /// * `indices` - Chunk-local indices from all chunks
-    /// * `values_idx_offsets` - Start indices for each value chunk.
-    /// * `offset` - Offset into the first chunk
-    /// * `length` - Array length
-    pub fn try_new(
-        values: ArrayRef,
-        indices: ArrayRef,
-        values_idx_offsets: ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<Self> {
-        assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
-        Self::validate(&values, &indices, &values_idx_offsets, offset)?;
-
-        // Ensure that the DType has the same nullability as the indices array.
-        let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-
-        Ok(Self {
-            common: ArrayCommon::new(length, dtype),
-            values,
-            indices,
-            values_idx_offsets,
-            offset,
-        })
-    }
-
     /// Create a new RLEArray without validation.
     ///
     /// # Safety
@@ -139,36 +108,6 @@ impl RLEArray {
             values_idx_offsets,
             offset,
         }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.common.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.common.len() == 0
-    }
-
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        self.common.dtype()
-    }
-
-    #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        &self.values
-    }
-
-    #[inline]
-    pub fn indices(&self) -> &ArrayRef {
-        &self.indices
-    }
-
-    #[inline]
-    pub fn values_idx_offsets(&self) -> &ArrayRef {
-        &self.values_idx_offsets
     }
 
     /// Values index offset relative to the first chunk.
@@ -196,15 +135,70 @@ impl RLEArray {
                 .expect("index must be of type usize")
     }
 
-    /// Index offset into the array
-    #[inline]
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-
     #[inline]
     pub(crate) fn stats_set(&self) -> &ArrayStats {
         self.common.stats()
+    }
+}
+
+/// Extension trait for [`RLEArray`] methods.
+pub trait RLEArrayExt {
+    /// Returns the length of the array.
+    fn len(&self) -> usize;
+
+    /// Returns whether the array is empty.
+    fn is_empty(&self) -> bool;
+
+    /// Returns the data type of the array.
+    fn dtype(&self) -> &DType;
+
+    /// Returns a reference to the values array.
+    fn values(&self) -> &ArrayRef;
+
+    /// Returns a reference to the indices array.
+    fn indices(&self) -> &ArrayRef;
+
+    /// Returns a reference to the values index offsets array.
+    fn values_idx_offsets(&self) -> &ArrayRef;
+
+    /// Index offset into the array.
+    fn offset(&self) -> usize;
+}
+
+impl RLEArrayExt for RLEArray {
+    #[inline]
+    fn len(&self) -> usize {
+        self.common.len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.common.len() == 0
+    }
+
+    #[inline]
+    fn dtype(&self) -> &DType {
+        self.common.dtype()
+    }
+
+    #[inline]
+    fn values(&self) -> &ArrayRef {
+        &self.values
+    }
+
+    #[inline]
+    fn indices(&self) -> &ArrayRef {
+        &self.indices
+    }
+
+    #[inline]
+    fn values_idx_offsets(&self) -> &ArrayRef {
+        &self.values_idx_offsets
+    }
+
+    #[inline]
+    fn offset(&self) -> usize {
+        self.offset
     }
 }
 
@@ -226,7 +220,8 @@ mod tests {
     use vortex_buffer::ByteBufferMut;
     use vortex_session::registry::ReadContext;
 
-    use crate::RLEArray;
+    use crate::RLEArrayExt;
+    use crate::RLEVTable;
     use crate::test::SESSION;
 
     #[test]
@@ -238,7 +233,7 @@ mod tests {
             PrimitiveArray::from_iter([0u16, 0, 1, 1, 2].iter().cycle().take(1024).copied())
                 .into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
-        let rle_array = RLEArray::try_new(values, indices, values_idx_offsets, 0, 5).unwrap();
+        let rle_array = RLEVTable::try_new(values, indices, values_idx_offsets, 0, 5).unwrap();
 
         assert_eq!(rle_array.len(), 5);
         assert_eq!(rle_array.values().len(), 3);
@@ -265,7 +260,7 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_new(
+        let rle_array = RLEVTable::try_new(
             values.clone(),
             indices_with_validity,
             values_idx_offsets,
@@ -301,7 +296,7 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_new(
+        let rle_array = RLEVTable::try_new(
             values.clone(),
             indices_with_validity,
             values_idx_offsets,
@@ -338,7 +333,7 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_new(
+        let rle_array = RLEVTable::try_new(
             values.clone(),
             indices_with_validity,
             values_idx_offsets,
@@ -380,7 +375,7 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_new(
+        let rle_array = RLEVTable::try_new(
             values.clone(),
             indices_with_validity,
             values_idx_offsets,
@@ -402,7 +397,7 @@ mod tests {
         let values = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         let indices = PrimitiveArray::from_iter(Vec::<u16>::new()).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
-        let rle_array = RLEArray::try_new(
+        let rle_array = RLEVTable::try_new(
             values,
             indices.clone(),
             values_idx_offsets,
@@ -420,7 +415,7 @@ mod tests {
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
-        let rle_array = RLEArray::try_new(values, indices, values_idx_offsets, 0, 2048).unwrap();
+        let rle_array = RLEVTable::try_new(values, indices, values_idx_offsets, 0, 2048).unwrap();
 
         assert_eq!(rle_array.len(), 2048);
         assert_eq!(rle_array.values().len(), 4);
@@ -432,7 +427,7 @@ mod tests {
     #[test]
     fn test_rle_serialization() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEArray::encode(&primitive).unwrap();
+        let rle_array = RLEVTable::encode(&primitive).unwrap();
         assert_eq!(rle_array.len(), 2048);
 
         let original_data = rle_array.to_primitive();
@@ -467,9 +462,9 @@ mod tests {
     #[test]
     fn test_rle_serialization_slice() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEArray::encode(&primitive).unwrap();
+        let rle_array = RLEVTable::encode(&primitive).unwrap();
 
-        let sliced = RLEArray::try_new(
+        let sliced = RLEVTable::try_new(
             rle_array.values().clone(),
             rle_array.indices().clone(),
             rle_array.values_idx_offsets().clone(),

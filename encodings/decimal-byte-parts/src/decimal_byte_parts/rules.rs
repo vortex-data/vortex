@@ -15,6 +15,7 @@ use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;
+use crate::DecimalBytePartsArrayExt;
 use crate::DecimalBytePartsVTable;
 
 pub(super) const PARENT_RULES: ParentRuleSet<DecimalBytePartsVTable> = ParentRuleSet::new(&[
@@ -45,7 +46,7 @@ impl ArrayParentReduceRule<DecimalBytePartsVTable> for DecimalBytePartsFilterPus
 
         let new_msp = child.msp.filter(parent.filter_mask().clone())?;
         let new_child =
-            DecimalBytePartsArray::try_new(new_msp, *child.decimal_dtype())?.into_array();
+            DecimalBytePartsVTable::try_new(new_msp, *child.decimal_dtype())?.into_array();
         Ok(Some(new_child))
     }
 }

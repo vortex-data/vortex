@@ -17,6 +17,7 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::alp::ALPArray;
+use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::ALPVTable;
 use vortex::encodings::alp::match_each_alp_float_ptype;
@@ -124,7 +125,6 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::encodings::alp::ALPArray;
     use vortex::encodings::alp::Exponents;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
@@ -155,7 +155,7 @@ mod tests {
         )
         .unwrap();
 
-        let alp_array = ALPArray::try_new(
+        let alp_array = ALPVTable::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data.clone()), Validity::NonNullable)
                 .into_array(),
             exponents,

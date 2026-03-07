@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 
 /// Decode an [Array] into a [TemporalArray].
 ///

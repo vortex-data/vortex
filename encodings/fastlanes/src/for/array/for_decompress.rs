@@ -19,8 +19,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::BitPackedVTable;
 use crate::FoRArray;
+use crate::FoRArrayExt;
 use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;

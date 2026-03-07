@@ -24,17 +24,11 @@ pub struct vortex_sparse::SparseArray
 
 impl vortex_sparse::SparseArray
 
-pub fn vortex_sparse::SparseArray::encode(array: &vortex_array::array::ArrayRef, fill_value: core::option::Option<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
-
 pub fn vortex_sparse::SparseArray::fill_scalar(&self) -> &vortex_array::scalar::Scalar
 
 pub fn vortex_sparse::SparseArray::patches(&self) -> &vortex_array::patches::Patches
 
 pub fn vortex_sparse::SparseArray::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
-
-pub fn vortex_sparse::SparseArray::try_new(indices: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef, len: usize, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_sparse::SparseArray::try_new_from_patches(patches: vortex_array::patches::Patches, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
 
 impl vortex_sparse::SparseArray
 
@@ -77,6 +71,12 @@ pub struct vortex_sparse::SparseVTable
 impl vortex_sparse::SparseVTable
 
 pub const vortex_sparse::SparseVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+pub fn vortex_sparse::SparseVTable::encode(array: &vortex_array::array::ArrayRef, fill_value: core::option::Option<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
+pub fn vortex_sparse::SparseVTable::try_new(indices: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef, len: usize, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_sparse::SparseArray>
+
+pub fn vortex_sparse::SparseVTable::try_new_from_patches(patches: vortex_array::patches::Patches, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_sparse::SparseArray>
 
 impl core::fmt::Debug for vortex_sparse::SparseVTable
 

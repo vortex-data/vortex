@@ -6,6 +6,7 @@ use vortex_array::vtable::ValidityChild;
 
 use super::FoRVTable;
 use crate::FoRArray;
+use crate::FoRArrayExt;
 
 impl ValidityChild<FoRVTable> for FoRVTable {
     fn validity_child(array: &FoRArray) -> &ArrayRef {

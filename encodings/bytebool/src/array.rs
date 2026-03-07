@@ -155,7 +155,7 @@ impl VTable for ByteBoolVTable {
         }
         let buffer = buffers[0].clone();
 
-        Ok(ByteBoolArray::new(buffer, validity))
+        Ok(Self::new(buffer, validity))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -210,10 +210,10 @@ pub struct ByteBoolVTable;
 
 impl ByteBoolVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
-}
 
-impl ByteBoolArray {
-    pub fn new(buffer: BufferHandle, validity: Validity) -> Self {
+    /// Build a new `ByteBoolArray` from a buffer and validity.
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(buffer: BufferHandle, validity: Validity) -> ByteBoolArray {
         let length = buffer.len();
         if let Some(vlen) = validity.maybe_len()
             && length != vlen
@@ -224,7 +224,7 @@ impl ByteBoolArray {
                 vlen
             );
         }
-        Self {
+        ByteBoolArray {
             common: ArrayCommon::new(length, DType::Bool(validity.nullability())),
             buffer,
             validity,
@@ -232,18 +232,30 @@ impl ByteBoolArray {
     }
 
     // TODO(ngates): deprecate construction from vec
-    pub fn from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> Self {
+    /// Build a new `ByteBoolArray` from a vec of bools and validity.
+    pub fn from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> ByteBoolArray {
         let validity = validity.into();
         // SAFETY: we are transmuting a Vec<bool> into a Vec<u8>
         let data: Vec<u8> = unsafe { std::mem::transmute(data) };
         Self::new(BufferHandle::new_host(ByteBuffer::from(data)), validity)
     }
+}
 
-    pub fn buffer(&self) -> &BufferHandle {
+/// Extension trait for [`ByteBoolArray`] methods.
+pub trait ByteBoolArrayExt {
+    /// Returns a reference to the underlying buffer.
+    fn buffer(&self) -> &BufferHandle;
+
+    /// Returns the buffer contents as a slice of bools.
+    fn as_slice(&self) -> &[bool];
+}
+
+impl ByteBoolArrayExt for ByteBoolArray {
+    fn buffer(&self) -> &BufferHandle {
         &self.buffer
     }
 
-    pub fn as_slice(&self) -> &[bool] {
+    fn as_slice(&self) -> &[bool] {
         // Safety: The internal buffer contains byte-sized bools
         unsafe { std::mem::transmute(self.buffer().as_host().as_slice()) }
     }
@@ -266,7 +278,7 @@ impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
 
 impl From<Vec<bool>> for ByteBoolArray {
     fn from(value: Vec<bool>) -> Self {
-        Self::from_vec(value, Validity::AllValid)
+        ByteBoolVTable::from_vec(value, Validity::AllValid)
     }
 }
 
@@ -277,7 +289,7 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
         // This doesn't reallocate, and the compiler even vectorizes it
         let data = value.into_iter().map(Option::unwrap_or_default).collect();
 
-        Self::from_vec(data, validity)
+        ByteBoolVTable::from_vec(data, validity)
     }
 }
 

@@ -6,6 +6,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::BitPackedVTable;
 use crate::bitpack_decompress;
 
@@ -50,6 +51,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::BitPackedArray;
+    use crate::BitPackedArrayExt;
     use crate::BitPackedVTable;
 
     static SESSION: LazyLock<vortex_session::VortexSession> =
@@ -71,7 +73,7 @@ mod test {
 
     #[test]
     pub fn slice_block() {
-        let arr = BitPackedArray::encode(
+        let arr = BitPackedVTable::encode(
             &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
@@ -85,7 +87,7 @@ mod test {
 
     #[test]
     pub fn slice_within_block() {
-        let arr = BitPackedArray::encode(
+        let arr = BitPackedVTable::encode(
             &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
@@ -99,7 +101,7 @@ mod test {
 
     #[test]
     fn slice_within_block_u8s() {
-        let packed = BitPackedArray::encode(
+        let packed = BitPackedVTable::encode(
             &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
@@ -112,7 +114,7 @@ mod test {
 
     #[test]
     fn slice_block_boundary_u8s() {
-        let packed = BitPackedArray::encode(
+        let packed = BitPackedVTable::encode(
             &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
@@ -125,7 +127,7 @@ mod test {
 
     #[test]
     fn double_slice_within_block() {
-        let arr = BitPackedArray::encode(
+        let arr = BitPackedVTable::encode(
             &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
@@ -145,7 +147,7 @@ mod test {
     #[test]
     fn slice_empty_patches() {
         // We create an array that has 1 element that does not fit in the 6-bit range.
-        let array = BitPackedArray::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
+        let array = BitPackedVTable::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
 
         assert!(array.patches().is_some());
 
@@ -161,7 +163,7 @@ mod test {
     fn take_after_slice() {
         // Check that our take implementation respects the offsets applied after slicing.
 
-        let array = BitPackedArray::encode(
+        let array = BitPackedVTable::encode(
             &PrimitiveArray::from_iter((63u32..).take(3072)).into_array(),
             6,
         )
@@ -218,7 +220,7 @@ mod test {
     fn scalar_at() {
         let values = (0u32..257).collect::<Buffer<_>>();
         let uncompressed = values.clone().into_array();
-        let packed = BitPackedArray::encode(&uncompressed, 8).unwrap();
+        let packed = BitPackedVTable::encode(&uncompressed, 8).unwrap();
         assert!(packed.patches().is_some());
 
         let patches = packed.patches().unwrap().indices().clone();

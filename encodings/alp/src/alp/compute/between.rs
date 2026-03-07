@@ -17,6 +17,7 @@ use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
+use crate::ALPArrayExt;
 use crate::ALPFloat;
 use crate::ALPVTable;
 use crate::match_each_alp_float_ptype;
@@ -101,6 +102,7 @@ mod tests {
     use vortex_array::scalar_fn::fns::between::StrictComparison;
 
     use crate::ALPArray;
+    use crate::ALPArrayExt;
     use crate::alp::compute::between::between_impl;
     use crate::alp_encode;
 

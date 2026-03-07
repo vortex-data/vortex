@@ -8,6 +8,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
+use crate::ALPRDArrayExt;
 use crate::ALPRDVTable;
 
 impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
@@ -64,6 +65,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

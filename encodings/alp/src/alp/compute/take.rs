@@ -9,6 +9,7 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
+use crate::ALPArrayExt;
 use crate::ALPVTable;
 
 impl TakeExecute for ALPVTable {
@@ -32,7 +33,7 @@ impl TakeExecute for ALPVTable {
             })
             .transpose()?;
         Ok(Some(
-            ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+            ALPVTable::new(taken_encoded, array.exponents(), taken_patches).into_array(),
         ))
     }
 }

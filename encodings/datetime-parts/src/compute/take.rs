@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsVTable;
 
 fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -36,7 +37,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     };
 
     if !taken_seconds.dtype().is_nullable() && !taken_subseconds.dtype().is_nullable() {
-        return Ok(DateTimePartsArray::try_new(
+        return Ok(DateTimePartsVTable::try_new(
             dtype,
             taken_days,
             taken_seconds,
@@ -80,7 +81,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
 
     Ok(
-        DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
+        DateTimePartsVTable::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
             .into_array(),
     )
 }

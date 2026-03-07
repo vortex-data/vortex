@@ -163,7 +163,7 @@ impl VTable for RunEndVTable {
 
         let values = children.get(1, dtype, runs)?;
 
-        RunEndArray::try_new_offset_length(
+        Self::try_new_offset_length(
             ends,
             values,
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
@@ -225,89 +225,11 @@ pub struct RunEndVTable;
 
 impl RunEndVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
-}
 
-impl RunEndArray {
-    fn validate(
-        ends: &ArrayRef,
-        values: &ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<()> {
-        // DType validation
-        vortex_ensure!(
-            ends.dtype().is_unsigned_int(),
-            "run ends must be unsigned integers, was {}",
-            ends.dtype(),
-        );
-        vortex_ensure!(
-            ends.len() == values.len(),
-            "run ends len != run values len, {} != {}",
-            ends.len(),
-            values.len()
-        );
-
-        // Handle empty run-ends
-        if ends.is_empty() {
-            vortex_ensure!(
-                offset == 0,
-                "non-zero offset provided for empty RunEndArray"
-            );
-            return Ok(());
-        }
-
-        // Avoid building a non-empty array with zero logical length.
-        if length == 0 {
-            vortex_ensure!(
-                ends.is_empty(),
-                "run ends must be empty when length is zero"
-            );
-            return Ok(());
-        }
-
-        debug_assert!({
-            // Run ends must be strictly sorted for binary search to work correctly.
-            let pre_validation = ends.statistics().to_owned();
-
-            let is_sorted = ends
-                .statistics()
-                .compute_is_strict_sorted()
-                .unwrap_or(false);
-
-            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
-            // We don't want to run with different stats in debug mode and outside.
-            ends.statistics().inherit(pre_validation.iter());
-            is_sorted
-        });
-
-        // Skip host-only validation when ends are not host-resident.
-        if !ends.is_host() {
-            return Ok(());
-        }
-
-        // Validate the offset and length are valid for the given ends and values
-        if offset != 0 && length != 0 {
-            let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
-            if first_run_end <= offset {
-                vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
-            }
-        }
-
-        let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1)?)?;
-        let min_required_end = offset + length;
-        if last_run_end < min_required_end {
-            vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
-        }
-
-        Ok(())
-    }
-}
-
-impl RunEndArray {
     /// Build a new `RunEndArray` from an array of run `ends` and an array of `values`.
     ///
-    /// Panics if any of the validation conditions described in [`RunEndArray::try_new`] is
-    /// not satisfied.
+    /// Panics if any of the validation conditions described in
+    /// [`RunEndVTable::try_new`] is not satisfied.
     ///
     /// # Examples
     ///
@@ -316,11 +238,11 @@ impl RunEndArray {
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// # use vortex_error::VortexResult;
-    /// # use vortex_runend::RunEndArray;
+    /// # use vortex_runend::RunEndVTable;
     /// # fn main() -> VortexResult<()> {
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
-    /// let run_end = RunEndArray::new(ends, values);
+    /// let run_end = RunEndVTable::new(ends, values);
     ///
     /// // Array encodes
     /// assert_eq!(run_end.scalar_at(0)?, false.into());
@@ -329,16 +251,13 @@ impl RunEndArray {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(ends: ArrayRef, values: ArrayRef) -> Self {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(ends: ArrayRef, values: ArrayRef) -> RunEndArray {
         Self::try_new(ends, values).vortex_expect("RunEndArray new")
     }
 
     /// Build a new `RunEndArray` from components.
-    ///
-    /// # Validation
-    ///
-    /// The `ends` must be non-nullable unsigned integers.
-    pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<RunEndArray> {
         let length: usize = if ends.is_empty() {
             0
         } else {
@@ -349,18 +268,16 @@ impl RunEndArray {
     }
 
     /// Construct a new sliced `RunEndArray` with the provided offset and length.
-    ///
-    /// This performs all the same validation as [`RunEndArray::try_new`].
     pub fn try_new_offset_length(
         ends: ArrayRef,
         values: ArrayRef,
         offset: usize,
         length: usize,
-    ) -> VortexResult<Self> {
-        Self::validate(&ends, &values, offset, length)?;
+    ) -> VortexResult<RunEndArray> {
+        validate_runend(&ends, &values, offset, length)?;
         let dtype = values.dtype().clone();
 
-        Ok(Self {
+        Ok(RunEndArray {
             common: ArrayCommon::new(length, dtype),
             ends,
             values,
@@ -368,14 +285,160 @@ impl RunEndArray {
         })
     }
 
+    /// Run the array through run-end encoding.
+    pub fn encode(array: ArrayRef) -> VortexResult<RunEndArray> {
+        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+            let (ends, values) = runend_encode(parray);
+            // SAFETY: runend_encode handles this
+            unsafe {
+                Ok(RunEndArray::new_unchecked(
+                    ends.into_array(),
+                    values,
+                    0,
+                    array.len(),
+                ))
+            }
+        } else {
+            vortex_bail!("REE can only encode primitive arrays")
+        }
+    }
+}
+
+fn validate_runend(
+    ends: &ArrayRef,
+    values: &ArrayRef,
+    offset: usize,
+    length: usize,
+) -> VortexResult<()> {
+    // DType validation
+    vortex_ensure!(
+        ends.dtype().is_unsigned_int(),
+        "run ends must be unsigned integers, was {}",
+        ends.dtype(),
+    );
+    vortex_ensure!(
+        ends.len() == values.len(),
+        "run ends len != run values len, {} != {}",
+        ends.len(),
+        values.len()
+    );
+
+    // Handle empty run-ends
+    if ends.is_empty() {
+        vortex_ensure!(
+            offset == 0,
+            "non-zero offset provided for empty RunEndArray"
+        );
+        return Ok(());
+    }
+
+    // Avoid building a non-empty array with zero logical length.
+    if length == 0 {
+        vortex_ensure!(
+            ends.is_empty(),
+            "run ends must be empty when length is zero"
+        );
+        return Ok(());
+    }
+
+    debug_assert!({
+        // Run ends must be strictly sorted for binary search to work correctly.
+        let pre_validation = ends.statistics().to_owned();
+
+        let is_sorted = ends
+            .statistics()
+            .compute_is_strict_sorted()
+            .unwrap_or(false);
+
+        // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
+        // We don't want to run with different stats in debug mode and outside.
+        ends.statistics().inherit(pre_validation.iter());
+        is_sorted
+    });
+
+    // Skip host-only validation when ends are not host-resident.
+    if !ends.is_host() {
+        return Ok(());
+    }
+
+    // Validate the offset and length are valid for the given ends and values
+    if offset != 0 && length != 0 {
+        let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
+        if first_run_end <= offset {
+            vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
+        }
+    }
+
+    let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1)?)?;
+    let min_required_end = offset + length;
+    if last_run_end < min_required_end {
+        vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
+    }
+
+    Ok(())
+}
+
+/// Extension trait for [`RunEndArray`] methods.
+pub trait RunEndArrayExt: Sized {
+    /// Convert the given logical index to an index into the `values` array.
+    fn find_physical_index(&self, index: usize) -> VortexResult<usize>;
+
+    /// The offset that the `ends` is relative to.
+    fn offset(&self) -> usize;
+
+    /// The encoded "ends" of value runs.
+    fn ends(&self) -> &ArrayRef;
+
+    /// The scalar values.
+    fn values(&self) -> &ArrayRef;
+
+    /// Split a `RunEndArray` into parts.
+    fn into_parts(self) -> RunEndArrayParts;
+}
+
+impl RunEndArrayExt for RunEndArray {
+    fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
+        Ok(self
+            .ends()
+            .as_primitive_typed()
+            .search_sorted(
+                &PValue::from(index + self.offset()),
+                SearchSortedSide::Right,
+            )?
+            .to_ends_index(self.ends().len()))
+    }
+
+    #[inline]
+    fn offset(&self) -> usize {
+        self.offset
+    }
+
+    #[inline]
+    fn ends(&self) -> &ArrayRef {
+        &self.ends
+    }
+
+    #[inline]
+    fn values(&self) -> &ArrayRef {
+        &self.values
+    }
+
+    #[inline]
+    fn into_parts(self) -> RunEndArrayParts {
+        RunEndArrayParts {
+            ends: self.ends,
+            values: self.values,
+        }
+    }
+}
+
+impl RunEndArray {
     /// Build a new `RunEndArray` without validation.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that all the validation performed in [`RunEndArray::try_new`] is
-    /// satisfied before calling this function.
-    ///
-    /// See [`RunEndArray::try_new`] for the preconditions needed to build a new array.
+    /// The caller must ensure that all the validation performed in
+    /// [`RunEndVTable::try_new`] is satisfied.
     pub unsafe fn new_unchecked(
         ends: ArrayRef,
         values: ArrayRef,
@@ -388,71 +451,6 @@ impl RunEndArray {
             ends,
             values,
             offset,
-        }
-    }
-
-    /// Convert the given logical index to an index into the `values` array
-    pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        Ok(self
-            .ends()
-            .as_primitive_typed()
-            .search_sorted(
-                &PValue::from(index + self.offset()),
-                SearchSortedSide::Right,
-            )?
-            .to_ends_index(self.ends().len()))
-    }
-
-    /// Run the array through run-end encoding.
-    pub fn encode(array: ArrayRef) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            let (ends, values) = runend_encode(parray);
-            // SAFETY: runend_encode handles this
-            unsafe {
-                Ok(Self::new_unchecked(
-                    ends.into_array(),
-                    values,
-                    0,
-                    array.len(),
-                ))
-            }
-        } else {
-            vortex_bail!("REE can only encode primitive arrays")
-        }
-    }
-
-    /// The offset that the `ends` is relative to.
-    ///
-    /// This is generally zero for a "new" array, and non-zero after a slicing operation.
-    #[inline]
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-
-    /// The encoded "ends" of value runs.
-    ///
-    /// The `i`-th element indicates that there is a run of the same value, beginning
-    /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
-    #[inline]
-    pub fn ends(&self) -> &ArrayRef {
-        &self.ends
-    }
-
-    /// The scalar values.
-    ///
-    /// The `i`-th element is the scalar value for the `i`-th repeated run. The run begins
-    /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
-    #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        &self.values
-    }
-
-    /// Split an `RunEndArray` into parts.
-    #[inline]
-    pub fn into_parts(self) -> RunEndArrayParts {
-        RunEndArrayParts {
-            ends: self.ends,
-            values: self.values,
         }
     }
 }
@@ -512,11 +510,11 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
 
-    use crate::RunEndArray;
+    use crate::RunEndVTable;
 
     #[test]
     fn test_runend_constructor() {
-        let arr = RunEndArray::new(
+        let arr = RunEndVTable::new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         );
@@ -536,7 +534,7 @@ mod tests {
     #[test]
     fn test_runend_utf8() {
         let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
-        let arr = RunEndArray::new(buffer![2u32, 5, 10].into_array(), values);
+        let arr = RunEndVTable::new(buffer![2u32, 5, 10].into_array(), values);
         assert_eq!(arr.len(), 10);
         assert_eq!(arr.dtype(), &DType::Utf8(Nullability::NonNullable));
 
@@ -553,7 +551,7 @@ mod tests {
         let dict = DictArray::try_new(dict_codes, dict_values).unwrap();
 
         let arr =
-            RunEndArray::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array()).unwrap();
+            RunEndVTable::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array()).unwrap();
         assert_eq!(arr.len(), 10);
 
         let expected =

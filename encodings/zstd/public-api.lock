@@ -2,25 +2,13 @@ pub mod vortex_zstd
 
 pub struct vortex_zstd::ZstdArray
 
-impl vortex_zstd::ZstdArray
+pub trait vortex_zstd::ZstdArrayExt: core::marker::Sized
 
-pub fn vortex_zstd::ZstdArray::decompress(&self) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_zstd::ZstdArrayExt::decompress(&self) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
-pub fn vortex_zstd::ZstdArray::from_array(array: vortex_array::array::ArrayRef, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdArrayExt::into_parts(self) -> vortex_zstd::ZstdArrayParts
 
-pub fn vortex_zstd::ZstdArray::from_canonical(canonical: &vortex_array::canonical::Canonical, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<core::option::Option<Self>>
-
-pub fn vortex_zstd::ZstdArray::from_primitive(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_zstd::ZstdArray::from_primitive_without_dict(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_zstd::ZstdArray::from_var_bin_view(vbv: &vortex_array::arrays::varbinview::array::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_zstd::ZstdArray::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::array::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_zstd::ZstdArray::into_parts(self) -> vortex_zstd::ZstdArrayParts
-
-pub fn vortex_zstd::ZstdArray::new(dictionary: core::option::Option<vortex_buffer::ByteBuffer>, frames: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_array::dtype::DType, metadata: vortex_zstd::ZstdMetadata, n_rows: usize, validity: vortex_array::validity::Validity) -> Self
+impl vortex_zstd::ZstdArrayExt for vortex_zstd::ZstdArray
 
 impl vortex_zstd::ZstdArray
 
@@ -159,6 +147,20 @@ pub struct vortex_zstd::ZstdVTable
 impl vortex_zstd::ZstdVTable
 
 pub const vortex_zstd::ZstdVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+pub fn vortex_zstd::ZstdVTable::from_array(array: vortex_array::array::ArrayRef, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+
+pub fn vortex_zstd::ZstdVTable::from_canonical(canonical: &vortex_array::canonical::Canonical, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<core::option::Option<vortex_zstd::ZstdArray>>
+
+pub fn vortex_zstd::ZstdVTable::from_primitive(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+
+pub fn vortex_zstd::ZstdVTable::from_primitive_without_dict(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+
+pub fn vortex_zstd::ZstdVTable::from_var_bin_view(vbv: &vortex_array::arrays::varbinview::array::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+
+pub fn vortex_zstd::ZstdVTable::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::array::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+
+pub fn vortex_zstd::ZstdVTable::new(dictionary: core::option::Option<vortex_buffer::ByteBuffer>, frames: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_array::dtype::DType, metadata: vortex_zstd::ZstdMetadata, n_rows: usize, validity: vortex_array::validity::Validity) -> vortex_zstd::ZstdArray
 
 impl core::fmt::Debug for vortex_zstd::ZstdVTable
 

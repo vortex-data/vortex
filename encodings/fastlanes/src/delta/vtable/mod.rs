@@ -29,6 +29,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaArray;
+use crate::DeltaArrayExt;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod operations;
@@ -186,7 +187,7 @@ impl VTable for DeltaVTable {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
+        Self::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
@@ -199,6 +200,97 @@ pub struct DeltaVTable;
 
 impl DeltaVTable {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
+
+    // TODO(ngates): remove constructing from vec
+    pub fn try_from_vec<T: vortex_array::dtype::NativePType>(
+        vec: Vec<T>,
+    ) -> VortexResult<DeltaArray> {
+        use vortex_array::arrays::PrimitiveArray;
+        use vortex_array::validity::Validity;
+        use vortex_buffer::Buffer;
+
+        Self::try_from_primitive_array(&PrimitiveArray::new(
+            Buffer::copy_from(vec),
+            Validity::NonNullable,
+        ))
+    }
+
+    pub fn try_from_primitive_array(
+        array: &vortex_array::arrays::PrimitiveArray,
+    ) -> VortexResult<DeltaArray> {
+        use vortex_array::IntoArray;
+
+        use crate::delta::array::delta_compress;
+
+        let (bases, deltas) = delta_compress::delta_compress(array)?;
+
+        Self::try_from_delta_compress_parts(bases.into_array(), deltas.into_array())
+    }
+
+    /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays.
+    /// Note the `deltas` might be nullable
+    pub fn try_from_delta_compress_parts(
+        bases: ArrayRef,
+        deltas: ArrayRef,
+    ) -> VortexResult<DeltaArray> {
+        let logical_len = deltas.len();
+        Self::try_new(bases, deltas, 0, logical_len)
+    }
+
+    pub fn try_new(
+        bases: ArrayRef,
+        deltas: ArrayRef,
+        offset: usize,
+        logical_len: usize,
+    ) -> VortexResult<DeltaArray> {
+        use vortex_array::dtype::DType;
+        use vortex_error::vortex_bail;
+
+        use crate::delta::array::lane_count;
+
+        if offset >= 1024 {
+            vortex_bail!("offset must be less than 1024: {}", offset);
+        }
+        if offset + logical_len > deltas.len() {
+            vortex_bail!(
+                "offset + logical_len, {} + {}, must be less than or equal to the size of deltas: {}",
+                offset,
+                logical_len,
+                deltas.len()
+            )
+        }
+        if !bases.dtype().eq_ignore_nullability(deltas.dtype()) {
+            vortex_bail!(
+                "DeltaArray: bases and deltas must have the same dtype, got {:?} and {:?}",
+                bases.dtype(),
+                deltas.dtype()
+            );
+        }
+        let DType::Primitive(ptype, _) = bases.dtype().clone() else {
+            vortex_bail!(
+                "DeltaArray: dtype must be an integer, got {}",
+                bases.dtype()
+            );
+        };
+
+        if !ptype.is_int() {
+            vortex_bail!("DeltaArray: ptype must be an integer, got {}", ptype);
+        }
+
+        let lanes = lane_count(ptype);
+
+        if deltas.len().is_multiple_of(1024) != bases.len().is_multiple_of(lanes) {
+            vortex_bail!(
+                "deltas length ({}) is a multiple of 1024 iff bases length ({}) is a multiple of LANES ({})",
+                deltas.len(),
+                bases.len(),
+                lanes,
+            );
+        }
+
+        // SAFETY: validation done above
+        Ok(unsafe { DeltaArray::new_unchecked(bases, deltas, offset, logical_len) })
+    }
 }
 
 #[cfg(test)]

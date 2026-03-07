@@ -16,8 +16,10 @@ use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;
+use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedVTable;
 use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fastlanes::FoRVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -127,7 +129,6 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::NativePType;
-    use vortex::encodings::fastlanes::BitPackedArray;
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
     use vortex::scalar::Scalar;
@@ -138,7 +139,7 @@ mod tests {
     use crate::session::CudaSession;
 
     fn make_for_array<T: NativePType + Into<Scalar>>(input_data: Vec<T>, reference: T) -> FoRArray {
-        FoRArray::try_new(
+        FoRVTable::try_new(
             PrimitiveArray::new(Buffer::from(input_data), NonNullable).into_array(),
             reference.into(),
         )
@@ -180,8 +181,8 @@ mod tests {
             .take(1024)
             .collect::<Buffer<_>>()
             .into_array();
-        let packed = BitPackedArray::encode(&values, 3).unwrap().into_array();
-        let for_array = FoRArray::try_new(packed, (-8i8).into()).unwrap();
+        let packed = BitPackedVTable::encode(&values, 3).unwrap().into_array();
+        let for_array = FoRVTable::try_new(packed, (-8i8).into()).unwrap();
 
         let cpu_result = for_array.to_canonical().unwrap();
 

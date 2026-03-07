@@ -168,7 +168,7 @@ impl VTable for DecimalBytePartsVTable {
             "lower_part_count > 0 not currently supported"
         );
 
-        DecimalBytePartsArray::try_new(msp, *decimal_dtype)
+        Self::try_new(msp, *decimal_dtype)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -224,21 +224,32 @@ pub struct DecimalBytePartsArrayParts {
     pub dtype: DType,
 }
 
-impl DecimalBytePartsArray {
-    pub fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
-        if !msp.dtype().is_signed_int() {
-            vortex_bail!("decimal bytes parts, first part must be a signed array")
-        }
+/// Extension trait for [`DecimalBytePartsArray`] methods.
+pub trait DecimalBytePartsArrayExt: Sized {
+    /// If `_lower_parts` is supported check all calls use this correctly.
+    fn into_parts(self) -> DecimalBytePartsArrayParts;
 
-        let nullable = msp.dtype().nullability();
-        let len = msp.len();
-        Ok(Self {
-            msp,
-            _lower_parts: Vec::new(),
-            common: ArrayCommon::new(len, DType::Decimal(decimal_dtype, nullable)),
-        })
+    /// Returns the decimal dtype of this array.
+    fn decimal_dtype(&self) -> &DecimalDType;
+}
+
+impl DecimalBytePartsArrayExt for DecimalBytePartsArray {
+    fn into_parts(self) -> DecimalBytePartsArrayParts {
+        DecimalBytePartsArrayParts {
+            msp: self.msp,
+            dtype: self.common.into_dtype(),
+        }
     }
 
+    fn decimal_dtype(&self) -> &DecimalDType {
+        self.common
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("must be a decimal dtype")
+    }
+}
+
+impl DecimalBytePartsArray {
     pub(crate) unsafe fn new_unchecked(msp: ArrayRef, decimal_dtype: DecimalDType) -> Self {
         let nullable = msp.dtype().nullability();
         let len = msp.len();
@@ -247,21 +258,6 @@ impl DecimalBytePartsArray {
             _lower_parts: Vec::new(),
             common: ArrayCommon::new(len, DType::Decimal(decimal_dtype, nullable)),
         }
-    }
-
-    /// If `_lower_parts` is supported check all calls use this correctly.
-    pub fn into_parts(self) -> DecimalBytePartsArrayParts {
-        DecimalBytePartsArrayParts {
-            msp: self.msp,
-            dtype: self.common.into_dtype(),
-        }
-    }
-
-    pub fn decimal_dtype(&self) -> &DecimalDType {
-        self.common
-            .dtype()
-            .as_decimal_opt()
-            .vortex_expect("must be a decimal dtype")
     }
 
     pub(crate) fn msp(&self) -> &ArrayRef {
@@ -274,6 +270,24 @@ pub struct DecimalBytePartsVTable;
 
 impl DecimalBytePartsVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
+
+    /// Build a new `DecimalBytePartsArray` from components.
+    pub fn try_new(
+        msp: ArrayRef,
+        decimal_dtype: DecimalDType,
+    ) -> VortexResult<DecimalBytePartsArray> {
+        if !msp.dtype().is_signed_int() {
+            vortex_bail!("decimal bytes parts, first part must be a signed array")
+        }
+
+        let nullable = msp.dtype().nullability();
+        let len = msp.len();
+        Ok(DecimalBytePartsArray {
+            msp,
+            _lower_parts: Vec::new(),
+            common: ArrayCommon::new(len, DType::Decimal(decimal_dtype, nullable)),
+        })
+    }
 }
 
 /// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.
@@ -338,13 +352,13 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::DecimalBytePartsArray;
+    use crate::DecimalBytePartsVTable;
 
     #[test]
     fn test_scalar_at_decimal_parts() {
         let decimal_dtype = DecimalDType::new(8, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let array = DecimalBytePartsArray::try_new(
+        let array = DecimalBytePartsVTable::try_new(
             PrimitiveArray::new(
                 buffer![100i32, 200i32, 400i32],
                 Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array()),

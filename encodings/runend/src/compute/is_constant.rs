@@ -10,6 +10,7 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 
 impl IsConstantKernel for RunEndVTable {

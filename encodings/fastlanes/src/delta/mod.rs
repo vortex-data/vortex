@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::DeltaArray;
+pub use array::DeltaArrayExt;
 pub use array::delta_compress::delta_compress;
 
 mod compute;

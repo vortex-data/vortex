@@ -13,6 +13,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
+use vortex_runend::RunEndVTable;
 
 fn main() {
     warm_up_vtables();
@@ -70,5 +71,5 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
     )
     .into_array();
 
-    RunEndArray::new(ends, values)
+    RunEndVTable::new(ends, values)
 }

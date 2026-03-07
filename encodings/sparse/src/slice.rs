@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::ConstantArray;
 use crate::SparseArray;
+use crate::SparseArrayExt;
 use crate::SparseVTable;
 
 impl SliceKernel for SparseVTable {

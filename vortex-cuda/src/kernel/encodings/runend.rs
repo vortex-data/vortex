@@ -19,6 +19,7 @@ use vortex::array::validity::Validity;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::runend::RunEndArrayParts;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::error::VortexResult;
@@ -182,7 +183,7 @@ mod tests {
             PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
         let values_array =
             PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-        RunEndArray::new(ends_array, values_array)
+        RunEndVTable::new(ends_array, values_array)
     }
 
     #[rstest]

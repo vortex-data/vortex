@@ -16,8 +16,6 @@ pub fn vortex_fsst::FSSTArray::symbol_lengths(&self) -> &vortex_buffer::buffer::
 
 pub fn vortex_fsst::FSSTArray::symbols(&self) -> &vortex_buffer::buffer::Buffer<fsst::Symbol>
 
-pub fn vortex_fsst::FSSTArray::try_new(dtype: vortex_array::dtype::DType, symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::array::VarBinArray, uncompressed_lengths: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_fsst::FSSTArray::uncompressed_lengths(&self) -> &vortex_array::array::ArrayRef
 
 pub fn vortex_fsst::FSSTArray::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
@@ -91,6 +89,8 @@ pub struct vortex_fsst::FSSTVTable
 impl vortex_fsst::FSSTVTable
 
 pub const vortex_fsst::FSSTVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+pub fn vortex_fsst::FSSTVTable::try_new(dtype: vortex_array::dtype::DType, symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::array::VarBinArray, uncompressed_lengths: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_fsst::FSSTArray>
 
 impl core::fmt::Debug for vortex_fsst::FSSTVTable
 

@@ -10,6 +10,7 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::DeltaArray;
+use crate::DeltaArrayExt;
 use crate::delta::vtable::DeltaVTable;
 
 impl SliceReduce for DeltaVTable {

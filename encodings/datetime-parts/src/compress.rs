@@ -15,6 +15,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsVTable;
 use crate::timestamp;
 
 pub struct TemporalParts {
@@ -69,7 +70,7 @@ impl TryFrom<TemporalArray> for DateTimePartsArray {
             seconds,
             subseconds,
         } = split_temporal(array)?;
-        DateTimePartsArray::try_new(DType::Extension(ext_dtype), days, seconds, subseconds)
+        DateTimePartsVTable::try_new(DType::Extension(ext_dtype), days, seconds, subseconds)
     }
 }
 

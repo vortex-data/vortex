@@ -9,6 +9,7 @@ use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::FoRArray;
+use crate::FoRArrayExt;
 use crate::FoRVTable;
 
 impl IsConstantKernel for FoRVTable {

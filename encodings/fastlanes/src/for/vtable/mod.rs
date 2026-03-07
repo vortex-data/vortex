@@ -27,6 +27,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRArray;
+use crate::FoRArrayExt;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
@@ -154,7 +155,7 @@ impl VTable for FoRVTable {
 
         let encoded = children.get(0, dtype, len)?;
 
-        FoRArray::try_new(encoded, metadata.clone())
+        Self::try_new(encoded, metadata.clone())
     }
 
     fn reduce_parent(
@@ -184,4 +185,29 @@ pub struct FoRVTable;
 
 impl FoRVTable {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
+
+    /// Create a new FoR-encoded array from an encoded child array and a reference scalar.
+    pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
+        if reference.is_null() {
+            vortex_bail!("Reference value cannot be null");
+        }
+        let reference = reference.cast(
+            &reference
+                .dtype()
+                .with_nullability(encoded.dtype().nullability()),
+        )?;
+
+        let len = encoded.len();
+        let dtype = reference.dtype().clone();
+        Ok(FoRArray {
+            encoded,
+            reference,
+            common: vortex_array::ArrayCommon::new(len, dtype),
+        })
+    }
+
+    /// Encode a primitive array using Frame of Reference encoding.
+    pub fn encode(array: vortex_array::arrays::PrimitiveArray) -> VortexResult<FoRArray> {
+        crate::r#for::array::for_compress::encode_for(array)
+    }
 }

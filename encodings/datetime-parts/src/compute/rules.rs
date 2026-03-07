@@ -26,6 +26,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsVTable;
 use crate::timestamp;
 
@@ -58,7 +59,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
             return Ok(None);
         }
 
-        DateTimePartsArray::try_new(
+        DateTimePartsVTable::try_new(
             child.dtype().clone(),
             child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(

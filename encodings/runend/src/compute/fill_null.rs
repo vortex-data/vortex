@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::fns::fill_null::FillNullReduce;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndArrayParts;
 use crate::RunEndVTable;
 

@@ -8,11 +8,12 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DecimalBytePartsArray;
+use crate::DecimalBytePartsArrayExt;
 use crate::DecimalBytePartsVTable;
 
 impl FilterReduce for DecimalBytePartsVTable {
     fn filter(array: &DecimalBytePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        DecimalBytePartsArray::try_new(array.msp.filter(mask.clone())?, *array.decimal_dtype())
+        DecimalBytePartsVTable::try_new(array.msp.filter(mask.clone())?, *array.decimal_dtype())
             .map(|d| Some(d.into_array()))
     }
 }
@@ -25,7 +26,7 @@ mod test {
     use vortex_array::dtype::DecimalDType;
     use vortex_buffer::buffer;
 
-    use crate::DecimalBytePartsArray;
+    use crate::DecimalBytePartsVTable;
 
     #[test]
     fn test_filter_decimal_byte_parts() {
@@ -33,7 +34,7 @@ mod test {
         let msp = buffer![100i32, 200, 300, 400, 500].into_array();
 
         let decimal_dtype = DecimalDType::new(8, 2);
-        let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
+        let array = DecimalBytePartsVTable::try_new(msp, decimal_dtype).unwrap();
         test_filter_conformance(&array.into_array());
 
         // Test with nullable values
@@ -41,7 +42,7 @@ mod test {
             .into_array();
 
         let decimal_dtype = DecimalDType::new(18, 4);
-        let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
+        let array = DecimalBytePartsVTable::try_new(msp, decimal_dtype).unwrap();
         test_filter_conformance(&array.into_array());
     }
 }

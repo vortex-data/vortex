@@ -16,6 +16,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use super::ByteBoolArray;
+use super::ByteBoolArrayExt;
 use super::ByteBoolVTable;
 
 impl CastReduce for ByteBoolVTable {
@@ -32,7 +33,7 @@ impl CastReduce for ByteBoolVTable {
                 .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
-                ByteBoolArray::new(array.buffer().clone(), new_validity).into_array(),
+                ByteBoolVTable::new(array.buffer().clone(), new_validity).into_array(),
             ));
         }
 
@@ -44,7 +45,7 @@ impl CastReduce for ByteBoolVTable {
 impl MaskReduce for ByteBoolVTable {
     fn mask(array: &ByteBoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolArray::new(
+            ByteBoolVTable::new(
                 array.buffer().clone(),
                 array
                     .validity()
@@ -80,7 +81,7 @@ impl TakeExecute for ByteBoolVTable {
         });
 
         Ok(Some(
-            ByteBoolArray::from_vec(taken_bools, validity).into_array(),
+            ByteBoolVTable::from_vec(taken_bools, validity).into_array(),
         ))
     }
 }

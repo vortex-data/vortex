@@ -54,6 +54,7 @@ use vortex_error::vortex_panic;
 
 use crate::ConstantArray;
 use crate::SparseArray;
+use crate::SparseArrayExt;
 
 pub(super) fn execute_sparse(
     array: &SparseArray,
@@ -569,7 +570,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::SparseArray;
+    use crate::SparseVTable;
 
     #[rstest]
     #[case(Some(true))]
@@ -579,7 +580,7 @@ mod test {
         let indices = buffer![0u64, 1, 7].into_array();
         let values = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
         let sparse_bools =
-            SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
+            SparseVTable::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         let actual = sparse_bools.to_bool();
 
         let expected = BoolArray::from_iter([
@@ -606,7 +607,7 @@ mod test {
         let indices = buffer![0u64, 1, 7].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
-            SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
+            SparseVTable::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullable));
 
         let flat_ints = sparse_ints.to_primitive();
@@ -657,7 +658,7 @@ mod test {
             vec![Scalar::from(Some(-10i32)), Scalar::from(Some(-1i32))],
         );
         let len = 10;
-        let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = SparseVTable::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -724,7 +725,7 @@ mod test {
 
         let fill_scalar = Scalar::null(struct_dtype);
         let len = 10;
-        let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = SparseVTable::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -775,7 +776,7 @@ mod test {
         .into_array();
         let len = 10;
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
-        let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = SparseVTable::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
         let expected = DecimalArray::new(
             buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
@@ -810,7 +811,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = SparseVTable::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -851,7 +852,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = SparseVTable::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -885,7 +886,7 @@ mod test {
             VarBinViewArray::from_iter_str(["hello", "goodbye", "hello", "bonjour", "你好"])
                 .into_array();
 
-        let array = SparseArray::try_new(
+        let array = SparseVTable::try_new(
             buffer![0u16, 3, 4, 5, 8].into_array(),
             strings,
             9,
@@ -915,7 +916,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = SparseVTable::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -956,7 +957,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = SparseVTable::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             binaries,
             12,
@@ -1003,7 +1004,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+        let sparse = SparseVTable::try_new(indices, lists, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1057,7 +1058,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+        let sparse = SparseVTable::try_new(indices, lists, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1100,7 +1101,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::from(Some(vec![5i32, 6, 7, 8]));
-        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+        let sparse = SparseVTable::try_new(indices, lists, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1169,7 +1170,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = SparseVTable::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -1211,7 +1212,7 @@ mod test {
             3,
             Nullable,
         ));
-        let sparse = SparseArray::try_new(indices, fsl, 5, fill_value)
+        let sparse = SparseVTable::try_new(indices, fsl, 5, fill_value)
             .unwrap()
             .into_array();
 
@@ -1249,7 +1250,7 @@ mod test {
             ],
             NonNullable,
         );
-        let sparse = SparseArray::try_new(indices, fsl, 6, fill_value)
+        let sparse = SparseVTable::try_new(indices, fsl, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1287,7 +1288,7 @@ mod test {
             ],
             Nullable,
         );
-        let sparse = SparseArray::try_new(indices, fsl, 6, fill_value)
+        let sparse = SparseVTable::try_new(indices, fsl, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1335,7 +1336,7 @@ mod test {
             NonNullable,
         );
 
-        let sparse = SparseArray::try_new(indices, fsl, 100, fill_value)
+        let sparse = SparseVTable::try_new(indices, fsl, 100, fill_value)
             .unwrap()
             .into_array();
 
@@ -1392,7 +1393,7 @@ mod test {
             ],
             NonNullable,
         );
-        let sparse = SparseArray::try_new(indices, fsl, 1, fill_value)
+        let sparse = SparseVTable::try_new(indices, fsl, 1, fill_value)
             .unwrap()
             .into_array();
 
@@ -1418,7 +1419,7 @@ mod test {
 
         let indices = buffer![0u8, 1u8, 2u8, 3u8].into_array();
         let fill_value = Scalar::from(Some(vec![42i32; 252])); // 252 + 4 elements = 256 > u8::MAX
-        let sparse = SparseArray::try_new(indices, lists, 5, fill_value)
+        let sparse = SparseVTable::try_new(indices, lists, 5, fill_value)
             .unwrap()
             .into_array();
 
@@ -1480,7 +1481,7 @@ mod test {
         // - Index 7: List 2 [30, 31, 32, 33]
         // - Index 8-9: null
         let indices = buffer![1u8, 4, 7].into_array();
-        let sparse = SparseArray::try_new(
+        let sparse = SparseVTable::try_new(
             indices,
             list_view.into_array(),
             10,
@@ -1566,7 +1567,8 @@ mod test {
         // Extract only the values we need from the sliced array
         let values = sliced.slice(0..2).unwrap();
         let sparse =
-            SparseArray::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
+            SparseVTable::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone()))
+                .unwrap();
 
         let canonical = sparse.to_canonical()?.into_array();
         let result_listview = canonical.to_listview();

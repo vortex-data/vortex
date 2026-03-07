@@ -40,6 +40,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
@@ -315,7 +316,7 @@ impl VTable for BitPackedVTable {
             })
             .transpose()?;
 
-        BitPackedArray::try_new(
+        Self::try_new(
             packed,
             PType::try_from(dtype)?,
             validity,
@@ -372,4 +373,80 @@ pub struct BitPackedVTable;
 
 impl BitPackedVTable {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
+
+    /// A safe constructor for a `BitPackedArray` from its components:
+    ///
+    /// * `packed` is ByteBuffer holding the compressed data that was packed with FastLanes
+    ///   bit-packing to a `bit_width` bits per value. `length` is the length of the original
+    ///   vector. Note that the packed is padded with zeros to the next multiple of 1024 elements
+    ///   if `length` is not divisible by 1024.
+    /// * `ptype` of the original data
+    /// * `validity` to track any nulls
+    /// * `patches` optionally provided for values that did not pack
+    ///
+    /// Any failure in validation will result in an error.
+    ///
+    /// # Validation
+    ///
+    /// * The `ptype` must be an integer
+    /// * `validity` must have `length` len
+    /// * Any patches must have any `array_len` equal to `length`
+    /// * The `packed` buffer must be exactly sized to hold `length` values of `bit_width` rounded
+    ///   up to the next multiple of 1024.
+    ///
+    /// Any violation of these preconditions will result in an error.
+    pub fn try_new(
+        packed: BufferHandle,
+        ptype: PType,
+        validity: Validity,
+        patches: Option<Patches>,
+        bit_width: u8,
+        length: usize,
+        offset: u16,
+    ) -> VortexResult<BitPackedArray> {
+        use crate::bitpacking::array::validate;
+
+        validate(
+            &packed,
+            ptype,
+            &validity,
+            patches.as_ref(),
+            bit_width,
+            length,
+            offset,
+        )?;
+
+        let dtype = DType::Primitive(ptype, validity.nullability());
+
+        // SAFETY: all components validated above
+        unsafe {
+            Ok(BitPackedArray::new_unchecked(
+                packed, dtype, validity, patches, bit_width, length, offset,
+            ))
+        }
+    }
+
+    /// Bit-pack an array of primitive integers down to the target bit-width using the FastLanes
+    /// SIMD-accelerated packing kernels.
+    ///
+    /// # Errors
+    ///
+    /// If the provided array is not an integer type, an error will be returned.
+    ///
+    /// If the provided array contains negative values, an error will be returned.
+    ///
+    /// If the requested bit-width for packing is larger than the array's native width, an
+    /// error will be returned.
+    // FIXME(ngates): take a PrimitiveArray
+    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
+        use vortex_array::arrays::PrimitiveVTable;
+
+        use crate::bitpack_compress::bitpack_encode;
+
+        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+            bitpack_encode(parray, bit_width, None)
+        } else {
+            vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");
+        }
+    }
 }

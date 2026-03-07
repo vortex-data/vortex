@@ -9,6 +9,7 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayExt;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsVTable;
 use vortex::error::VortexResult;
@@ -60,7 +61,6 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::dtype::DecimalDType;
-    use vortex::encodings::decimal_byte_parts::DecimalBytePartsArray;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
@@ -82,7 +82,7 @@ mod tests {
             .vortex_expect("create execution context");
 
         let decimal_dtype = DecimalDType::new(precision, scale);
-        let dbp_array = DecimalBytePartsArray::try_new(
+        let dbp_array = DecimalBytePartsVTable::try_new(
             PrimitiveArray::new(encoded, Validity::NonNullable).into_array(),
             decimal_dtype,
         )

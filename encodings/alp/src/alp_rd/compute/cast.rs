@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::alp_rd::ALPRDArray;
+use crate::alp_rd::ALPRDArrayExt;
 use crate::alp_rd::ALPRDVTable;
 
 impl CastReduce for ALPRDVTable {
@@ -28,7 +29,7 @@ impl CastReduce for ALPRDVTable {
             )?;
 
             return Ok(Some(
-                ALPRDArray::try_new(
+                ALPRDVTable::try_new(
                     dtype.clone(),
                     new_left_parts,
                     array.left_parts_dictionary().clone(),

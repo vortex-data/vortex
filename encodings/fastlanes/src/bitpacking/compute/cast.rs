@@ -11,6 +11,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use crate::bitpacking::BitPackedArray;
+use crate::bitpacking::BitPackedArrayExt;
 use crate::bitpacking::BitPackedVTable;
 
 impl CastReduce for BitPackedVTable {
@@ -21,7 +22,7 @@ impl CastReduce for BitPackedVTable {
                 .clone()
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
-                BitPackedArray::try_new(
+                BitPackedVTable::try_new(
                     array.packed().clone(),
                     dtype.as_ptype(),
                     new_validity,
@@ -64,11 +65,12 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::BitPackedArray;
+    use crate::BitPackedVTable;
 
     #[test]
     fn test_cast_bitpacked_u8_to_u32() {
         let packed =
-            BitPackedArray::encode(&buffer![10u8, 20, 30, 40, 50, 60].into_array(), 6).unwrap();
+            BitPackedVTable::encode(&buffer![10u8, 20, 30, 40, 50, 60].into_array(), 6).unwrap();
 
         let casted = packed
             .into_array()
@@ -88,7 +90,7 @@ mod tests {
     #[test]
     fn test_cast_bitpacked_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
-        let packed = BitPackedArray::encode(&values.into_array(), 4).unwrap();
+        let packed = BitPackedVTable::encode(&values.into_array(), 4).unwrap();
 
         let casted = packed
             .into_array()
@@ -101,10 +103,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(BitPackedArray::encode(&buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array(), 6).unwrap())]
-    #[case(BitPackedArray::encode(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9).unwrap())]
-    #[case(BitPackedArray::encode(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12).unwrap())]
-    #[case(BitPackedArray::encode(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4).unwrap())]
+    #[case(BitPackedVTable::encode(&buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array(), 6).unwrap())]
+    #[case(BitPackedVTable::encode(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9).unwrap())]
+    #[case(BitPackedVTable::encode(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12).unwrap())]
+    #[case(BitPackedVTable::encode(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4).unwrap())]
     fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
         test_cast_conformance(&array.into_array());
     }

@@ -9,6 +9,7 @@ use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsVTable;
 
 impl IsConstantKernel for DateTimePartsVTable {

@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;
+use crate::DecimalBytePartsArrayExt;
 use crate::DecimalBytePartsVTable;
 
 impl MaskReduce for DecimalBytePartsVTable {
@@ -20,7 +21,7 @@ impl MaskReduce for DecimalBytePartsVTable {
             [array.msp.clone(), mask.clone()],
         )?;
         Ok(Some(
-            DecimalBytePartsArray::try_new(masked_msp, *array.decimal_dtype())?.into_array(),
+            DecimalBytePartsVTable::try_new(masked_msp, *array.decimal_dtype())?.into_array(),
         ))
     }
 }

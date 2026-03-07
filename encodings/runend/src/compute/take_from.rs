@@ -11,6 +11,7 @@ use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 
 #[derive(Debug)]
@@ -64,6 +65,8 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::RunEndArray;
+    use crate::RunEndArrayExt;
+    use crate::RunEndVTable;
     use crate::compute::take_from::RunEndVTableTakeFrom;
 
     /// Build a DictArray whose codes are run-end encoded.
@@ -73,7 +76,7 @@ mod tests {
     /// Codes:       `[0, 0, 0, 1, 1, 0, 0]`
     /// RunEnd encoded codes: ends=`[3, 5, 7]`, values=`[0, 1, 0]`
     fn make_dict_with_runend_codes() -> (RunEndArray, DictArray) {
-        let codes = RunEndArray::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
+        let codes = RunEndVTable::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
         let values = buffer![2i32, 3].into_array();
         let dict = DictArray::try_new(codes.clone().into_array(), values).unwrap();
         (codes, dict)

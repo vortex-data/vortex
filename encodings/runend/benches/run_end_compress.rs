@@ -15,7 +15,7 @@ use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_runend::RunEndArray;
+use vortex_runend::RunEndVTable;
 use vortex_runend::compress::runend_encode;
 
 fn main() {
@@ -72,7 +72,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
         .collect::<Buffer<_>>()
         .into_array();
 
-    let run_end_array = RunEndArray::new(ends, values);
+    let run_end_array = RunEndVTable::new(ends, values);
     let array = run_end_array.into_array();
 
     bencher
@@ -97,7 +97,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
     let (ends, values) = runend_encode(&values);
-    let runend_array = RunEndArray::try_new(ends.into_array(), values)
+    let runend_array = RunEndVTable::try_new(ends.into_array(), values)
         .unwrap()
         .into_array();
 
@@ -129,7 +129,7 @@ fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = VarBinViewArray::from_iter_str((0..num_runs).map(|i| format!("run_value_{i}")))
         .into_array();
 
-    let run_end_array = RunEndArray::new(ends, values);
+    let run_end_array = RunEndVTable::new(ends, values);
     let array = run_end_array.into_array();
 
     bencher

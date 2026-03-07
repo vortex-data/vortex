@@ -9,6 +9,7 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsVTable;
 
 impl SliceReduce for DateTimePartsVTable {

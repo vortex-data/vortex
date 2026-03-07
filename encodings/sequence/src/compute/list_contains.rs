@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::SequenceArrayExt;
 use crate::array::SequenceVTable;
 use crate::compute::compare::find_intersection_scalar;
 
@@ -60,7 +61,7 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
 
-    use crate::SequenceArray;
+    use crate::SequenceVTable;
 
     #[test]
     fn test_list_contains_seq() {
@@ -74,7 +75,7 @@ mod tests {
             // [1, 3] in  1
             //            2
             //            3
-            let array = SequenceArray::try_new_typed(1, 1, Nullability::NonNullable, 3).unwrap();
+            let array = SequenceVTable::try_new_typed(1, 1, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar.clone()), root());
             let result = array.apply(&expr).unwrap();
@@ -86,7 +87,7 @@ mod tests {
             // [1, 3] in  1
             //            3
             //            5
-            let array = SequenceArray::try_new_typed(1, 2, Nullability::NonNullable, 3).unwrap();
+            let array = SequenceVTable::try_new_typed(1, 2, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar), root());
             let result = array.apply(&expr).unwrap();

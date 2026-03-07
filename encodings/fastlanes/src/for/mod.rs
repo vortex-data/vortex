@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::FoRArray;
+pub use array::FoRArrayExt;
 
 mod compute;
 

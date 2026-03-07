@@ -19,6 +19,7 @@ use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::BitPackedVTable;
 use crate::unpack_iter::BitPacked;
 
@@ -173,11 +174,11 @@ mod tests {
     use vortex_array::compute::is_constant;
     use vortex_buffer::buffer;
 
-    use crate::BitPackedArray;
+    use crate::BitPackedVTable;
 
     #[test]
     fn is_constant_with_patches() {
-        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
+        let array = BitPackedVTable::encode(&buffer![4; 1025].into_array(), 2).unwrap();
         assert!(is_constant(&array.into_array()).unwrap().unwrap());
     }
 }

@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::delta::DeltaArray;
+use crate::delta::DeltaArrayExt;
 use crate::delta::DeltaVTable;
 
 impl CastReduce for DeltaVTable {
@@ -38,7 +39,7 @@ impl CastReduce for DeltaVTable {
 
         // Create a new DeltaArray with the casted components
         Ok(Some(
-            DeltaArray::try_from_delta_compress_parts(casted_bases, casted_deltas)?.into_array(),
+            DeltaVTable::try_from_delta_compress_parts(casted_bases, casted_deltas)?.into_array(),
         ))
     }
 }
@@ -56,12 +57,12 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
 
-    use crate::delta::DeltaArray;
+    use crate::delta::DeltaVTable;
 
     #[test]
     fn test_cast_delta_u8_to_u32() {
         let primitive = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50]);
-        let array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
+        let array = DeltaVTable::try_from_primitive_array(&primitive).unwrap();
 
         let casted = array
             .into_array()
@@ -84,7 +85,7 @@ mod tests {
             buffer![100u16, 0, 200, 300, 0],
             vortex_array::validity::Validity::NonNullable,
         );
-        let array = DeltaArray::try_from_primitive_array(&values).unwrap();
+        let array = DeltaVTable::try_from_primitive_array(&values).unwrap();
 
         let casted = array
             .into_array()
@@ -122,7 +123,7 @@ mod tests {
         )
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
-        let delta_array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
+        let delta_array = DeltaVTable::try_from_primitive_array(&primitive).unwrap();
         test_cast_conformance(&delta_array.into_array());
     }
 }

@@ -101,7 +101,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::DeltaArray;
+    use crate::DeltaVTable;
     use crate::delta::array::delta_decompress::delta_decompress;
 
     static SESSION: LazyLock<VortexSession> =
@@ -125,7 +125,7 @@ mod tests {
     }
 
     fn do_roundtrip_test(input: PrimitiveArray) -> VortexResult<()> {
-        let delta = DeltaArray::try_from_primitive_array(&input)?;
+        let delta = DeltaVTable::try_from_primitive_array(&input)?;
         assert_eq!(delta.len(), input.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, input);

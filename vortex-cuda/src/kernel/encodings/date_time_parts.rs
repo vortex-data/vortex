@@ -21,6 +21,7 @@ use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::encodings::datetime_parts::DateTimePartsArrayExt;
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -237,7 +238,7 @@ mod tests {
             None,
         );
 
-        DateTimePartsArray::try_new(
+        DateTimePartsVTable::try_new(
             temporal.dtype().clone(),
             days_arr,
             seconds_arr,
@@ -348,7 +349,7 @@ mod tests {
             None,
         );
 
-        let dtp_array = DateTimePartsArray::try_new(
+        let dtp_array = DateTimePartsVTable::try_new(
             temporal.dtype().clone(),
             days_arr,
             seconds_arr,

@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FSSTArray;
+use crate::FSSTArrayExt;
 use crate::FSSTVTable;
 
 impl FilterKernel for FSSTVTable {
@@ -27,7 +28,7 @@ impl FilterKernel for FSSTVTable {
             .vortex_expect("must be VarBinVTable");
 
         Ok(Some(
-            FSSTArray::try_new(
+            FSSTVTable::try_new(
                 array.dtype().clone(),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),

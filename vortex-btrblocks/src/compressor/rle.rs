@@ -12,6 +12,8 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
+use vortex_fastlanes::RLEArrayExt;
+use vortex_fastlanes::RLEVTable;
 
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
@@ -114,7 +116,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         ctx: CompressorContext,
         excludes: &[C::Code],
     ) -> VortexResult<ArrayRef> {
-        let rle_array = RLEArray::encode(RLEStats::source(stats))?;
+        let rle_array = RLEVTable::encode(RLEStats::source(stats))?;
 
         if ctx.allowed_cascading == 0 {
             return Ok(rle_array.into_array());

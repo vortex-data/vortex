@@ -9,6 +9,7 @@ use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 
 impl MinMaxKernel for RunEndVTable {

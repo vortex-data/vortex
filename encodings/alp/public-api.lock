@@ -12,13 +12,9 @@ pub fn vortex_alp::ALPArray::exponents(&self) -> vortex_alp::Exponents
 
 pub fn vortex_alp::ALPArray::into_parts(self) -> (vortex_array::array::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>, vortex_array::dtype::DType)
 
-pub fn vortex_alp::ALPArray::new(encoded: vortex_array::array::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> Self
-
 pub fn vortex_alp::ALPArray::patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
 
 pub fn vortex_alp::ALPArray::ptype(&self) -> vortex_array::dtype::ptype::PType
-
-pub fn vortex_alp::ALPArray::try_new(encoded: vortex_array::array::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
 
 impl vortex_alp::ALPArray
 
@@ -88,8 +84,6 @@ pub fn vortex_alp::ALPRDArray::right_bit_width(&self) -> u8
 
 pub fn vortex_alp::ALPRDArray::right_parts(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_alp::ALPRDArray::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
-
 impl vortex_alp::ALPRDArray
 
 pub fn vortex_alp::ALPRDArray::to_array(&self) -> vortex_array::array::ArrayRef
@@ -151,6 +145,8 @@ pub struct vortex_alp::ALPRDVTable
 impl vortex_alp::ALPRDVTable
 
 pub const vortex_alp::ALPRDVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+pub fn vortex_alp::ALPRDVTable::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
 
 impl core::fmt::Debug for vortex_alp::ALPRDVTable
 
@@ -239,6 +235,10 @@ pub struct vortex_alp::ALPVTable
 impl vortex_alp::ALPVTable
 
 pub const vortex_alp::ALPVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+pub fn vortex_alp::ALPVTable::new(encoded: vortex_array::array::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_alp::ALPArray
+
+pub fn vortex_alp::ALPVTable::try_new(encoded: vortex_array::array::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<vortex_alp::ALPArray>
 
 impl core::fmt::Debug for vortex_alp::ALPVTable
 

@@ -200,14 +200,18 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::PType;
-    use vortex::encodings::alp::ALPArray;
+    use vortex::encodings::alp::ALPArrayExt;
     use vortex::encodings::alp::ALPFloat;
+    use vortex::encodings::alp::ALPVTable;
     use vortex::encodings::alp::Exponents;
     use vortex::encodings::alp::alp_encode;
     use vortex::encodings::fastlanes::BitPackedArray;
-    use vortex::encodings::fastlanes::FoRArray;
-    use vortex::encodings::runend::RunEndArray;
-    use vortex::encodings::zigzag::ZigZagArray;
+    use vortex::encodings::fastlanes::BitPackedArrayExt;
+    use vortex::encodings::fastlanes::BitPackedVTable;
+    use vortex::encodings::fastlanes::FoRArrayExt;
+    use vortex::encodings::fastlanes::FoRVTable;
+    use vortex::encodings::runend::RunEndVTable;
+    use vortex::encodings::zigzag::ZigZagVTable;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -229,7 +233,7 @@ mod tests {
             .map(|i| ((i as u64) % (max_val + 1)) as u32)
             .collect();
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        BitPackedArray::encode(&primitive.into_array(), bit_width)
+        BitPackedVTable::encode(&primitive.into_array(), bit_width)
             .vortex_expect("failed to create BitPacked array")
     }
 
@@ -451,7 +455,7 @@ mod tests {
         let expected: Vec<u32> = raw.iter().map(|&v| v + reference).collect();
 
         let bp = make_bitpacked_array_u32(bit_width, len);
-        let for_arr = FoRArray::try_new(bp.into_array(), Scalar::from(reference))?;
+        let for_arr = FoRVTable::try_new(bp.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
@@ -476,7 +480,7 @@ mod tests {
 
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEndArray::new(ends_arr, values_arr);
+        let re = RunEndVTable::new(ends_arr, values_arr);
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (plan, _bufs) = build_plan(&re.into_array(), &cuda_ctx)?;
@@ -501,12 +505,12 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPackedArray::encode(&dict_prim.into_array(), 6)?;
-        let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
+        let dict_bp = BitPackedVTable::encode(&dict_prim.into_array(), 6)?;
+        let dict_for = FoRVTable::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), 6)?;
+        let codes_bp = BitPackedVTable::encode(&codes_prim.into_array(), 6)?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
@@ -532,11 +536,11 @@ mod tests {
 
         let alp = alp_encode(&float_prim, Some(exponents))?;
         assert!(alp.patches().is_none());
-        let for_arr = FoRArray::encode(alp.encoded().to_primitive())?;
-        let bp = BitPackedArray::encode(for_arr.encoded(), 6)?;
+        let for_arr = FoRVTable::encode(alp.encoded().to_primitive())?;
+        let bp = BitPackedVTable::encode(for_arr.encoded(), 6)?;
 
-        let tree = ALPArray::new(
-            FoRArray::try_new(bp.into_array(), for_arr.reference_scalar().clone())?.into_array(),
+        let tree = ALPVTable::new(
+            FoRVTable::try_new(bp.into_array(), for_arr.reference_scalar().clone())?.into_array(),
             exponents,
             None,
         );
@@ -566,8 +570,8 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPackedArray::encode(&prim.into_array(), bit_width)?;
-        let zz = ZigZagArray::try_new(bp.into_array())?;
+        let bp = BitPackedVTable::encode(&prim.into_array(), bit_width)?;
+        let zz = ZigZagVTable::try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (plan, _bufs) = build_plan(&zz.into_array(), &cuda_ctx)?;
@@ -594,8 +598,8 @@ mod tests {
 
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEndArray::new(ends_arr, values_arr);
-        let for_arr = FoRArray::try_new(re.into_array(), Scalar::from(reference))?;
+        let re = RunEndVTable::new(ends_arr, values_arr);
+        let for_arr = FoRVTable::try_new(re.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
@@ -623,7 +627,7 @@ mod tests {
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
         let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
-        let for_arr = FoRArray::try_new(dict.into_array(), Scalar::from(reference))?;
+        let for_arr = FoRVTable::try_new(dict.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
@@ -646,8 +650,8 @@ mod tests {
         // BitPack codes, then wrap in FoR (reference=0 so values unchanged)
         let bit_width: u8 = 3;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), bit_width)?;
-        let codes_for = FoRArray::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
+        let codes_bp = BitPackedVTable::encode(&codes_prim.into_array(), bit_width)?;
+        let codes_for = FoRVTable::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
 
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
         let dict = DictArray::try_new(codes_for.into_array(), values_prim.into_array())?;
@@ -671,7 +675,7 @@ mod tests {
 
         let bit_width: u8 = 2;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), bit_width)?;
+        let codes_bp = BitPackedVTable::encode(&codes_prim.into_array(), bit_width)?;
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
 
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;

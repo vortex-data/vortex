@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsVTable;
 use crate::timestamp;
 use crate::timestamp::TimestampParts;

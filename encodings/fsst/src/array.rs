@@ -245,7 +245,7 @@ impl VTable for FSSTVTable {
                 len,
             )?;
 
-            return FSSTArray::try_new(
+            return Self::try_new(
                 dtype.clone(),
                 symbols,
                 symbol_lengths,
@@ -292,7 +292,7 @@ impl VTable for FSSTVTable {
                 codes_validity,
             )?;
 
-            return FSSTArray::try_new(
+            return Self::try_new(
                 dtype.clone(),
                 symbols,
                 symbol_lengths,
@@ -392,24 +392,15 @@ pub struct FSSTVTable;
 
 impl FSSTVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
-}
 
-impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
-    ///
-    /// Symbols are 8-bytes and can represent short strings, each of which is assigned
-    /// a code.
-    ///
-    /// The `codes` array is a Binary array where each binary datum is a sequence of 8-bit codes.
-    /// Each code corresponds either to a symbol, or to the "escape code",
-    /// which tells the decoder to emit the following byte without doing a table lookup.
     pub fn try_new(
         dtype: DType,
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,
         codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<FSSTArray> {
         // Check: symbols must not have length > MAX_CODE
         if symbols.len() > 255 {
             vortex_bail!(InvalidArgument: "symbols array must have length <= 255");
@@ -433,7 +424,7 @@ impl FSSTArray {
 
         // SAFETY: all components validated above
         unsafe {
-            Ok(Self::new_unchecked(
+            Ok(FSSTArray::new_unchecked(
                 dtype,
                 symbols,
                 symbol_lengths,
@@ -442,7 +433,73 @@ impl FSSTArray {
             ))
         }
     }
+}
 
+/// Extension trait for [`FSSTArray`] methods.
+pub trait FSSTArrayExt {
+    /// Access the symbol table array.
+    fn symbols(&self) -> &Buffer<Symbol>;
+
+    /// Access the symbol lengths array.
+    fn symbol_lengths(&self) -> &Buffer<u8>;
+
+    /// Access the codes array.
+    fn codes(&self) -> &VarBinArray;
+
+    /// Get the DType of the codes array.
+    fn codes_dtype(&self) -> &DType;
+
+    /// Get the uncompressed length for each element in the array.
+    fn uncompressed_lengths(&self) -> &ArrayRef;
+
+    /// Get the DType of the uncompressed lengths array.
+    fn uncompressed_lengths_dtype(&self) -> &DType;
+
+    /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from
+    /// this array.
+    fn decompressor(&self) -> Decompressor<'_>;
+
+    /// Retrieves the FSST compressor.
+    fn compressor(&self) -> &Compressor;
+}
+
+impl FSSTArrayExt for FSSTArray {
+    fn symbols(&self) -> &Buffer<Symbol> {
+        &self.symbols
+    }
+
+    fn symbol_lengths(&self) -> &Buffer<u8> {
+        &self.symbol_lengths
+    }
+
+    fn codes(&self) -> &VarBinArray {
+        &self.codes
+    }
+
+    #[inline]
+    fn codes_dtype(&self) -> &DType {
+        self.codes.dtype()
+    }
+
+    fn uncompressed_lengths(&self) -> &ArrayRef {
+        &self.uncompressed_lengths
+    }
+
+    #[inline]
+    fn uncompressed_lengths_dtype(&self) -> &DType {
+        self.uncompressed_lengths.dtype()
+    }
+
+    fn decompressor(&self) -> Decompressor<'_> {
+        Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())
+    }
+
+    fn compressor(&self) -> &Compressor {
+        self.compressor.as_ref()
+    }
+}
+
+impl FSSTArray {
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         symbols: Buffer<Symbol>,
@@ -468,49 +525,6 @@ impl FSSTArray {
             uncompressed_lengths,
             compressor,
         }
-    }
-
-    /// Access the symbol table array
-    pub fn symbols(&self) -> &Buffer<Symbol> {
-        &self.symbols
-    }
-
-    /// Access the symbol table array
-    pub fn symbol_lengths(&self) -> &Buffer<u8> {
-        &self.symbol_lengths
-    }
-
-    /// Access the codes array
-    pub fn codes(&self) -> &VarBinArray {
-        &self.codes
-    }
-
-    /// Get the DType of the codes array
-    #[inline]
-    pub fn codes_dtype(&self) -> &DType {
-        self.codes.dtype()
-    }
-
-    /// Get the uncompressed length for each element in the array.
-    pub fn uncompressed_lengths(&self) -> &ArrayRef {
-        &self.uncompressed_lengths
-    }
-
-    /// Get the DType of the uncompressed lengths array
-    #[inline]
-    pub fn uncompressed_lengths_dtype(&self) -> &DType {
-        self.uncompressed_lengths.dtype()
-    }
-
-    /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from
-    /// this array.
-    pub fn decompressor(&self) -> Decompressor<'_> {
-        Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())
-    }
-
-    /// Retrieves the FSST compressor.
-    pub fn compressor(&self) -> &Compressor {
-        self.compressor.as_ref()
     }
 }
 
@@ -540,6 +554,7 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
 
+    use crate::FSSTArrayExt;
     use crate::FSSTVTable;
     use crate::array::FSSTMetadata;
     use crate::fsst_compress_iter;

@@ -19,6 +19,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
+use crate::FSSTArrayExt;
 
 pub(super) fn canonicalize_fsst(
     array: &FSSTArray,

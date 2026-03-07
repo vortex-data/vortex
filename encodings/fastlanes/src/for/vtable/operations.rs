@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 
 use super::FoRVTable;
 use crate::FoRArray;
+use crate::FoRArrayExt;
 
 impl OperationsVTable<FoRVTable> for FoRVTable {
     fn scalar_at(array: &FoRArray, index: usize) -> VortexResult<Scalar> {
@@ -38,12 +39,12 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
 
-    use crate::FoRArray;
+    use crate::FoRVTable;
 
     #[test]
     fn for_scalar_at() {
         let for_arr =
-            FoRArray::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
+            FoRVTable::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
         assert_arrays_eq!(for_arr, expected);
     }

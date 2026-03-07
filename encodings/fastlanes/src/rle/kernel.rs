@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
+use crate::RLEArrayExt;
 use crate::RLEVTable;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<RLEVTable> =

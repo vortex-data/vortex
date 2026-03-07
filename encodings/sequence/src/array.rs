@@ -80,45 +80,54 @@ pub struct SequenceArray {
     multiplier: PValue,
 }
 
-impl SequenceArray {
-    pub fn try_new_typed<T: NativePType + Into<PValue>>(
-        base: T,
-        multiplier: T,
-        nullability: Nullability,
-        length: usize,
-    ) -> VortexResult<Self> {
-        Self::try_new(
-            base.into(),
-            multiplier.into(),
-            T::PTYPE,
-            nullability,
-            length,
-        )
+/// Extension trait for [`SequenceArray`] methods.
+pub trait SequenceArrayExt: Sized {
+    /// Returns the primitive type of the array.
+    fn ptype(&self) -> PType;
+
+    /// Returns the base value.
+    fn base(&self) -> PValue;
+
+    /// Returns the multiplier value.
+    fn multiplier(&self) -> PValue;
+
+    /// Returns the validated final value of a sequence array.
+    fn last(&self) -> PValue;
+
+    /// Consumes the array and returns its parts.
+    fn into_parts(self) -> SequenceArrayParts;
+}
+
+impl SequenceArrayExt for SequenceArray {
+    fn ptype(&self) -> PType {
+        self.common.dtype().as_ptype()
     }
 
-    /// Constructs a sequence array using two integer values (with the same ptype).
-    pub fn try_new(
-        base: PValue,
-        multiplier: PValue,
-        ptype: PType,
-        nullability: Nullability,
-        length: usize,
-    ) -> VortexResult<Self> {
-        if !ptype.is_int() {
-            vortex_bail!("only integer ptype are supported in SequenceArray currently")
+    fn base(&self) -> PValue {
+        self.base
+    }
+
+    fn multiplier(&self) -> PValue {
+        self.multiplier
+    }
+
+    fn last(&self) -> PValue {
+        Self::try_last(self.base, self.multiplier, self.ptype(), self.common.len())
+            .vortex_expect("validated array")
+    }
+
+    fn into_parts(self) -> SequenceArrayParts {
+        SequenceArrayParts {
+            base: self.base,
+            multiplier: self.multiplier,
+            len: self.common.len(),
+            ptype: self.common.dtype().as_ptype(),
+            nullability: self.common.dtype().nullability(),
         }
-
-        Self::try_last(base, multiplier, ptype, length).map_err(|e| {
-            e.with_context(format!(
-                "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length} ",
-            ))
-        })?;
-
-        // SAFETY: we just validated that `ptype` is an integer and that the final
-        // element is representable via `try_last`.
-        Ok(unsafe { Self::new_unchecked(base, multiplier, ptype, nullability, length) })
     }
+}
 
+impl SequenceArray {
     /// Constructs a [`SequenceArray`] without validating that the `ptype` is an integer
     /// type or that the final element is representable.
     ///
@@ -127,9 +136,6 @@ impl SequenceArray {
     /// The caller must ensure that:
     /// - `ptype` is an integer type (i.e., `ptype.is_int()` returns `true`).
     /// - `base + (length - 1) * multiplier` does not overflow the range of `ptype`.
-    ///
-    /// Violating the first invariant will cause a panic. Violating the second will
-    /// cause silent wraparound when materializing elements, producing incorrect values.
     pub(crate) unsafe fn new_unchecked(
         base: PValue,
         multiplier: PValue,
@@ -165,18 +171,6 @@ impl SequenceArray {
             base,
             multiplier,
         }
-    }
-
-    pub fn ptype(&self) -> PType {
-        self.common.dtype().as_ptype()
-    }
-
-    pub fn base(&self) -> PValue {
-        self.base
-    }
-
-    pub fn multiplier(&self) -> PValue {
-        self.multiplier
     }
 
     pub(crate) fn try_last(
@@ -215,22 +209,6 @@ impl SequenceArray {
 
             PValue::from(value)
         })
-    }
-
-    /// Returns the validated final value of a sequence array
-    pub fn last(&self) -> PValue {
-        Self::try_last(self.base, self.multiplier, self.ptype(), self.common.len())
-            .vortex_expect("validated array")
-    }
-
-    pub fn into_parts(self) -> SequenceArrayParts {
-        SequenceArrayParts {
-            base: self.base,
-            multiplier: self.multiplier,
-            len: self.common.len(),
-            ptype: self.common.dtype().as_ptype(),
-            nullability: self.common.dtype().nullability(),
-        }
     }
 }
 
@@ -362,7 +340,7 @@ impl VTable for SequenceVTable {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<SequenceArray> {
-        SequenceArray::try_new(
+        Self::try_new(
             metadata.base,
             metadata.multiplier,
             dtype.as_ptype(),
@@ -422,6 +400,45 @@ pub struct SequenceVTable;
 
 impl SequenceVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
+
+    /// Constructs a sequence array using a typed base and multiplier.
+    pub fn try_new_typed<T: NativePType + Into<PValue>>(
+        base: T,
+        multiplier: T,
+        nullability: Nullability,
+        length: usize,
+    ) -> VortexResult<SequenceArray> {
+        Self::try_new(
+            base.into(),
+            multiplier.into(),
+            T::PTYPE,
+            nullability,
+            length,
+        )
+    }
+
+    /// Constructs a sequence array using two integer values (with the same ptype).
+    pub fn try_new(
+        base: PValue,
+        multiplier: PValue,
+        ptype: PType,
+        nullability: Nullability,
+        length: usize,
+    ) -> VortexResult<SequenceArray> {
+        if !ptype.is_int() {
+            vortex_bail!("only integer ptype are supported in SequenceArray currently")
+        }
+
+        SequenceArray::try_last(base, multiplier, ptype, length).map_err(|e| {
+            e.with_context(format!(
+                "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length} ",
+            ))
+        })?;
+
+        // SAFETY: we just validated that `ptype` is an integer and that the final
+        // element is representable via `try_last`.
+        Ok(unsafe { SequenceArray::new_unchecked(base, multiplier, ptype, nullability, length) })
+    }
 }
 
 #[cfg(test)]
@@ -436,11 +453,11 @@ mod tests {
     use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
 
-    use crate::array::SequenceArray;
+    use crate::array::SequenceVTable;
 
     #[test]
     fn test_sequence_canonical() {
-        let arr = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4).unwrap();
+        let arr = SequenceVTable::try_new_typed(2i64, 3, Nullability::NonNullable, 4).unwrap();
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
@@ -449,7 +466,7 @@ mod tests {
 
     #[test]
     fn test_sequence_slice_canonical() {
-        let arr = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
+        let arr = SequenceVTable::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .slice(2..3)
             .unwrap();
@@ -461,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_sequence_scalar_at() {
-        let scalar = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
+        let scalar = SequenceVTable::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .scalar_at(2)
             .unwrap();
@@ -474,19 +491,19 @@ mod tests {
 
     #[test]
     fn test_sequence_min_max() {
-        assert!(SequenceArray::try_new_typed(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
-        assert!(SequenceArray::try_new_typed(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(SequenceVTable::try_new_typed(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(SequenceVTable::try_new_typed(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
     }
 
     #[test]
     fn test_sequence_too_big() {
-        assert!(SequenceArray::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
-        assert!(SequenceArray::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
+        assert!(SequenceVTable::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
+        assert!(SequenceVTable::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
     }
 
     #[test]
     fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
-        let arr = SequenceArray::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
+        let arr = SequenceVTable::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -502,7 +519,7 @@ mod tests {
 
     #[test]
     fn zero_multiplier_is_sorted_not_strict() -> VortexResult<()> {
-        let arr = SequenceArray::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
+        let arr = SequenceVTable::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -518,7 +535,7 @@ mod tests {
 
     #[test]
     fn negative_multiplier_not_sorted() -> VortexResult<()> {
-        let arr = SequenceArray::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
+        let arr = SequenceVTable::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -537,7 +554,7 @@ mod tests {
     #[test]
     fn test_large_multiplier_sorted() -> VortexResult<()> {
         let large_multiplier = (i64::MAX as u64) + 1;
-        let arr = SequenceArray::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
+        let arr = SequenceVTable::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
 
         let is_sorted = arr
             .statistics()

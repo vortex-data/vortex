@@ -79,6 +79,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::RunEndArray;
+    use crate::RunEndVTable;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_sliced_runend_to_arrow_ree() -> VortexResult<()> {
-        let array = RunEndArray::encode(
+        let array = RunEndVTable::encode(
             PrimitiveArray::from_iter(vec![10i32, 10, 20, 20, 20, 30, 30]).into_array(),
         )?;
         // Slicing from index 1 produces a non-zero offset in the RunEndArray.

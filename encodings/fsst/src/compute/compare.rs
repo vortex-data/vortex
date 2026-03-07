@@ -20,6 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::FSSTArray;
+use crate::FSSTArrayExt;
 use crate::FSSTVTable;
 
 impl CompareKernel for FSSTVTable {

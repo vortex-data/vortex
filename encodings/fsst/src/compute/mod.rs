@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FSSTArray;
+use crate::FSSTArrayExt;
 use crate::FSSTVTable;
 
 impl TakeExecute for FSSTVTable {
@@ -27,7 +28,7 @@ impl TakeExecute for FSSTVTable {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            FSSTArray::try_new(
+            FSSTVTable::try_new(
                 array
                     .dtype()
                     .clone()

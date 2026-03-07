@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::r#for::FoRArray;
+use crate::r#for::FoRArrayExt;
 use crate::r#for::FoRVTable;
 
 impl CastReduce for FoRVTable {
@@ -23,7 +24,7 @@ impl CastReduce for FoRVTable {
         let casted_reference = array.reference_scalar().cast(dtype)?;
 
         Ok(Some(
-            FoRArray::try_new(casted_child, casted_reference)?.into_array(),
+            FoRVTable::try_new(casted_child, casted_reference)?.into_array(),
         ))
     }
 }
@@ -43,10 +44,11 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::FoRArray;
+    use crate::FoRVTable;
 
     #[test]
     fn test_cast_for_i32_to_i64() {
-        let for_array = FoRArray::try_new(
+        let for_array = FoRVTable::try_new(
             buffer![0i32, 10, 20, 30, 40].into_array(),
             Scalar::from(100i32),
         )
@@ -71,7 +73,7 @@ mod tests {
     #[test]
     fn test_cast_for_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(20), Some(30), None]);
-        let for_array = FoRArray::try_new(values.into_array(), Scalar::from(50i32)).unwrap();
+        let for_array = FoRVTable::try_new(values.into_array(), Scalar::from(50i32)).unwrap();
 
         let casted = for_array
             .into_array()
@@ -84,19 +86,19 @@ mod tests {
     }
 
     #[rstest]
-    #[case(FoRArray::try_new(
+    #[case(FoRVTable::try_new(
         buffer![0i32, 1, 2, 3, 4].into_array(),
         Scalar::from(100i32)
     ).unwrap())]
-    #[case(FoRArray::try_new(
+    #[case(FoRVTable::try_new(
         buffer![0u64, 10, 20, 30].into_array(),
         Scalar::from(1000u64)
     ).unwrap())]
-    #[case(FoRArray::try_new(
+    #[case(FoRVTable::try_new(
         PrimitiveArray::from_option_iter([Some(0i16), None, Some(5), Some(10), None]).into_array(),
         Scalar::from(50i16)
     ).unwrap())]
-    #[case(FoRArray::try_new(
+    #[case(FoRVTable::try_new(
         buffer![-10i32, -5, 0, 5, 10].into_array(),
         Scalar::from(-100i32)
     ).unwrap())]

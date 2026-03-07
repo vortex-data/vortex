@@ -8,6 +8,7 @@ use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
+use crate::ALPArrayExt;
 use crate::ALPVTable;
 
 impl NaNCountKernel for ALPVTable {

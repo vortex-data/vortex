@@ -11,6 +11,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
+use crate::ALPArrayExt;
 use crate::ALPVTable;
 
 impl MaskReduce for ALPVTable {
@@ -21,7 +22,7 @@ impl MaskReduce for ALPVTable {
         }
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), None).into_array(),
+            ALPVTable::new(masked_encoded, array.exponents(), None).into_array(),
         ))
     }
 }
@@ -40,7 +41,7 @@ impl MaskKernel for ALPVTable {
             .transpose()?
             .flatten();
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), masked_patches).into_array(),
+            ALPVTable::new(masked_encoded, array.exponents(), masked_patches).into_array(),
         ))
     }
 }
@@ -54,6 +55,7 @@ mod test {
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_buffer::buffer;
 
+    use crate::ALPArrayExt;
     use crate::alp_encode;
 
     #[rstest]

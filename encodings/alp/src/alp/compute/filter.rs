@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALPArray;
+use crate::ALPArrayExt;
 use crate::ALPVTable;
 
 impl FilterKernel for ALPVTable {

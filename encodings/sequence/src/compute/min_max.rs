@@ -10,6 +10,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::SequenceArray;
+use crate::SequenceArrayExt;
 use crate::array::SequenceVTable;
 
 impl MinMaxKernel for SequenceVTable {

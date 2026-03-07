@@ -8,12 +8,13 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsVTable;
 
 impl FilterReduce for DateTimePartsVTable {
     fn filter(array: &DateTimePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            DateTimePartsArray::try_new(
+            DateTimePartsVTable::try_new(
                 array.dtype().clone(),
                 array.days().filter(mask.clone())?,
                 array.seconds().filter(mask.clone())?,

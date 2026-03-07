@@ -14,6 +14,7 @@ use vortex_error::vortex_panic;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::ZigZagArray;
+use crate::ZigZagVTable;
 
 pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
     let validity = parray.validity().clone();
@@ -27,7 +28,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
             parray.ptype()
         ),
     };
-    ZigZagArray::try_new(encoded.into_array())
+    ZigZagVTable::try_new(encoded.into_array())
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(

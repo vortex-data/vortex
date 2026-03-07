@@ -158,13 +158,13 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::DecimalBytePartsArray;
+    use crate::DecimalBytePartsVTable;
 
     #[test]
     fn compare_decimal_const() {
         let decimal_dtype = DecimalDType::new(8, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let lhs = DecimalBytePartsArray::try_new(
+        let lhs = DecimalBytePartsVTable::try_new(
             PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
             decimal_dtype,
         )
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn test_byteparts_compare_nullable() -> VortexResult<()> {
         let decimal_type = DecimalDType::new(19, -11);
-        let lhs = DecimalBytePartsArray::try_new(
+        let lhs = DecimalBytePartsVTable::try_new(
             PrimitiveArray::new(
                 buffer![1i64, 2i64, 3i64, 4i64],
                 Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
@@ -215,7 +215,7 @@ mod tests {
     fn compare_decimal_const_unconvertible_comparison() {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let lhs = DecimalBytePartsArray::try_new(
+        let lhs = DecimalBytePartsVTable::try_new(
             PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
             decimal_dtype,
         )

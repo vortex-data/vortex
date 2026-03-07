@@ -36,6 +36,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
+use vortex_sequence::SequenceVTable;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -246,7 +247,7 @@ impl LayoutReader for RowIdxLayoutReader {
 
 // Returns a SequenceArray representing the row indices for the given row range,
 fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
-    SequenceArray::try_new(
+    SequenceVTable::try_new(
         PValue::U64(row_offset + row_range.start),
         PValue::U64(1),
         PType::U64,

@@ -179,7 +179,7 @@ impl VTable for ALPVTable {
             })
             .transpose()?;
 
-        ALPArray::try_new(
+        Self::try_new(
             encoded,
             Exponents {
                 e: u8::try_from(metadata.exp_e)?,
@@ -268,98 +268,15 @@ pub struct ALPArray {
 #[derive(Debug)]
 pub struct ALPVTable;
 
+#[allow(clippy::new_ret_no_self)]
 impl ALPVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
-}
 
-#[derive(Clone, prost::Message)]
-pub struct ALPMetadata {
-    #[prost(uint32, tag = "1")]
-    pub(crate) exp_e: u32,
-    #[prost(uint32, tag = "2")]
-    pub(crate) exp_f: u32,
-    #[prost(message, optional, tag = "3")]
-    pub(crate) patches: Option<PatchesMetadata>,
-}
-
-impl ALPArray {
-    fn validate(
-        encoded: &ArrayRef,
-        exponents: Exponents,
-        patches: Option<&Patches>,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            matches!(
-                encoded.dtype(),
-                DType::Primitive(PType::I32 | PType::I64, _)
-            ),
-            "ALP encoded ints have invalid DType {}",
-            encoded.dtype(),
-        );
-
-        // Validate exponents are in-bounds for the float, and that patches have the proper
-        // length and type.
-        let Exponents { e, f } = exponents;
-        match encoded.dtype().as_ptype() {
-            PType::I32 => {
-                vortex_ensure!(exponents.e <= f32::MAX_EXPONENT, "e out of bounds: {e}");
-                vortex_ensure!(exponents.f <= f32::MAX_EXPONENT, "f out of bounds: {f}");
-                if let Some(patches) = patches {
-                    Self::validate_patches::<f32>(patches, encoded)?;
-                }
-            }
-            PType::I64 => {
-                vortex_ensure!(e <= f64::MAX_EXPONENT, "e out of bounds: {e}");
-                vortex_ensure!(f <= f64::MAX_EXPONENT, "f out of bounds: {f}");
-
-                if let Some(patches) = patches {
-                    Self::validate_patches::<f64>(patches, encoded)?;
-                }
-            }
-            _ => unreachable!(),
-        }
-
-        // Validate patches
-        if let Some(patches) = patches {
-            vortex_ensure!(
-                patches.array_len() == encoded.len(),
-                "patches array_len != encoded len: {} != {}",
-                patches.array_len(),
-                encoded.len()
-            );
-
-            // Verify that the patches DType are of the proper DType.
-        }
-
-        Ok(())
-    }
-
-    /// Validate that any patches provided are valid for the ALPArray.
-    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
-        vortex_ensure!(
-            patches.array_len() == encoded.len(),
-            "patches array_len != encoded len: {} != {}",
-            patches.array_len(),
-            encoded.len()
-        );
-
-        let expected_type = DType::Primitive(T::PTYPE, encoded.dtype().nullability());
-        vortex_ensure!(
-            patches.dtype() == &expected_type,
-            "Expected patches type {expected_type}, actual {}",
-            patches.dtype(),
-        );
-
-        Ok(())
-    }
-}
-
-impl ALPArray {
     /// Build a new `ALPArray` from components, panicking on validation failure.
     ///
-    /// See [`ALPArray::try_new`] for reference on preconditions that must pass before
-    /// calling this method.
-    pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> Self {
+    /// See [`ALPVTable::try_new`] for reference on preconditions that must
+    /// pass before calling this method.
+    pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> ALPArray {
         Self::try_new(encoded, exponents, patches).vortex_expect("ALPArray new")
     }
 
@@ -385,12 +302,12 @@ impl ALPArray {
     /// # Examples
     ///
     /// ```
-    /// # use vortex_alp::{ALPArray, Exponents};
+    /// # use vortex_alp::{ALPArray, ALPVTable, Exponents};
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     ///
     /// // Returns error because buffer has wrong PType.
-    /// let result = ALPArray::try_new(
+    /// let result = ALPVTable::try_new(
     ///     buffer![1i8].into_array(),
     ///     Exponents { e: 1, f: 1 },
     ///     None
@@ -398,7 +315,7 @@ impl ALPArray {
     /// assert!(result.is_err());
     ///
     /// // Returns error because Exponents are out of bounds for f32
-    /// let result = ALPArray::try_new(
+    /// let result = ALPVTable::try_new(
     ///     buffer![1i32, 2i32].into_array(),
     ///     Exponents { e: 100, f: 100 },
     ///     None
@@ -406,7 +323,7 @@ impl ALPArray {
     /// assert!(result.is_err());
     ///
     /// // Success!
-    /// let value = ALPArray::try_new(
+    /// let value = ALPVTable::try_new(
     ///     buffer![0i32].into_array(),
     ///     Exponents { e: 1, f: 1 },
     ///     None
@@ -418,8 +335,8 @@ impl ALPArray {
         encoded: ArrayRef,
         exponents: Exponents,
         patches: Option<Patches>,
-    ) -> VortexResult<Self> {
-        Self::validate(&encoded, exponents, patches.as_ref())?;
+    ) -> VortexResult<ALPArray> {
+        validate_alp(&encoded, exponents, patches.as_ref())?;
 
         let dtype = match encoded.dtype() {
             DType::Primitive(PType::I32, nullability) => DType::Primitive(PType::F32, *nullability),
@@ -428,18 +345,144 @@ impl ALPArray {
         };
 
         let len = encoded.len();
-        Ok(Self {
+        Ok(ALPArray {
             common: ArrayCommon::new(len, dtype),
             encoded,
             exponents,
             patches,
         })
     }
+}
 
+#[derive(Clone, prost::Message)]
+pub struct ALPMetadata {
+    #[prost(uint32, tag = "1")]
+    pub(crate) exp_e: u32,
+    #[prost(uint32, tag = "2")]
+    pub(crate) exp_f: u32,
+    #[prost(message, optional, tag = "3")]
+    pub(crate) patches: Option<PatchesMetadata>,
+}
+
+fn validate_alp(
+    encoded: &ArrayRef,
+    exponents: Exponents,
+    patches: Option<&Patches>,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        matches!(
+            encoded.dtype(),
+            DType::Primitive(PType::I32 | PType::I64, _)
+        ),
+        "ALP encoded ints have invalid DType {}",
+        encoded.dtype(),
+    );
+
+    // Validate exponents are in-bounds for the float, and that patches have the proper
+    // length and type.
+    let Exponents { e, f } = exponents;
+    match encoded.dtype().as_ptype() {
+        PType::I32 => {
+            vortex_ensure!(exponents.e <= f32::MAX_EXPONENT, "e out of bounds: {e}");
+            vortex_ensure!(exponents.f <= f32::MAX_EXPONENT, "f out of bounds: {f}");
+            if let Some(patches) = patches {
+                validate_alp_patches::<f32>(patches, encoded)?;
+            }
+        }
+        PType::I64 => {
+            vortex_ensure!(e <= f64::MAX_EXPONENT, "e out of bounds: {e}");
+            vortex_ensure!(f <= f64::MAX_EXPONENT, "f out of bounds: {f}");
+
+            if let Some(patches) = patches {
+                validate_alp_patches::<f64>(patches, encoded)?;
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    // Validate patches
+    if let Some(patches) = patches {
+        vortex_ensure!(
+            patches.array_len() == encoded.len(),
+            "patches array_len != encoded len: {} != {}",
+            patches.array_len(),
+            encoded.len()
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_alp_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
+    vortex_ensure!(
+        patches.array_len() == encoded.len(),
+        "patches array_len != encoded len: {} != {}",
+        patches.array_len(),
+        encoded.len()
+    );
+
+    let expected_type = DType::Primitive(T::PTYPE, encoded.dtype().nullability());
+    vortex_ensure!(
+        patches.dtype() == &expected_type,
+        "Expected patches type {expected_type}, actual {}",
+        patches.dtype(),
+    );
+
+    Ok(())
+}
+
+/// Extension trait for [`ALPArray`] methods.
+pub trait ALPArrayExt: Sized {
+    /// Returns the primitive type of the array.
+    fn ptype(&self) -> PType;
+
+    /// Returns a reference to the encoded child array.
+    fn encoded(&self) -> &ArrayRef;
+
+    /// Returns the ALP exponents.
+    fn exponents(&self) -> Exponents;
+
+    /// Returns a reference to the patches, if any.
+    fn patches(&self) -> Option<&Patches>;
+
+    /// Consumes the array and returns its parts.
+    fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType);
+}
+
+impl ALPArrayExt for ALPArray {
+    fn ptype(&self) -> PType {
+        self.common.dtype().as_ptype()
+    }
+
+    fn encoded(&self) -> &ArrayRef {
+        &self.encoded
+    }
+
+    #[inline]
+    fn exponents(&self) -> Exponents {
+        self.exponents
+    }
+
+    fn patches(&self) -> Option<&Patches> {
+        self.patches.as_ref()
+    }
+
+    #[inline]
+    fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
+        (
+            self.encoded,
+            self.exponents,
+            self.patches,
+            self.common.into_dtype(),
+        )
+    }
+}
+
+impl ALPArray {
     /// Build a new `ALPArray` from components without validation.
     ///
-    /// See [`ALPArray::try_new`] for information about the preconditions that should be checked
-    /// **before** calling this method.
+    /// See [`ALPVTable::try_new`] for information about the preconditions
+    /// that should be checked **before** calling this method.
     pub(crate) unsafe fn new_unchecked(
         encoded: ArrayRef,
         exponents: Exponents,
@@ -453,34 +496,6 @@ impl ALPArray {
             exponents,
             patches,
         }
-    }
-
-    pub fn ptype(&self) -> PType {
-        self.common.dtype().as_ptype()
-    }
-
-    pub fn encoded(&self) -> &ArrayRef {
-        &self.encoded
-    }
-
-    #[inline]
-    pub fn exponents(&self) -> Exponents {
-        self.exponents
-    }
-
-    pub fn patches(&self) -> Option<&Patches> {
-        self.patches.as_ref()
-    }
-
-    /// Consumes the array and returns its parts.
-    #[inline]
-    pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
-        (
-            self.encoded,
-            self.exponents,
-            self.patches,
-            self.common.into_dtype(),
-        )
     }
 }
 
@@ -805,7 +820,7 @@ mod tests {
         .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
-        let alp_without_chunk_offsets = ALPArray::new(
+        let alp_without_chunk_offsets = ALPVTable::new(
             normally_encoded.encoded().clone(),
             normally_encoded.exponents(),
             Some(patches_without_chunk_offsets),

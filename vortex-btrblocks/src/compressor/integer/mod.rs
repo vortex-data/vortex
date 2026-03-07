@@ -25,16 +25,19 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::BitPackedArrayExt;
+use vortex_fastlanes::FoRArrayExt;
+use vortex_fastlanes::FoRVTable;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_sequence::sequence_encode;
-use vortex_sparse::SparseArray;
+use vortex_sparse::SparseArrayExt;
 use vortex_sparse::SparseVTable;
-use vortex_zigzag::ZigZagArray;
+use vortex_zigzag::ZigZagArrayExt;
+use vortex_zigzag::ZigZagVTable;
 use vortex_zigzag::zigzag_encode;
 
 use self::dictionary::dictionary_encode;
@@ -384,7 +387,7 @@ impl Scheme for FORScheme {
         ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        let for_array = FoRArray::encode(stats.src.clone())?;
+        let for_array = FoRVTable::encode(stats.src.clone())?;
         let biased = for_array.encoded().to_primitive();
         let biased_stats = IntegerStats::generate_opts(
             &biased,
@@ -404,7 +407,7 @@ impl Scheme for FORScheme {
         let compressed =
             BitPackingScheme.compress(compressor, &biased_stats, leaf_ctx, excludes)?;
 
-        let for_compressed = FoRArray::try_new(compressed, for_array.reference_scalar().clone())?;
+        let for_compressed = FoRVTable::try_new(compressed, for_array.reference_scalar().clone())?;
         for_compressed
             .as_ref()
             .statistics()
@@ -476,7 +479,7 @@ impl Scheme for ZigZagScheme {
 
         tracing::debug!("zigzag output: {}", compressed.encoding_id());
 
-        Ok(ZigZagArray::try_new(compressed)?.into_array())
+        Ok(ZigZagVTable::try_new(compressed)?.into_array())
     }
 }
 
@@ -600,7 +603,7 @@ impl Scheme for SparseScheme {
             .into_array());
         }
 
-        let sparse_encoded = SparseArray::encode(
+        let sparse_encoded = SparseVTable::encode(
             &stats.src.clone().into_array(),
             Some(Scalar::primitive_value(
                 top_pvalue,
@@ -628,7 +631,7 @@ impl Scheme for SparseScheme {
                 Excludes::int_only(&new_excludes),
             )?;
 
-            SparseArray::try_new(
+            SparseVTable::try_new(
                 compressed_indices,
                 compressed_values,
                 sparse.len(),
@@ -872,7 +875,7 @@ impl Scheme for PcoScheme {
         _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_pco::PcoArray::from_primitive(
+        Ok(vortex_pco::PcoVTable::from_primitive(
             stats.source(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,

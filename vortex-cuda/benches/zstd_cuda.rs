@@ -14,7 +14,9 @@ use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArrayExt;
 use vortex::encodings::zstd::ZstdArrayParts;
+use vortex::encodings::zstd::ZstdVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -58,7 +60,7 @@ fn make_zstd_array(num_strings: usize) -> VortexResult<(ZstdArray, usize)> {
     let zstd_compression_level = -10; // Less compression but faster.
     let zstd_array =
         // Disable dictionary as nvCOMP doesn't support ZSTD dictionaries.
-        ZstdArray::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
+        ZstdVTable::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
 
     Ok((zstd_array, uncompressed_size))
 }

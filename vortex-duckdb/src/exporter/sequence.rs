@@ -4,6 +4,7 @@
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::array::ExecutionCtx;
 use vortex::encodings::sequence::SequenceArray;
+use vortex::encodings::sequence::SequenceArrayExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
@@ -44,6 +45,7 @@ impl ColumnExporter for SequenceExporter {
 #[cfg(test)]
 mod tests {
     use vortex::dtype::Nullability;
+    use vortex::encodings::sequence::SequenceVTable;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -54,7 +56,7 @@ mod tests {
 
     #[test]
     fn test_sequence() {
-        let arr = SequenceArray::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
+        let arr = SequenceVTable::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr)

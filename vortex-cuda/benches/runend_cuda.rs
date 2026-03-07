@@ -24,6 +24,7 @@ use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::runend::RunEndVTable;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -54,7 +55,7 @@ where
     let ends_array = PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
     let values_array =
         PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-    RunEndArray::new(ends_array, values_array)
+    RunEndVTable::new(ends_array, values_array)
 }
 
 /// Benchmark run-end decoding for a specific type with varying run lengths

@@ -11,6 +11,7 @@ use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::FoRArray;
+use crate::FoRArrayExt;
 use crate::FoRVTable;
 
 /// FoR can express sortedness directly on its encoded form.
@@ -101,12 +102,13 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::FoRArray;
+    use crate::FoRArrayExt;
+    use crate::FoRVTable;
 
     #[test]
     fn test_sorted() {
         let a = PrimitiveArray::new(buffer![-1, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRArray::encode(a).unwrap();
+        let b = FoRVTable::encode(a).unwrap();
         assert!(
             is_sorted(&b.clone().into_array()).unwrap().unwrap(),
             "{}",
@@ -114,7 +116,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRArray::encode(a).unwrap();
+        let b = FoRVTable::encode(a).unwrap();
         assert!(
             is_sorted(&b.clone().into_array()).unwrap().unwrap(),
             "{}",
@@ -122,7 +124,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, 0, 30, 127], Validity::NonNullable);
-        let b = FoRArray::encode(a).unwrap();
+        let b = FoRVTable::encode(a).unwrap();
         assert!(
             is_sorted(&b.clone().into_array()).unwrap().unwrap(),
             "{}",
@@ -130,7 +132,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, -3, -1], Validity::NonNullable);
-        let b = FoRArray::encode(a).unwrap();
+        let b = FoRVTable::encode(a).unwrap();
         assert!(
             is_sorted(&b.clone().into_array()).unwrap().unwrap(),
             "{}",
@@ -138,7 +140,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, -3, -1], Validity::NonNullable);
-        let b = FoRArray::encode(a).unwrap();
+        let b = FoRVTable::encode(a).unwrap();
         assert!(
             is_sorted(&b.clone().into_array()).unwrap().unwrap(),
             "{}",
@@ -146,7 +148,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, -11, -1], Validity::NonNullable);
-        let b = FoRArray::encode(a).unwrap();
+        let b = FoRVTable::encode(a).unwrap();
         assert!(
             !is_sorted(&b.clone().into_array()).unwrap().unwrap(),
             "{}",
@@ -154,7 +156,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, i8::MIN, -1], Validity::NonNullable);
-        let b = FoRArray::encode(a).unwrap();
+        let b = FoRVTable::encode(a).unwrap();
         assert!(
             !is_sorted(&b.clone().into_array()).unwrap().unwrap(),
             "{}",

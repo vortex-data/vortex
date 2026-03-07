@@ -24,6 +24,7 @@ use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArrayExt;
 use vortex::encodings::zstd::ZstdArrayParts;
 use vortex::encodings::zstd::ZstdMetadata;
 use vortex::encodings::zstd::ZstdVTable;
@@ -345,7 +346,6 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::encodings::zstd::ZstdArray;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
@@ -366,7 +366,7 @@ mod tests {
             "baz",
         ]);
 
-        let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = ZstdVTable::from_var_bin_view(&strings, 3, 0)?;
 
         let cpu_result = zstd_array.decompress()?.to_canonical()?;
         let gpu_result = ZstdExecutor
@@ -401,7 +401,7 @@ mod tests {
 
         // Compress with ZSTD using values_per_frame=3 to create multiple frames.
         // 14 strings and 3 values per frame = ceil(14/3) = 5 frames.
-        let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 3)?;
+        let zstd_array = ZstdVTable::from_var_bin_view(&strings, 3, 3)?;
 
         let cpu_result = zstd_array.decompress()?.to_canonical()?;
         let gpu_result = ZstdExecutor
@@ -430,7 +430,7 @@ mod tests {
             "final test string",
         ]);
 
-        let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = ZstdVTable::from_var_bin_view(&strings, 3, 0)?;
 
         // Slice the array to get a subset (indices 2..7)
         let sliced_zstd = zstd_array.slice(2..7)?;

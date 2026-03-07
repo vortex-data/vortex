@@ -25,6 +25,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked;
 
 /// Unpacks a bit-packed array into a primitive array.
@@ -255,6 +256,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::BitPackedVTable;
     use crate::bitpack_compress::bitpack_encode;
 
     static SESSION: LazyLock<VortexSession> =
@@ -262,7 +264,7 @@ mod tests {
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed = BitPackedArray::encode(&values.clone().into_array(), 11).unwrap();
+        let compressed = BitPackedVTable::encode(&values.clone().into_array(), 11).unwrap();
         assert_arrays_eq!(compressed, values);
 
         values

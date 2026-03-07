@@ -439,6 +439,8 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::BitPackedArrayExt;
+    use crate::BitPackedVTable;
     use crate::bitpack_compress::test_harness::make_array;
 
     static SESSION: LazyLock<VortexSession> =
@@ -463,7 +465,7 @@ mod test {
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
-        let compressed = BitPackedArray::encode(&values.into_array(), 4).unwrap();
+        let compressed = BitPackedVTable::encode(&values.into_array(), 4).unwrap();
         assert!(compressed.patches().is_none());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
@@ -482,7 +484,7 @@ mod test {
         let array = PrimitiveArray::new(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        let err = BitPackedArray::encode(&array.into_array(), 1024u32.ilog2() as u8).unwrap_err();
+        let err = BitPackedVTable::encode(&array.into_array(), 1024u32.ilog2() as u8).unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 

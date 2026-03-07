@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 
 impl TakeExecute for RunEndVTable {
@@ -103,9 +104,10 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;
+    use crate::RunEndVTable;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
+        RunEndVTable::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
     }
 
     #[test]
@@ -153,10 +155,10 @@ mod test {
 
     #[rstest]
     #[case(ree_array())]
-    #[case(RunEndArray::encode(
+    #[case(RunEndVTable::encode(
         buffer![1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4].into_array(),
     ).unwrap())]
-    #[case(RunEndArray::encode(
+    #[case(RunEndVTable::encode(
         PrimitiveArray::from_option_iter([
             Some(10),
             Some(10),
@@ -168,9 +170,9 @@ mod test {
         ])
         .into_array(),
     ).unwrap())]
-    #[case(RunEndArray::encode(buffer![42i32, 42, 42, 42, 42].into_array())
+    #[case(RunEndVTable::encode(buffer![42i32, 42, 42, 42, 42].into_array())
         .unwrap())]
-    #[case(RunEndArray::encode(
+    #[case(RunEndVTable::encode(
         buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
     ).unwrap())]
     #[case({
@@ -180,7 +182,7 @@ mod test {
                 values.push(i);
             }
         }
-        RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
+        RunEndVTable::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
     })]
     fn test_take_runend_conformance(#[case] array: RunEndArray) {
         test_take_conformance(&array.into_array());
@@ -189,7 +191,7 @@ mod test {
     #[rstest]
     #[case(ree_array().slice(3..6).unwrap())]
     #[case({
-        let array = RunEndArray::encode(
+        let array = RunEndVTable::encode(
             buffer![1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].into_array(),
         )
         .unwrap();

@@ -17,14 +17,15 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
-use crate::ZstdArray;
+use crate::ZstdArrayExt;
+use crate::ZstdVTable;
 
 #[test]
 fn test_zstd_compress_decompress() {
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
 
-    let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
+    let compressed = ZstdVTable::from_primitive(&array, 3, 0).unwrap();
     // this data should be compressible
     assert!(compressed.frames.len() < array.nbytes() as usize);
     assert!(compressed.dictionary.is_none());
@@ -52,7 +53,7 @@ fn test_zstd_empty() {
         Validity::NonNullable,
     );
 
-    let compressed = ZstdArray::from_primitive(&array, 3, 100).unwrap();
+    let compressed = ZstdVTable::from_primitive(&array, 3, 100).unwrap();
 
     assert_arrays_eq!(compressed, PrimitiveArray::from_iter(data));
 }
@@ -68,7 +69,7 @@ fn test_zstd_with_validity_and_multi_frame() {
         Validity::Array(BoolArray::from_iter(validity).into_array()),
     );
 
-    let compressed = ZstdArray::from_primitive(&array, 0, 30).unwrap();
+    let compressed = ZstdVTable::from_primitive(&array, 0, 30).unwrap();
     assert!(compressed.dictionary.is_none());
     assert_nth_scalar!(compressed, 0, None::<i32>);
     assert_nth_scalar!(compressed, 3, 3);
@@ -102,7 +103,7 @@ fn test_zstd_with_dict() {
         Validity::NonNullable,
     );
 
-    let compressed = ZstdArray::from_primitive(&array, 0, 16).unwrap();
+    let compressed = ZstdVTable::from_primitive(&array, 0, 16).unwrap();
     assert!(compressed.dictionary.is_some());
     assert_nth_scalar!(compressed, 0, 0);
     assert_nth_scalar!(compressed, 199, 199);
@@ -123,7 +124,7 @@ fn test_validity_vtable() {
         (0..5).collect::<Buffer<_>>(),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
-    let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
+    let compressed = ZstdVTable::from_primitive(&array, 3, 0).unwrap();
     assert_eq!(
         compressed.validity_mask().unwrap(),
         Mask::from_iter(mask_bools)
@@ -145,7 +146,7 @@ fn test_zstd_var_bin_view() {
     ];
     let array = VarBinViewArray::from_iter(data, DType::Utf8(Nullability::Nullable));
 
-    let compressed = ZstdArray::from_var_bin_view(&array, 0, 3).unwrap();
+    let compressed = ZstdVTable::from_var_bin_view(&array, 0, 3).unwrap();
     assert!(compressed.dictionary.is_none());
     assert_nth_scalar!(compressed, 0, "foo");
     assert_nth_scalar!(compressed, 1, "bar");
@@ -170,7 +171,7 @@ fn test_zstd_decompress_var_bin_view() {
     ];
     let array = VarBinViewArray::from_iter(data, DType::Utf8(Nullability::Nullable));
 
-    let compressed = ZstdArray::from_var_bin_view(&array, 0, 3).unwrap();
+    let compressed = ZstdVTable::from_var_bin_view(&array, 0, 3).unwrap();
     assert!(compressed.dictionary.is_none());
     assert_nth_scalar!(compressed, 0, "foo");
     assert_nth_scalar!(compressed, 1, "bar");
@@ -189,7 +190,7 @@ fn test_zstd_decompress_var_bin_view() {
 fn test_sliced_array_children() {
     let data: Vec<Option<i32>> = (0..10).map(|v| (v != 5).then_some(v)).collect();
     let compressed =
-        ZstdArray::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100).unwrap();
+        ZstdVTable::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100).unwrap();
     let sliced = compressed.slice(0..4).unwrap();
     sliced.children();
 }
@@ -202,7 +203,7 @@ fn test_zstd_frame_start_buffer_alignment() {
     let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
     // u8 array now has a 8-byte alignment.
     let array = PrimitiveArray::new(aligned_buffer, Validity::NonNullable);
-    let compressed = ZstdArray::from_primitive(&array, 0, 1);
+    let compressed = ZstdVTable::from_primitive(&array, 0, 1);
 
     assert!(compressed.is_ok());
 }

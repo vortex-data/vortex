@@ -203,7 +203,7 @@ impl VTable for DateTimePartsVTable {
             len,
         )?;
 
-        DateTimePartsArray::try_new(dtype.clone(), days, seconds, subseconds)
+        Self::try_new(dtype.clone(), days, seconds, subseconds)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -264,15 +264,14 @@ pub struct DateTimePartsVTable;
 
 impl DateTimePartsVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.datetimeparts");
-}
 
-impl DateTimePartsArray {
+    /// Build a new `DateTimePartsArray` from components.
     pub fn try_new(
         dtype: DType,
         days: ArrayRef,
         seconds: ArrayRef,
         subseconds: ArrayRef,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<DateTimePartsArray> {
         if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {
             vortex_bail!(
                 "Expected integer with nullability {}, got {}",
@@ -297,14 +296,54 @@ impl DateTimePartsArray {
             );
         }
 
-        Ok(Self {
+        Ok(DateTimePartsArray {
             common: ArrayCommon::new(length, dtype),
             days,
             seconds,
             subseconds,
         })
     }
+}
 
+/// Extension trait for [`DateTimePartsArray`] methods.
+pub trait DateTimePartsArrayExt: Sized {
+    /// Consumes the array and returns its parts.
+    fn into_parts(self) -> DateTimePartsArrayParts;
+
+    /// Returns a reference to the days child array.
+    fn days(&self) -> &ArrayRef;
+
+    /// Returns a reference to the seconds child array.
+    fn seconds(&self) -> &ArrayRef;
+
+    /// Returns a reference to the subseconds child array.
+    fn subseconds(&self) -> &ArrayRef;
+}
+
+impl DateTimePartsArrayExt for DateTimePartsArray {
+    fn into_parts(self) -> DateTimePartsArrayParts {
+        DateTimePartsArrayParts {
+            dtype: self.common.into_dtype(),
+            days: self.days,
+            seconds: self.seconds,
+            subseconds: self.subseconds,
+        }
+    }
+
+    fn days(&self) -> &ArrayRef {
+        &self.days
+    }
+
+    fn seconds(&self) -> &ArrayRef {
+        &self.seconds
+    }
+
+    fn subseconds(&self) -> &ArrayRef {
+        &self.subseconds
+    }
+}
+
+impl DateTimePartsArray {
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         days: ArrayRef,
@@ -318,27 +357,6 @@ impl DateTimePartsArray {
             seconds,
             subseconds,
         }
-    }
-
-    pub fn into_parts(self) -> DateTimePartsArrayParts {
-        DateTimePartsArrayParts {
-            dtype: self.common.into_dtype(),
-            days: self.days,
-            seconds: self.seconds,
-            subseconds: self.subseconds,
-        }
-    }
-
-    pub fn days(&self) -> &ArrayRef {
-        &self.days
-    }
-
-    pub fn seconds(&self) -> &ArrayRef {
-        &self.seconds
-    }
-
-    pub fn subseconds(&self) -> &ArrayRef {
-        &self.subseconds
     }
 }
 

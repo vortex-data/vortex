@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsVTable;
 
 impl CastReduce for DateTimePartsVTable {
@@ -19,7 +20,7 @@ impl CastReduce for DateTimePartsVTable {
         };
 
         Ok(Some(
-            DateTimePartsArray::try_new(
+            DateTimePartsVTable::try_new(
                 dtype.clone(),
                 array
                     .days()

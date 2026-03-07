@@ -8,6 +8,7 @@ use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayExt;
 use crate::DateTimePartsArrayParts;
 use crate::DateTimePartsVTable;
 
@@ -21,7 +22,7 @@ impl MaskReduce for DateTimePartsVTable {
         } = array.clone().into_parts();
         let masked_days = days.mask(mask.clone())?;
         Ok(Some(
-            DateTimePartsArray::try_new(dtype.as_nullable(), masked_days, seconds, subseconds)?
+            DateTimePartsVTable::try_new(dtype.as_nullable(), masked_days, seconds, subseconds)?
                 .into_array(),
         ))
     }

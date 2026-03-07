@@ -9,7 +9,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
-use crate::ALPArray;
+use crate::ALPArrayExt;
 use crate::ALPVTable;
 
 impl SliceKernel for ALPVTable {
@@ -18,7 +18,7 @@ impl SliceKernel for ALPVTable {
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let sliced_alp = ALPArray::new(
+        let sliced_alp = ALPVTable::new(
             array.encoded().slice(range.clone())?,
             array.exponents(),
             array

@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ZigZagArray;
+use crate::ZigZagArrayExt;
 use crate::ZigZagVTable;
 
 impl CastReduce for ZigZagVTable {
@@ -20,7 +21,7 @@ impl CastReduce for ZigZagVTable {
         let new_encoded_dtype =
             DType::Primitive(dtype.as_ptype().to_unsigned(), dtype.nullability());
         let new_encoded = array.encoded().cast(new_encoded_dtype)?;
-        Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()))
+        Ok(Some(ZigZagVTable::try_new(new_encoded)?.into_array()))
     }
 }
 

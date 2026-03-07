@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::RunEndArray;
+use crate::RunEndArrayExt;
 use crate::RunEndVTable;
 use crate::compute::take::take_indices_unchecked;
 
@@ -123,9 +124,10 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::RunEndArray;
+    use crate::RunEndVTable;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
+        RunEndVTable::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()
@@ -138,7 +140,7 @@ mod tests {
 
         assert_arrays_eq!(
             filtered,
-            RunEndArray::new(
+            RunEndVTable::new(
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
                 PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
             )

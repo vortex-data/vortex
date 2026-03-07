@@ -8,7 +8,8 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use enum_iterator::Sequence;
-use vortex_alp::ALPArray;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPRDArrayExt;
 use vortex_alp::ALPVTable;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
@@ -27,7 +28,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_sparse::SparseArray;
+use vortex_sparse::SparseArrayExt;
 use vortex_sparse::SparseVTable;
 
 use self::dictionary::dictionary_encode;
@@ -343,7 +344,7 @@ impl Scheme for ALPScheme {
 
         let patches = alp.patches().map(compress_patches).transpose()?;
 
-        Ok(ALPArray::new(compressed_alp_ints, alp.exponents(), patches).into_array())
+        Ok(ALPVTable::new(compressed_alp_ints, alp.exponents(), patches).into_array())
     }
 }
 
@@ -501,7 +502,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated float arrays
-        let sparse_encoded = SparseArray::encode(&stats.src.clone().into_array(), None)?;
+        let sparse_encoded = SparseVTable::encode(&stats.src.clone().into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
@@ -516,7 +517,7 @@ impl Scheme for NullDominated {
                 Excludes::int_only(&new_excludes),
             )?;
 
-            SparseArray::try_new(
+            SparseVTable::try_new(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
@@ -545,7 +546,7 @@ impl Scheme for PcoScheme {
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_pco::PcoArray::from_primitive(
+        Ok(vortex_pco::PcoVTable::from_primitive(
             stats.source(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,

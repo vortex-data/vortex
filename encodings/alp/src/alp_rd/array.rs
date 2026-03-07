@@ -239,7 +239,7 @@ impl VTable for ALPRDVTable {
             })
             .transpose()?;
 
-        ALPRDArray::try_new(
+        Self::try_new(
             dtype.clone(),
             left_parts,
             left_parts_dictionary,
@@ -370,9 +370,7 @@ pub struct ALPRDVTable;
 
 impl ALPRDVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
-}
 
-impl ALPRDArray {
     /// Build a new `ALPRDArray` from components.
     pub fn try_new(
         dtype: DType,
@@ -381,7 +379,7 @@ impl ALPRDArray {
         right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<ALPRDArray> {
         if !dtype.is_float() {
             vortex_bail!("ALPRDArray given invalid DType ({dtype})");
         }
@@ -428,7 +426,7 @@ impl ALPRDArray {
             .transpose()?;
 
         let len = left_parts.len();
-        Ok(Self {
+        Ok(ALPRDArray {
             common: ArrayCommon::new(len, dtype),
             left_parts,
             left_parts_dictionary,
@@ -437,7 +435,66 @@ impl ALPRDArray {
             left_parts_patches,
         })
     }
+}
 
+/// Extension trait for [`ALPRDArray`] methods.
+pub trait ALPRDArrayExt {
+    /// Returns true if logical type of the array values is f32.
+    fn is_f32(&self) -> bool;
+
+    /// The leftmost (most significant) bits of the floating point values stored in the array.
+    fn left_parts(&self) -> &ArrayRef;
+
+    /// The rightmost (least significant) bits of the floating point values stored in the array.
+    fn right_parts(&self) -> &ArrayRef;
+
+    /// Returns the right bit width.
+    fn right_bit_width(&self) -> u8;
+
+    /// Patches of left-most bits.
+    fn left_parts_patches(&self) -> Option<&Patches>;
+
+    /// The dictionary that maps the codes in `left_parts` into bit patterns.
+    fn left_parts_dictionary(&self) -> &Buffer<u16>;
+
+    /// Replace the left parts patches.
+    fn replace_left_parts_patches(&mut self, patches: Option<Patches>);
+}
+
+impl ALPRDArrayExt for ALPRDArray {
+    #[inline]
+    fn is_f32(&self) -> bool {
+        matches!(self.common.dtype(), DType::Primitive(PType::F32, _))
+    }
+
+    fn left_parts(&self) -> &ArrayRef {
+        &self.left_parts
+    }
+
+    fn right_parts(&self) -> &ArrayRef {
+        &self.right_parts
+    }
+
+    #[inline]
+    fn right_bit_width(&self) -> u8 {
+        self.right_bit_width
+    }
+
+    fn left_parts_patches(&self) -> Option<&Patches> {
+        self.left_parts_patches.as_ref()
+    }
+
+    #[inline]
+    fn left_parts_dictionary(&self) -> &Buffer<u16> {
+        &self.left_parts_dictionary
+    }
+
+    fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
+        self.left_parts_patches = patches;
+    }
+}
+
+impl ALPRDArray {
     /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
     /// it constructs it from parts.
     pub(crate) unsafe fn new_unchecked(
@@ -457,47 +514,6 @@ impl ALPRDArray {
             right_parts,
             right_bit_width,
         }
-    }
-
-    /// Returns true if logical type of the array values is f32.
-    ///
-    /// Returns false if the logical type of the array values is f64.
-    #[inline]
-    pub fn is_f32(&self) -> bool {
-        matches!(self.common.dtype(), DType::Primitive(PType::F32, _))
-    }
-
-    /// The leftmost (most significant) bits of the floating point values stored in the array.
-    ///
-    /// These are bit-packed and dictionary encoded, and cannot directly be interpreted without
-    /// the metadata of this array.
-    pub fn left_parts(&self) -> &ArrayRef {
-        &self.left_parts
-    }
-
-    /// The rightmost (least significant) bits of the floating point values stored in the array.
-    pub fn right_parts(&self) -> &ArrayRef {
-        &self.right_parts
-    }
-
-    #[inline]
-    pub fn right_bit_width(&self) -> u8 {
-        self.right_bit_width
-    }
-
-    /// Patches of left-most bits.
-    pub fn left_parts_patches(&self) -> Option<&Patches> {
-        self.left_parts_patches.as_ref()
-    }
-
-    /// The dictionary that maps the codes in `left_parts` into bit patterns.
-    #[inline]
-    pub fn left_parts_dictionary(&self) -> &Buffer<u16> {
-        &self.left_parts_dictionary
-    }
-
-    pub fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
-        self.left_parts_patches = patches;
     }
 }
 

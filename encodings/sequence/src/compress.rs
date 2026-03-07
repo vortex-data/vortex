@@ -19,6 +19,8 @@ use vortex_buffer::trusted_len::TrustedLen;
 use vortex_error::VortexResult;
 
 use crate::SequenceArray;
+use crate::SequenceArrayExt;
+use crate::SequenceVTable;
 
 /// An iterator that yields `base, base + step, base + 2*step, ...` via repeated addition.
 struct SequenceIter<T> {
@@ -112,7 +114,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 ) -> VortexResult<Option<ArrayRef>> {
     if slice.len() == 1 {
         // The multiplier here can be any value, zero is chosen
-        return SequenceArray::try_new_typed(slice[0], P::zero(), nullability, 1)
+        return SequenceVTable::try_new_typed(slice[0], P::zero(), nullability, 1)
             .map(|a| Some(a.into_array()));
     }
     let base = slice[0];
@@ -133,7 +135,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         .windows(2)
         .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
         .then_some(
-            SequenceArray::try_new_typed(base, multiplier, nullability, slice.len())
+            SequenceVTable::try_new_typed(base, multiplier, nullability, slice.len())
                 .map(|a| a.into_array()),
         )
         .transpose()

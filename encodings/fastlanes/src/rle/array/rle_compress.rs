@@ -18,12 +18,11 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
+use crate::RLEVTable;
 
-impl RLEArray {
-    /// Encodes a primitive array of unsigned integers using FastLanes RLE.
-    pub fn encode(array: &PrimitiveArray) -> VortexResult<Self> {
-        match_each_native_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
-    }
+/// Encodes a primitive array of unsigned integers using FastLanes RLE.
+pub(crate) fn encode_rle(array: &PrimitiveArray) -> VortexResult<RLEArray> {
+    match_each_native_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
 }
 
 /// Encodes a primitive array of unsigned integers using FastLanes RLE.
@@ -100,7 +99,7 @@ where
     // SAFETY: NativeValue<T> is repr(transparent) to T.
     let values_buf = unsafe { values_buf.transmute::<T>().freeze() };
 
-    RLEArray::try_new(
+    RLEVTable::try_new(
         values_buf.into_array(),
         PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
         values_idx_offsets.into_array(),
@@ -144,13 +143,15 @@ mod tests {
     use vortex_buffer::Buffer;
 
     use super::*;
+    use crate::RLEArrayExt;
+    use crate::RLEVTable;
 
     #[test]
     fn test_encode_decode() {
         // u8
         let values_u8: Buffer<u8> = [1, 1, 2, 2, 3, 3].iter().copied().collect();
         let array_u8 = values_u8.into_array();
-        let encoded_u8 = RLEArray::encode(&array_u8.to_primitive()).unwrap();
+        let encoded_u8 = RLEVTable::encode(&array_u8.to_primitive()).unwrap();
         let decoded_u8 = encoded_u8.to_primitive();
         let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
         assert_arrays_eq!(decoded_u8, expected_u8);
@@ -158,7 +159,7 @@ mod tests {
         // u16
         let values_u16: Buffer<u16> = [100, 100, 200, 200].iter().copied().collect();
         let array_u16 = values_u16.into_array();
-        let encoded_u16 = RLEArray::encode(&array_u16.to_primitive()).unwrap();
+        let encoded_u16 = RLEVTable::encode(&array_u16.to_primitive()).unwrap();
         let decoded_u16 = encoded_u16.to_primitive();
         let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
         assert_arrays_eq!(decoded_u16, expected_u16);
@@ -166,7 +167,7 @@ mod tests {
         // u64
         let values_u64: Buffer<u64> = [1000, 1000, 2000].iter().copied().collect();
         let array_u64 = values_u64.into_array();
-        let encoded_u64 = RLEArray::encode(&array_u64.to_primitive()).unwrap();
+        let encoded_u64 = RLEVTable::encode(&array_u64.to_primitive()).unwrap();
         let decoded_u64 = encoded_u64.to_primitive();
         let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
         assert_arrays_eq!(decoded_u64, expected_u64);
@@ -176,7 +177,7 @@ mod tests {
     fn test_length() {
         let values: Buffer<u32> = [1, 1, 2, 2, 2, 3].iter().copied().collect();
         let array = values.into_array();
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEVTable::encode(&array.to_primitive()).unwrap();
         assert_eq!(encoded.len(), 6);
     }
 
@@ -184,7 +185,7 @@ mod tests {
     fn test_empty_length() {
         let values: Buffer<u32> = Buffer::empty();
         let array = values.into_array();
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEVTable::encode(&array.to_primitive()).unwrap();
 
         assert_eq!(encoded.len(), 0);
         assert_eq!(encoded.values().len(), 0);
@@ -195,7 +196,7 @@ mod tests {
         let values: Buffer<u16> = vec![42; 2000].into_iter().collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEVTable::encode(&array.to_primitive()).unwrap();
         assert_eq!(encoded.values().len(), 2); // 2 chunks, each storing value 42
 
         let decoded = encoded.to_primitive(); // Verify round-trip
@@ -208,7 +209,7 @@ mod tests {
         let values: Buffer<u8> = (0u8..=255).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEVTable::encode(&array.to_primitive()).unwrap();
         assert_eq!(encoded.values().len(), 256);
 
         let decoded = encoded.to_primitive(); // Verify round-trip
@@ -222,7 +223,7 @@ mod tests {
         let values: Buffer<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEVTable::encode(&array.to_primitive()).unwrap();
 
         assert_eq!(encoded.len(), 1500);
         assert_arrays_eq!(encoded, array);
@@ -236,7 +237,7 @@ mod tests {
         let values: Buffer<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEVTable::encode(&array.to_primitive()).unwrap();
 
         assert_eq!(encoded.len(), 2048);
         assert_arrays_eq!(encoded, array);
@@ -257,7 +258,7 @@ mod tests {
     #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
     fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) {
         let primitive = values.clone().into_array().to_primitive();
-        let result = RLEArray::encode(&primitive).unwrap();
+        let result = RLEVTable::encode(&primitive).unwrap();
         let decoded = result.to_primitive();
         let expected = PrimitiveArray::new(values, primitive.validity().clone());
         assert_arrays_eq!(decoded, expected);
@@ -271,7 +272,7 @@ mod tests {
     #[case(vec![0f64, -0f64])]
     fn test_float_zeros<T: NativePType + RLE>(#[case] values: Vec<T>) {
         let primitive = PrimitiveArray::from_iter(values);
-        let rle = RLEArray::encode(&primitive).unwrap();
+        let rle = RLEVTable::encode(&primitive).unwrap();
         let decoded = rle.to_primitive();
         assert_arrays_eq!(primitive, decoded);
     }

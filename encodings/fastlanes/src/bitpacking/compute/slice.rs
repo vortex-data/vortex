@@ -11,6 +11,7 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::BitPackedVTable;
 
 impl SliceKernel for BitPackedVTable {
@@ -63,6 +64,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::BitPackedArrayExt;
     use crate::BitPackedVTable;
     use crate::bitpack_compress::bitpack_encode;
 

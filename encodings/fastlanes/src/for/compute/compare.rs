@@ -23,6 +23,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use crate::FoRArray;
+use crate::FoRArrayExt;
 use crate::FoRVTable;
 
 impl CompareKernel for FoRVTable {
@@ -104,7 +105,7 @@ mod tests {
     fn test_compare_constant() {
         let reference = Scalar::from(10);
         // 10, 30, 12
-        let lhs = FoRArray::try_new(
+        let lhs = FoRVTable::try_new(
             PrimitiveArray::new(buffer!(0i32, 20, 2), Validity::AllValid).into_array(),
             reference,
         )
@@ -143,7 +144,7 @@ mod tests {
     fn test_compare_nullable_constant() {
         let reference = Scalar::from(0);
         // 10, 30, 12
-        let lhs = FoRArray::try_new(
+        let lhs = FoRVTable::try_new(
             PrimitiveArray::new(buffer!(0i32, 20, 2), Validity::NonNullable).into_array(),
             reference,
         )
@@ -169,7 +170,7 @@ mod tests {
     fn compare_non_encodable_constant() {
         let reference = Scalar::from(10);
         // 10, 30, 12
-        let lhs = FoRArray::try_new(
+        let lhs = FoRVTable::try_new(
             PrimitiveArray::new(buffer!(0i32, 10, 1), Validity::AllValid).into_array(),
             reference,
         )
@@ -198,7 +199,7 @@ mod tests {
     fn compare_large_constant() {
         let reference = Scalar::from(-9219218377546224477i64);
         #[allow(clippy::cast_possible_truncation)]
-        let lhs = FoRArray::try_new(
+        let lhs = FoRVTable::try_new(
             PrimitiveArray::new(
                 buffer![0i64, 9654309310445864926u64 as i64],
                 Validity::AllValid,

@@ -17,6 +17,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::array::DateTimePartsArray;
+use crate::array::DateTimePartsArrayExt;
 use crate::array::DateTimePartsVTable;
 use crate::timestamp;
 
@@ -312,7 +313,7 @@ mod test {
             Some("UTC".into()),
         );
 
-        let lhs = DateTimePartsArray::try_new(
+        let lhs = DateTimePartsVTable::try_new(
             DType::Extension(temporal_array.ext_dtype()),
             PrimitiveArray::new(buffer![0i32], lhs_validity).into_array(),
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
