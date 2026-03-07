@@ -26,11 +26,11 @@ pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
 pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
 
-    pub(super) kernels:
-        RwLock<HashMap<(ArrayId, Option<AggregateFnId>), &'static dyn DynAggregateKernel>>,
-    pub(super) grouped_kernels:
-        RwLock<HashMap<(ArrayId, Option<AggregateFnId>), &'static dyn DynGroupedAggregateKernel>>,
+    pub(super) kernels: RwLock<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
+    pub(super) grouped_kernels: RwLock<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
 }
+
+type KernelKey = (ArrayId, Option<AggregateFnId>);
 
 impl Default for AggregateFnSession {
     fn default() -> Self {
@@ -41,7 +41,7 @@ impl Default for AggregateFnSession {
         };
 
         // Register the built-in aggregate kernels.
-        this.register_aggregate_kernel(ChunkedVTable::ID.clone(), None, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(ChunkedVTable::ID, None, &ChunkedArrayAggregate);
 
         this
     }

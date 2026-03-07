@@ -19,7 +19,6 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
-use crate::arrays::chunked_initialize;
 use crate::vtable::ArrayId;
 use crate::vtable::DynVTable;
 

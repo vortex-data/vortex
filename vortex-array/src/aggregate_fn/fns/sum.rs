@@ -410,8 +410,7 @@ mod tests {
     }
 
     fn run_sum(batch: &ArrayRef) -> VortexResult<Scalar> {
-        let mut acc =
-            Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone(), session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone(), session())?;
         acc.accumulate(batch)?;
         acc.finish()
     }

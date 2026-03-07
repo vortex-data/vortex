@@ -57,8 +57,7 @@ mod tests {
     }
 
     fn run_sum(batch: &crate::ArrayRef) -> VortexResult<Scalar> {
-        let mut acc =
-            Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone(), session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone(), session())?;
         acc.accumulate(batch)?;
         acc.finish()
     }
@@ -217,10 +216,7 @@ mod tests {
     #[test]
     fn sum_chunked_checked_overflow() -> VortexResult<()> {
         let chunked = ChunkedArray::try_new(
-            vec![
-                buffer![i64::MAX].into_array(),
-                buffer![1i64].into_array(),
-            ],
+            vec![buffer![i64::MAX].into_array(), buffer![1i64].into_array()],
             DType::Primitive(PType::I64, Nullability::NonNullable),
         )?;
         let result = run_sum(&chunked.into_array())?;
@@ -231,17 +227,11 @@ mod tests {
     #[test]
     fn sum_chunked_nested() -> VortexResult<()> {
         let inner = ChunkedArray::try_new(
-            vec![
-                buffer![1i32, 2].into_array(),
-                buffer![3i32].into_array(),
-            ],
+            vec![buffer![1i32, 2].into_array(), buffer![3i32].into_array()],
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )?;
         let outer = ChunkedArray::try_new(
-            vec![
-                inner.into_array(),
-                buffer![4i32, 5, 6].into_array(),
-            ],
+            vec![inner.into_array(), buffer![4i32, 5, 6].into_array()],
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )?;
         let result = run_sum(&outer.into_array())?;
