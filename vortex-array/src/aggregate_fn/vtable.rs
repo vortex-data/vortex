@@ -12,7 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Canonical;
+use crate::Columnar;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -95,7 +95,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn accumulate(
         &self,
         state: &mut Self::Partial,
-        batch: &Canonical,
+        batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
 
