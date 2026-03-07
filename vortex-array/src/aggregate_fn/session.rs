@@ -15,7 +15,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::arrays::ChunkedVTable;
-use crate::arrays::aggregate::ChunkedArrayAggregate;
+use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::vtable::ArrayId;
 
 /// Registry of aggregate function vtables.
@@ -40,6 +40,7 @@ impl Default for AggregateFnSession {
             grouped_kernels: RwLock::new(HashMap::default()),
         };
 
+        // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(ChunkedVTable::ID.clone(), None, &ChunkedArrayAggregate);
 
         this

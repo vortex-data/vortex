@@ -4,12 +4,10 @@
 mod array;
 pub use array::ChunkedArray;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::ChunkedVTable;
-
-pub(crate) mod aggregate;
 
 #[cfg(test)]
 mod tests;
