@@ -175,10 +175,13 @@ impl VortexOpenOptions {
             None => block_on(opts.read_footer(&buffer))?,
         };
 
-        let segment_source = Arc::new(SharedSegmentSource::new(BufferSegmentSource::new(
+        // SharedSegmentSource is used in other cases to deduplicate concurrent
+        // I/O requests for the same segment. For in-memory buffers, segment
+        // resolution corresponds to pointer arithmetic on the in-memory buffer.
+        let segment_source = Arc::new(BufferSegmentSource::new(
             buffer,
             footer.segment_map().clone(),
-        )));
+        ));
 
         Ok(VortexFile {
             footer,
