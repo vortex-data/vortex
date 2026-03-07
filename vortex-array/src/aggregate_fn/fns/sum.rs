@@ -70,6 +70,8 @@ impl AggregateFnVTable for Sum {
 
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
         if other.is_null() {
+            // A null partial means the sub-accumulator saturated (overflow).
+            partial.current = None;
             return Ok(());
         }
         let Some(ref mut inner) = partial.current else {
@@ -80,21 +82,21 @@ impl AggregateFnVTable for Sum {
                 let val = other
                     .as_primitive()
                     .typed_value::<u64>()
-                    .ok_or_else(|| vortex_err!("Expected u64 scalar for unsigned sum merge"))?;
+                    .vortex_expect("checked non-null");
                 checked_add_u64(acc, val)
             }
             SumState::Signed(acc) => {
                 let val = other
                     .as_primitive()
                     .typed_value::<i64>()
-                    .ok_or_else(|| vortex_err!("Expected i64 scalar for signed sum merge"))?;
+                    .vortex_expect("checked non-null");
                 checked_add_i64(acc, val)
             }
             SumState::Float(acc) => {
                 let val = other
                     .as_primitive()
                     .typed_value::<f64>()
-                    .ok_or_else(|| vortex_err!("Expected f64 scalar for float sum merge"))?;
+                    .vortex_expect("checked non-null");
                 *acc += val;
                 false
             }
@@ -102,7 +104,7 @@ impl AggregateFnVTable for Sum {
                 let val = other
                     .as_decimal()
                     .decimal_value()
-                    .ok_or_else(|| vortex_err!("Expected decimal scalar for decimal sum merge"))?;
+                    .vortex_expect("checked non-null");
                 match acc.checked_add(&val) {
                     Some(r) => {
                         *acc = r;

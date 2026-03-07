@@ -54,7 +54,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::fmt(&self, f: &mut core::fmt::
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::sum::Sum
 
-pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggregate_fn::fns::sum::SumOptions
+pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggregate_fn::EmptyOptions
 
 pub type vortex_array::aggregate_fn::fns::sum::Sum::Partial = vortex_array::aggregate_fn::fns::sum::SumPartial
 
@@ -64,7 +64,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::combine_partials(&self, partia
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -82,33 +82,19 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: 
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub struct vortex_array::aggregate_fn::fns::sum::SumOptions
-
-impl core::clone::Clone for vortex_array::aggregate_fn::fns::sum::SumOptions
-
-pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::clone(&self) -> vortex_array::aggregate_fn::fns::sum::SumOptions
-
-impl core::cmp::Eq for vortex_array::aggregate_fn::fns::sum::SumOptions
-
-impl core::cmp::PartialEq for vortex_array::aggregate_fn::fns::sum::SumOptions
-
-pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::eq(&self, other: &vortex_array::aggregate_fn::fns::sum::SumOptions) -> bool
-
-impl core::fmt::Debug for vortex_array::aggregate_fn::fns::sum::SumOptions
-
-pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::aggregate_fn::fns::sum::SumOptions
-
-pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::aggregate_fn::fns::sum::SumOptions
-
-pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::fns::sum::SumOptions
-
 pub struct vortex_array::aggregate_fn::fns::sum::SumPartial
+
+pub mod vortex_array::aggregate_fn::kernels
+
+pub trait vortex_array::aggregate_fn::kernels::DynAggregateKernel: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::aggregate_fn::kernels::DynAggregateKernel::aggregate(&self, aggregate_fn: &vortex_array::aggregate_fn::AggregateFnRef, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
+pub trait vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel::grouped_aggregate(&self, aggregate_fn: &vortex_array::aggregate_fn::AggregateFnRef, groups: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub fn vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel::grouped_aggregate_fixed_size(&self, aggregate_fn: &vortex_array::aggregate_fn::AggregateFnRef, groups: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::aggregate_fn::session
 
@@ -118,11 +104,13 @@ impl vortex_array::aggregate_fn::session::AggregateFnSession
 
 pub fn vortex_array::aggregate_fn::session::AggregateFnSession::register<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self, vtable: V)
 
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::register_aggregate_kernel(&self, array_id: vortex_array::vtable::ArrayId, agg_fn_id: core::option::Option<vortex_array::aggregate_fn::AggregateFnId>, kernel: &'static dyn vortex_array::aggregate_fn::kernels::DynAggregateKernel)
+
 pub fn vortex_array::aggregate_fn::session::AggregateFnSession::registry(&self) -> &vortex_array::aggregate_fn::session::AggregateFnRegistry
 
 impl core::default::Default for vortex_array::aggregate_fn::session::AggregateFnSession
 
-pub fn vortex_array::aggregate_fn::session::AggregateFnSession::default() -> vortex_array::aggregate_fn::session::AggregateFnSession
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::default() -> Self
 
 impl core::fmt::Debug for vortex_array::aggregate_fn::session::AggregateFnSession
 
@@ -324,7 +312,7 @@ pub fn vortex_array::aggregate_fn::AggregateFnVTable::serialize(&self, options: 
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::sum::Sum
 
-pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggregate_fn::fns::sum::SumOptions
+pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggregate_fn::EmptyOptions
 
 pub type vortex_array::aggregate_fn::fns::sum::Sum::Partial = vortex_array::aggregate_fn::fns::sum::SumPartial
 
@@ -334,7 +322,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::combine_partials(&self, partia
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
