@@ -4081,6 +4081,8 @@ dependencies = [
  "clap",
  "cudarc",
  "futures",
+ "io-uring",
+ "libc",
  "memmap2",
  "mimalloc",
  "tokio",
@@ -4088,6 +4090,7 @@ dependencies = [
  "tracing-perfetto",
  "tracing-subscriber",
  "vortex",
+ "vortex-array",
  "vortex-cuda",
 ]
 
@@ -4677,6 +4680,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009ae045c87e7082cb72dab0ccd01ae075dd00141ddc108f43a0ea150a9e7227"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "io-uring"
+version = "0.7.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdd7bddefd0a8833b88a4b68f90dae22c7450d11b354198baee3874fd811b344"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
