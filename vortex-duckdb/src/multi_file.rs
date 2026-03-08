@@ -25,7 +25,7 @@ use crate::filesystem::resolve_filesystem;
 /// bare file paths. For bare paths the portion of the path before any glob character (`*`, `?`,
 /// `[`) is canonicalized so that relative paths such as `./data/*.vortex` are resolved to
 /// absolute paths before conversion.
-pub(crate) fn parse_glob_url(glob_url_str: &str) -> VortexResult<Url> {
+fn parse_glob_url(glob_url_str: &str) -> VortexResult<Url> {
     Url::parse(glob_url_str).or_else(|_| {
         let path = canonicalize_path_prefix(glob_url_str)?;
         // from_file_path only fails when the path is not absolute, which cannot happen after
