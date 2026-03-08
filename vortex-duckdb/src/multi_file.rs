@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use url::Url;
@@ -22,25 +22,55 @@ use crate::filesystem::resolve_filesystem;
 /// Parse a glob string into a [`Url`].
 ///
 /// Accepts full URLs (e.g. `s3://bucket/prefix/*.vortex`, `file:///data/*.vortex`) as well as
-/// bare file paths. For bare paths that contain no glob characters the path is first canonicalized
-/// so that relative paths (e.g. `./data/file.vortex`) are resolved to absolute paths before
-/// conversion. Paths that already contain glob characters (`*`, `?`, `[`) are used as-is because
-/// [`std::fs::canonicalize`] would fail on a non-existent glob pattern; note that such paths must
-/// be absolute for the conversion to succeed.
+/// bare file paths. For bare paths the portion of the path before any glob character (`*`, `?`,
+/// `[`) is canonicalized so that relative paths such as `./data/*.vortex` are resolved to
+/// absolute paths before conversion.
 pub(crate) fn parse_glob_url(glob_url_str: &str) -> VortexResult<Url> {
     Url::parse(glob_url_str).or_else(|_| {
-        let path = Path::new(glob_url_str);
-
-        let path = if glob_url_str.contains(['*', '?', '[']) {
-            path.to_path_buf()
-        } else {
-            std::fs::canonicalize(path)
-                .map_err(|_| vortex_err!("Neither URL nor path: '{}'", glob_url_str))?
-        };
-
-        Url::from_file_path(path)
-            .map_err(|_| vortex_err!("Neither URL nor path: '{}'", glob_url_str))
+        let path = canonicalize_path_prefix(glob_url_str)?;
+        // from_file_path only fails when the path is not absolute, which cannot happen after
+        // canonicalization, so this error is purely defensive.
+        Url::from_file_path(&path)
+            .map_err(|_| vortex_err!("Neither URL nor valid path: '{}'", glob_url_str))
     })
+}
+
+/// Canonicalize the non-glob prefix of `path_str` and return the resulting absolute path.
+///
+/// For paths without any glob characters the whole path is canonicalized. For paths that contain
+/// glob characters (`*`, `?`, `[`) the directory portion that precedes the first glob character
+/// is canonicalized and the remaining glob suffix is appended unchanged. This allows relative glob
+/// patterns such as `./data/*.vortex` to be resolved correctly.
+fn canonicalize_path_prefix(path_str: &str) -> VortexResult<PathBuf> {
+    let first_glob_char_pos = path_str.find(['*', '?', '[']);
+
+    let Some(first_glob_char_pos) = first_glob_char_pos else {
+        // No glob characters — canonicalize the whole path.
+        return std::fs::canonicalize(path_str)
+            .map_err(|e| vortex_err!("Cannot resolve path '{}': {}", path_str, e));
+    };
+
+    // Find the last path separator before the first glob character to split the string into a
+    // concrete directory prefix and a glob suffix.
+    let last_separator_before_glob =
+        path_str[..first_glob_char_pos].rfind(std::path::MAIN_SEPARATOR);
+
+    let (dir_prefix, glob_suffix) = match last_separator_before_glob {
+        Some(sep_pos) => (&path_str[..sep_pos], &path_str[sep_pos + 1..]),
+        // No separator before the glob (e.g. `*.vortex`); canonicalize the current directory.
+        None => (".", path_str),
+    };
+
+    let canonical_dir = std::fs::canonicalize(dir_prefix).map_err(|e| {
+        vortex_err!(
+            "Cannot resolve directory '{}' in glob pattern '{}': {}",
+            dir_prefix,
+            path_str,
+            e
+        )
+    })?;
+
+    Ok(canonical_dir.join(glob_suffix))
 }
 
 /// Vortex multi-file scan table function (`vortex_scan` / `read_vortex`).
@@ -105,10 +135,11 @@ mod tests {
 
     #[test]
     fn test_parse_glob_url_absolute_glob_path() -> VortexResult<()> {
-        // Absolute paths with glob characters are used as-is (no canonicalize).
-        let url = parse_glob_url("/tmp/data/*.vortex")?;
+        let tmpdir = tempfile::tempdir().unwrap();
+        let glob = format!("{}/*.vortex", tmpdir.path().display());
+        let url = parse_glob_url(&glob)?;
         assert_eq!(url.scheme(), "file");
-        assert_eq!(url.path(), "/tmp/data/*.vortex");
+        assert!(url.path().ends_with("/*.vortex"));
         Ok(())
     }
 
@@ -135,6 +166,20 @@ mod tests {
         // The relative name must have been resolved to an absolute path.
         assert!(url.path().ends_with(filename));
         assert!(url.path().starts_with('/'));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_glob_url_relative_glob_path() -> VortexResult<()> {
+        // A relative path with a glob character (e.g. `./data/*.vortex`) must also resolve
+        // correctly; this was broken before the canonicalize-prefix fix.
+        let tmpdir = tempfile::tempdir_in(".").unwrap();
+        let dir_name = tmpdir.path().file_name().unwrap().to_str().unwrap();
+        let glob = format!("./{dir_name}/*.vortex");
+        let url = parse_glob_url(&glob)?;
+        assert_eq!(url.scheme(), "file");
+        assert!(url.path().starts_with('/'));
+        assert!(url.path().ends_with("/*.vortex"));
         Ok(())
     }
 
