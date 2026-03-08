@@ -1277,3 +1277,185 @@ fn sync_decode_to_struct_batches(
 
         let mut leaves = Vec::new();
         collect_flat_leaves(&field_layout, &mut leaves)?;
+        if leaves.is_empty() {
+            continue;
+        }
+
+        let mut chunks = Vec::new();
+        for leaf in &leaves {
+            let (array_tree, segment) = resolve_leaf_segment(leaf, segment_source.as_ref())?;
+            let parts = if array_tree.is_empty() {
+                ArrayParts::try_from(segment)?
+            } else {
+                ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
+            };
+            let array = parts.decode(&leaf.dtype, leaf.row_count as usize, &leaf.ctx, session)?;
+            chunks.push(array);
+        }
+
+        let col_array = if chunks.len() == 1 {
+            chunks.into_iter().next().unwrap()
+        } else {
+            ChunkedArray::from_iter(chunks).into_array()
+        };
+
+        // Leak is fine for tests — the &str lives for the process lifetime.
+        let name_str: &'static str = Box::leak(field_names[col_name_idx].clone().into_boxed_str());
+        column_arrays.push((name_str, col_array));
+        col_name_idx += 1;
+    }
+
+    let batch = vortex::array::arrays::StructArray::from_fields(&column_arrays)?.into_array();
+    Ok(vec![batch])
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::StreamExt;
+    use vortex::VortexSessionDefault;
+    use vortex::array::arrays::{PrimitiveArray, StructArray};
+    use vortex::array::stream::ArrayStreamAdapter;
+    use vortex::array::{ArrayRef, IntoArray};
+    use vortex::buffer::Buffer;
+    use vortex::dtype::Nullability::NonNullable;
+    use vortex::error::VortexResult;
+    use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt, WriteStrategyBuilder};
+    use vortex::io::session::RuntimeSessionExt;
+    use vortex::scan::SplitBy;
+    use vortex::session::VortexSession;
+    use vortex_cuda::layout::{CudaFlatLayoutStrategy, register_cuda_layout};
+
+    use super::*;
+
+    /// Shared session + CUDA context for tests.
+    fn test_session() -> (VortexSession, CudaExecutionCtx) {
+        let session = VortexSession::default().with_tokio();
+        register_cuda_layout(&session);
+        let cuda_ctx = CudaSession::create_execution_ctx(&session).unwrap();
+        (session, cuda_ctx)
+    }
+
+    /// Write a small CUDA-compatible vortex file with two primitive columns.
+    fn write_test_file(path: &Path, session: &VortexSession) -> VortexResult<()> {
+        let batch = StructArray::from_fields(&[
+            (
+                "a",
+                PrimitiveArray::new(
+                    Buffer::from(vec![1i32, 2, 3, 4, 5, 6, 7, 8]),
+                    NonNullable.into(),
+                )
+                .into_array(),
+            ),
+            (
+                "b",
+                PrimitiveArray::new(
+                    Buffer::from(vec![10i64, 20, 30, 40, 50, 60, 70, 80]),
+                    NonNullable.into(),
+                )
+                .into_array(),
+            ),
+        ])?
+        .into_array();
+
+        let strategy = WriteStrategyBuilder::default()
+            .with_cuda_compatible_encodings()
+            .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+            .build();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let mut out = tokio::fs::File::create(path).await?;
+            session
+                .write_options()
+                .with_strategy(strategy)
+                .write(
+                    &mut out,
+                    ArrayStreamAdapter::new(
+                        batch.dtype().clone(),
+                        futures::stream::once(async { Ok(batch) }),
+                    ),
+                )
+                .await
+        })?;
+        Ok(())
+    }
+
+    /// Decode via the standard tokio multi-threaded async scan pipeline.
+    fn tokio_mt_decode(path: &Path, session: &VortexSession) -> VortexResult<Vec<ArrayRef>> {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let buf = ByteBuffer::from(Bytes::from(std::fs::read(path)?));
+            let vf = session.open_options().open_buffer(buf)?;
+            let mut stream = vf
+                .scan()?
+                .with_split_by(SplitBy::RowCount(1_000_000))
+                .into_array_stream()?;
+            let mut out = Vec::new();
+            while let Some(batch) = stream.next().await.transpose()? {
+                out.push(batch);
+            }
+            Ok(out)
+        })
+    }
+
+    /// Decode via the synchronous io_uring path.
+    fn sync_io_uring_decode(path: &Path, session: &VortexSession) -> VortexResult<Vec<ArrayRef>> {
+        let buf = io_uring_read_file(path, true)?;
+        let vf = session.open_options().open_buffer(buf)?;
+        sync_decode_to_struct_batches(&vf, session)
+    }
+
+    #[test]
+    fn test_io_uring_read_file_matches_std_read() -> VortexResult<()> {
+        let dir = std::env::temp_dir().join("gpu_scan_bench_test_io_uring");
+        std::fs::create_dir_all(&dir).ok();
+        let path = dir.join("io_uring_test.bin");
+
+        // Write a file with known content.
+        let n = 256 * 1024; // 256 KB — large enough to exercise chunked io_uring reads
+        let expected: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &expected)?;
+
+        // Need CUDA context for cuMemAllocHost.
+        let (_session, _cuda_ctx) = test_session();
+
+        // Read via io_uring + O_DIRECT.
+        let buf = io_uring_read_file(&path, true)?;
+
+        assert_eq!(buf.len(), expected.len(), "length mismatch");
+        assert_eq!(buf.as_slice(), expected.as_slice(), "content mismatch");
+
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_dir(&dir).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn test_tokio_mt_vs_sync_io_uring_produce_same_data() -> VortexResult<()> {
+        let dir = std::env::temp_dir().join("gpu_scan_bench_test");
+        std::fs::create_dir_all(&dir).ok();
+        let path = dir.join("test.vortex");
+
+        let (session, _cuda_ctx) = test_session();
+        write_test_file(&path, &session)?;
+
+        let tokio_batches = tokio_mt_decode(&path, &session)?;
+        let uring_batches = sync_io_uring_decode(&path, &session)?;
+
+        assert_eq!(tokio_batches.len(), 1, "expected 1 tokio-mt batch");
+        assert_eq!(uring_batches.len(), 1, "expected 1 sync-iouring batch");
+        vortex_array::assert_arrays_eq!(tokio_batches[0], uring_batches[0]);
+
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_dir(&dir).ok();
+        Ok(())
+    }
+}
