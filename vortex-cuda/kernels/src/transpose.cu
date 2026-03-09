@@ -42,6 +42,7 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
     const uint32_t n_chunks = (array_len + 1023) / 1024; // div_ceil(array_len, 1024)
     const uint32_t n_lanes = patch_lanes<ValueT>();
     const uint32_t num_slots = n_chunks * n_lanes + 1;
+    printf("num_slots: %d\n", num_slots);
 
     // Initialize lane_offsets to zero
     for (uint32_t i = 0; i < num_slots; i++) {
