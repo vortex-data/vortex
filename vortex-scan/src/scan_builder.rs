@@ -372,6 +372,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                         .unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
+                    // TODO(DK): is this actually spawn_cpu?
                     let task = handle.spawn_blocking_io(move || {
                         builder.prepare().and_then(|scan| scan.execute(None))
                     });
