@@ -21,6 +21,7 @@
 
 use std::ffi::c_void;
 use std::fs::File;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -130,6 +131,10 @@ struct Cli {
     /// TCP listener port for MPEG-TS streaming.
     #[arg(long, default_value_t = 9000)]
     port: u16,
+
+    /// Output MPEG-TS file path. If set, writes to file instead of TCP streaming.
+    #[arg(long)]
+    output: Option<PathBuf>,
 
     /// Path to write Perfetto trace output.
     #[arg(long)]
@@ -471,8 +476,18 @@ async fn main() -> VortexResult<()> {
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
 
-    // Wait for TCP connection
-    let mut sender = transport::TcpSender::listen(cli.port).await?;
+    // Output: either file or TCP stream.
+    let mut output_file = if let Some(ref path) = cli.output {
+        tracing::info!("Writing MPEG-TS to {}", path.display());
+        Some(std::io::BufWriter::new(File::create(path)?))
+    } else {
+        None
+    };
+    let mut tcp_sender = if cli.output.is_none() {
+        Some(transport::TcpSender::listen(cli.port).await?)
+    } else {
+        None
+    };
 
     tracing::info!(
         "Streaming {}x{} @ {}fps, bitrate={}Mbps",
@@ -481,20 +496,6 @@ async fn main() -> VortexResult<()> {
         fps,
         cli.bitrate_mbps
     );
-
-    // Spawn a background sender task so TCP backpressure doesn't block the
-    // encoding pipeline. Buffer 2 seconds of frames to absorb jitter; if the
-    // consumer is permanently slower we gracefully slow down (no frame drops).
-    let send_buf_frames = fps as usize * 2;
-    let (ts_tx, mut ts_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(send_buf_frames);
-    let sender_task = tokio::spawn(async move {
-        while let Some(ts_packets) = ts_rx.recv().await {
-            if let Err(e) = sender.send(ts_packets).await {
-                tracing::error!("TCP send failed: {e}");
-                break;
-            }
-        }
-    });
 
     let frame_duration = Duration::from_secs_f64(1.0 / f64::from(fps));
     let stream_start = tokio::time::Instant::now();
@@ -649,8 +650,8 @@ async fn main() -> VortexResult<()> {
                             );
                         }
 
-                        // Send current frame to encoder BEFORE mux+send so
-                        // encoding overlaps with mux + TCP write.
+                        // Send current frame to encoder BEFORE mux+write so
+                        // encoding overlaps with output I/O.
                         frame_tx
                             .send(EncoderMsg::Frame(Nv12ReadyFrame { buf_idx, frame_idx }))
                             .map_err(|e| vortex_err!("Send to encoder failed: {e}"))?;
@@ -661,14 +662,19 @@ async fn main() -> VortexResult<()> {
                         stage_mux_ns += t.elapsed().as_nanos() as u64;
 
                         let t = std::time::Instant::now();
-                        ts_tx
-                            .send(ts_packets)
-                            .await
-                            .map_err(|_| vortex_err!("Sender task died"))?;
+                        if let Some(ref mut f) = output_file {
+                            f.write_all(&ts_packets)?;
+                        } else if let Some(ref mut s) = tcp_sender {
+                            s.send(ts_packets).await?;
+                        }
                         stage_send_ns += t.elapsed().as_nanos() as u64;
 
-                        let target = stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
-                        sleep_until(target).await;
+                        // Pace to target FPS only when streaming live.
+                        if output_file.is_none() {
+                            let target =
+                                stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
+                            sleep_until(target).await;
+                        }
                     } else {
                         // First frame: no previous frame to collect, just send to encoder.
                         frame_tx
@@ -696,10 +702,11 @@ async fn main() -> VortexResult<()> {
             .recv()
             .map_err(|e| vortex_err!("Recv final encoded frame failed: {e}"))?;
         let ts_packets = mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
-        ts_tx
-            .send(ts_packets)
-            .await
-            .map_err(|_| vortex_err!("Sender task died"))?;
+        if let Some(ref mut f) = output_file {
+            f.write_all(&ts_packets)?;
+        } else if let Some(ref mut s) = tcp_sender {
+            s.send(ts_packets).await?;
+        }
     }
 
     // Signal encoder thread to shut down and wait for it
@@ -712,11 +719,12 @@ async fn main() -> VortexResult<()> {
         .map_err(|_| vortex_err!("Encoder thread panicked"))?
         .map_err(|e| vortex_err!("Encoder thread error: {e}"))?;
 
-    // Drop the channel sender so the sender task finishes, then wait for it.
-    drop(ts_tx);
-    sender_task
-        .await
-        .map_err(|e| vortex_err!("Sender task panicked: {e}"))?;
+    // Flush file or close TCP connection.
+    if let Some(mut f) = output_file {
+        f.flush()?;
+    } else if let Some(s) = tcp_sender {
+        s.close().await?;
+    }
 
     let elapsed = stream_start.elapsed();
     let avg_fps = frame_idx as f64 / elapsed.as_secs_f64();
@@ -725,7 +733,6 @@ async fn main() -> VortexResult<()> {
     tracing::info!(
         frames = frame_idx,
         batches = batch_count,
-        send_buf_frames,
         elapsed_secs = format!("{:.2}", elapsed.as_secs_f64()),
         avg_fps = format!("{:.1}", avg_fps),
         "streaming complete"
