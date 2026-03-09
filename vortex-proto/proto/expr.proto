@@ -95,3 +95,9 @@ message SelectOpts {
 message CaseWhenOpts {
   uint32 num_children = 1;
 }
+
+// Options for `vortex.variant_get`
+message VariantGetOpts {
+  string path = 1;
+  vortex.dtype.DType dtype = 2;
+}

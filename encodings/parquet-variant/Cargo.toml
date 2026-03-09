@@ -1,0 +1,32 @@
+[package]
+name = "vortex-parquet-variant"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex Pco array"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom_v03"]

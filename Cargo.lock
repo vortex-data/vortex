@@ -10415,6 +10415,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-parquet-variant"
+version = "0.1.0"
+dependencies = [
+ "prost 0.14.3",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-pco"
 version = "0.1.0"
 dependencies = [

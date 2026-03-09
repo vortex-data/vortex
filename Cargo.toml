@@ -55,6 +55,7 @@ members = [
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
     "vortex-sqllogictest",
+    "encodings/parquet-variant",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
