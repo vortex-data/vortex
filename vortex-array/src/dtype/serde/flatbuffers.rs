@@ -16,6 +16,7 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::dtype as fbd;
+use vortex_flatbuffers::dtype::VariantArgs;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
