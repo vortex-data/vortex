@@ -492,7 +492,6 @@ fn main() {
         .file("cpp/expr.cpp")
         .file("cpp/file_system.cpp")
         .file("cpp/logical_type.cpp")
-        .file("cpp/object_cache.cpp")
         .file("cpp/replacement_scan.cpp")
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")

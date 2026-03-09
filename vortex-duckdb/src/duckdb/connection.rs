@@ -279,39 +279,4 @@ mod tests {
         data: String,
         value: i32,
     }
-
-    #[test]
-    fn test_object_cache_put_get() {
-        let conn = test_connection().unwrap();
-        let client_context = conn.client_context().unwrap();
-        let cache = client_context.object_cache();
-
-        // Test with a simple struct
-        let test_entry = TestCacheEntry {
-            data: "hello world".to_string(),
-            value: 42,
-        };
-
-        // Store the entry in the cache
-        cache.put("test_key", test_entry);
-
-        // Retrieve it back
-        let retrieved = cache.get::<TestCacheEntry>("test_key");
-        assert!(retrieved.is_some());
-
-        let retrieved_entry = retrieved.unwrap();
-        assert_eq!(retrieved_entry.data, "hello world");
-        assert_eq!(retrieved_entry.value, 42);
-    }
-
-    #[test]
-    fn test_object_cache_get_nonexistent() {
-        let conn = test_connection().unwrap();
-        let client_context = conn.client_context().unwrap();
-        let cache = client_context.object_cache();
-
-        // Try to get a non-existent key
-        let result = cache.get::<TestCacheEntry>("nonexistent_key");
-        assert!(result.is_none());
-    }
 }
