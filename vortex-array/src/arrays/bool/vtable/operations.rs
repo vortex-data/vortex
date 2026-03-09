@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
+use crate::arrays::bool::vtable::BoolArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 

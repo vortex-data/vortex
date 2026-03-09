@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::arrays::constant::vtable::ConstantArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 

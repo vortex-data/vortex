@@ -18,7 +18,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
-use vortex_array::arrays::list_from_list_view;
+use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::compute::Cost;
 use vortex_array::compute::IsConstantOpts;
 use vortex_array::compute::is_constant_opts;

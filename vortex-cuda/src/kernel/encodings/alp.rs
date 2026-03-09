@@ -12,7 +12,7 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;

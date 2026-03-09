@@ -10,6 +10,8 @@ pub fn vortex_runend::compress::runend_decode_typed_bool(run_ends: impl core::it
 
 pub fn vortex_runend::compress::runend_decode_typed_primitive<T: vortex_array::dtype::ptype::NativePType>(run_ends: impl core::iter::traits::iterator::Iterator<Item = usize>, values: &[T], values_validity: vortex_mask::Mask, values_nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_array::arrays::primitive::array::PrimitiveArray
 
+pub fn vortex_runend::compress::runend_decode_varbinview(ends: vortex_array::arrays::primitive::array::PrimitiveArray, values: vortex_array::arrays::varbinview::array::VarBinViewArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::arrays::varbinview::array::VarBinViewArray>
+
 pub fn vortex_runend::compress::runend_encode(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> (vortex_array::arrays::primitive::array::PrimitiveArray, vortex_array::array::ArrayRef)
 
 pub struct vortex_runend::RunEndArray
@@ -120,11 +122,11 @@ pub fn vortex_runend::RunEndVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::take(array: &vortex_runend::RunEndArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::take(array: &vortex_runend::RunEndArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::filter(array: &vortex_runend::RunEndArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::filter(array: &vortex_runend::RunEndArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::compute::is_constant::IsConstantKernel for vortex_runend::RunEndVTable
 
@@ -142,7 +144,7 @@ pub fn vortex_runend::RunEndVTable::min_max(&self, array: &vortex_runend::RunEnd
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_runend::RunEndVTable
 
@@ -180,7 +182,7 @@ pub fn vortex_runend::RunEndVTable::deserialize(bytes: &[u8], _dtype: &vortex_ar
 
 pub fn vortex_runend::RunEndVTable::dtype(array: &vortex_runend::RunEndArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_runend::RunEndVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_runend::RunEndVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
 
 pub fn vortex_runend::RunEndVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

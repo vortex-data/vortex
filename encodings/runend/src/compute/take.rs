@@ -9,7 +9,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
@@ -31,9 +31,9 @@ impl TakeExecute for RunEndVTable {
     fn take(
         array: &RunEndArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let primitive_indices = indices.to_primitive();
+        let primitive_indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             primitive_indices

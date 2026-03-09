@@ -29,6 +29,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
+use crate::executor::ExecutionStep;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
@@ -190,9 +191,9 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         if let Some(canonical) = execute_fast_path(array, ctx)? {
-            return Ok(canonical);
+            return Ok(ExecutionStep::Done(canonical));
         }
 
         // TODO(joe): if the values are constant return a constant
@@ -208,7 +209,9 @@ impl VTable for DictVTable {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        Ok(take_canonical(values, &codes, ctx)?.into_array())
+        Ok(ExecutionStep::Done(
+            take_canonical(values, &codes, ctx)?.into_array(),
+        ))
     }
 
     fn reduce_parent(

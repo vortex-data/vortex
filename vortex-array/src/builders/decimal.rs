@@ -300,10 +300,10 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
+    use crate::builders::decimal::DecimalArray;
     use crate::dtype::DecimalDType;
 
     #[test]

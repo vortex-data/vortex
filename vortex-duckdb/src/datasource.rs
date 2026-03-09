@@ -17,6 +17,7 @@ use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::VortexSessionExecute;
@@ -62,10 +63,19 @@ use crate::duckdb::VirtualColumnsResultRef;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 
-// taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
-// This is used by duckdb whenever there is no projection id in a logical_get node.
-// For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
-// with this index and create a data chunk with a single vector of that type.
+/// Taken from
+/// https://github.com/duckdb/duckdb/blob/dc11eadd8f0a7c600f0034810706605ebe10d5b9/src/include/duckdb/common/constants.hpp#L44
+///
+/// If DuckDB requests a zero-column projection from read_vortex like count(*),
+/// its planner tries to get any column:
+/// https://github.com/duckdb/duckdb/blob/dc11eadd8f0a7c600f0034810706605ebe10d5b9/src/planner/operator/logical_get.cpp#L149
+///
+/// If you define COLUMN_IDENTIFIER_EMPTY, planner takes it, otherwise the
+/// first column. As we don't want to fill the output chunk and we can leave
+/// it uninitialized in this case, we define COLUMN_IDENTIFIER_EMPTY as a
+/// virtual column in our table function vtab's get_virtual_columns.
+/// See vortex-duckdb/cpp/include/duckdb_vx/table_function.h
+/// See virtual_columns in this file
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 static EMPTY_COLUMN_NAME: &str = "";
 
@@ -126,9 +136,11 @@ impl Debug for DataSourceBindData {
     }
 }
 
+type DataSourceIterator = ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>;
+
 /// Global scan state for driving a `DataSource` scan through DuckDB.
 pub struct DataSourceGlobal {
-    iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
+    iterator: DataSourceIterator,
     batch_id: AtomicU64,
     bytes_total: Arc<AtomicU64>,
     bytes_read: AtomicU64,
@@ -136,7 +148,7 @@ pub struct DataSourceGlobal {
 
 /// Per-thread local scan state.
 pub struct DataSourceLocal {
-    iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
+    iterator: DataSourceIterator,
     exporter: Option<ArrayExporter>,
     /// The unique batch id of the last chunk exported via scan().
     batch_id: Option<u64>,
@@ -193,9 +205,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        debug!("table init input: {init_input:?}");
+
         let bind_data = init_input.bind_data();
-        let projection_ids = init_input.projection_ids().unwrap_or(&[]);
         let column_ids = init_input.column_ids();
+        let projection_ids = init_input.projection_ids();
 
         let projection_expr =
             extract_projection_expr(projection_ids, column_ids, &bind_data.column_names);
@@ -207,13 +221,10 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             bind_data.data_source.dtype(),
         )?;
 
-        tracing::debug!(
-            "Global init Vortex scan SELECT {} WHERE {}",
-            &projection_expr,
-            filter_expr
-                .as_ref()
-                .map_or_else(|| "true".to_string(), |f| f.to_string())
-        );
+        let filter_expr_str = filter_expr
+            .as_ref()
+            .map_or_else(|| "true".to_string(), |f| f.to_string());
+        debug!("Global init Vortex scan SELECT {projection_expr} WHERE {filter_expr_str}");
 
         let request = ScanRequest {
             projection: projection_expr,
@@ -316,8 +327,8 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     return Ok(());
                 };
                 let (array_result, conversion_cache) = result?;
-
                 let array_result = array_result.optimize_recursive()?;
+
                 let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
                     array.clone()
                 } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
@@ -455,27 +466,36 @@ fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<(Vec<String>, Vec<Lo
 
 /// Creates a projection expression from raw projection/column ID slices and column names.
 fn extract_projection_expr(
-    projection_ids: &[u64],
+    projection_ids: Option<&[u64]>,
     column_ids: &[u64],
     column_names: &[String],
 ) -> Expression {
-    select(
-        projection_ids
-            .iter()
-            .map(|p| {
-                let idx: usize = p.as_();
-                let val: usize = column_ids[idx].as_();
-                val
-            })
-            .map(|idx| {
-                column_names
-                    .get(idx)
-                    .vortex_expect("prune idx in column names")
-            })
-            .map(|s| Arc::from(s.as_str()))
-            .collect::<FieldNames>(),
-        root(),
-    )
+    // Projection ids may be empty, in which case you need to use projection_ids
+    // https://github.com/duckdb/duckdb/blob/6e211da91657a94803c465fd0ce585f4c6754b54/src/planner/operator/logical_get.cpp#L168
+    let (projection_ids, has_projection_ids) = match projection_ids {
+        Some(ids) => (ids, true),
+        None => (column_ids, false),
+    };
+
+    // duckdb index is u64 (size_t) but in Rust u64 and usize are different things.
+    #[allow(clippy::cast_possible_truncation)]
+    let names = projection_ids
+        .iter()
+        .filter(|p| **p != EMPTY_COLUMN_IDX)
+        .map(|mut idx| {
+            if has_projection_ids {
+                idx = &column_ids[*idx as usize];
+            }
+
+            #[allow(clippy::cast_possible_truncation)]
+            column_names
+                .get(*idx as usize)
+                .vortex_expect("prune idx in column names")
+        })
+        .map(|s| Arc::from(s.as_str()))
+        .collect::<FieldNames>();
+
+    select(names, root())
 }
 
 /// Creates a table filter expression from the table filter set, column metadata, additional

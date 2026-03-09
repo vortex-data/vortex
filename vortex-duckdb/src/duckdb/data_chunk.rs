@@ -44,6 +44,10 @@ impl DataChunkRef {
             .vortex_expect("Column count exceeds usize")
     }
 
+    pub fn reset(&mut self) {
+        unsafe { cpp::duckdb_data_chunk_reset(self.as_ptr()) }
+    }
+
     /// Set the length of the data chunk.
     pub fn set_len(&mut self, len: usize) {
         unsafe { cpp::duckdb_data_chunk_set_size(self.as_ptr(), len as _) }

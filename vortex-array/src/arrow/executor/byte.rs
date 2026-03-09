@@ -84,8 +84,8 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::executor::byte::VarBinViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 

@@ -17,7 +17,7 @@ use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
-use crate::serde::context::PyArrayContext;
+use crate::serde::context::PyReadContext;
 
 /// ArrayParts is a parsed representation of a serialized array.
 ///
@@ -56,7 +56,7 @@ impl PyArrayParts {
     /// The decoded array.
     fn decode(
         &self,
-        ctx: &PyArrayContext,
+        ctx: &PyReadContext,
         dtype: PyDType,
         len: usize,
     ) -> PyVortexResult<PyArrayRef> {

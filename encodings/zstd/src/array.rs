@@ -13,6 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -21,7 +22,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::build_views::BinaryView;
+use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
@@ -271,8 +272,11 @@ impl VTable for ZstdVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        array.decompress()?.execute(ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        array
+            .decompress()?
+            .execute::<ArrayRef>(ctx)
+            .map(ExecutionStep::Done)
     }
 
     fn reduce_parent(

@@ -373,7 +373,6 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute as _;
-    use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -391,6 +390,7 @@ mod tests {
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::case_when::BoolArray;
     use crate::session::ArraySession;
 
     static SESSION: LazyLock<VortexSession> =

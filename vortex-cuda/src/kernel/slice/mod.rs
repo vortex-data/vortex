@@ -6,8 +6,8 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
-use vortex::array::arrays::SliceArrayParts;
 use vortex::array::arrays::SliceVTable;
+use vortex::array::arrays::slice::SliceArrayParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 

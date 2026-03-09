@@ -13,7 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::arrays::FilterReduce;
+use crate::arrays::filter::FilterReduce;
 use crate::vtable::ValidityHelper;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.

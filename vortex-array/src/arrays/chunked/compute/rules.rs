@@ -6,12 +6,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::AnyScalarFn;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;

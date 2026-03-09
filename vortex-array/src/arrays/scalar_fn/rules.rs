@@ -18,8 +18,8 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
-use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
@@ -228,8 +228,8 @@ mod tests {
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::scalar_fn::rules::ConstantArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

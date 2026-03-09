@@ -9,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 use crate::stats::ArrayStats;
 
 impl SliceReduce for MaskedVTable {

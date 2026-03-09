@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::env::VarError;
-use std::sync::LazyLock;
-
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
@@ -71,42 +67,20 @@ impl IntoArray for Columnar {
     }
 }
 
-/// Executing into a [`Columnar`] is implemented by repeatedly executing the array until we
-/// converge on either a constant or canonical.
-///
-/// For safety, we will error when the number of execution iterations reaches 128. We may want this
-/// to be configurable in the future in case of highly complex array trees, but in practice we
-/// don't expect to ever reach this limit.
+/// Execute into [`Columnar`] by running `execute_until` with the [`AnyColumnar`] matcher.
 impl Executable for Columnar {
-    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        static MAX_ITERATIONS: LazyLock<usize> =
-            LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
-                Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
-                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
-                }),
-                Err(VarError::NotPresent) => 128,
-                Err(VarError::NotUnicode(_)) => {
-                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
-                }
-            });
-
-        for _ in 0..*MAX_ITERATIONS {
-            // Check for termination conditions
-            if let Some(constant) = array.as_opt::<ConstantVTable>() {
-                ctx.log(format_args!("-> constant({})", constant.scalar()));
-                return Ok(Columnar::Constant(constant.clone()));
-            }
-            if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-                ctx.log(format_args!("-> canonical {}", array));
-                return Ok(Columnar::Canonical(canonical.into()));
-            }
-
-            // Otherwise execute the array one step
-            array = array.execute(ctx)?;
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let result = array.execute_until::<AnyColumnar>(ctx)?;
+        if let Some(constant) = result.as_opt::<ConstantVTable>() {
+            Ok(Columnar::Constant(constant.clone()))
+        } else {
+            Ok(Columnar::Canonical(
+                result
+                    .as_opt::<AnyCanonical>()
+                    .map(Canonical::from)
+                    .vortex_expect("execute_until::<AnyColumnar> must return a columnar array"),
+            ))
         }
-
-        // If we reach here, we exceeded the maximum number of iterations, so error.
-        vortex_bail!("Exceeded maximum execution iterations while executing to Columnar")
     }
 }
 

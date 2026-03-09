@@ -4,7 +4,7 @@
 use cudarc::driver::DeviceRepr;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;

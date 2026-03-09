@@ -6,12 +6,12 @@ pub mod writer;
 
 use std::sync::Arc;
 
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -90,7 +90,7 @@ impl VTable for ChunkedVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContext,
+        _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         Ok(ChunkedLayout::new(
             row_count,

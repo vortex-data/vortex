@@ -33,8 +33,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;

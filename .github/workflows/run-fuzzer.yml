@@ -77,7 +77,7 @@ jobs:
           compiler: llvm
 
       - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
         with:
           tool: cargo-fuzz
 
@@ -119,21 +119,18 @@ jobs:
       - name: Check for crashes
         id: check
         run: |
-          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+          # Find actual crash files, not just the directory structure
+          FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) 2>/dev/null | head -1 || true)
+
+          if [ -n "$FIRST_CRASH" ]; then
             echo "crashes_found=true" >> $GITHUB_OUTPUT
+            echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
+            echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
 
-            # Get the first crash file only
-            FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | head -1)
-
-            if [ -n "$FIRST_CRASH" ]; then
-              echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
-              echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
-
-              # Count all crashes for reporting
-              CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
-              echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
-              echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
-            fi
+            # Count all crashes for reporting
+            CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
+            echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
+            echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
           else
             echo "crashes_found=false" >> $GITHUB_OUTPUT
             echo "crash_count=0" >> $GITHUB_OUTPUT

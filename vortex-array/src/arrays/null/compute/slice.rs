@@ -9,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for NullVTable {
     fn slice(_array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

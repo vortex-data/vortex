@@ -110,7 +110,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
@@ -156,7 +155,8 @@ mod test {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
         let primitive_values = decode_to_temporal(&date_times, &mut ctx)?
             .temporal_values()
-            .to_primitive();
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
         assert_eq!(primitive_values.validity(), &validity);

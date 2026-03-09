@@ -437,6 +437,7 @@ fn main() {
         .size_t_is_usize(true)
         .clang_arg(format!("-I{}", duckdb_include_path.display()))
         .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
+        .generate_comments(true)
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))

@@ -52,6 +52,8 @@ async fn main() -> anyhow::Result<()> {
             let mpb = mpb.clone();
 
             async move {
+                let path = path.canonicalize()?;
+
                 let mut errors = vec![];
                 let factory = Arc::new(VortexFormatFactory::new());
                 let session_state_builder = SessionStateBuilder::new()
@@ -69,60 +71,67 @@ async fn main() -> anyhow::Result<()> {
                     .file_name()
                     .vortex_expect("must be file")
                     .to_string_lossy();
-                let records = parse_file(path.canonicalize()?)?;
+                let records = parse_file(path.as_path())?;
 
-                let df_pb = mpb.add(ProgressBar::new(records.len() as u64));
-                df_pb.set_message(format!("DF {filename}"));
-                df_pb.set_style(ProgressStyle::default_spinner());
+                if !path.components().any(|comp| comp.as_os_str() == "duckdb") {
+                    let df_pb = mpb.add(ProgressBar::new(records.len() as u64));
+                    df_pb.set_message(format!("DF {filename}"));
+                    df_pb.set_style(ProgressStyle::default_spinner());
 
-                let mut df_runner = Runner::new(|| async {
-                    Ok(DataFusion::new(
-                        session.clone(),
-                        path.clone(),
-                        df_pb.clone(),
-                    ))
-                });
+                    let mut df_runner = Runner::new(|| async {
+                        Ok(DataFusion::new(
+                            session.clone(),
+                            path.clone(),
+                            df_pb.clone(),
+                        ))
+                    });
 
-                df_runner.add_label("datafusion");
-                df_runner.with_column_validator(strict_column_validator);
-                df_runner.with_normalizer(value_normalizer);
-                df_runner.with_validator(df_value_validator);
+                    df_runner.add_label("datafusion");
+                    df_runner.with_column_validator(strict_column_validator);
+                    df_runner.with_normalizer(value_normalizer);
+                    df_runner.with_validator(df_value_validator);
 
-                for record in records.iter() {
-                    if let Record::Halt { .. } = record {
-                        break;
+                    for record in records.iter() {
+                        if let Record::Halt { .. } = record {
+                            break;
+                        }
+
+                        if let Err(e) = df_runner.run_async(record.clone()).await {
+                            errors.push(format!("DF Failure: {e}"));
+                        }
                     }
 
-                    if let Err(e) = df_runner.run_async(record.clone()).await {
-                        errors.push(format!("DF Failure: {e}"));
-                    }
+                    df_pb.finish_and_clear();
                 }
 
-                df_pb.finish_and_clear();
+                if !path
+                    .components()
+                    .any(|comp| comp.as_os_str() == "datafusion")
+                {
+                    let duckdb_pb = mpb.add(ProgressBar::new(records.len() as u64));
+                    duckdb_pb.set_message(format!("DuckDB {filename}"));
 
-                let duckdb_pb = mpb.add(ProgressBar::new(records.len() as u64));
-                duckdb_pb.set_message(format!("DuckDB {filename}"));
+                    let mut duckdb_runner = Runner::new(|| async {
+                        DuckDB::try_new(duckdb_pb.clone())
+                            .map_err(|e| DuckDBTestError::Other(e.to_string()))
+                    });
 
-                let mut duckdb_runner = Runner::new(|| async {
-                    DuckDB::try_new(duckdb_pb.clone())
-                        .map_err(|e| DuckDBTestError::Other(e.to_string()))
-                });
+                    duckdb_runner.add_label("duckdb");
+                    duckdb_runner.with_column_validator(strict_column_validator);
+                    duckdb_runner.with_normalizer(value_normalizer);
 
-                duckdb_runner.add_label("duckdb");
-                duckdb_runner.with_column_validator(strict_column_validator);
-                duckdb_runner.with_normalizer(value_normalizer);
+                    for record in records.iter() {
+                        if let Record::Halt { .. } = record {
+                            break;
+                        }
 
-                for record in records.iter() {
-                    if let Record::Halt { .. } = record {
-                        break;
+                        if let Err(e) = duckdb_runner.run_async(record.clone()).await {
+                            errors.push(format!("DuckDB Failure: {e}"));
+                        }
                     }
 
-                    if let Err(e) = duckdb_runner.run_async(record.clone()).await {
-                        errors.push(format!("DuckDB Failure: {e}"));
-                    }
+                    duckdb_pb.finish_and_clear();
                 }
-
-                duckdb_pb.finish_and_clear();
 
                 anyhow::Ok(errors)
             }
