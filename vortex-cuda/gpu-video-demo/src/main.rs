@@ -356,19 +356,8 @@ async fn main() -> VortexResult<()> {
     let encoder = nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context.clone())
         .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
 
-    // Use P4/high-quality for file output (no real-time constraint),
-    // P1/low-latency for TCP streaming.
-    let (preset_guid, tuning_info) = if is_file_output {
-        (
-            NV_ENC_PRESET_P4_GUID,
-            NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_HIGH_QUALITY,
-        )
-    } else {
-        (
-            NV_ENC_PRESET_P1_GUID,
-            NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY,
-        )
-    };
+    let preset_guid = NV_ENC_PRESET_P1_GUID;
+    let tuning_info = NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY;
 
     let preset_config = encoder
         .get_preset_config(NV_ENC_CODEC_H264_GUID, preset_guid, tuning_info)
