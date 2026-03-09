@@ -95,7 +95,7 @@ impl CopyFunction for VortexCopyFunction {
             .clone();
         RUNTIME
             .block_on(sink.send(chunk))
-            .map_err(|e| vortex_err!("send error {}", e.to_string()))?;
+            .map_err(|e| vortex_err!("send error {e}"))?;
         Ok(())
     }
 
@@ -130,13 +130,13 @@ impl CopyFunction for VortexCopyFunction {
         // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
         // query execution. DuckDB keeps the connection alive while this copy function runs.
         let ctx = unsafe { client_context.erase_lifetime() };
-        let write_task = handle.spawn(async move {
-            // Use DuckDB FS exclusively to match the DuckDB client context configuration.
-            let writer = DuckDbFsWriter::new(ctx, &file_path).map_err(|e| {
-                vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}")
-            })?;
-            SESSION.write_options().write(writer, array_stream).await
-        });
+
+        // Use DuckDB FS exclusively to match the DuckDB client context configuration.
+        let writer = DuckDbFsWriter::new(ctx, &file_path)
+            .map_err(|e| vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}"))?;
+
+        let write_task =
+            handle.spawn(async move { SESSION.write_options().write(writer, array_stream).await });
 
         let worker_pool = RUNTIME.new_pool();
         worker_pool.set_workers_to_available_parallelism();

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::Path;
+use std::path::absolute;
 use std::sync::Arc;
 
 use url::Url;
@@ -40,12 +41,12 @@ impl DataSourceTableFunction for VortexMultiFileScan {
         // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
         let glob_url_str = glob_url_parameter.as_string();
 
-        let glob_url = match Url::parse(glob_url_str.as_str()) {
-            Ok(url) => Ok(url),
-            // TODO(myrrc): doesn't parse relative paths like FROM 'test.vortex'
-            Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str()))
-                .map_err(|_| vortex_err!("Neither URL nor path: '{}' ", glob_url_str.as_str())),
-        }?;
+        let glob_url = Url::parse(&glob_url_str).or_else(|_| {
+            let glob_url = glob_url_str.as_str();
+            let path = absolute(Path::new(glob_url));
+            let path = path.map_err(|e| vortex_err!("Failed making {glob_url} absolute: {e}"))?;
+            Url::from_file_path(path).map_err(|_| vortex_err!("Neither URL nor path: {glob_url}"))
+        })?;
 
         let mut base_url = glob_url.clone();
         base_url.set_path("");
