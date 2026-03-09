@@ -46,6 +46,7 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
 
     // Initialize lane_offsets to zero
     for (uint32_t i = 0; i < num_slots; i++) {
+        printf("A: idx = %d\n", i);
         lane_offsets[i] = 0;
     }
 
@@ -55,11 +56,15 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
         uint32_t chunk = index / 1024;
         uint32_t lane = index % n_lanes;
 
+        printf("B: idx = %d\n", chunk * n_lanes + lane + 1);
+
         lane_offsets[chunk * n_lanes + lane + 1] += 1;
     }
 
     // Prefix sum: convert counts to offsets
     for (uint32_t i = 1; i < num_slots; i++) {
+        printf("C: idx = %d\n", i);
+
         lane_offsets[i] += lane_offsets[i - 1];
     }
 
@@ -72,6 +77,8 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
         uint32_t position = lane_offsets[chunk * n_lanes + lane];
         output_indices[position] = static_cast<uint16_t>(index % 1024);
         output_values[position] = patch_values[i];
+
+        printf("D: idx = %d\n", chunk * n_lanes + lane);
         lane_offsets[chunk * n_lanes + lane] += 1;
     }
 
@@ -81,6 +88,7 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
         uint32_t chunk = index / 1024;
         uint32_t lane = index % n_lanes;
 
+        printf("E: idx = %d\n", chunk * n_lanes + lane);
         lane_offsets[chunk * n_lanes + lane] -= 1;
     }
 }
