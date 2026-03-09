@@ -1,16 +1,21 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "ultralytics",
+#     "opencv-python",
+# ]
+# ///
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 """Detect hot dogs in video frames using YOLOv8 and output a JSON boolean array.
 
 Usage:
-    python detect.py input.mp4 -o detections.json [--width 1920 --height 1080] [--confidence 0.3]
+    uv run detect.py input.mp4 -o detections.json [--width 1920 --height 1080] [--confidence 0.3]
 
 Output JSON is a flat array of booleans, one per frame:
     [false, false, true, true, ..., false]
-
-Requires: pip install ultralytics opencv-python
 """
 
 import argparse
@@ -37,6 +42,7 @@ def main():
         "--model", default="yolov8n.pt", help="YOLO model to use (default: yolov8n.pt)"
     )
     parser.add_argument("--max-frames", type=int, default=0, help="Stop after N frames (0 = all)")
+    parser.add_argument("--verbose", action="store_true", help="Print all detected classes per frame")
     args = parser.parse_args()
 
     model = YOLO(args.model)
@@ -57,8 +63,17 @@ def main():
             frame = cv2.resize(frame, (args.width, args.height))
 
         results = model(frame, verbose=False, conf=args.confidence)
-        classes = results[0].boxes.cls.cpu().tolist() if len(results[0].boxes) > 0 else []
-        has_hot_dog = HOT_DOG_CLASS_ID in [int(c) for c in classes]
+        boxes = results[0].boxes
+        classes = boxes.cls.cpu().tolist() if len(boxes) > 0 else []
+        confs = boxes.conf.cpu().tolist() if len(boxes) > 0 else []
+        int_classes = [int(c) for c in classes]
+
+        if args.verbose and int_classes:
+            names = results[0].names
+            labels = [f"{names[c]}({confs[i]:.2f})" for i, c in enumerate(int_classes)]
+            print(f"  frame {frame_idx}: {', '.join(labels)}")
+
+        has_hot_dog = HOT_DOG_CLASS_ID in int_classes
         detections.append(has_hot_dog)
 
         frame_idx += 1
