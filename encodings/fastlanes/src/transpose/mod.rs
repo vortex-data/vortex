@@ -3037,9 +3037,6 @@ pub fn untranspose_1024_best(input: &[u8; 128], output: &mut [u8; 128]) {
         if x86::has_gfni() && x86::has_avx512() {
             return unsafe { x86::untranspose_1024_avx512_gfni(input, output) };
         }
-        if x86::has_gfni() && x86::has_avx2() {
-            return unsafe { x86::untranspose_1024_avx2_gfni(input, output) };
-        }
         if x86::has_bmi2() {
             return unsafe { x86::untranspose_1024_bmi2(input, output) };
         }
@@ -3232,52 +3229,6 @@ mod tests {
         }
 
         #[test]
-        fn test_avx2_matches_baseline() {
-            if !x86::has_avx2() {
-                eprintln!("Skipping AVX2 test: AVX2 not available");
-                return;
-            }
-
-            for seed in [0, 42, 123, 255] {
-                let input = generate_test_data(seed);
-                let mut baseline_out = [0u8; 128];
-                let mut avx2_out = [0u8; 128];
-
-                transpose_1024_baseline(&input, &mut baseline_out);
-                unsafe { x86::transpose_1024_avx2(&input, &mut avx2_out) };
-
-                assert_eq!(
-                    baseline_out, avx2_out,
-                    "AVX2 transpose doesn't match baseline for seed {}",
-                    seed
-                );
-            }
-        }
-
-        #[test]
-        fn test_avx2_gfni_matches_baseline() {
-            if !x86::has_avx2() || !x86::has_gfni() {
-                eprintln!("Skipping AVX2+GFNI test: required features not available");
-                return;
-            }
-
-            for seed in [0, 42, 123, 255] {
-                let input = generate_test_data(seed);
-                let mut baseline_out = [0u8; 128];
-                let mut gfni_out = [0u8; 128];
-
-                transpose_1024_baseline(&input, &mut baseline_out);
-                unsafe { x86::transpose_1024_avx2_gfni(&input, &mut gfni_out) };
-
-                assert_eq!(
-                    baseline_out, gfni_out,
-                    "AVX2+GFNI transpose doesn't match baseline for seed {}",
-                    seed
-                );
-            }
-        }
-
-        #[test]
         fn test_avx512_gfni_matches_baseline() {
             if !x86::has_avx512() || !x86::has_gfni() {
                 eprintln!("Skipping AVX-512+GFNI test: required features not available");
@@ -3295,31 +3246,6 @@ mod tests {
                 assert_eq!(
                     baseline_out, gfni_out,
                     "AVX-512+GFNI transpose doesn't match baseline for seed {}",
-                    seed
-                );
-            }
-        }
-
-        #[test]
-        fn test_avx2_gfni_roundtrip() {
-            if !x86::has_avx2() || !x86::has_gfni() {
-                eprintln!("Skipping AVX2+GFNI roundtrip test");
-                return;
-            }
-
-            for seed in [0, 42, 123, 255] {
-                let input = generate_test_data(seed);
-                let mut transposed = [0u8; 128];
-                let mut roundtrip = [0u8; 128];
-
-                unsafe {
-                    x86::transpose_1024_avx2_gfni(&input, &mut transposed);
-                    x86::untranspose_1024_avx2_gfni(&transposed, &mut roundtrip);
-                }
-
-                assert_eq!(
-                    input, roundtrip,
-                    "AVX2+GFNI roundtrip failed for seed {}",
                     seed
                 );
             }
@@ -3345,29 +3271,6 @@ mod tests {
                 assert_eq!(
                     input, roundtrip,
                     "AVX-512+GFNI roundtrip failed for seed {}",
-                    seed
-                );
-            }
-        }
-
-        #[test]
-        fn test_untranspose_avx2_gfni_matches_baseline() {
-            if !x86::has_avx2() || !x86::has_gfni() {
-                eprintln!("Skipping AVX2+GFNI untranspose test");
-                return;
-            }
-
-            for seed in [0, 42, 123, 255] {
-                let input = generate_test_data(seed);
-                let mut baseline_out = [0u8; 128];
-                let mut gfni_out = [0u8; 128];
-
-                untranspose_1024_baseline(&input, &mut baseline_out);
-                unsafe { x86::untranspose_1024_avx2_gfni(&input, &mut gfni_out) };
-
-                assert_eq!(
-                    baseline_out, gfni_out,
-                    "AVX2+GFNI untranspose doesn't match baseline for seed {}",
                     seed
                 );
             }
