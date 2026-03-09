@@ -216,8 +216,10 @@ impl BoolArray {
     }
 
     /// Returns the underlying [`BitBuffer`] of the array.
+    ///
+    /// If the buffer is on a device, it will be synchronously copied to host.
     pub fn to_bit_buffer(&self) -> BitBuffer {
-        let buffer = self.bits.as_host().clone();
+        let buffer = self.bits.to_host_sync();
 
         BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
