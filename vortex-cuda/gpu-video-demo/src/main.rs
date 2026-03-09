@@ -51,6 +51,8 @@ use url::Url;
 use vortex::VortexSessionDefault;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::expr::root;
+use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -143,6 +145,11 @@ struct Cli {
     /// Loop the video file continuously.
     #[arg(long)]
     loop_playback: bool,
+
+    /// Comma-separated list of columns to project (e.g. "R,G,B" or "G").
+    /// Unprojected channels are zero-filled (black). Reduces S3 I/O.
+    #[arg(long, value_delimiter = ',')]
+    columns: Option<Vec<String>>,
 }
 
 /// Sent from main task → encoder thread when an NV12 buffer is ready to encode.
@@ -270,6 +277,18 @@ async fn main() -> VortexResult<()> {
     let fps = cli.fps;
     let _bitrate = cli.bitrate_mbps * 1_000_000;
 
+    // Determine which columns to project.
+    let projected_columns: Vec<String> = cli
+        .columns
+        .unwrap_or_else(|| vec!["R".into(), "G".into(), "B".into()]);
+    let has_r = projected_columns.iter().any(|c| c == "R");
+    let has_g = projected_columns.iter().any(|c| c == "G");
+    let has_b = projected_columns.iter().any(|c| c == "B");
+    tracing::info!(
+        ?projected_columns,
+        "column projection (unprojected channels will be black)"
+    );
+
     // Load RGB→NV12 kernel
     let nv12_kernel = nv12::load_rgb_to_nv12_kernel(&session)?;
 
@@ -304,6 +323,29 @@ async fn main() -> VortexResult<()> {
         ptr
     };
     let cu_stream = cuda_ctx.stream().cu_stream();
+
+    // Zero-fill unprojected channel buffers so they render as black.
+    if !has_r {
+        unsafe {
+            cudarc::driver::sys::cuMemsetD8Async(r_frame_ptr, 0, pixels_per_frame, cu_stream)
+                .result()
+                .map_err(|e| vortex_err!("memset R failed: {e}"))?;
+        }
+    }
+    if !has_g {
+        unsafe {
+            cudarc::driver::sys::cuMemsetD8Async(g_frame_ptr, 0, pixels_per_frame, cu_stream)
+                .result()
+                .map_err(|e| vortex_err!("memset G failed: {e}"))?;
+        }
+    }
+    if !has_b {
+        unsafe {
+            cudarc::driver::sys::cuMemsetD8Async(b_frame_ptr, 0, pixels_per_frame, cu_stream)
+                .result()
+                .map_err(|e| vortex_err!("memset B failed: {e}"))?;
+        }
+    }
 
     // Create NVENC encoder.
     // NVENC internally pushes/pops the CUDA context, so we rebind it afterward
@@ -516,7 +558,17 @@ async fn main() -> VortexResult<()> {
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
-        let mut batches = gpu_file.scan()?.with_concurrency(16).into_array_stream()?;
+        let mut batches = gpu_file
+            .scan()?
+            .with_projection(select(
+                projected_columns
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>(),
+                root(),
+            ))
+            .with_concurrency(16)
+            .into_array_stream()?;
 
         while let Some(batch) = {
             let t = std::time::Instant::now();
@@ -530,28 +582,44 @@ async fn main() -> VortexResult<()> {
             let struct_arr = canonical.into_struct();
             stage_cuda_ns += t.elapsed().as_nanos() as u64;
 
-            // Extract R, G, B device pointers — flat u8 columns, no list wrapping.
+            // Extract projected channel device pointers.
             let t = std::time::Instant::now();
-            let r_prim = struct_arr
-                .unmasked_field_by_name("R")?
-                .to_canonical()?
-                .into_primitive();
-            let r_ptr = r_prim.buffer_handle().cuda_device_ptr()?;
-
-            let g_prim = struct_arr
-                .unmasked_field_by_name("G")?
-                .to_canonical()?
-                .into_primitive();
-            let g_ptr = g_prim.buffer_handle().cuda_device_ptr()?;
-
-            let b_prim = struct_arr
-                .unmasked_field_by_name("B")?
-                .to_canonical()?
-                .into_primitive();
-            let b_ptr = b_prim.buffer_handle().cuda_device_ptr()?;
+            let r_ptr = if has_r {
+                let p = struct_arr
+                    .unmasked_field_by_name("R")?
+                    .to_canonical()?
+                    .into_primitive();
+                Some(p)
+            } else {
+                None
+            };
+            let g_ptr = if has_g {
+                let p = struct_arr
+                    .unmasked_field_by_name("G")?
+                    .to_canonical()?
+                    .into_primitive();
+                Some(p)
+            } else {
+                None
+            };
+            let b_ptr = if has_b {
+                let p = struct_arr
+                    .unmasked_field_by_name("B")?
+                    .to_canonical()?
+                    .into_primitive();
+                Some(p)
+            } else {
+                None
+            };
             stage_extract_ns += t.elapsed().as_nanos() as u64;
 
-            let batch_pixels = r_prim.len();
+            // Use any projected channel to determine batch size.
+            let batch_pixels = r_ptr
+                .as_ref()
+                .or(g_ptr.as_ref())
+                .or(b_ptr.as_ref())
+                .map(|p| p.len())
+                .ok_or_else(|| vortex_err!("no columns projected"))?;
             batch_count += 1;
             if frame_idx < 3 {
                 tracing::info!(
@@ -571,33 +639,39 @@ async fn main() -> VortexResult<()> {
                 let available = batch_pixels - batch_offset;
                 let copy_count = needed.min(available);
 
-                // D2D copy from batch into frame accumulation buffers
+                // D2D copy from batch into frame accumulation buffers (projected channels only)
                 let t = std::time::Instant::now();
                 unsafe {
-                    cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
-                        r_frame_ptr + frame_fill as u64,
-                        r_ptr + batch_offset as u64,
-                        copy_count,
-                        cu_stream,
-                    )
-                    .result()
-                    .map_err(|e| vortex_err!("D2D copy R failed: {e}"))?;
-                    cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
-                        g_frame_ptr + frame_fill as u64,
-                        g_ptr + batch_offset as u64,
-                        copy_count,
-                        cu_stream,
-                    )
-                    .result()
-                    .map_err(|e| vortex_err!("D2D copy G failed: {e}"))?;
-                    cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
-                        b_frame_ptr + frame_fill as u64,
-                        b_ptr + batch_offset as u64,
-                        copy_count,
-                        cu_stream,
-                    )
-                    .result()
-                    .map_err(|e| vortex_err!("D2D copy B failed: {e}"))?;
+                    if let Some(ref rp) = r_ptr {
+                        cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
+                            r_frame_ptr + frame_fill as u64,
+                            rp.buffer_handle().cuda_device_ptr()? + batch_offset as u64,
+                            copy_count,
+                            cu_stream,
+                        )
+                        .result()
+                        .map_err(|e| vortex_err!("D2D copy R failed: {e}"))?;
+                    }
+                    if let Some(ref gp) = g_ptr {
+                        cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
+                            g_frame_ptr + frame_fill as u64,
+                            gp.buffer_handle().cuda_device_ptr()? + batch_offset as u64,
+                            copy_count,
+                            cu_stream,
+                        )
+                        .result()
+                        .map_err(|e| vortex_err!("D2D copy G failed: {e}"))?;
+                    }
+                    if let Some(ref bp) = b_ptr {
+                        cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
+                            b_frame_ptr + frame_fill as u64,
+                            bp.buffer_handle().cuda_device_ptr()? + batch_offset as u64,
+                            copy_count,
+                            cu_stream,
+                        )
+                        .result()
+                        .map_err(|e| vortex_err!("D2D copy B failed: {e}"))?;
+                    }
                 }
 
                 stage_d2d_ns += t.elapsed().as_nanos() as u64;
