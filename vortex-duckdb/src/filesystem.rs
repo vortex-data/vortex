@@ -68,9 +68,35 @@ pub(super) fn resolve_filesystem(
             base_url.scheme()
         );
         object_store_fs(base_url)?
+    } else if fs_config.as_str() == "direct" {
+        #[cfg(target_os = "linux")]
+        {
+            tracing::debug!(
+                "Using O_DIRECT filesystem for URL scheme '{}'",
+                base_url.scheme()
+            );
+            direct_fs(base_url)?
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            vortex_bail!("O_DIRECT filesystem is only supported on Linux");
+        }
+    } else if fs_config.as_str() == "monoio" {
+        #[cfg(feature = "monoio")]
+        {
+            tracing::debug!(
+                "Using monoio io_uring filesystem for URL scheme '{}'",
+                base_url.scheme()
+            );
+            monoio_fs(base_url)?
+        }
+        #[cfg(not(feature = "monoio"))]
+        {
+            vortex_bail!("monoio filesystem requested but the 'monoio' feature is not enabled");
+        }
     } else {
         vortex_bail!(
-            "Unsupported filesystem '{}', vortex_filesystem setting must be set to either 'duckdb' or 'vortex'",
+            "Unsupported filesystem '{}', vortex_filesystem setting must be 'duckdb', 'vortex', 'direct', or 'monoio'",
             fs_config.as_str()
         );
     })
@@ -341,3 +367,167 @@ impl VortexReadAt for DuckDbFsReader {
 // there is no shared cursor state.
 unsafe impl Send for DuckDbFsReader {}
 unsafe impl Sync for DuckDbFsReader {}
+
+// ---------------------------------------------------------------------------
+// O_DIRECT filesystem (Linux only)
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+fn direct_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
+    if base_url.scheme() != "file" {
+        vortex_bail!(
+            "O_DIRECT filesystem only supports local file:// URLs, got '{}'",
+            base_url.scheme()
+        );
+    }
+    Ok(Arc::new(Compat::new(DirectFileSystem {
+        base_url: base_url.clone(),
+    })))
+}
+
+#[cfg(target_os = "linux")]
+struct DirectFileSystem {
+    base_url: Url,
+}
+
+#[cfg(target_os = "linux")]
+impl Debug for DirectFileSystem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DirectFileSystem")
+            .field("base_url", &self.base_url)
+            .finish()
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[async_trait]
+impl FileSystem for DirectFileSystem {
+    fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+        // Reuse object_store's LocalFileSystem for directory listing.
+        let local_fs = Arc::new(LocalFileSystem::new());
+        let mut full_url = self.base_url.clone();
+        if !prefix.is_empty() {
+            full_url.set_path(prefix);
+        }
+
+        let base_path = self.base_url.path().to_string();
+        let list_path = object_store::path::Path::from(full_url.path());
+
+        stream::once(async move {
+            let mut results = Vec::new();
+            let mut listing = local_fs.list(Some(&list_path));
+            while let Some(meta) = listing.next().await {
+                let meta = meta.map_err(VortexError::from)?;
+                let full_path = meta.location.to_string();
+                let relative_path = full_path
+                    .strip_prefix(base_path.trim_start_matches('/'))
+                    .unwrap_or(&full_path)
+                    .trim_start_matches('/')
+                    .to_string();
+                results.push(FileListing {
+                    path: relative_path,
+                    size: Some(meta.size),
+                });
+            }
+            Ok::<_, VortexError>(results)
+        })
+        .flat_map(|result| match result {
+            Ok(listings) => stream::iter(listings.into_iter().map(Ok)).boxed(),
+            Err(e) => stream::once(async move { Err(e) }).boxed(),
+        })
+        .boxed()
+    }
+
+    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        let mut url = self.base_url.clone();
+        url.set_path(path);
+        let fs_path = url
+            .to_file_path()
+            .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
+        let handle = RUNTIME.handle();
+        let reader = vortex_io::std_file::FileReadAt::open_direct(&fs_path, handle)?;
+        Ok(Arc::new(reader))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// monoio io_uring filesystem (feature-gated)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "monoio")]
+fn monoio_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
+    if base_url.scheme() != "file" {
+        vortex_bail!(
+            "monoio filesystem only supports local file:// URLs, got '{}'",
+            base_url.scheme()
+        );
+    }
+    Ok(Arc::new(Compat::new(MonoioLocalFileSystem {
+        base_url: base_url.clone(),
+    })))
+}
+
+#[cfg(feature = "monoio")]
+struct MonoioLocalFileSystem {
+    base_url: Url,
+}
+
+#[cfg(feature = "monoio")]
+impl Debug for MonoioLocalFileSystem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MonoioLocalFileSystem")
+            .field("base_url", &self.base_url)
+            .finish()
+    }
+}
+
+#[cfg(feature = "monoio")]
+#[async_trait]
+impl FileSystem for MonoioLocalFileSystem {
+    fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+        // Reuse object_store's LocalFileSystem for directory listing.
+        // We only replace the read path with monoio — listing is not performance-critical.
+        let local_fs = Arc::new(LocalFileSystem::new());
+        let mut full_url = self.base_url.clone();
+        if !prefix.is_empty() {
+            full_url.set_path(prefix);
+        }
+
+        let base_path = self.base_url.path().to_string();
+        let list_path = object_store::path::Path::from(full_url.path());
+
+        stream::once(async move {
+            let mut results = Vec::new();
+            let mut listing = local_fs.list(Some(&list_path));
+            while let Some(meta) = listing.next().await {
+                let meta = meta.map_err(VortexError::from)?;
+                let full_path = meta.location.to_string();
+                let relative_path = full_path
+                    .strip_prefix(base_path.trim_start_matches('/'))
+                    .unwrap_or(&full_path)
+                    .trim_start_matches('/')
+                    .to_string();
+                results.push(FileListing {
+                    path: relative_path,
+                    size: Some(meta.size),
+                });
+            }
+            Ok::<_, VortexError>(results)
+        })
+        .flat_map(|result| match result {
+            Ok(listings) => stream::iter(listings.into_iter().map(Ok)).boxed(),
+            Err(e) => stream::once(async move { Err(e) }).boxed(),
+        })
+        .boxed()
+    }
+
+    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        let mut url = self.base_url.clone();
+        url.set_path(path);
+        let fs_path = url
+            .to_file_path()
+            .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
+        let reader = vortex_io::monoio_read_at::MonoioReadAt::open(&fs_path)?;
+        Ok(Arc::new(reader))
+    }
+}

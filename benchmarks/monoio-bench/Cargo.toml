@@ -1,0 +1,28 @@
+[package]
+name = "monoio-bench"
+description = "ClickBench DuckDB benchmark with monoio io_uring I/O backend"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+duckdb-bench = { path = "../duckdb-bench" }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+vortex = { workspace = true }
+vortex-bench = { workspace = true }
+vortex-duckdb = { workspace = true, features = ["monoio"] }
+
+[lints]
+workspace = true

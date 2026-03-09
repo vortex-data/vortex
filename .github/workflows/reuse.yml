@@ -10,7 +10,7 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  # pull_request: { } # DISABLED for monoio prototype
 
 jobs:
   reuse-check:

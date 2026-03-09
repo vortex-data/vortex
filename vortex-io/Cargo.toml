@@ -26,6 +26,8 @@ getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature fo
 glob = { workspace = true }
 handle = "1.0.2"
 kanal = { workspace = true }
+
+monoio = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
@@ -45,6 +47,9 @@ vortex-session = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
 smol = { workspace = true }
@@ -60,6 +65,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [features]
+monoio = ["dep:monoio"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 

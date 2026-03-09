@@ -11,7 +11,7 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  # pull_request: { } # DISABLED for monoio prototype
   workflow_dispatch: { }
 
 permissions:

@@ -40,6 +40,7 @@ tempfile = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex-io = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
@@ -48,6 +49,9 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
+
+[features]
+monoio = ["vortex/monoio", "vortex-io/monoio"]
 
 [lints]
 workspace = true
