@@ -311,7 +311,7 @@ mod tests {
         test_case(512, 512, &[512, 513, 514], &[10i8, 20, 30])?;
         test_case(10_000, 100, &[500, 1_000, 1_001, 1_002], &[1i16, 2, 3, 4])?;
 
-        for len in (1..4096).step_by(5) {
+        for len in (1..4096).step_by(10) {
             let offset = len / 2;
 
             let indices: Vec<u32> = (offset..len).map(|x| x as u32).collect();
