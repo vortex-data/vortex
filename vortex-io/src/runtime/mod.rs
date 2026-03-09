@@ -19,6 +19,8 @@ pub use blocking::*;
 mod handle;
 pub use handle::*;
 
+mod available_cores;
+pub mod cpu_segregated;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
 #[cfg(not(target_arch = "wasm32"))]

@@ -25,11 +25,14 @@ futures = { workspace = true, features = ["std", "executor"] }
 getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 glob = { workspace = true }
 handle = "1.0.2"
+hwlocality = { workspace = true }
 kanal = { workspace = true }
+num_cpus = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
+rayon = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "rt",

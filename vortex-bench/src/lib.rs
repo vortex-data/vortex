@@ -30,6 +30,8 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::cpu_segregated::CpuSegregatedRuntime;
 use vortex::utils::aliases::hash_map::HashMap;
 
 pub mod benchmark;
@@ -67,8 +69,9 @@ use vortex::session::VortexSession;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+pub static RUNTIME: LazyLock<CpuSegregatedRuntime> = LazyLock::new(Default::default);
 pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
