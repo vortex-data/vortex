@@ -8,12 +8,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::ConstantVTable;
 use crate::arrays::SharedArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -145,10 +148,15 @@ impl VTable for SharedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        array
-            .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
-            .map(ExecutionStep::Done)
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        let current = array.current_array_ref();
+        if let Some(canonical) = current.as_opt::<AnyCanonical>() {
+            return Ok(ExecutionStep::Done(Canonical::from(canonical).into_array()));
+        }
+        if current.as_opt::<ConstantVTable>().is_some() {
+            return Ok(ExecutionStep::Done(current.clone()));
+        }
+        Ok(ExecutionStep::execute_child::<AnyCanonical>(0))
     }
 }
 impl OperationsVTable<SharedVTable> for SharedVTable {

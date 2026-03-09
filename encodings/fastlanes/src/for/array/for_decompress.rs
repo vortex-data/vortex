@@ -45,23 +45,28 @@ impl<T: PhysicalPType<Physical = T> + FoR> UnpackStrategy<T> for FoRStrategy<T> 
     }
 }
 
-pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    let ptype = array.ptype();
-
-    // Try to do fused unpack.
+/// Try the fused BitPacked decompression path. Returns `None` if the child is not BitPacked
+/// or the reference type is not unsigned.
+pub fn try_fused_decompress(
+    array: &FoRArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<PrimitiveArray>> {
     if array.reference_scalar().dtype().is_unsigned_int()
         && let Some(bp) = array.encoded().as_opt::<BitPackedVTable>()
     {
         return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-            fused_decompress::<T>(array, bp, ctx)
+            fused_decompress::<T>(array, bp, ctx).map(Some)
         });
     }
+    Ok(None)
+}
 
-    // TODO(ngates): Do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
+/// Apply the FoR reference value to an already-decoded PrimitiveArray.
+pub fn apply_reference(array: &FoRArray, encoded: PrimitiveArray) -> PrimitiveArray {
+    let ptype = array.ptype();
     let validity = encoded.validity().clone();
 
-    Ok(match_each_integer_ptype!(ptype, |T| {
+    match_each_integer_ptype!(ptype, |T| {
         let min = array
             .reference_scalar()
             .as_primitive()
@@ -75,7 +80,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
                 validity,
             )
         }
-    }))
+    })
 }
 
 pub(crate) fn fused_decompress<

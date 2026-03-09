@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools;
+use vortex_array::AnyCanonical;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -16,7 +17,9 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -41,7 +44,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
@@ -297,17 +299,27 @@ impl VTable for ALPRDVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
-        let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
+        // Ensure left_parts (child 0) is a PrimitiveArray.
+        let left_parts = if let Some(primitive) = array.left_parts().as_opt::<PrimitiveVTable>() {
+            primitive.clone()
+        } else if array.left_parts().is::<ConstantVTable>() {
+            array.left_parts().to_canonical()?.into_primitive()
+        } else {
+            return Ok(ExecutionStep::execute_child::<AnyCanonical>(0));
+        };
+
+        // Ensure right_parts (child 1) is a PrimitiveArray.
+        let right_parts = if let Some(primitive) = array.right_parts().as_opt::<PrimitiveVTable>() {
+            primitive.clone()
+        } else if array.right_parts().is::<ConstantVTable>() {
+            array.right_parts().to_canonical()?.into_primitive()
+        } else {
+            return Ok(ExecutionStep::execute_child::<AnyCanonical>(1));
+        };
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
-
-        let validity = array
-            .left_parts()
-            .validity()?
-            .to_array(array.len())
-            .execute::<Mask>(ctx)?;
+        let validity = left_parts.validity_mask()?;
 
         let decoded_array = if array.is_f32() {
             PrimitiveArray::new(

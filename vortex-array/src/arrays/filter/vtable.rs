@@ -13,12 +13,16 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::execute::execute_filter_fast_paths;
@@ -156,18 +160,30 @@ impl VTable for FilterVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
-            return Ok(ExecutionStep::Done(canonical));
+        if let Some(result) = execute_filter_fast_paths(array, ctx)? {
+            return Ok(ExecutionStep::Done(result));
         }
         let Mask::Values(mask_values) = &array.mask else {
             unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
         };
 
-        // We rely on the optimization pass that runs prior to this execution for filter pushdown,
-        // so now we can just execute the filter without worrying.
-        Ok(ExecutionStep::Done(
-            execute_filter(array.child.clone().execute(ctx)?, mask_values).into_array(),
-        ))
+        // If child is already canonical, filter it directly.
+        if let Some(canonical) = array.child.as_opt::<AnyCanonical>() {
+            return Ok(ExecutionStep::Done(
+                execute_filter(Canonical::from(canonical), mask_values).into_array(),
+            ));
+        }
+
+        // If child is a constant, filtering just changes the length.
+        if let Some(constant) = array.child.as_opt::<ConstantVTable>() {
+            return Ok(ExecutionStep::Done(
+                ConstantArray::new(constant.scalar().clone(), mask_values.true_count())
+                    .into_array(),
+            ));
+        }
+
+        // Otherwise, ask the scheduler to execute the child first.
+        Ok(ExecutionStep::execute_child::<AnyCanonical>(0))
     }
 
     fn reduce_parent(

@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use vortex_array::AnyCanonical;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -11,8 +12,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ConstantVTable;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
@@ -21,6 +26,7 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -28,7 +34,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRArray;
-use crate::r#for::array::for_decompress::decompress;
+use crate::r#for::array::for_decompress::apply_reference;
+use crate::r#for::array::for_decompress::try_fused_decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
 
@@ -167,7 +174,54 @@ impl VTable for FoRVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(decompress(array, ctx)?.into_array()))
+        // Try fused decompress with BitPacked child (no child execution needed).
+        if let Some(result) = try_fused_decompress(array, ctx)? {
+            return Ok(ExecutionStep::Done(result.into_array()));
+        }
+
+        // If child is already a PrimitiveArray, add the reference value.
+        if array.encoded().is::<PrimitiveVTable>() {
+            let encoded = array.encoded().as_::<PrimitiveVTable>().clone();
+            return Ok(ExecutionStep::Done(
+                apply_reference(array, encoded).into_array(),
+            ));
+        }
+
+        // If child is a constant, compute the result as a constant.
+        if let Some(constant) = array.encoded().as_opt::<ConstantVTable>() {
+            let scalar = constant.scalar();
+            if scalar.is_null() {
+                return Ok(ExecutionStep::Done(
+                    ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
+                        .into_array(),
+                ));
+            }
+            return Ok(ExecutionStep::Done(match_each_integer_ptype!(
+                array.ptype(),
+                |T| {
+                    let enc_val = scalar
+                        .as_primitive()
+                        .typed_value::<T>()
+                        .vortex_expect("constant must be non-null after check");
+                    let ref_val = array
+                        .reference_scalar()
+                        .as_primitive()
+                        .typed_value::<T>()
+                        .vortex_expect("reference must be non-null");
+                    ConstantArray::new(
+                        Scalar::primitive(
+                            enc_val.wrapping_add(ref_val),
+                            scalar.dtype().nullability(),
+                        ),
+                        array.len(),
+                    )
+                    .into_array()
+                }
+            )));
+        }
+
+        // Otherwise, ask the scheduler to execute the child first.
+        Ok(ExecutionStep::execute_child::<AnyCanonical>(0))
     }
 
     fn execute_parent(

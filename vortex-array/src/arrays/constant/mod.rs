@@ -14,3 +14,4 @@ pub(crate) mod compute;
 mod vtable;
 
 pub use vtable::ConstantVTable;
+pub(crate) use vtable::canonical::constant_canonicalize;

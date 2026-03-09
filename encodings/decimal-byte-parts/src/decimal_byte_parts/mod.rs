@@ -8,6 +8,7 @@ mod slice;
 use std::hash::Hash;
 
 use prost::Message as _;
+use vortex_array::AnyCanonical;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -18,8 +19,9 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -190,8 +192,31 @@ impl VTable for DecimalBytePartsVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        to_canonical_decimal(array, ctx).map(ExecutionStep::Done)
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        // Ensure msp (child 0) is a PrimitiveArray.
+        let prim = if let Some(primitive) = array.msp.as_opt::<PrimitiveVTable>() {
+            primitive.clone()
+        } else if array.msp.is::<ConstantVTable>() {
+            array.msp.to_canonical()?.into_primitive()
+        } else {
+            return Ok(ExecutionStep::execute_child::<AnyCanonical>(0));
+        };
+
+        Ok(ExecutionStep::Done(match_each_signed_integer_ptype!(
+            prim.ptype(),
+            |P| {
+                // SAFETY: The primitive array's buffer is already validated with correct type.
+                // The decimal dtype matches the array's dtype, and validity is preserved.
+                unsafe {
+                    DecimalArray::new_unchecked(
+                        prim.to_buffer::<P>(),
+                        *array.decimal_dtype(),
+                        prim.validity().clone(),
+                    )
+                }
+                .into_array()
+            }
+        )))
     }
 
     fn execute_parent(
@@ -275,30 +300,6 @@ pub struct DecimalBytePartsVTable;
 
 impl DecimalBytePartsVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
-}
-
-/// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.
-fn to_canonical_decimal(
-    array: &DecimalBytePartsArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // TODO(joe): support parts len != 1
-    let prim = array.msp.clone().execute::<PrimitiveArray>(ctx)?;
-    // Depending on the decimal type and the min/max of the primitive array we can choose
-    // the correct buffer size
-
-    Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
-        // SAFETY: The primitive array's buffer is already validated with correct type.
-        // The decimal dtype matches the array's dtype, and validity is preserved.
-        unsafe {
-            DecimalArray::new_unchecked(
-                prim.to_buffer::<P>(),
-                *array.decimal_dtype(),
-                prim.validity().clone(),
-            )
-        }
-        .into_array()
-    }))
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
