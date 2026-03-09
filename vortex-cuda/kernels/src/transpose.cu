@@ -29,6 +29,16 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
                                uint32_t *__restrict lane_offsets,
                                uint16_t *__restrict output_indices,
                                ValueT *__restrict output_values) {
+
+    printf("patch_indices: %p\n", (void*) patch_indices);
+    printf("patch_values: %p\n", (void*) patch_values);
+    printf("len: %d\n", len);
+    printf("offset: %d\n", offset);
+    printf("array_len: %d\n", array_len);
+    printf("lane_offsets: %p\n", (void*) lane_offsets);
+    printf("output_indices: %p\n", (void*) output_indices);
+    printf("output_values: %p\n", (void*) output_values);
+
     const uint32_t n_chunks = (array_len + 1023) / 1024; // div_ceil(array_len, 1024)
     const uint32_t n_lanes = patch_lanes<ValueT>();
     const uint32_t num_slots = n_chunks * n_lanes + 1;

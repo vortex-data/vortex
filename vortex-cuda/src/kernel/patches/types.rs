@@ -19,10 +19,10 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
-use crate::executor::CudaArrayExt;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
+use crate::executor::CudaArrayExt;
 
 /// A set of device-resident patches that live in the GPU.
 ///
