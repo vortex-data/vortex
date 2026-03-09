@@ -7,7 +7,7 @@ use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::Canonical;
+use crate::Columnar;
 use crate::DynArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFn;
@@ -131,11 +131,11 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch = batch.execute(&mut ctx)?;
         }
 
-        // Otherwise, execute the batch until it is canonical and accumulate it into the state.
-        let canonical = batch.execute::<Canonical>(&mut ctx)?;
+        // Otherwise, execute the batch until it is columnar and accumulate it into the state.
+        let columnar = batch.execute::<Columnar>(&mut ctx)?;
 
         self.vtable
-            .accumulate(&mut self.partial, &canonical, &mut ctx)
+            .accumulate(&mut self.partial, &columnar, &mut ctx)
     }
 
     fn is_saturated(&self) -> bool {
