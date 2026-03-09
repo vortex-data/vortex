@@ -65,6 +65,7 @@ tokio = { workspace = true, features = ["full"] }
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
+cpu_segregated = ["tokio/fs", "tokio/rt-multi-thread"]
 
 [lints]
 workspace = true
