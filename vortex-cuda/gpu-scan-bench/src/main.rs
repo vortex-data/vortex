@@ -57,6 +57,14 @@ struct Cli {
     /// Output logs as JSON.
     #[arg(long)]
     json: bool,
+
+    /// Scan concurrency (splits per worker thread).
+    #[arg(long, default_value_t = 4)]
+    scan_concurrency: usize,
+
+    /// Number of CUDA streams in the pool.
+    #[arg(long, default_value_t = 1)]
+    cuda_streams: usize,
 }
 
 #[cuda_not_available]
@@ -116,7 +124,8 @@ async fn main() -> VortexResult<()> {
         cuda_ctx.stream().context(),
     )));
     let cuda_stream =
-        VortexCudaStreamPool::new(Arc::clone(cuda_ctx.stream().context()), 1).get_stream()?;
+        VortexCudaStreamPool::new(Arc::clone(cuda_ctx.stream().context()), cli.cuda_streams)
+            .get_stream()?;
     let handle = session.handle();
 
     // Parse source and create reader
@@ -157,7 +166,10 @@ async fn main() -> VortexResult<()> {
 
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
 
-        let mut batches = gpu_file.scan()?.into_array_stream()?;
+        let mut batches = gpu_file
+            .scan()?
+            .with_concurrency(cli.scan_concurrency)
+            .into_array_stream()?;
 
         let mut chunk = 0;
         while let Some(next) = batches.next().await.transpose()? {
@@ -198,11 +210,13 @@ async fn main() -> VortexResult<()> {
     // Always print human-readable to stderr
     eprintln!();
     eprintln!("=== Benchmark Results ===");
-    eprintln!("Source:     {}", cli.source);
-    eprintln!("Iterations: {}", cli.iterations);
-    eprintln!("Avg time:   {:.3}s", avg.as_secs_f64());
-    eprintln!("File size:  {file_size_mb:.2} MB");
-    eprintln!("Throughput: {throughput_mbs:.2} MB/s");
+    eprintln!("Source:          {}", cli.source);
+    eprintln!("Iterations:      {}", cli.iterations);
+    eprintln!("Scan concurrency: {} per thread", cli.scan_concurrency);
+    eprintln!("CUDA streams:    {}", cli.cuda_streams);
+    eprintln!("Avg time:        {:.3}s", avg.as_secs_f64());
+    eprintln!("File size:       {file_size_mb:.2} MB");
+    eprintln!("Throughput:      {throughput_mbs:.2} MB/s");
 
     Ok(())
 }
