@@ -516,7 +516,7 @@ async fn main() -> VortexResult<()> {
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
-        let mut batches = gpu_file.scan()?.into_array_stream()?;
+        let mut batches = gpu_file.scan()?.with_concurrency(16).into_array_stream()?;
 
         while let Some(batch) = {
             let t = std::time::Instant::now();
