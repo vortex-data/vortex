@@ -12,6 +12,7 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys;
 use futures::future::BoxFuture;
+use tracing::trace_span;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
@@ -249,17 +250,21 @@ impl DeviceBuffer for CudaDeviceBuffer {
             .bind_to_thread()
             .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
-        // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
-        // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
-        unsafe {
-            sys::cuMemcpyDtoHAsync_v2(
-                host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
-                src_ptr,
-                len,
-                stream.cu_stream(),
-            )
-            .result()
-            .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
+        {
+            let span = trace_span!("copy_dtoh_launch");
+            let _guard = span.enter();
+            // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
+            // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
+            unsafe {
+                sys::cuMemcpyDtoHAsync_v2(
+                    host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
+                    src_ptr,
+                    len,
+                    stream.cu_stream(),
+                )
+                    .result()
+                    .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
+            }
         }
 
         let cuda_slice = Arc::clone(&self.allocation);

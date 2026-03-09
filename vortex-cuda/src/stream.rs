@@ -13,6 +13,9 @@ use cudarc::driver::DeviceRepr;
 use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
 use kanal::Sender;
+use tracing::{instrument, Instrument};
+use tracing::info_span;
+use tracing::trace_span;
 use tracing::warn;
 use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexResult;
@@ -80,14 +83,17 @@ impl VortexCudaStream {
         let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
         let stream = self.0.clone();
 
-        Ok(Box::pin(async move {
-            await_stream_callback(&stream).await?;
+        Ok(Box::pin(
+            async move {
+                await_stream_callback(&stream).await?;
 
-            // Keep source memory alive until copy completes.
-            let _keep_alive = data;
+                // Keep source memory alive until copy completes.
+                let _keep_alive = data;
 
-            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
-        }))
+                Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+            }
+            .instrument(trace_span!("copy_to_device")),
+        ))
     }
 }
 
@@ -107,6 +113,7 @@ impl VortexCudaStream {
 ///
 /// Returns an error if registering the stream callback fails or if the callback
 /// channel closes unexpectedly.
+#[instrument(skip_all)]
 pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<()> {
     let rx = register_stream_callback(stream)?;
 
