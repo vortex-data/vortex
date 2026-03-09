@@ -220,6 +220,9 @@ pub async fn transpose_patches(
         },
     )?;
 
+    // Sync to force indices_ptr to be active.
+    ctx.synchronize_stream()?;
+
     Ok(DevicePatches {
         lane_offsets,
         indices: indices_out,
