@@ -34,7 +34,9 @@ use futures::StreamExt;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_BUFFER_FORMAT;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_CODEC_H264_GUID;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_INPUT_RESOURCE_TYPE;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PARAMS_RC_MODE;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PRESET_P1_GUID;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PRESET_P4_GUID;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_TUNING_INFO;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
@@ -275,7 +277,8 @@ async fn main() -> VortexResult<()> {
     let width = cli.width;
     let height = cli.height;
     let fps = cli.fps;
-    let _bitrate = cli.bitrate_mbps * 1_000_000;
+    let bitrate = cli.bitrate_mbps * 1_000_000;
+    let is_file_output = cli.output.is_some();
 
     // Determine which columns to project.
     let projected_columns: Vec<String> = cli
@@ -353,18 +356,31 @@ async fn main() -> VortexResult<()> {
     let encoder = nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context.clone())
         .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
 
-    // Get preset config as baseline, then customize GOP and SPS/PPS repeat.
-    let preset_config = encoder
-        .get_preset_config(
-            NV_ENC_CODEC_H264_GUID,
+    // Use P4/high-quality for file output (no real-time constraint),
+    // P1/low-latency for TCP streaming.
+    let (preset_guid, tuning_info) = if is_file_output {
+        (
+            NV_ENC_PRESET_P4_GUID,
+            NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_HIGH_QUALITY,
+        )
+    } else {
+        (
             NV_ENC_PRESET_P1_GUID,
             NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY,
         )
+    };
+
+    let preset_config = encoder
+        .get_preset_config(NV_ENC_CODEC_H264_GUID, preset_guid, tuning_info)
         .map_err(|e| vortex_err!("NVENC get preset config failed: {e}"))?;
 
     let mut encode_config = preset_config.presetCfg;
     // IDR every 1 second so ffplay can start decoding mid-stream
     encode_config.gopLength = fps;
+    // Set VBR rate control with the user-specified bitrate
+    encode_config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_MODE::NV_ENC_PARAMS_RC_VBR;
+    encode_config.rcParams.averageBitRate = bitrate;
+    encode_config.rcParams.maxBitRate = bitrate * 2;
     unsafe {
         encode_config.encodeCodecConfig.h264Config.idrPeriod = fps;
         // Repeat SPS/PPS with every IDR so the decoder can join at any keyframe
@@ -377,8 +393,8 @@ async fn main() -> VortexResult<()> {
     let mut init_params =
         nvidia_video_codec_sdk::EncoderInitParams::new(NV_ENC_CODEC_H264_GUID, width, height);
     init_params
-        .preset_guid(NV_ENC_PRESET_P1_GUID)
-        .tuning_info(NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY)
+        .preset_guid(preset_guid)
+        .tuning_info(tuning_info)
         .display_aspect_ratio(width, height)
         .framerate(fps, 1)
         .enable_picture_type_decision()
