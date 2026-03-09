@@ -30,7 +30,7 @@ mod options;
 pub use options::*;
 
 pub mod fns;
-mod kernels;
+pub mod kernels;
 pub mod session;
 
 /// A unique identifier for an aggregate function.

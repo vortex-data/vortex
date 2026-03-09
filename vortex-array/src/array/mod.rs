@@ -353,6 +353,19 @@ impl dyn DynArray + '_ {
     pub fn is_canonical(&self) -> bool {
         self.is::<AnyCanonical>()
     }
+
+    /// Returns a new array with the child at `child_idx` replaced by `replacement`.
+    pub fn with_child(&self, child_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
+        let mut children: Vec<ArrayRef> = self.children();
+        vortex_ensure!(
+            child_idx < children.len(),
+            "child index {} out of bounds for array with {} children",
+            child_idx,
+            children.len()
+        );
+        children[child_idx] = replacement;
+        self.with_children(children)
+    }
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].

@@ -164,21 +164,27 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 break;
             }
 
-            let kernel_key = (self.vtable.id(), elements.encoding_id());
-            if let Some(kernel) = kernels.read().get(&kernel_key) {
-                // SAFETY: we assume that elements execution is safe
-                let groups = unsafe {
-                    ListViewArray::new_unchecked(
-                        elements.clone(),
-                        groups.offsets().clone(),
-                        groups.sizes().clone(),
-                        groups.validity().clone(),
-                    )
-                };
-
-                if let Some(result) = kernel.grouped_aggregate(&self.aggregate_fn, &groups)? {
-                    return self.push_result(result);
-                }
+            let kernels_r = kernels.read();
+            if let Some(result) = kernels_r
+                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
+                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+                .and_then(|kernel| {
+                    // SAFETY: we assume that elements execution is safe
+                    let groups = unsafe {
+                        ListViewArray::new_unchecked(
+                            elements.clone(),
+                            groups.offsets().clone(),
+                            groups.sizes().clone(),
+                            groups.validity().clone(),
+                        )
+                    };
+                    kernel
+                        .grouped_aggregate(&self.aggregate_fn, &groups)
+                        .transpose()
+                })
+                .transpose()?
+            {
+                return self.push_result(result);
             }
 
             // Execute one step and try again
@@ -244,23 +250,28 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 break;
             }
 
-            let kernel_key = (self.vtable.id(), elements.encoding_id());
-            if let Some(kernel) = kernels.read().get(&kernel_key) {
-                // SAFETY: we assume that elements execution is safe
-                let groups = unsafe {
-                    FixedSizeListArray::new_unchecked(
-                        elements.clone(),
-                        groups.list_size(),
-                        groups.validity().clone(),
-                        groups.len(),
-                    )
-                };
+            let kernels_r = kernels.read();
+            if let Some(result) = kernels_r
+                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
+                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+                .and_then(|kernel| {
+                    // SAFETY: we assume that elements execution is safe
+                    let groups = unsafe {
+                        FixedSizeListArray::new_unchecked(
+                            elements.clone(),
+                            groups.list_size(),
+                            groups.validity().clone(),
+                            groups.len(),
+                        )
+                    };
 
-                if let Some(result) =
-                    kernel.grouped_aggregate_fixed_size(&self.aggregate_fn, &groups)?
-                {
-                    return self.push_result(result);
-                }
+                    kernel
+                        .grouped_aggregate_fixed_size(&self.aggregate_fn, &groups)
+                        .transpose()
+                })
+                .transpose()?
+            {
+                return self.push_result(result);
             }
 
             // Execute one step and try again

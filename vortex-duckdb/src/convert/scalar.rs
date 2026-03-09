@@ -253,6 +253,9 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
             ExtractedValue::HugeInt(_) => {
                 vortex_bail!("DuckDB HugeInt is not yet supported in Vortex");
             }
+            ExtractedValue::UHugeInt(_) => {
+                vortex_bail!("DuckDB UHugeInt is not yet supported in Vortex");
+            }
             ExtractedValue::UTinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
             ExtractedValue::USmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
             ExtractedValue::UInteger(v) => Ok(Scalar::primitive(v, Nullable)),

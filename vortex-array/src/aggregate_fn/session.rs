@@ -14,19 +14,37 @@ use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
+use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::vtable::ArrayId;
 
 /// Registry of aggregate function vtables.
 pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
 
 /// Session state for aggregate function vtables.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
 
-    pub(super) kernels: RwLock<HashMap<(AggregateFnId, ArrayId), &'static dyn DynAggregateKernel>>,
-    pub(super) grouped_kernels:
-        RwLock<HashMap<(AggregateFnId, ArrayId), &'static dyn DynGroupedAggregateKernel>>,
+    pub(super) kernels: RwLock<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
+    pub(super) grouped_kernels: RwLock<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
+}
+
+type KernelKey = (ArrayId, Option<AggregateFnId>);
+
+impl Default for AggregateFnSession {
+    fn default() -> Self {
+        let this = Self {
+            registry: AggregateFnRegistry::default(),
+            kernels: RwLock::new(HashMap::default()),
+            grouped_kernels: RwLock::new(HashMap::default()),
+        };
+
+        // Register the built-in aggregate kernels.
+        this.register_aggregate_kernel(ChunkedVTable::ID, None, &ChunkedArrayAggregate);
+
+        this
+    }
 }
 
 impl AggregateFnSession {
@@ -40,6 +58,16 @@ impl AggregateFnSession {
     pub fn register<V: AggregateFnVTable>(&self, vtable: V) {
         self.registry
             .register(vtable.id(), Arc::new(vtable) as AggregateFnPluginRef);
+    }
+
+    /// Register an aggregate function kernel for a specific aggregate function and array type.
+    pub fn register_aggregate_kernel(
+        &self,
+        array_id: ArrayId,
+        agg_fn_id: Option<AggregateFnId>,
+        kernel: &'static dyn DynAggregateKernel,
+    ) {
+        self.kernels.write().insert((array_id, agg_fn_id), kernel);
     }
 }
 

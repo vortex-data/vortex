@@ -745,7 +745,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/system-info
       - name: Install Codspeed
-        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
         with:
           tool: cargo-codspeed
       - name: Build benchmarks
@@ -753,7 +753,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
+        uses: CodSpeedHQ/action@281164b0f014a4e7badd2c02cecad9b595b70537
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -821,8 +821,13 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
       - name: Run sqllogictest tests
         run: |
+          ./vortex-sqllogictest/slt/tpch/generate_data.sh
           cargo test -p vortex-sqllogictest --test sqllogictests
 
 
@@ -944,7 +949,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
         with:
           tool: cargo-edit
       - name: Set Version

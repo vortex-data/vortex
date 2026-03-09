@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::ops::BitAnd;
 
 use itertools::Itertools;
@@ -19,6 +17,7 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
@@ -34,23 +33,8 @@ use crate::scalar::Scalar;
 #[derive(Clone, Debug)]
 pub struct Sum;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SumOptions {
-    checked: bool,
-}
-
-impl Display for SumOptions {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.checked {
-            write!(f, "checked")
-        } else {
-            write!(f, "unchecked")
-        }
-    }
-}
-
 impl AggregateFnVTable for Sum {
-    type Options = SumOptions;
+    type Options = EmptyOptions;
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
@@ -69,25 +53,16 @@ impl AggregateFnVTable for Sum {
 
     fn empty_partial(
         &self,
-        options: &Self::Options,
+        _options: &Self::Options,
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
         let return_dtype = Stat::Sum
             .dtype(input_dtype)
             .ok_or_else(|| vortex_err!("Cannot sum {}", input_dtype))?;
 
-        let initial = match &return_dtype {
-            DType::Primitive(ptype, _) => match ptype {
-                PType::U8 | PType::U16 | PType::U32 | PType::U64 => SumState::Unsigned(0),
-                PType::I8 | PType::I16 | PType::I32 | PType::I64 => SumState::Signed(0),
-                PType::F16 | PType::F32 | PType::F64 => SumState::Float(0.0),
-            },
-            DType::Decimal(decimal, _) => SumState::Decimal(DecimalValue::zero(decimal)),
-            _ => vortex_panic!("Unsupported sum type"),
-        };
+        let initial = make_zero_state(&return_dtype);
 
         Ok(SumPartial {
-            checked: options.checked,
             return_dtype,
             current: Some(initial),
         })
@@ -95,9 +70,10 @@ impl AggregateFnVTable for Sum {
 
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
         if other.is_null() {
+            // A null partial means the sub-accumulator saturated (overflow).
+            partial.current = None;
             return Ok(());
         }
-        let checked = partial.checked;
         let Some(ref mut inner) = partial.current else {
             return Ok(());
         };
@@ -106,21 +82,21 @@ impl AggregateFnVTable for Sum {
                 let val = other
                     .as_primitive()
                     .typed_value::<u64>()
-                    .ok_or_else(|| vortex_err!("Expected u64 scalar for unsigned sum merge"))?;
-                add_u64(acc, val, checked)
+                    .vortex_expect("checked non-null");
+                checked_add_u64(acc, val)
             }
             SumState::Signed(acc) => {
                 let val = other
                     .as_primitive()
                     .typed_value::<i64>()
-                    .ok_or_else(|| vortex_err!("Expected i64 scalar for signed sum merge"))?;
-                add_i64(acc, val, checked)
+                    .vortex_expect("checked non-null");
+                checked_add_i64(acc, val)
             }
             SumState::Float(acc) => {
                 let val = other
                     .as_primitive()
                     .typed_value::<f64>()
-                    .ok_or_else(|| vortex_err!("Expected f64 scalar for float sum merge"))?;
+                    .vortex_expect("checked non-null");
                 *acc += val;
                 false
             }
@@ -128,7 +104,7 @@ impl AggregateFnVTable for Sum {
                 let val = other
                     .as_decimal()
                     .decimal_value()
-                    .ok_or_else(|| vortex_err!("Expected decimal scalar for decimal sum merge"))?;
+                    .vortex_expect("checked non-null");
                 match acc.checked_add(&val) {
                     Some(r) => {
                         *acc = r;
@@ -176,15 +152,14 @@ impl AggregateFnVTable for Sum {
         batch: &Canonical,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let checked = partial.checked;
         let mut inner = match partial.current.take() {
             Some(inner) => inner,
             None => return Ok(()),
         };
 
         let result = match batch {
-            Canonical::Primitive(p) => accumulate_primitive(&mut inner, p, checked),
-            Canonical::Bool(b) => accumulate_bool(&mut inner, b, checked),
+            Canonical::Primitive(p) => accumulate_primitive(&mut inner, p),
+            Canonical::Bool(b) => accumulate_bool(&mut inner, b),
             Canonical::Decimal(d) => accumulate_decimal(&mut inner, d),
             _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
         };
@@ -212,7 +187,6 @@ impl AggregateFnVTable for Sum {
 /// The group state for a sum aggregate, containing the accumulated value and configuration
 /// needed for reset/result without external context.
 pub struct SumPartial {
-    checked: bool,
     return_dtype: DType,
     /// The current accumulated state, or `None` if saturated (checked overflow).
     current: Option<SumState>,
@@ -241,62 +215,45 @@ fn make_zero_state(return_dtype: &DType) -> SumState {
     }
 }
 
-/// Add `val` to `acc`, returning true if overflow occurred (checked mode) or wrapping (unchecked).
-fn add_u64(acc: &mut u64, val: u64, checked: bool) -> bool {
-    if checked {
-        match acc.checked_add(val) {
-            Some(r) => {
-                *acc = r;
-                false
-            }
-            None => true,
+/// Checked add for u64, returning true if overflow occurred.
+#[inline(always)]
+fn checked_add_u64(acc: &mut u64, val: u64) -> bool {
+    match acc.checked_add(val) {
+        Some(r) => {
+            *acc = r;
+            false
         }
-    } else {
-        *acc = acc.wrapping_add(val);
-        false
+        None => true,
     }
 }
 
-fn add_i64(acc: &mut i64, val: i64, checked: bool) -> bool {
-    if checked {
-        match acc.checked_add(val) {
-            Some(r) => {
-                *acc = r;
-                false
-            }
-            None => true,
+/// Checked add for i64, returning true if overflow occurred.
+#[inline(always)]
+fn checked_add_i64(acc: &mut i64, val: i64) -> bool {
+    match acc.checked_add(val) {
+        Some(r) => {
+            *acc = r;
+            false
         }
-    } else {
-        *acc = acc.wrapping_add(val);
-        false
+        None => true,
     }
 }
 
-/// Accumulate a primitive array into the sum state.
-/// Returns Ok(true) if saturated (overflow), Ok(false) if not.
-fn accumulate_primitive(
-    inner: &mut SumState,
-    p: &PrimitiveArray,
-    checked: bool,
-) -> VortexResult<bool> {
+fn accumulate_primitive(inner: &mut SumState, p: &PrimitiveArray) -> VortexResult<bool> {
     let mask = p.validity_mask()?;
     match mask.bit_buffer() {
         AllOr::None => Ok(false),
-        AllOr::All => accumulate_primitive_all(inner, p, checked),
-        AllOr::Some(validity) => accumulate_primitive_valid(inner, p, validity, checked),
+        AllOr::All => accumulate_primitive_all(inner, p),
+        AllOr::Some(validity) => accumulate_primitive_valid(inner, p, validity),
     }
 }
 
-fn accumulate_primitive_all(
-    inner: &mut SumState,
-    p: &PrimitiveArray,
-    checked: bool,
-) -> VortexResult<bool> {
+fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |T| {
                 for &v in p.as_slice::<T>() {
-                    if add_u64(acc, v.to_u64().vortex_expect("unsigned to u64"), checked) {
+                    if checked_add_u64(acc, v.to_u64().vortex_expect("unsigned to u64")) {
                         return Ok(true);
                     }
                 }
@@ -309,7 +266,7 @@ fn accumulate_primitive_all(
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
             signed: |T| {
                 for &v in p.as_slice::<T>() {
-                    if add_i64(acc, v.to_i64().vortex_expect("signed to i64"), checked) {
+                    if checked_add_i64(acc, v.to_i64().vortex_expect("signed to i64")) {
                         return Ok(true);
                     }
                 }
@@ -335,13 +292,12 @@ fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,
     validity: &vortex_buffer::BitBuffer,
-    checked: bool,
 ) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |T| {
                 for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && add_u64(acc, v.to_u64().vortex_expect("unsigned to u64"), checked) {
+                    if valid && checked_add_u64(acc, v.to_u64().vortex_expect("unsigned to u64")) {
                         return Ok(true);
                     }
                 }
@@ -354,7 +310,7 @@ fn accumulate_primitive_valid(
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
             signed: |T| {
                 for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && add_i64(acc, v.to_i64().vortex_expect("signed to i64"), checked) {
+                    if valid && checked_add_i64(acc, v.to_i64().vortex_expect("signed to i64")) {
                         return Ok(true);
                     }
                 }
@@ -378,9 +334,7 @@ fn accumulate_primitive_valid(
     }
 }
 
-/// Accumulate a boolean array into the sum state (counts true values as u64).
-/// Returns Ok(true) if saturated (overflow), Ok(false) if not.
-fn accumulate_bool(inner: &mut SumState, b: &BoolArray, checked: bool) -> VortexResult<bool> {
+fn accumulate_bool(inner: &mut SumState, b: &BoolArray) -> VortexResult<bool> {
     let SumState::Unsigned(acc) = inner else {
         vortex_panic!("expected unsigned sum state for bool input");
     };
@@ -392,7 +346,7 @@ fn accumulate_bool(inner: &mut SumState, b: &BoolArray, checked: bool) -> Vortex
         AllOr::Some(validity) => b.to_bit_buffer().bitand(validity).true_count() as u64,
     };
 
-    Ok(add_u64(acc, true_count, checked))
+    Ok(checked_add_u64(acc, true_count))
 }
 
 /// Accumulate a decimal array into the sum state.
@@ -440,9 +394,9 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::DynGroupedAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::fns::sum::Sum;
-    use crate::aggregate_fn::fns::sum::SumOptions;
     use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
@@ -457,16 +411,8 @@ mod tests {
         VortexSession::empty()
     }
 
-    fn checked_opts() -> SumOptions {
-        SumOptions { checked: true }
-    }
-
-    fn unchecked_opts() -> SumOptions {
-        SumOptions { checked: false }
-    }
-
-    fn run_sum(batch: &ArrayRef, options: &SumOptions) -> VortexResult<Scalar> {
-        let mut acc = Accumulator::try_new(Sum, options.clone(), batch.dtype().clone(), session())?;
+    fn run_sum(batch: &ArrayRef) -> VortexResult<Scalar> {
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone(), session())?;
         acc.accumulate(batch)?;
         acc.finish()
     }
@@ -476,7 +422,7 @@ mod tests {
     #[test]
     fn sum_i32() -> VortexResult<()> {
         let arr = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-        let result = run_sum(&arr, &checked_opts())?;
+        let result = run_sum(&arr)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(10));
         Ok(())
     }
@@ -484,7 +430,7 @@ mod tests {
     #[test]
     fn sum_u8() -> VortexResult<()> {
         let arr = PrimitiveArray::new(buffer![10u8, 20, 30], Validity::NonNullable).into_array();
-        let result = run_sum(&arr, &checked_opts())?;
+        let result = run_sum(&arr)?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(60));
         Ok(())
     }
@@ -493,7 +439,7 @@ mod tests {
     fn sum_f64() -> VortexResult<()> {
         let arr =
             PrimitiveArray::new(buffer![1.5f64, 2.5, 3.0], Validity::NonNullable).into_array();
-        let result = run_sum(&arr, &checked_opts())?;
+        let result = run_sum(&arr)?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(7.0));
         Ok(())
     }
@@ -501,7 +447,7 @@ mod tests {
     #[test]
     fn sum_with_nulls() -> VortexResult<()> {
         let arr = PrimitiveArray::from_option_iter([Some(2i32), None, Some(4)]).into_array();
-        let result = run_sum(&arr, &checked_opts())?;
+        let result = run_sum(&arr)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(6));
         Ok(())
     }
@@ -510,7 +456,7 @@ mod tests {
     fn sum_all_null() -> VortexResult<()> {
         // Arrow semantics: sum of all nulls is zero (identity element)
         let arr = PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array();
-        let result = run_sum(&arr, &checked_opts())?;
+        let result = run_sum(&arr)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
         Ok(())
     }
@@ -520,7 +466,7 @@ mod tests {
     #[test]
     fn sum_empty_produces_zero() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, checked_opts(), dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
         let result = acc.finish()?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
         Ok(())
@@ -529,7 +475,7 @@ mod tests {
     #[test]
     fn sum_empty_f64_produces_zero() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, checked_opts(), dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
         let result = acc.finish()?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
         Ok(())
@@ -540,7 +486,7 @@ mod tests {
     #[test]
     fn sum_multi_batch() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, checked_opts(), dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1)?;
@@ -556,7 +502,7 @@ mod tests {
     #[test]
     fn sum_finish_resets_state() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, checked_opts(), dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1)?;
@@ -575,7 +521,7 @@ mod tests {
     #[test]
     fn sum_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&checked_opts(), &dtype)?;
+        let mut state = Sum.empty_partial(&EmptyOptions, &dtype)?;
 
         let scalar1 = Scalar::primitive(100i64, Nullability::Nullable);
         Sum.combine_partials(&mut state, scalar1)?;
@@ -593,7 +539,7 @@ mod tests {
     #[test]
     fn sum_checked_overflow() -> VortexResult<()> {
         let arr = PrimitiveArray::new(buffer![i64::MAX, 1i64], Validity::NonNullable).into_array();
-        let result = run_sum(&arr, &checked_opts())?;
+        let result = run_sum(&arr)?;
         assert!(result.is_null());
         Ok(())
     }
@@ -601,7 +547,7 @@ mod tests {
     #[test]
     fn sum_checked_overflow_is_saturated() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, checked_opts(), dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
         assert!(!acc.is_saturated());
 
         let batch =
@@ -615,23 +561,12 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn sum_unchecked_wrapping() -> VortexResult<()> {
-        let arr = PrimitiveArray::new(buffer![i64::MAX, 1i64], Validity::NonNullable).into_array();
-        let result = run_sum(&arr, &unchecked_opts())?;
-        assert_eq!(
-            result.as_primitive().typed_value::<i64>(),
-            Some(i64::MAX.wrapping_add(1))
-        );
-        Ok(())
-    }
-
     // Boolean sum tests
 
     #[test]
     fn sum_bool_all_true() -> VortexResult<()> {
         let arr: BoolArray = [true, true, true].into_iter().collect();
-        let result = run_sum(&arr.into_array(), &checked_opts())?;
+        let result = run_sum(&arr.into_array())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(3));
         Ok(())
     }
@@ -639,7 +574,7 @@ mod tests {
     #[test]
     fn sum_bool_mixed() -> VortexResult<()> {
         let arr: BoolArray = [true, false, true, false, true].into_iter().collect();
-        let result = run_sum(&arr.into_array(), &checked_opts())?;
+        let result = run_sum(&arr.into_array())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(3));
         Ok(())
     }
@@ -647,7 +582,7 @@ mod tests {
     #[test]
     fn sum_bool_all_false() -> VortexResult<()> {
         let arr: BoolArray = [false, false, false].into_iter().collect();
-        let result = run_sum(&arr.into_array(), &checked_opts())?;
+        let result = run_sum(&arr.into_array())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
     }
@@ -655,7 +590,7 @@ mod tests {
     #[test]
     fn sum_bool_with_nulls() -> VortexResult<()> {
         let arr = BoolArray::from_iter([Some(true), None, Some(true), Some(false)]);
-        let result = run_sum(&arr.into_array(), &checked_opts())?;
+        let result = run_sum(&arr.into_array())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(2));
         Ok(())
     }
@@ -664,7 +599,7 @@ mod tests {
     fn sum_bool_all_null() -> VortexResult<()> {
         // Arrow semantics: sum of all nulls is zero (identity element)
         let arr = BoolArray::from_iter([None::<bool>, None, None]);
-        let result = run_sum(&arr.into_array(), &checked_opts())?;
+        let result = run_sum(&arr.into_array())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
     }
@@ -672,7 +607,7 @@ mod tests {
     #[test]
     fn sum_bool_empty_produces_zero() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, checked_opts(), dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
         let result = acc.finish()?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
@@ -681,7 +616,7 @@ mod tests {
     #[test]
     fn sum_bool_finish_resets_state() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, checked_opts(), dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
 
         let batch1: BoolArray = [true, true, false].into_iter().collect();
         acc.accumulate(&batch1.into_array())?;
@@ -697,7 +632,7 @@ mod tests {
 
     #[test]
     fn sum_bool_return_dtype() -> VortexResult<()> {
-        let dtype = Sum.return_dtype(&checked_opts(), &DType::Bool(Nullability::NonNullable))?;
+        let dtype = Sum.return_dtype(&EmptyOptions, &DType::Bool(Nullability::NonNullable))?;
         assert_eq!(dtype, DType::Primitive(PType::U64, Nullability::Nullable));
         Ok(())
     }
@@ -706,7 +641,7 @@ mod tests {
 
     fn run_grouped_sum(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
         let mut acc =
-            GroupedAccumulator::try_new(Sum, checked_opts(), elem_dtype.clone(), session())?;
+            GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype.clone(), session())?;
         acc.accumulate_list(groups)?;
         acc.finish()
     }
@@ -793,7 +728,7 @@ mod tests {
     #[test]
     fn grouped_sum_finish_resets() -> VortexResult<()> {
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = GroupedAccumulator::try_new(Sum, checked_opts(), elem_dtype, session())?;
+        let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype, session())?;
 
         // First batch: [[1, 2], [3, 4]]
         let elements1 =

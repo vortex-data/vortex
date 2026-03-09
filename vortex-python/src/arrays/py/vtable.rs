@@ -10,6 +10,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::ExecutionStep;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
@@ -155,7 +156,7 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         todo!()
     }
 }

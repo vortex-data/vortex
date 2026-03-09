@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::ffi::CString;
 use std::ffi::c_void;
 use std::ptr;
 
@@ -12,10 +11,8 @@ use bitvec::view::BitView;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_error;
@@ -28,7 +25,14 @@ use crate::duckdb::ValueRef;
 use crate::duckdb::VectorBufferRef;
 use crate::lifetime_wrapper;
 
-pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+/// Returns the internal vector size used by DuckDB at runtime.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "DuckDB vector size always fits in usize"
+)]
+pub fn duckdb_vector_size() -> usize {
+    unsafe { cpp::duckdb_vector_size() as usize }
+}
 
 lifetime_wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
@@ -89,20 +93,6 @@ impl VectorRef {
     // length only its capacity).
     pub fn set_dictionary_len(&mut self, len: u32) {
         unsafe { cpp::duckdb_vx_set_dictionary_vector_length(self.as_ptr(), len) }
-    }
-
-    // A operator-scoped id to assert dictionary vector value uniqueness
-    pub fn set_dictionary_id(&mut self, dict_id: String) {
-        let dict_id = CString::new(dict_id)
-            .map_err(|e| vortex_err!("cstr creation error {e}"))
-            .vortex_expect("dictionary ID should be valid C string");
-        unsafe {
-            cpp::duckdb_vx_set_dictionary_vector_id(
-                self.as_ptr(),
-                dict_id.as_ptr(),
-                dict_id.as_bytes().len().as_u32(),
-            )
-        }
     }
 
     pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {

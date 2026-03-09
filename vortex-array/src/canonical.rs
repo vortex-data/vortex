@@ -13,7 +13,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::Columnar;
 use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
@@ -37,7 +36,6 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::bool::BoolArrayParts;
-use crate::arrays::constant::constant_canonicalize;
 use crate::arrays::decimal::DecimalArrayParts;
 use crate::arrays::listview::ListViewArrayParts;
 use crate::arrays::listview::ListViewRebuildMode;
@@ -518,28 +516,18 @@ impl From<Canonical> for ArrayRef {
     }
 }
 
-/// Recursively execute the array until it reaches canonical form.
+/// Execute into [`Canonical`] by running `execute_until` with the [`AnyCanonical`] matcher.
 ///
-/// Callers should prefer to execute into `Columnar` if they are able to optimize their use for
-/// constant arrays.
+/// Unlike executing into [`crate::Columnar`], this will fully expand constant arrays into their
+/// canonical form. Callers should prefer to execute into `Columnar` if they are able to optimize
+/// their use for constant arrays.
 impl Executable for Canonical {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-            return Ok(canonical.into());
-        }
-
-        // Invoke execute directly to avoid logging the call in the execution context.
-        Ok(match Columnar::execute(array.clone(), ctx)? {
-            Columnar::Canonical(c) => c,
-            Columnar::Constant(s) => {
-                let canonical = constant_canonicalize(&s)?;
-                canonical
-                    .as_ref()
-                    .statistics()
-                    .inherit_from(array.statistics());
-                canonical
-            }
-        })
+        let result = array.execute_until::<AnyCanonical>(ctx)?;
+        Ok(result
+            .as_opt::<AnyCanonical>()
+            .map(Canonical::from)
+            .vortex_expect("execute_until::<AnyCanonical> must return a canonical array"))
     }
 }
 

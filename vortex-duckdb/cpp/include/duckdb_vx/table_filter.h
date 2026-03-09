@@ -20,7 +20,9 @@ typedef enum DUCKDB_VX_TABLE_FILTER_TYPE {
     DUCKDB_VX_TABLE_FILTER_TYPE_OPTIONAL_FILTER = 6, // executing filter is not required for query correctness
     DUCKDB_VX_TABLE_FILTER_TYPE_IN_FILTER = 7,       // col IN (C1, C2, C3, ...)
     DUCKDB_VX_TABLE_FILTER_TYPE_DYNAMIC_FILTER = 8,  // dynamic filters can be updated at run-time
-    DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER = 9 // an arbitrary expression
+    DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER = 9, // an arbitrary expression
+    DUCKDB_VX_TABLE_FILTER_TYPE_BLOOM_FILTER =
+        10 // a probabilistic filter that can test whether a value is in a set of other value
 } duckdb_vx_table_filter_type;
 
 typedef struct duckdb_vx_table_filter_set_ *duckdb_vx_table_filter_set;
