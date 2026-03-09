@@ -137,7 +137,7 @@ impl SegmentSource for FileSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileRead`], where
         // coalescing becomes effective prior to the future being polled.
-        let spec = match self.segments.get(*id as usize).cloned() {
+        let spec = *match self.segments.get(*id as usize) {
             Some(spec) => spec,
             None => {
                 return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
@@ -275,7 +275,7 @@ impl BufferSegmentSource {
 
 impl SegmentSource for BufferSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        let spec = match self.segments.get(*id as usize).cloned() {
+        let spec = match self.segments.get(*id as usize) {
             Some(spec) => spec,
             None => {
                 return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
