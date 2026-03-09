@@ -168,6 +168,11 @@ impl VortexOpenOptions {
     /// (mpsc channels, coalescing, oneshot callbacks) used for file-backed reads.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer: ByteBuffer = buffer.into();
+
+        if self.segment_cache.is_some() {
+            tracing::warn!("segment cache is ignored for in-memory `open_buffer`");
+        }
+
         let mut opts = self.with_initial_read_size(0);
 
         let footer = match opts.footer.take() {
