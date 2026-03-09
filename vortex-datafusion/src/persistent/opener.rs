@@ -10,6 +10,7 @@ use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
+use datafusion_common::Statistics;
 use datafusion_common::exec_datafusion_err;
 use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
@@ -21,6 +22,7 @@ use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
+use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
@@ -37,6 +39,8 @@ use tracing::Instrument;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::dtype::DType;
+use vortex::dtype::DecimalType;
 use vortex::error::VortexError;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
@@ -47,6 +51,7 @@ use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConvertor;
@@ -100,8 +105,85 @@ pub(crate) struct VortexOpener {
     pub scan_concurrency: Option<usize>,
 }
 
-/// The number of rows per morsel when splitting files for morsel-driven execution.
-const MORSEL_ROW_COUNT: u64 = 32 * 2048;
+/// Target byte budget per morsel (16 MB).
+const TARGET_MORSEL_BYTES: u64 = 16 * 1024 * 1024;
+/// Minimum rows per morsel to avoid excessive overhead.
+const MIN_MORSEL_ROWS: u64 = 2048;
+/// Maximum rows per morsel to bound memory usage.
+const MAX_MORSEL_ROWS: u64 = 1_000_000;
+
+/// Estimate the average byte width of a DType for morsel sizing fallback.
+fn estimate_dtype_byte_width(dtype: &DType) -> u64 {
+    match dtype {
+        DType::Null => 0,
+        DType::Bool(_) => 1,
+        DType::Primitive(ptype, _) => ptype.byte_width() as u64,
+        DType::Decimal(dec, _) => DecimalType::smallest_decimal_value_type(dec).byte_width() as u64,
+        DType::Utf8(_) | DType::Binary(_) => 64,
+        DType::List(inner, _) => 64 + estimate_dtype_byte_width(inner),
+        DType::FixedSizeList(inner, size, _) => estimate_dtype_byte_width(inner) * (*size as u64),
+        DType::Struct(fields, _) => fields.fields().map(|f| estimate_dtype_byte_width(&f)).sum(),
+        DType::Extension(ext) => estimate_dtype_byte_width(ext.storage_dtype()),
+    }
+}
+
+/// Compute the morsel row count using file statistics if available, falling back to DType estimation.
+fn compute_morsel_row_count(
+    statistics: Option<&Statistics>,
+    file_dtype: &DType,
+    row_count: u64,
+    touched_col_indices: &HashSet<usize>,
+) -> u64 {
+    // Try to use actual per-column byte_size statistics
+    if let Some(stats) = statistics {
+        let touched_bytes: usize = touched_col_indices
+            .iter()
+            .filter_map(|&i| stats.column_statistics.get(i))
+            .filter_map(|cs| cs.byte_size.get_value().copied())
+            .sum();
+
+        if touched_bytes > 0 {
+            let num_rows = stats
+                .num_rows
+                .get_value()
+                .map(|&n| n as u64)
+                .unwrap_or(row_count);
+            if num_rows > 0 {
+                let bytes_per_row = touched_bytes as u64 / num_rows;
+                if bytes_per_row > 0 {
+                    return (TARGET_MORSEL_BYTES / bytes_per_row)
+                        .clamp(MIN_MORSEL_ROWS, MAX_MORSEL_ROWS);
+                }
+            }
+        }
+    }
+
+    // Fallback: estimate from DType
+    let struct_fields = match file_dtype.as_struct_fields_opt() {
+        Some(fields) => fields,
+        None => return MIN_MORSEL_ROWS,
+    };
+
+    let touched_bytes: u64 = if touched_col_indices.is_empty() {
+        struct_fields
+            .fields()
+            .map(|f| estimate_dtype_byte_width(&f))
+            .sum()
+    } else {
+        struct_fields
+            .fields()
+            .enumerate()
+            .filter(|(i, _)| touched_col_indices.contains(i))
+            .map(|(_, f)| estimate_dtype_byte_width(&f))
+            .sum()
+    };
+
+    if touched_bytes == 0 {
+        return MAX_MORSEL_ROWS;
+    }
+
+    (TARGET_MORSEL_BYTES / touched_bytes).clamp(MIN_MORSEL_ROWS, MAX_MORSEL_ROWS)
+}
 
 struct VortexMorsel {
     row_range: Range<u64>,
@@ -134,6 +216,17 @@ impl FileOpener for VortexOpener {
         let session = self.session.clone();
         let vortex_reader_factory = self.vortex_reader_factory.clone();
         let metrics_registry = self.metrics_registry.clone();
+
+        // Gather the set of column indices touched by projection and filter
+        let touched_col_indices: HashSet<usize> = {
+            let mut cols: HashSet<usize> = self.projection.column_indices().into_iter().collect();
+            if let Some(filter) = &self.filter {
+                for col in collect_columns(filter) {
+                    cols.insert(col.index());
+                }
+            }
+            cols
+        };
 
         Box::pin(async move {
             // File-level pruning
@@ -168,11 +261,18 @@ impl FileOpener for VortexOpener {
                 .layout_reader()
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
-            // Split into fixed-size morsels
+            let morsel_row_count = compute_morsel_row_count(
+                partitioned_file.statistics.as_deref(),
+                layout_reader.dtype(),
+                row_count,
+                &touched_col_indices,
+            );
+
+            // Split into adaptive-size morsels
             let mut morsels = Vec::new();
             let mut start = 0u64;
             while start < row_count {
-                let end = (start + MORSEL_ROW_COUNT).min(row_count);
+                let end = (start + morsel_row_count).min(row_count);
                 let mut f = partitioned_file.clone();
                 f.extensions = Some(Arc::new(VortexMorsel {
                     row_range: start..end,
