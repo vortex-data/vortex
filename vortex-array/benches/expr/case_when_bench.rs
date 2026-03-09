@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::expr::case_when;
 use vortex_array::expr::case_when_no_else;
@@ -38,6 +39,22 @@ fn make_struct_array(size: usize) -> ArrayRef {
     StructArray::from_fields(&[("value", field)])
         .unwrap()
         .into_array()
+}
+
+/// Array with boolean columns cycling through thirds: `c0[i] = i%3==0`, `c1[i] = i%3==1`.
+fn make_fragmented_array(size: usize) -> ArrayRef {
+    StructArray::from_fields(&[
+        (
+            "c0",
+            BoolArray::from_iter((0..size).map(|i| i % 3 == 0)).into_array(),
+        ),
+        (
+            "c1",
+            BoolArray::from_iter((0..size).map(|i| i % 3 == 1)).into_array(),
+        ),
+    ])
+    .unwrap()
+    .into_array()
 }
 
 /// Benchmark a simple binary CASE WHEN with varying array sizes.
@@ -229,6 +246,33 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
         gt(get_item("value", root()), lit(1_000_000i32)),
         lit(100i32),
         lit(0i32),
+    );
+
+    bencher
+        .with_inputs(|| (&expr, &array))
+        .bench_refs(|(expr, array)| {
+            let mut ctx = SESSION.create_execution_ctx();
+            array
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+        });
+}
+
+/// Benchmark CASE WHEN cycling through 3 branches per row (triggers merge_row_by_row).
+/// Run length = 1; exercises branch 0, branch 1, and the else fallback at every 3rd row.
+#[divan::bench(args = [1000, 10000, 100000])]
+fn case_when_fragmented(bencher: Bencher, size: usize) {
+    let array = make_fragmented_array(size);
+
+    // CASE WHEN c0 THEN 0 WHEN c1 THEN 1 ELSE 2 END
+    let expr = nested_case_when(
+        vec![
+            (get_item("c0", root()), lit(0i32)),
+            (get_item("c1", root()), lit(1i32)),
+        ],
+        Some(lit(2i32)),
     );
 
     bencher

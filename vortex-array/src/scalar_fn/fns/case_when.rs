@@ -28,6 +28,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -203,12 +204,9 @@ impl ScalarFnVTable for CaseWhen {
     ) -> VortexResult<ArrayRef> {
         // Inspired by https://datafusion.apache.org/blog/2026/02/02/datafusion_case/
         //
-        // Implemented: short-circuit early exit; single-pass merge via `merge_case_branches`.
-        // Partial: single-branch uses `zip_impl` but THEN/ELSE still evaluated on the full batch.
-        //
         // TODO: shrink input to `remaining` rows between WHEN iterations (batch reduction).
         // TODO: project to only referenced columns before batch reduction (column projection).
-        // TODO: evaluate THEN/ELSE on compact matching/non-matching rows and merge without scatter.
+        // TODO: evaluate THEN/ELSE on compact matching/non-matching rows and scatter-merge the results.
         // TODO: for constant WHEN/THEN values, compile to a hash table for a single-pass lookup.
         let row_count = args.row_count();
         let num_pairs = options.num_when_then_pairs as usize;
@@ -260,6 +258,10 @@ impl ScalarFnVTable for CaseWhen {
 
 /// Merges disjoint `(mask, then_value)` branch pairs with an `else_value` in a single pass.
 ///
+/// Average run length at which slicing + `extend_from_array` becomes cheaper than `scalar_at`.
+/// Measured empirically via benchmarks.
+const SLICE_CROSSOVER_RUN_LEN: usize = 4;
+
 /// Branch masks are guaranteed disjoint by the remaining-row tracking in [`CaseWhen::execute`].
 fn merge_case_branches(
     branches: Vec<(Mask, ArrayRef)>,
@@ -271,30 +273,82 @@ fn merge_case_branches(
     }
 
     let row_count = else_value.len();
-
-    let return_type = branches
-        .iter()
-        .fold(else_value.dtype().clone(), |acc, (_, arr)| {
-            acc.union_nullability(arr.dtype().nullability())
-        });
-    let mut builder = builder_with_capacity(&return_type, row_count);
-
-    // Collect each branch's true-ranges tagged with branch index, then sort by position.
-    let mut events: Vec<(usize, usize, usize)> = Vec::new();
+    let mut spans: Vec<(usize, usize, usize)> = Vec::new();
     for (branch_idx, (mask, _)) in branches.iter().enumerate() {
         match mask.slices() {
-            AllOr::All => events.push((0, row_count, branch_idx)),
+            AllOr::All => spans.push((0, row_count, branch_idx)),
             AllOr::None => {}
             AllOr::Some(slices) => {
                 for &(start, end) in slices {
-                    events.push((start, end, branch_idx));
+                    spans.push((start, end, branch_idx));
                 }
             }
         }
     }
-    events.sort_unstable_by_key(|&(start, ..)| start);
+    spans.sort_unstable_by_key(|&(start, ..)| start);
 
-    for (start, end, branch_idx) in &events {
+    let output_dtype = branches
+        .iter()
+        .fold(else_value.dtype().clone(), |acc, (_, arr)| {
+            acc.union_nullability(arr.dtype().nullability())
+        });
+    let builder = builder_with_capacity(&output_dtype, row_count);
+
+    let fragmented = !spans.is_empty() && spans.len() > row_count / SLICE_CROSSOVER_RUN_LEN;
+    if fragmented {
+        merge_row_by_row(&branches, &else_value, &spans, row_count, builder)
+    } else {
+        merge_run_by_run(&branches, &else_value, &spans, row_count, builder)
+    }
+}
+
+/// Walks rows with a span cursor, emitting one `scalar_at` per row.
+/// Zero per-run allocations; preferred for fragmented masks (avg run < [`SLICE_CROSSOVER_RUN_LEN`]).
+fn merge_row_by_row(
+    branches: &[(Mask, ArrayRef)],
+    else_value: &ArrayRef,
+    spans: &[(usize, usize, usize)],
+    row_count: usize,
+    mut builder: Box<dyn ArrayBuilder>,
+) -> VortexResult<ArrayRef> {
+    let builder_dtype = builder.dtype().clone();
+    let needs_cast = branches
+        .iter()
+        .any(|(_, arr)| arr.dtype() != &builder_dtype)
+        || else_value.dtype() != &builder_dtype;
+
+    let mut cursor = 0;
+    for row in 0..row_count {
+        while cursor < spans.len() && spans[cursor].1 <= row {
+            cursor += 1;
+        }
+        let src = if cursor < spans.len() && spans[cursor].0 <= row {
+            &branches[spans[cursor].2].1
+        } else {
+            else_value
+        };
+        let scalar = src.scalar_at(row)?;
+        let scalar = if needs_cast && scalar.dtype() != &builder_dtype {
+            scalar.cast(&builder_dtype)?
+        } else {
+            scalar
+        };
+        builder.append_scalar(&scalar)?;
+    }
+
+    Ok(builder.finish())
+}
+
+/// Bulk-copies each span via `extend_from_array`, one `slice()` per run.
+/// Preferred when runs are long enough that memcpy dominates over per-run Arc allocation.
+fn merge_run_by_run(
+    branches: &[(Mask, ArrayRef)],
+    else_value: &ArrayRef,
+    spans: &[(usize, usize, usize)],
+    row_count: usize,
+    mut builder: Box<dyn ArrayBuilder>,
+) -> VortexResult<ArrayRef> {
+    for (start, end, branch_idx) in spans {
         if builder.len() < *start {
             builder.extend_from_array(&else_value.slice(builder.len()..*start)?);
         }
@@ -1108,5 +1162,40 @@ mod tests {
         // row 1: cond1=NULL(→false), cond2=true → 20
         // row 2: cond1=false, cond2=NULL(→false) → else=0
         assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array());
+    }
+
+    #[test]
+    fn test_merge_case_branches_alternating_mask() -> VortexResult<()> {
+        // Exercises the scalar path: alternating rows produce one slice per row (no runs),
+        // triggering the per-row cursor path in merge_case_branches.
+        let n = 100usize;
+
+        // Branch 0: even rows → 0, Branch 1: odd rows → 1, Else: never reached.
+        let branch0_mask = Mask::from_indices(n, (0..n).step_by(2).collect());
+        let branch1_mask = Mask::from_indices(n, (1..n).step_by(2).collect());
+
+        let result = merge_case_branches(
+            vec![
+                (
+                    branch0_mask,
+                    PrimitiveArray::from_option_iter(vec![Some(0i32); n]).into_array(),
+                ),
+                (
+                    branch1_mask,
+                    PrimitiveArray::from_option_iter(vec![Some(1i32); n]).into_array(),
+                ),
+            ],
+            PrimitiveArray::from_option_iter(vec![Some(99i32); n]).into_array(),
+        )?;
+
+        // Even rows → 0, odd rows → 1.
+        let expected: Vec<Option<i32>> = (0..n)
+            .map(|v| if v % 2 == 0 { Some(0) } else { Some(1) })
+            .collect();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter(expected).into_array()
+        );
+        Ok(())
     }
 }
