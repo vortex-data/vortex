@@ -164,8 +164,7 @@ impl VortexOpenOptions {
     /// Open a Vortex file from an in-memory buffer.
     ///
     /// This uses a [`BufferSegmentSource`] that resolves segments synchronously
-    /// by slicing the buffer directly, bypassing the async I/O pipeline
-    /// (mpsc channels, coalescing, oneshot callbacks) used for file-backed reads.
+    /// by slicing the buffer directly, bypassing the async I/O pipeline.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer: ByteBuffer = buffer.into();
 
@@ -183,9 +182,6 @@ impl VortexOpenOptions {
             None => block_on(opts.read_footer(&buffer))?,
         };
 
-        // SharedSegmentSource is used in other cases to deduplicate concurrent
-        // I/O requests for the same segment. For in-memory buffers, segment
-        // resolution corresponds to pointer arithmetic on the in-memory buffer.
         let segment_source = Arc::new(BufferSegmentSource::new(
             buffer,
             footer.segment_map().clone(),

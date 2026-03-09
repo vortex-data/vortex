@@ -253,14 +253,10 @@ impl RequestMetrics {
     }
 }
 
-/// A [`SegmentSource`] that resolves segments synchronously by slicing an
+/// A [`SegmentSource`] that resolves segments synchronously from an
 /// in-memory [`ByteBuffer`].
 ///
-/// Unlike [`FileSegmentSource`], this skips the async I/O pipeline entirely —
-/// no mpsc channels, no coalescing, no oneshot callbacks. Each `request()`
-/// returns a [`future::ready`] with the sliced buffer, making it suitable for
-/// memory-mapped or fully in-memory files where the I/O overhead of the async
-/// pipeline dominates.
+/// Resolves segments synchronously, bypassing the async I/O pipeline.
 pub(crate) struct BufferSegmentSource {
     buffer: ByteBuffer,
     segments: Arc<[SegmentSpec]>,
