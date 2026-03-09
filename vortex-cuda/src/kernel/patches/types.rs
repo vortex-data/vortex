@@ -5,6 +5,7 @@
 //! patching enables fully parallel GPU execution, as outlined by Hepkema et al. in
 //! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
 
+use tracing::instrument;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex_array::Canonical;
@@ -124,6 +125,7 @@ impl<V: Copy> HostPatches<V> {
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.
 #[allow(clippy::cognitive_complexity)]
+#[instrument(skip_all)]
 pub async fn transpose_patches(
     patches: &Patches,
     ctx: &mut CudaExecutionCtx,
@@ -146,8 +148,11 @@ pub async fn transpose_patches(
     let indices_ptype = indices.ptype();
     let values_ptype = values.ptype();
 
-    let indices = indices.buffer_handle().to_host().await;
-    let values = values.buffer_handle().to_host().await;
+    // Await both in parallel?
+    let (indices, values) = futures::join!(
+        indices.buffer_handle().to_host(),
+        values.buffer_handle().to_host()
+    );
 
     match_each_unsigned_integer_ptype!(indices_ptype, |I| {
         match_each_native_ptype!(values_ptype, |V| {
@@ -162,6 +167,8 @@ pub async fn transpose_patches(
 }
 
 #[allow(clippy::cast_possible_truncation)]
+#[instrument(skip_all)]
+#[inline(never)]
 fn transpose<I: IntegerPType, V: NativePType>(
     indices_in: &[I],
     values_in: &[V],
