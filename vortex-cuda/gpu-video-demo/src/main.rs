@@ -34,7 +34,7 @@ use futures::StreamExt;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_BUFFER_FORMAT;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_CODEC_H264_GUID;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_INPUT_RESOURCE_TYPE;
-use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PRESET_P4_GUID;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PRESET_P1_GUID;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_TUNING_INFO;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
@@ -315,7 +315,7 @@ async fn main() -> VortexResult<()> {
     let preset_config = encoder
         .get_preset_config(
             NV_ENC_CODEC_H264_GUID,
-            NV_ENC_PRESET_P4_GUID,
+            NV_ENC_PRESET_P1_GUID,
             NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY,
         )
         .map_err(|e| vortex_err!("NVENC get preset config failed: {e}"))?;
@@ -335,7 +335,7 @@ async fn main() -> VortexResult<()> {
     let mut init_params =
         nvidia_video_codec_sdk::EncoderInitParams::new(NV_ENC_CODEC_H264_GUID, width, height);
     init_params
-        .preset_guid(NV_ENC_PRESET_P4_GUID)
+        .preset_guid(NV_ENC_PRESET_P1_GUID)
         .tuning_info(NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY)
         .display_aspect_ratio(width, height)
         .framerate(fps, 1)
