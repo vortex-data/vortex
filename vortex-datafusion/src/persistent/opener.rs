@@ -106,11 +106,11 @@ pub(crate) struct VortexOpener {
 }
 
 /// Target byte budget per morsel (16 MB).
-const TARGET_MORSEL_BYTES: u64 = 16 * 1024 * 1024;
+const TARGET_MORSEL_BYTES: u64 = 8 * 1024 * 1024;
 /// Minimum rows per morsel to avoid excessive overhead.
 const MIN_MORSEL_ROWS: u64 = 2048;
 /// Maximum rows per morsel to bound memory usage.
-const MAX_MORSEL_ROWS: u64 = 1_000_000;
+const MAX_MORSEL_ROWS: u64 = 128 * 1024;
 
 /// Estimate the average byte width of a DType for morsel sizing fallback.
 fn estimate_dtype_byte_width(dtype: &DType) -> u64 {
