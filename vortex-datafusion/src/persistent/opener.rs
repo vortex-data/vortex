@@ -100,7 +100,12 @@ pub(crate) struct VortexOpener {
     pub scan_concurrency: Option<usize>,
 }
 
-struct VortexMorsel {}
+/// The number of rows per morsel when splitting files for morsel-driven execution.
+const MORSEL_ROW_COUNT: u64 = 2048;
+
+struct VortexMorsel {
+    row_range: Range<u64>,
+}
 
 impl FileOpener for VortexOpener {
     fn is_leaf_morsel(&self, file: &PartitionedFile) -> bool {
@@ -122,20 +127,57 @@ impl FileOpener for VortexOpener {
             return Box::pin(ready(Ok(vec![partitioned_file])));
         }
 
-        if let Some(pred) = predicate.as_ref() {
-            let logical_file_schema = Arc::clone(table_schema.file_schema());
-            if let Some(mut file_pruner) = FilePruner::try_new(
-                Arc::clone(pred),
-                &logical_file_schema,
-                &partitioned_file,
-                predicate_creation_errors.clone(),
-            ) && file_pruner.should_prune()?
-            {
-                // file_metrics.files_ranges_pruned_statistics.add_pruned(1);
-                return Ok(vec![]);
+        let file_pruning_predicate = self.file_pruning_predicate.clone();
+        let table_schema = self.table_schema.clone();
+        let session = self.session.clone();
+        let vortex_reader_factory = self.vortex_reader_factory.clone();
+        let metrics_registry = self.metrics_registry.clone();
+
+        Box::pin(async move {
+            // File-level pruning
+            if let Some(pred) = file_pruning_predicate.as_ref() {
+                let logical_file_schema = Arc::clone(table_schema.file_schema());
+                if let Some(mut file_pruner) = FilePruner::try_new(
+                    Arc::clone(pred),
+                    &logical_file_schema,
+                    &partitioned_file,
+                    Count::default(),
+                ) && file_pruner.should_prune()?
+                {
+                    return Ok(vec![]);
+                }
             }
-        }
-        todo!()
+
+            // Open the file to get the row count
+            let reader = vortex_reader_factory
+                .create_reader(partitioned_file.path().as_ref(), &session)
+                .map_err(|e| DataFusionError::External(Box::new(e)))?;
+
+            let vxf = session
+                .open_options()
+                .with_file_size(partitioned_file.object_meta.size)
+                .with_metrics_registry(metrics_registry)
+                .open_read(reader)
+                .await
+                .map_err(|e| DataFusionError::External(Box::new(e)))?;
+
+            let row_count = vxf.row_count();
+
+            // Split into fixed-size morsels
+            let mut morsels = Vec::new();
+            let mut start = 0u64;
+            while start < row_count {
+                let end = (start + MORSEL_ROW_COUNT).min(row_count);
+                let mut f = partitioned_file.clone();
+                f.extensions = Some(Arc::new(VortexMorsel {
+                    row_range: start..end,
+                }));
+                morsels.push(f);
+                start = end;
+            }
+
+            Ok(morsels)
+        })
     }
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let session = self.session.clone();
@@ -144,11 +186,11 @@ impl FileOpener for VortexOpener {
             Label::new(PATH_LABEL, file.path().to_string()),
             Label::new(PARTITION_LABEL, self.partition.to_string()),
         ];
-        let is_morsel = file
+        let morsel_row_range = file
             .extensions
             .as_ref()
-            .map(|e| e.is::<VortexMorsel>())
-            .unwrap_or(false);
+            .and_then(|e| e.downcast_ref::<VortexMorsel>())
+            .map(|m| m.row_range.clone());
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
@@ -343,7 +385,10 @@ impl FileOpener for VortexOpener {
 
             let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
 
-            if let Some(extensions) = file.extensions
+            if let Some(row_range) = morsel_row_range {
+                // Morsel: restrict the scan to the morsel's row range.
+                scan_builder = scan_builder.with_row_range(row_range);
+            } else if let Some(extensions) = file.extensions
                 && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
             {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);

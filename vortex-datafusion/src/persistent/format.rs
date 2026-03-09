@@ -500,6 +500,7 @@ impl FileFormat for VortexFormat {
 
         let conf = FileScanConfigBuilder::from(file_scan_config)
             .with_source(Arc::new(source))
+            .with_morsel_driven(true)
             .build();
 
         Ok(DataSourceExec::from_data_source(conf))
