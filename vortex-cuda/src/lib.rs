@@ -17,6 +17,7 @@ mod kernel;
 pub mod layout;
 mod pinned;
 mod pooled_read_at;
+pub mod scalar_fn;
 mod session;
 mod stream;
 mod stream_pool;
@@ -38,6 +39,7 @@ use kernel::DictExecutor;
 use kernel::FilterExecutor;
 use kernel::FoRExecutor;
 pub use kernel::LaunchStrategy;
+use kernel::PosterizeCudaExecutor;
 use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
 pub use kernel::TracingLaunchStrategy;
@@ -61,6 +63,7 @@ use vortex::array::arrays::DictVTable;
 use vortex::array::arrays::FilterVTable;
 use vortex::array::arrays::SharedVTable;
 use vortex::array::arrays::SliceVTable;
+use vortex::array::vtable::ArrayId;
 use vortex::encodings::alp::ALPVTable;
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsVTable;
@@ -106,4 +109,7 @@ pub fn initialize_cuda(session: &CudaSession) {
     // Operation kernels
     session.register_kernel(FilterVTable::ID, &FilterExecutor);
     session.register_kernel(SliceVTable::ID, &SliceExecutor);
+
+    // Scalar function kernels
+    session.register_kernel(ArrayId::from("vortex.posterize"), &PosterizeCudaExecutor);
 }

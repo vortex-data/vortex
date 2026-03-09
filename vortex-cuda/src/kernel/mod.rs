@@ -26,6 +26,7 @@ mod arrays;
 mod encodings;
 mod filter;
 mod patches;
+pub(crate) mod posterize;
 mod slice;
 
 pub(crate) use arrays::ConstantNumericExecutor;
@@ -35,6 +36,7 @@ pub use encodings::ZstdKernelPrep;
 pub use encodings::zstd_kernel_prepare;
 pub(crate) use encodings::*;
 pub(crate) use filter::FilterExecutor;
+pub(crate) use posterize::PosterizeCudaExecutor;
 pub(crate) use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;

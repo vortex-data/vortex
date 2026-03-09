@@ -51,8 +51,11 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 use vortex::VortexSessionDefault;
+use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::expr::col;
+use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -72,7 +75,6 @@ use vortex_cuda_macros::cuda_not_available;
 
 mod mux;
 mod nv12;
-mod posterize;
 mod transport;
 
 /// RAII wrapper for GPU memory allocated with `cuMemAlloc` (synchronous).
@@ -300,12 +302,6 @@ async fn main() -> VortexResult<()> {
 
     // Load GPU kernels
     let nv12_kernel = nv12::load_rgb_to_nv12_kernel(&session)?;
-    let posterize_kernel = if cli.posterize.is_some() {
-        Some(posterize::load_posterize_kernel(&session)?)
-    } else {
-        None
-    };
-    let posterize_levels = cli.posterize.unwrap_or(0);
 
     let cuda_context = cuda_ctx.stream().context().clone();
 
@@ -575,15 +571,28 @@ async fn main() -> VortexResult<()> {
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
-        let mut batches = gpu_file
-            .scan()?
-            .with_projection(select(
+        // Build projection: optionally wrap each column with posterize.
+        let projection = if let Some(levels) = cli.posterize {
+            use vortex_cuda::scalar_fn::posterize::posterize;
+            pack(
+                projected_columns
+                    .iter()
+                    .map(|c| (c.as_str(), posterize(col(c.as_str()), levels))),
+                Nullability::NonNullable,
+            )
+        } else {
+            select(
                 projected_columns
                     .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<_>>(),
                 root(),
-            ))
+            )
+        };
+
+        let mut batches = gpu_file
+            .scan()?
+            .with_projection(projection)
             .with_concurrency(16)
             .into_array_stream()?;
 
@@ -699,38 +708,6 @@ async fn main() -> VortexResult<()> {
                 if frame_fill == pixels_per_frame {
                     // Full frame accumulated — convert and hand off to encoder.
                     let _span = tracing::info_span!("produce_frame", frame = frame_idx).entered();
-
-                    // Posterize each projected channel in-place on GPU
-                    if let Some(ref kern) = posterize_kernel {
-                        let ppf = pixels_per_frame as u32;
-                        if has_r {
-                            posterize::posterize_launch(
-                                cuda_ctx.stream(),
-                                kern,
-                                r_frame_ptr,
-                                ppf,
-                                posterize_levels,
-                            )?;
-                        }
-                        if has_g {
-                            posterize::posterize_launch(
-                                cuda_ctx.stream(),
-                                kern,
-                                g_frame_ptr,
-                                ppf,
-                                posterize_levels,
-                            )?;
-                        }
-                        if has_b {
-                            posterize::posterize_launch(
-                                cuda_ctx.stream(),
-                                kern,
-                                b_frame_ptr,
-                                ppf,
-                                posterize_levels,
-                            )?;
-                        }
-                    }
 
                     // Launch RGB→NV12 kernel into current double buffer
                     let t = std::time::Instant::now();
