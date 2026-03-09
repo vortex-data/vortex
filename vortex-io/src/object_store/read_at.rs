@@ -121,7 +121,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                     unsafe { buffer.set_len(length) };
 
                     handle
-                        .spawn_blocking(move || {
+                        .spawn_blocking_io(move || {
                             read_exact_at(&file, &mut buffer, range.start)?;
                             Ok::<_, io::Error>(buffer)
                         })

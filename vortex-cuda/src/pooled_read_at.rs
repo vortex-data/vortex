@@ -105,7 +105,7 @@ impl VortexReadAt for PooledFileReadAt {
         async move {
             let mut target = pool.get(length)?;
             let target = handle
-                .spawn_blocking(move || {
+                .spawn_blocking_io(move || {
                     read_exact_at(&file, target.as_mut_slice(), offset)?;
                     Ok::<_, io::Error>(target)
                 })
@@ -233,7 +233,7 @@ impl VortexReadAt for PooledObjectStoreReadAt {
                 #[cfg(not(target_arch = "wasm32"))]
                 GetResultPayload::File(file, _) => {
                     target = handle
-                        .spawn_blocking(move || {
+                        .spawn_blocking_io(move || {
                             read_exact_at(&file, target.as_mut_slice(), range.start)?;
                             Ok::<_, io::Error>(target)
                         })

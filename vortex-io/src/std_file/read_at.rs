@@ -109,7 +109,7 @@ impl VortexReadAt for FileReadAt {
         let handle = self.handle.clone();
         async move {
             handle
-                .spawn_blocking(move || {
+                .spawn_blocking_io(move || {
                     let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
                     unsafe { buffer.set_len(length) };
                     read_exact_at(&file, &mut buffer, offset)?;

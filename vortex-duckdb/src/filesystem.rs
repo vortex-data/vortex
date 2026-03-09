@@ -133,7 +133,7 @@ impl FileSystem for DuckDbFileSystem {
         stream::once(async move {
             RUNTIME
                 .handle()
-                .spawn_blocking(move || list_recursive(ctx, &directory_url, &base_url))
+                .spawn_blocking_io(move || list_recursive(ctx, &directory_url, &base_url))
                 .await
         })
         .flat_map(|result| match result {
@@ -271,7 +271,7 @@ impl VortexReadAt for DuckDbFsReader {
 
             let runtime = RUNTIME.handle();
             let size = runtime
-                .spawn_blocking(move || {
+                .spawn_blocking_io(move || {
                     let mut err: cpp::duckdb_vx_error = ptr::null_mut();
                     let mut size_out: cpp::idx_t = 0;
                     let status = unsafe {
@@ -301,7 +301,7 @@ impl VortexReadAt for DuckDbFsReader {
         async move {
             let runtime = RUNTIME.handle();
             let result: VortexResult<BufferHandle> = runtime
-                .spawn_blocking(move || -> VortexResult<BufferHandle> {
+                .spawn_blocking_io(move || -> VortexResult<BufferHandle> {
                     let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
                     unsafe { buffer.set_len(length) };
 

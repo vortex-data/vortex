@@ -117,7 +117,7 @@ impl Handle {
     }
 
     /// Spawn a blocking I/O task for execution on the runtime.
-    pub fn spawn_blocking<F, R>(&self, f: F) -> Task<R>
+    pub fn spawn_blocking_io<F, R>(&self, f: F) -> Task<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
