@@ -163,7 +163,7 @@ impl VortexOpenOptions {
 
     /// Open a Vortex file from an in-memory buffer.
     ///
-    /// This uses a [`BufferSegmentSource`] that resolves segments synchronously
+    /// This uses a `BufferSegmentSource` that resolves segments synchronously
     /// by slicing the buffer directly, bypassing the async I/O pipeline.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer: ByteBuffer = buffer.into();
