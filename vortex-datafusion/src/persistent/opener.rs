@@ -38,7 +38,6 @@ use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
-use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
@@ -106,8 +105,8 @@ const MORSEL_ROW_COUNT: u64 = 32 * 2048;
 
 struct VortexMorsel {
     row_range: Range<u64>,
-    /// Cached footer from morselize() so open() doesn't re-read it.
-    footer: Footer,
+    /// Cached layout reader, shared across all morsels from the same file.
+    layout_reader: Arc<dyn LayoutReader>,
 }
 
 impl FileOpener for VortexOpener {
@@ -165,7 +164,9 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
             let row_count = vxf.row_count();
-            let footer = vxf.footer().clone();
+            let layout_reader = vxf
+                .layout_reader()
+                .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
             // Split into fixed-size morsels
             let mut morsels = Vec::new();
@@ -175,7 +176,7 @@ impl FileOpener for VortexOpener {
                 let mut f = partitioned_file.clone();
                 f.extensions = Some(Arc::new(VortexMorsel {
                     row_range: start..end,
-                    footer: footer.clone(),
+                    layout_reader: layout_reader.clone(),
                 }));
                 morsels.push(f);
                 start = end;
@@ -195,17 +196,24 @@ impl FileOpener for VortexOpener {
             .extensions
             .as_ref()
             .and_then(|e| e.downcast_ref::<VortexMorsel>())
-            .map(|m| (m.row_range.clone(), m.footer.clone()));
+            .map(|m| (m.row_range.clone(), m.layout_reader.clone()));
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
 
-        let reader = self
-            .vortex_reader_factory
-            .create_reader(file.path().as_ref(), &session)?;
-
-        let reader =
-            InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
+        // Only create I/O reader if not a morsel (morsels have a cached layout reader).
+        let reader = if morsel.is_none() {
+            let r = self
+                .vortex_reader_factory
+                .create_reader(file.path().as_ref(), &session)?;
+            Some(InstrumentedReadAt::new_with_labels(
+                r,
+                metrics_registry.as_ref(),
+                labels.clone(),
+            ))
+        } else {
+            None
+        };
 
         let file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
@@ -270,36 +278,77 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            let mut open_opts = session
-                .open_options()
-                .with_file_size(file.object_meta.size)
-                .with_metrics_registry(metrics_registry.clone())
-                .with_labels(labels);
-
-            // Use cached footer: prefer the morsel's footer (from morselize()),
-            // fall back to the file metadata cache.
-            if let Some((_, ref footer)) = morsel {
-                open_opts = open_opts.with_footer(footer.clone());
-            } else if let Some(file_metadata_cache) = file_metadata_cache
-                && let Some(entry) = file_metadata_cache.get(file.path())
-                && entry.is_valid_for(&file.object_meta)
-                && let Some(vortex_metadata) = entry
-                    .file_metadata
-                    .as_any()
-                    .downcast_ref::<CachedVortexMetadata>()
+            // Get layout reader and file dtype - either from morsel cache or by opening the file.
+            let (scan_layout_reader, file_dtype, file_row_count) = if let Some((_, ref morsel_lr)) =
+                morsel
             {
-                open_opts = open_opts.with_footer(vortex_metadata.footer().clone());
-            }
+                (
+                    morsel_lr.clone(),
+                    morsel_lr.dtype().clone(),
+                    morsel_lr.row_count(),
+                )
+            } else {
+                let mut open_opts = session
+                    .open_options()
+                    .with_file_size(file.object_meta.size)
+                    .with_metrics_registry(metrics_registry.clone())
+                    .with_labels(labels);
 
-            let vxf = open_opts
-                .open_read(reader)
-                .await
-                .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+                if let Some(file_metadata_cache) = file_metadata_cache
+                    && let Some(entry) = file_metadata_cache.get(file.path())
+                    && entry.is_valid_for(&file.object_meta)
+                    && let Some(vortex_metadata) = entry
+                        .file_metadata
+                        .as_any()
+                        .downcast_ref::<CachedVortexMetadata>()
+                {
+                    open_opts = open_opts.with_footer(vortex_metadata.footer().clone());
+                }
+
+                let vxf = open_opts
+                    .open_read(reader.expect("reader must exist for non-morsel path"))
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+
+                let dtype = vxf.dtype().clone();
+                let rc = vxf.row_count();
+
+                // We share layout readers across partitions so we only read each layout once.
+                let lr = match layout_reader.entry(file.object_meta.location.clone()) {
+                    Entry::Occupied(mut occupied_entry) => {
+                        if let Some(reader) = occupied_entry.get().upgrade() {
+                            tracing::trace!("reusing layout reader for {}", occupied_entry.key());
+                            reader
+                        } else {
+                            tracing::trace!("creating layout reader for {}", occupied_entry.key());
+                            let reader = vxf.layout_reader().map_err(|e| {
+                                DataFusionError::Execution(format!(
+                                    "Failed to create layout reader: {e}"
+                                ))
+                            })?;
+                            occupied_entry.insert(Arc::downgrade(&reader));
+                            reader
+                        }
+                    }
+                    Entry::Vacant(vacant_entry) => {
+                        tracing::trace!("creating layout reader for {}", vacant_entry.key());
+                        let reader = vxf.layout_reader().map_err(|e| {
+                            DataFusionError::Execution(format!(
+                                "Failed to create layout reader: {e}"
+                            ))
+                        })?;
+                        vacant_entry.insert(Arc::downgrade(&reader));
+                        reader
+                    }
+                };
+
+                (lr, dtype, rc)
+            };
 
             // This is the expected arrow types of the actual columns in the file, which might have different types
             // from the unified logical schema or miss
             let this_file_schema = Arc::new(calculate_physical_schema(
-                vxf.dtype(),
+                &file_dtype,
                 &unified_file_schema,
             )?);
 
@@ -341,7 +390,7 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
+            let scan_dtype = scan_projection.return_dtype(&file_dtype).map_err(|_e| {
                 exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
             })?;
 
@@ -364,35 +413,7 @@ impl FileOpener for VortexOpener {
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
-            // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file.object_meta.location.clone()) {
-                Entry::Occupied(mut occupied_entry) => {
-                    if let Some(reader) = occupied_entry.get().upgrade() {
-                        tracing::trace!("reusing layout reader for {}", occupied_entry.key());
-                        reader
-                    } else {
-                        tracing::trace!("creating layout reader for {}", occupied_entry.key());
-                        let reader = vxf.layout_reader().map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to create layout reader: {e}"
-                            ))
-                        })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
-                        reader
-                    }
-                }
-                Entry::Vacant(vacant_entry) => {
-                    tracing::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
-                    })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
-
-                    reader
-                }
-            };
-
-            let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
+            let mut scan_builder = ScanBuilder::new(session.clone(), scan_layout_reader);
 
             if let Some((row_range, _)) = morsel {
                 // Morsel: restrict the scan to the morsel's row range.
@@ -407,7 +428,7 @@ impl FileOpener for VortexOpener {
                 scan_builder = apply_byte_range(
                     file_range,
                     file.object_meta.size,
-                    vxf.row_count(),
+                    file_row_count,
                     scan_builder,
                 );
             }
