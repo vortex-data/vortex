@@ -261,7 +261,7 @@ impl RequestMetrics {
 /// returns a [`future::ready`] with the sliced buffer, making it suitable for
 /// memory-mapped or fully in-memory files where the I/O overhead of the async
 /// pipeline dominates.
-pub struct BufferSegmentSource {
+pub(crate) struct BufferSegmentSource {
     buffer: ByteBuffer,
     segments: Arc<[SegmentSpec]>,
 }
