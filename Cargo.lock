@@ -9941,6 +9941,7 @@ dependencies = [
  "async-fs",
  "clap",
  "futures",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

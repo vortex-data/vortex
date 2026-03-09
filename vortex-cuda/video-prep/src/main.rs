@@ -32,6 +32,7 @@ use futures::stream;
 use tracing_subscriber::EnvFilter;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::stream::ArrayStreamAdapter;
@@ -74,6 +75,11 @@ struct Cli {
     /// Maximum number of frames to process (0 = all).
     #[arg(long, default_value_t = 0)]
     max_frames: usize,
+
+    /// Path to a JSON file with per-frame detection booleans (from detect.py).
+    /// If provided, adds a `has_hot_dog` bool column to the output.
+    #[arg(long)]
+    detections: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -87,13 +93,40 @@ async fn main() -> VortexResult<()> {
     let pixels_per_frame = cli.width as usize * cli.height as usize;
     let rgb_frame_bytes = pixels_per_frame * 3; // RGB24
 
+    // Load per-frame detection booleans if provided.
+    let detections: Option<Vec<bool>> = if let Some(ref path) = cli.detections {
+        let json_str = std::fs::read_to_string(path)
+            .map_err(|e| vortex_err!("Failed to read detections JSON: {e}"))?;
+        let bools: Vec<bool> = serde_json::from_str(&json_str)
+            .map_err(|e| vortex_err!("Failed to parse detections JSON: {e}"))?;
+        tracing::info!(
+            "Loaded {} frame detections from {}",
+            bools.len(),
+            path.display()
+        );
+        Some(bools)
+    } else {
+        None
+    };
+
     // Flat schema: each row is one pixel, each chunk is one frame.
     let u8_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
-    let struct_dtype = DType::Struct(
-        StructFields::new(
+    let bool_dtype = DType::Bool(Nullability::NonNullable);
+
+    let (field_names, field_dtypes) = if detections.is_some() {
+        (
+            FieldNames::from(["R", "G", "B", "has_hot_dog"]),
+            vec![u8_dtype.clone(), u8_dtype.clone(), u8_dtype, bool_dtype],
+        )
+    } else {
+        (
             FieldNames::from(["R", "G", "B"]),
             vec![u8_dtype.clone(), u8_dtype.clone(), u8_dtype],
-        ),
+        )
+    };
+
+    let struct_dtype = DType::Struct(
+        StructFields::new(field_names, field_dtypes),
         Nullability::NonNullable,
     );
 
@@ -166,12 +199,27 @@ async fn main() -> VortexResult<()> {
         let g_arr = PrimitiveArray::new(g_plane.clone(), Validity::NonNullable);
         let b_arr = PrimitiveArray::new(b_plane.clone(), Validity::NonNullable);
 
-        let struct_arr = StructArray::try_new(
-            FieldNames::from(["R", "G", "B"]),
-            vec![r_arr.into_array(), g_arr.into_array(), b_arr.into_array()],
-            pixels_per_frame,
-            Validity::NonNullable,
-        )?;
+        let (names, fields) = if let Some(ref dets) = detections {
+            let has_hot_dog = dets.get(frame_count).copied().unwrap_or(false);
+            let bool_arr: BoolArray = std::iter::repeat_n(has_hot_dog, pixels_per_frame).collect();
+            (
+                FieldNames::from(["R", "G", "B", "has_hot_dog"]),
+                vec![
+                    r_arr.into_array(),
+                    g_arr.into_array(),
+                    b_arr.into_array(),
+                    bool_arr.into_array(),
+                ],
+            )
+        } else {
+            (
+                FieldNames::from(["R", "G", "B"]),
+                vec![r_arr.into_array(), g_arr.into_array(), b_arr.into_array()],
+            )
+        };
+
+        let struct_arr =
+            StructArray::try_new(names, fields, pixels_per_frame, Validity::NonNullable)?;
 
         arrays.push(struct_arr.into_array());
 
