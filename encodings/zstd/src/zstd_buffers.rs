@@ -10,6 +10,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -466,10 +467,12 @@ impl VTable for ZstdBuffersVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
-        inner_array.execute::<ArrayRef>(ctx)
+        inner_array
+            .execute::<ArrayRef>(ctx)
+            .map(ExecutionStep::Done)
     }
 }
 

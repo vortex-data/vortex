@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::vtable::FixedSizeListArray;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

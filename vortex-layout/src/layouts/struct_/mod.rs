@@ -7,7 +7,6 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::StructReader;
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -22,6 +21,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -131,7 +131,7 @@ impl VTable for StructVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContext,
+        _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         let struct_dt = dtype
             .as_struct_fields_opt()

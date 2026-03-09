@@ -13,7 +13,7 @@ use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
+use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;

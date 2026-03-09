@@ -326,7 +326,7 @@ mod private {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ArrayContext;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
 
@@ -482,7 +482,7 @@ mod tests {
         use crate::layouts::struct_::StructLayout;
         use crate::segments::SegmentId;
 
-        let ctx = ArrayContext::empty();
+        let ctx = ReadContext::new([]);
 
         // Create a flat layout for dict values (utf8 strings)
         let dict_values =

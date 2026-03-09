@@ -5,10 +5,10 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
+use crate::ConstantArray;
 use crate::SparseArray;
 use crate::SparseVTable;
 

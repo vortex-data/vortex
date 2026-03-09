@@ -153,11 +153,11 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array::DynArray;
-    use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BoolBuilder;
+    use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;

@@ -9,12 +9,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
-use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
-use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
@@ -30,7 +29,7 @@ fn take_chunked(
     let indices = indices
         .to_array()
         .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
-        .to_primitive();
+        .execute::<PrimitiveArray>(ctx)?;
 
     let indices_mask = indices.validity_mask()?;
     let indices_values = indices.as_slice::<u64>();
@@ -120,9 +119,9 @@ mod test {
     use crate::ToCanonical;
     use crate::array::DynArray;
     use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::FieldNames;

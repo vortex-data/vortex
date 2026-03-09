@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::DynArray;
-use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::ExtensionVTable;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 

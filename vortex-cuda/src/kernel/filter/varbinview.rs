@@ -3,7 +3,7 @@
 
 use vortex::array::Canonical;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 

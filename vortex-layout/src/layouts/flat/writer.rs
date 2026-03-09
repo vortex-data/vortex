@@ -24,6 +24,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
+use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -178,7 +179,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
             row_count,
             stream.dtype().clone(),
             segment_id,
-            ctx.clone(),
+            ReadContext::new(ctx.to_ids()),
             array_node,
         )
         .into_layout())

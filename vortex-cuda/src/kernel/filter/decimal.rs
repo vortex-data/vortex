@@ -4,7 +4,7 @@
 use cudarc::driver::DeviceRepr;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::DecimalArrayParts;
+use vortex::array::arrays::decimal::DecimalArrayParts;
 use vortex::dtype::NativeDecimalType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;

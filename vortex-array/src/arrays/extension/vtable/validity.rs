@@ -3,7 +3,7 @@
 
 use crate::ArrayRef;
 use crate::arrays::ExtensionArray;
-use crate::arrays::extension::ExtensionVTable;
+use crate::arrays::ExtensionVTable;
 use crate::vtable::ValidityChild;
 
 impl ValidityChild<ExtensionVTable> for ExtensionVTable {

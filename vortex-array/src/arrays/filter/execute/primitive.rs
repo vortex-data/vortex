@@ -34,7 +34,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::LARGE_SIZE;
     use crate::compute::conformance::filter::MEDIUM_SIZE;

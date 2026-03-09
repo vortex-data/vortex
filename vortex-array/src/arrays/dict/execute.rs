@@ -24,10 +24,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::arrays::TakeExecute;
-use crate::arrays::TakeReduce;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::dict::TakeExecute;
+use crate::arrays::dict::TakeReduce;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
 ///

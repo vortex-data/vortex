@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
-use crate::arrays::varbin_scalar;
+use crate::arrays::varbin::varbin_scalar;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 

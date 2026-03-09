@@ -9,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::vtable::ValidityHelper;

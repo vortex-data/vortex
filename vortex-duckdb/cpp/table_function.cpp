@@ -214,8 +214,8 @@ unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionD
 
     duckdb_vx_node_statistics node_stats_out = {
         .estimated_cardinality = 0,
-        .has_estimated_cardinality = false,
         .max_cardinality = 0,
+        .has_estimated_cardinality = false,
         .has_max_cardinality = false,
     };
     bind.info->vtab.cardinality(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(), &node_stats_out);

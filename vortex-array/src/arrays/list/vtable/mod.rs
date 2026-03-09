@@ -13,13 +13,14 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
-use crate::arrays::list_view_from_list;
+use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -210,8 +211,10 @@ impl VTable for ListVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(list_view_from_list(array.clone(), ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            list_view_from_list(array.clone(), ctx)?.into_array(),
+        ))
     }
 
     fn execute_parent(

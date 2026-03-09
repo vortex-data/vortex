@@ -11,11 +11,11 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BinaryView;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::dict::TakeExecute;
+use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
@@ -90,8 +90,8 @@ mod tests {
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::array::DynArray;
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::compute::take::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;

@@ -9,7 +9,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::arrays::TakeExecute;
+use crate::arrays::dict::TakeExecute;
 
 impl TakeExecute for ExtensionVTable {
     fn take(

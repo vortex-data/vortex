@@ -11,8 +11,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::IntoArray;
-use crate::arrays::Ref;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::Ref;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 

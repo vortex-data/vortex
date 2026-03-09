@@ -8,8 +8,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::SliceArray;
-use crate::arrays::SliceReduce;
 use crate::arrays::SliceVTable;
+use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for SliceVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

@@ -93,12 +93,10 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
         unsafe { &*self.input.bind_data.cast::<T::BindData>() }
     }
 
-    /// Returns the column_ids for the table function.
     pub fn column_ids(&self) -> &[u64] {
         unsafe { std::slice::from_raw_parts(self.input.column_ids, self.input.column_ids_count) }
     }
 
-    /// Returns the projection_ids for the table function.
     pub fn projection_ids(&self) -> Option<&[u64]> {
         if self.input.projection_ids.is_null() {
             return None;

@@ -12,8 +12,6 @@ pub fn vortex_session::registry::Context<T>::intern(&self, id: &vortex_session::
 
 pub fn vortex_session::registry::Context<T>::new(ids: alloc::vec::Vec<vortex_session::registry::Id>) -> Self
 
-pub fn vortex_session::registry::Context<T>::resolve(&self, idx: u16) -> core::option::Option<vortex_session::registry::Id>
-
 pub fn vortex_session::registry::Context<T>::to_ids(&self) -> alloc::vec::Vec<vortex_session::registry::Id>
 
 pub fn vortex_session::registry::Context<T>::with_registry(self, registry: vortex_session::registry::Registry<T>) -> Self
@@ -29,6 +27,24 @@ pub fn vortex_session::registry::Context<T>::fmt(&self, f: &mut core::fmt::Forma
 impl<T> core::default::Default for vortex_session::registry::Context<T>
 
 pub fn vortex_session::registry::Context<T>::default() -> Self
+
+pub struct vortex_session::registry::ReadContext
+
+impl vortex_session::registry::ReadContext
+
+pub fn vortex_session::registry::ReadContext::ids(&self) -> &[vortex_session::registry::Id]
+
+pub fn vortex_session::registry::ReadContext::new(ids: impl core::convert::Into<alloc::sync::Arc<[vortex_session::registry::Id]>>) -> Self
+
+pub fn vortex_session::registry::ReadContext::resolve(&self, idx: u16) -> core::option::Option<vortex_session::registry::Id>
+
+impl core::clone::Clone for vortex_session::registry::ReadContext
+
+pub fn vortex_session::registry::ReadContext::clone(&self) -> vortex_session::registry::ReadContext
+
+impl core::fmt::Debug for vortex_session::registry::ReadContext
+
+pub fn vortex_session::registry::ReadContext::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_session::registry::Registry<T>(_)
 

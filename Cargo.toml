@@ -11,6 +11,7 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-array",
+    "vortex-tensor",
     "vortex-btrblocks",
     "vortex-layout",
     "vortex-scan",
@@ -99,6 +100,7 @@ async-fs = "2.2.0"
 async-lock = "3.4"
 async-stream = "0.3.6"
 async-trait = "0.1.89"
+bigdecimal = "0.4.8"
 bindgen = "0.72.0"
 bit-vec = "0.8.0"
 bitvec = "1.0.1"
@@ -271,6 +273,7 @@ vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = fa
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
+vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }

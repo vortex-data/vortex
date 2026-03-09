@@ -61,7 +61,7 @@ mod tests {
     use arrow_schema::FieldRef;
     use arrow_schema::Schema;
 
-    use crate::arrays::StructArray;
+    use crate::arrow::record_batch::StructArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::ListBuilder;
     use crate::dtype::DType;

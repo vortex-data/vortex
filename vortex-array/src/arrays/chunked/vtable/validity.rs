@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::vtable::ChunkedArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;

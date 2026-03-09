@@ -20,8 +20,8 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DictArray;
-use crate::arrays::DictArrayParts;
 use crate::arrays::DictVTable;
+use crate::arrays::dict::DictArrayParts;
 use crate::arrow::ArrowArrayExecutor;
 
 pub(super) fn to_arrow_dictionary(
@@ -148,11 +148,11 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::executor::dictionary::ConstantArray;
+    use crate::arrow::executor::dictionary::DictArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::executor::VortexSessionExecute;

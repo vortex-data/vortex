@@ -4,10 +4,9 @@
 use std::mem::transmute;
 
 use vortex_array::ExecutionCtx;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::chunk_range;
-use vortex_array::arrays::patch_chunk;
+use vortex_array::arrays::primitive::chunk_range;
+use vortex_array::arrays::primitive::patch_chunk;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
@@ -33,14 +32,10 @@ pub fn decompress_into_array(
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
-        let prim_encoded = encoded.to_primitive();
-        // We need to drop ALPArray here in case converting encoded buffer into
-        // primitive didn't create a copy. In that case both alp_encoded and array
-        // will hold a reference to the buffer we want to mutate.
-        drop(encoded);
-        let patches_chunk_offsets = chunk_offsets.as_ref().to_primitive();
-        let patches_indices = patches.indices().to_primitive();
-        let patches_values = patches.values().to_primitive();
+        let prim_encoded = encoded.execute::<PrimitiveArray>(ctx)?;
+        let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
+        let patches_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patches_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
         Ok(decompress_chunked_core(
             prim_encoded,
             exponents,
@@ -51,11 +46,7 @@ pub fn decompress_into_array(
             dtype,
         ))
     } else {
-        let encoded_prim = encoded.to_primitive();
-        // We need to drop ALPArray here in case converting encoded buffer into
-        // primitive didn't create a copy. In that case both alp_encoded and array
-        // will hold a reference to the buffer we want to mutate.
-        drop(encoded);
+        let encoded_prim = encoded.execute::<PrimitiveArray>(ctx)?;
         decompress_unchunked_core(encoded_prim, exponents, patches, dtype, ctx)
     }
 }

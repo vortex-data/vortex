@@ -7,7 +7,6 @@ use std::sync::Arc;
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
-use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
@@ -21,11 +20,12 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::MessageHeader;
 use vortex_flatbuffers::message::MessageVersion;
+use vortex_session::registry::ReadContext;
 
 /// A message decoded from an IPC stream.
 #[derive(Debug)]
 pub enum DecoderMessage {
-    Array((ArrayParts, ArrayContext, usize)),
+    Array((ArrayParts, ReadContext, usize)),
     Buffer(ByteBuffer),
     DType(FlatBuffer),
 }
@@ -121,14 +121,14 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
-                            let encoding_ids: Vec<_> = header
+                            let encoding_ids: Arc<_> = header
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
                                 .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
                                 .collect();
 
-                            let ctx = ArrayContext::new(encoding_ids);
+                            let ctx = ReadContext::new(encoding_ids);
                             let row_count = header.row_count() as usize;
 
                             self.state = Default::default();

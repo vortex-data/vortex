@@ -9,9 +9,8 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -43,7 +42,8 @@ impl TakeExecute for BitPackedVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return array.to_primitive().take(indices.to_array()).map(Some);
+            let prim = array.clone().into_array().execute::<PrimitiveArray>(ctx)?;
+            return prim.take(indices.to_array()).map(Some);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -52,7 +52,7 @@ impl TakeExecute for BitPackedVTable {
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
-        let indices = indices.to_primitive();
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 take_primitive::<T, I>(array, &indices, taken_validity, ctx)?

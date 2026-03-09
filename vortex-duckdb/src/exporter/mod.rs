@@ -44,6 +44,8 @@ use crate::duckdb::VectorRef;
 
 pub struct ArrayExporter {
     ctx: ExecutionCtx,
+    /// Columns DuckDB requested to read from file. If empty, it's a zero-column
+    /// projection and should be handled accordingly, see ArrayExporter::export.
     fields: Vec<Box<dyn ColumnExporter>>,
     array_len: usize,
     remaining: usize,
@@ -62,6 +64,7 @@ impl ArrayExporter {
             .iter()
             .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
+
         Ok(Self {
             ctx,
             fields,
@@ -74,25 +77,29 @@ impl ArrayExporter {
     ///
     /// Returns `true` if a chunk was exported, `false` if all rows have been exported.
     pub fn export(&mut self, chunk: &mut DataChunkRef) -> VortexResult<bool> {
+        chunk.reset();
         if self.remaining == 0 {
             return Ok(false);
         }
 
-        if self.fields.is_empty() {
-            // In the case of a projection pushdown with zero columns duckdb will ask us for the
-            // `EMPTY_COLUMN_IDX`, which we define as a bool column, we can leave the vector as
-            // uninitialized and just return a DataChunk with the correct length.
-            // One place no fields can occur is in count(*) queries.
-            chunk.set_len(self.remaining);
-            self.remaining = 0;
-
-            return Ok(true);
+        let expected_cols = self.fields.len();
+        let chunk_cols = chunk.column_count();
+        let zero_projection = expected_cols == 0;
+        if !zero_projection && chunk_cols != expected_cols {
+            vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
         }
 
         let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
         let position = self.array_len - self.remaining;
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
+
+        // DuckDB asked us for zero columns. This may happen with aggregation
+        // functions like count(*). In such case we can leave chunk contents
+        // uninitialized. See EMPTY_COLUMN_IDX comment why this works.
+        if zero_projection {
+            return Ok(true);
+        }
 
         for (i, field) in self.fields.iter_mut().enumerate() {
             field.export(position, chunk_len, chunk.get_vector_mut(i), &mut self.ctx)?;
