@@ -54,6 +54,7 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
+    "benchmarks/monoio-bench",
     "vortex-sqllogictest",
 ]
 exclude = ["java/testfiles", "wasm-test"]
@@ -157,6 +158,8 @@ inventory = "0.3.20"
 itertools = "0.14.0"
 jiff = "0.2.0"
 kanal = "0.1.1"
+libc = "0.2"
+monoio = { version = "0.2.4", features = ["iouring", "legacy", "macros", "utils", "sync"] }
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 libloading = "0.8"

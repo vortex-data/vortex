@@ -1,0 +1,171 @@
+# Compares Vortex file reads via monoio io_uring against the last develop baseline.
+# Runs unconditionally on every PR against develop.
+
+name: Monoio io_uring Benchmark
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    branches: ["develop"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  bench:
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        benchmark:
+          - id: clickbench
+            subcommand: clickbench
+            name: ClickBench
+            opts: ""
+            query_prefix: clickbench_
+
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/tag=monoio-{1}{2}', github.run_id, matrix.benchmark.id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+
+    steps:
+      - uses: runs-on/action@v2
+        if: github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/system-info
+
+      - name: Install DuckDB CLI
+        run: |
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          chmod +x duckdb
+          echo "$PWD" >> $GITHUB_PATH
+
+      - name: Check io_uring support
+        run: |
+          echo "Kernel: $(uname -r)"
+          major=$(uname -r | cut -d. -f1)
+          minor=$(uname -r | cut -d. -f2)
+          if [ "$major" -lt 5 ] || ([ "$major" -eq 5 ] && [ "$minor" -lt 6 ]); then
+            echo "::error::Kernel $(uname -r) does not support io_uring (requires 5.6+)"
+            exit 1
+          fi
+          echo "io_uring support confirmed"
+
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          cargo build --bin monoio-bench --bin data-gen --profile release_debug
+
+      - name: Generate data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          # shellcheck disable=SC2086
+          target/release_debug/data-gen ${{ matrix.benchmark.subcommand }} \
+            --formats vortex \
+            ${{ matrix.benchmark.opts }}
+
+      - name: Run monoio io_uring benchmark
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          # shellcheck disable=SC2086
+          target/release_debug/monoio-bench ${{ matrix.benchmark.subcommand }} \
+            -d gh-json \
+            --formats vortex \
+            --delete-duckdb-database \
+            ${{ matrix.benchmark.opts }} \
+            -o raw-results.json
+
+          # Rename monoio target to duckdb so results join against develop baseline
+          sed 's/monoio:vortex/duckdb:vortex/g; s/"monoio"/"duckdb"/g' raw-results.json > results.json
+
+      - name: Setup AWS CLI
+        if: github.event.pull_request.head.repo.fork == false
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+
+      - name: Compare results
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          base_commit_sha=$(\
+            curl -L \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/vortex-data/vortex/actions/workflows/bench.yml/runs\?branch\=develop\&status\=success\&per_page\=1 \
+            | jq -r '.workflow_runs[].head_sha' \
+          )
+
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
+          # Filter base to only rows matching this benchmark's query prefix AND duckdb:vortex target
+          gzip -d -c data.json.gz \
+            | grep "$base_commit_sha" \
+            | grep "${{ matrix.benchmark.query_prefix }}" \
+            | grep 'duckdb.*vortex' \
+            > base.json || true
+
+          echo '# Benchmarks: ${{ matrix.benchmark.name }} — monoio io_uring' > comment.md
+          echo '' >> comment.md
+          echo 'Comparing `monoio:vortex` (io_uring, this PR) against `duckdb:vortex` (pread, develop baseline).' >> comment.md
+          echo '' >> comment.md
+
+          if [ -s base.json ]; then
+            uv run --no-project scripts/compare-benchmark-jsons.py \
+              base.json results.json "${{ matrix.benchmark.name }} monoio io_uring" \
+              >> comment.md
+          else
+            echo '> ⚠️ No matching base results found for develop. Showing raw results only.' >> comment.md
+            echo '' >> comment.md
+            echo '```' >> comment.md
+            cat results.json >> comment.md
+            echo '```' >> comment.md
+          fi
+
+          cat comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR
+        if: github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          comment-tag: monoio-bench-${{ matrix.benchmark.id }}
+
+      - name: Comment PR on failure
+        if: failure() && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # 🚨 Monoio Benchmark Failed: ${{ matrix.benchmark.name }}
+
+            Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: monoio-bench-${{ matrix.benchmark.id }}

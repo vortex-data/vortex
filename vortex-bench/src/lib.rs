@@ -206,6 +206,9 @@ pub enum Engine {
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     DuckDB,
+    #[clap(name = "monoio")]
+    #[serde(rename = "monoio")]
+    Monoio,
 }
 
 impl Display for Engine {
@@ -213,6 +216,7 @@ impl Display for Engine {
         match self {
             Engine::DataFusion => write!(f, "datafusion"),
             Engine::DuckDB => write!(f, "duckdb"),
+            Engine::Monoio => write!(f, "monoio"),
             Engine::Vortex => write!(f, "vortex"),
             Engine::Arrow => write!(f, "arrow"),
         }

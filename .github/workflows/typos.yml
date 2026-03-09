@@ -7,7 +7,7 @@ concurrency:
 permissions:
   contents: read
 
-on: [pull_request]
+on: [workflow_dispatch] # pull_request DISABLED for monoio prototype
 
 env:
   CLICOLOR: 1

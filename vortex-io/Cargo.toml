@@ -26,6 +26,8 @@ getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature fo
 glob = { workspace = true }
 handle = "1.0.2"
 kanal = { workspace = true }
+libc = { workspace = true, optional = true }
+monoio = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
@@ -60,6 +62,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [features]
+monoio = ["dep:monoio", "dep:libc"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 

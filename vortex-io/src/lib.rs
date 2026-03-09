@@ -20,6 +20,8 @@ pub mod filesystem;
 mod io_buf;
 pub mod kanal_ext;
 mod limit;
+#[cfg(feature = "monoio")]
+pub mod monoio_read_at;
 #[cfg(feature = "object_store")]
 pub mod object_store;
 mod read_at;
