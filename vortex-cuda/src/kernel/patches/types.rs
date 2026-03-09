@@ -111,9 +111,11 @@ impl<V: Copy> HostPatches<V> {
         let indices_handle = BufferHandle::new_host(indices.into_byte_buffer());
         let values_handle = BufferHandle::new_host(values.into_byte_buffer());
 
-        let lane_offsets_handle = ctx.ensure_on_device(lane_offsets_handle).await?;
-        let indices_handle = ctx.ensure_on_device(indices_handle).await?;
-        let values_handle = ctx.ensure_on_device(values_handle).await?;
+        let (lane_offsets_handle, indices_handle, values_handle) = futures::try_join!(
+            ctx.ensure_on_device(lane_offsets_handle),
+            ctx.ensure_on_device(indices_handle),
+            ctx.ensure_on_device(values_handle)
+        )?;
 
         Ok(DevicePatches {
             lane_offsets: lane_offsets_handle,

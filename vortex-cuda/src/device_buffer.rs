@@ -262,8 +262,8 @@ impl DeviceBuffer for CudaDeviceBuffer {
                     len,
                     stream.cu_stream(),
                 )
-                    .result()
-                    .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
+                .result()
+                .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
             }
         }
 
