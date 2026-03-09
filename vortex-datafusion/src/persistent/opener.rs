@@ -38,6 +38,7 @@ use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
+use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
@@ -101,10 +102,12 @@ pub(crate) struct VortexOpener {
 }
 
 /// The number of rows per morsel when splitting files for morsel-driven execution.
-const MORSEL_ROW_COUNT: u64 = 2048;
+const MORSEL_ROW_COUNT: u64 = 32 * 2048;
 
 struct VortexMorsel {
     row_range: Range<u64>,
+    /// Cached footer from morselize() so open() doesn't re-read it.
+    footer: Footer,
 }
 
 impl FileOpener for VortexOpener {
@@ -162,6 +165,7 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
             let row_count = vxf.row_count();
+            let footer = vxf.footer().clone();
 
             // Split into fixed-size morsels
             let mut morsels = Vec::new();
@@ -171,6 +175,7 @@ impl FileOpener for VortexOpener {
                 let mut f = partitioned_file.clone();
                 f.extensions = Some(Arc::new(VortexMorsel {
                     row_range: start..end,
+                    footer: footer.clone(),
                 }));
                 morsels.push(f);
                 start = end;
@@ -186,11 +191,11 @@ impl FileOpener for VortexOpener {
             Label::new(PATH_LABEL, file.path().to_string()),
             Label::new(PARTITION_LABEL, self.partition.to_string()),
         ];
-        let morsel_row_range = file
+        let morsel = file
             .extensions
             .as_ref()
             .and_then(|e| e.downcast_ref::<VortexMorsel>())
-            .map(|m| m.row_range.clone());
+            .map(|m| (m.row_range.clone(), m.footer.clone()));
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
@@ -271,7 +276,11 @@ impl FileOpener for VortexOpener {
                 .with_metrics_registry(metrics_registry.clone())
                 .with_labels(labels);
 
-            if let Some(file_metadata_cache) = file_metadata_cache
+            // Use cached footer: prefer the morsel's footer (from morselize()),
+            // fall back to the file metadata cache.
+            if let Some((_, ref footer)) = morsel {
+                open_opts = open_opts.with_footer(footer.clone());
+            } else if let Some(file_metadata_cache) = file_metadata_cache
                 && let Some(entry) = file_metadata_cache.get(file.path())
                 && entry.is_valid_for(&file.object_meta)
                 && let Some(vortex_metadata) = entry
@@ -385,7 +394,7 @@ impl FileOpener for VortexOpener {
 
             let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
 
-            if let Some(row_range) = morsel_row_range {
+            if let Some((row_range, _)) = morsel {
                 // Morsel: restrict the scan to the morsel's row range.
                 scan_builder = scan_builder.with_row_range(row_range);
             } else if let Some(extensions) = file.extensions
