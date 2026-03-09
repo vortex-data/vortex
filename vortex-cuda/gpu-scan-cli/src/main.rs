@@ -198,8 +198,8 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
             );
 
             async {
-                if field.clone().execute_cuda(&mut cuda_ctx).await.is_err() {
-                    tracing::error!("failed to execute_cuda on column");
+                if let Err(err) = field.clone().execute_cuda(&mut cuda_ctx).await {
+                    tracing::error!("failed to execute_cuda on column: {err}");
                 }
             }
             .instrument(span)
