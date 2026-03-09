@@ -5,8 +5,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use parking_lot::Mutex;
-use vortex::array::Array;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
