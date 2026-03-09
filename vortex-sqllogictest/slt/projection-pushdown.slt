@@ -104,8 +104,8 @@ SELECT * FROM (
     UNION ALL SELECT '' AS id, '' AS id2, 0 AS const
 )
 ----
-ololo  0
-  0
+ololo (empty) 0
+(empty) (empty) 0
 
 onlyif datafusion
 query TTI
