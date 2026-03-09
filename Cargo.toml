@@ -370,19 +370,19 @@ debug-assertions = true
 inherits = "bench"
 
 [patch.crates-io]
-datafusion = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-catalog = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-common = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-common-runtime = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-datasource = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-execution = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-expr = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-functions = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-physical-expr = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-physical-expr-adapter = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-physical-expr-common = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-physical-plan = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-pruning = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion", branch = "branch-53" }
+datafusion = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-catalog = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-common = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-common-runtime = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-datasource = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-execution = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-expr = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-functions = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-physical-expr = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-physical-expr-adapter = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-physical-expr-common = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-physical-plan = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-pruning = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
+datafusion-sqllogictest = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "ed061e794b95dbf932bcc06f93ba9bc1252e1db5" }
 tpchgen = { git = "https://github.com/AdamGS/tpchgen-rs.git", branch = "adamg/bump-arrow-match-df" }
 tpchgen-arrow = { git = "https://github.com/AdamGS/tpchgen-rs.git", branch = "adamg/bump-arrow-match-df" }

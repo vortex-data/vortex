@@ -8,6 +8,8 @@ use std::sync::Weak;
 
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::tree_node::TreeNodeRecursion;
+use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
@@ -325,5 +327,23 @@ impl FileSource for VortexSource {
 
     fn table_schema(&self) -> &TableSchema {
         &self.table_schema
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&dyn PhysicalExpr) -> DFResult<TreeNodeRecursion>,
+    ) -> DFResult<TreeNodeRecursion> {
+        // Visit predicate (filter) expression if present
+        let mut tnr = TreeNodeRecursion::Continue;
+        if let Some(predicate) = &self.full_predicate {
+            tnr = tnr.visit_sibling(|| f(predicate.as_ref()))?;
+        }
+
+        // Visit projection expressions
+        for proj_expr in &self.projection {
+            tnr = tnr.visit_sibling(|| f(proj_expr.expr.as_ref()))?;
+        }
+
+        Ok(tnr)
     }
 }

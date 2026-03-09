@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
@@ -29,6 +30,7 @@ use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
@@ -98,7 +100,43 @@ pub(crate) struct VortexOpener {
     pub scan_concurrency: Option<usize>,
 }
 
+struct VortexMorsel {}
+
 impl FileOpener for VortexOpener {
+    fn is_leaf_morsel(&self, file: &PartitionedFile) -> bool {
+        file.extensions
+            .as_ref()
+            .is_some_and(|e| e.is::<VortexMorsel>())
+    }
+
+    fn morselize(
+        &self,
+        partitioned_file: PartitionedFile,
+    ) -> BoxFuture<'static, DFResult<Vec<PartitionedFile>>> {
+        if partitioned_file
+            .extensions
+            .as_ref()
+            .map(|e| e.is::<VortexMorsel>())
+            .unwrap_or(false)
+        {
+            return Box::pin(ready(Ok(vec![partitioned_file])));
+        }
+
+        if let Some(pred) = predicate.as_ref() {
+            let logical_file_schema = Arc::clone(table_schema.file_schema());
+            if let Some(mut file_pruner) = FilePruner::try_new(
+                Arc::clone(pred),
+                &logical_file_schema,
+                &partitioned_file,
+                predicate_creation_errors.clone(),
+            ) && file_pruner.should_prune()?
+            {
+                // file_metrics.files_ranges_pruned_statistics.add_pruned(1);
+                return Ok(vec![]);
+            }
+        }
+        todo!()
+    }
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let session = self.session.clone();
         let metrics_registry = self.metrics_registry.clone();
@@ -106,6 +144,11 @@ impl FileOpener for VortexOpener {
             Label::new(PATH_LABEL, file.path().to_string()),
             Label::new(PARTITION_LABEL, self.partition.to_string()),
         ];
+        let is_morsel = file
+            .extensions
+            .as_ref()
+            .map(|e| e.is::<VortexMorsel>())
+            .unwrap_or(false);
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
