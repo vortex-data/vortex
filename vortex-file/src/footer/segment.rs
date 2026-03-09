@@ -11,7 +11,7 @@ use vortex_flatbuffers::footer as fb;
 ///
 /// A segment is a contiguous block of bytes in a file that contains a part of the file's data.
 /// The `SegmentSpec` struct specifies the location and properties of a segment.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct SegmentSpec {
     /// The byte offset of the segment from the start of the file.
     pub offset: u64,

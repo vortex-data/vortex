@@ -256,6 +256,8 @@ impl core::fmt::Debug for vortex_file::SegmentSpec
 
 pub fn vortex_file::SegmentSpec::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl core::marker::Copy for vortex_file::SegmentSpec
+
 pub struct vortex_file::VortexFile
 
 impl vortex_file::VortexFile
