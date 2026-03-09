@@ -15,6 +15,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
@@ -239,8 +240,8 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(_canonicalize(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

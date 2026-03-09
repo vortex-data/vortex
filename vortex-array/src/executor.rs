@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicUsize;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -18,6 +19,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::matcher::Matcher;
+use crate::optimizer::ArrayOptimizer;
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error.
@@ -58,6 +61,110 @@ impl dyn DynArray + '_ {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<E> {
         E::execute(self, ctx)
+    }
+
+    /// Iteratively execute this array until the [`Matcher`] matches, using an explicit work
+    /// stack.
+    ///
+    /// The scheduler repeatedly:
+    /// 1. Checks if the current array matches `M` — if so, pops the stack or returns.
+    /// 2. Runs `execute_parent` on each child for child-driven optimizations.
+    /// 3. Calls `execute` which returns an [`ExecutionStep`].
+    ///
+    /// Note: the returned array may not match `M`. If execution converges to a canonical form
+    /// that does not match `M`, the canonical array is returned since no further execution
+    /// progress is possible.
+    ///
+    /// For safety, we will error when the number of execution iterations reaches a configurable
+    /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
+    pub fn execute_until<M: Matcher>(
+        self: Arc<Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        static MAX_ITERATIONS: LazyLock<usize> =
+            LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+                Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
+                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
+                }),
+                Err(VarError::NotPresent) => 128,
+                Err(VarError::NotUnicode(_)) => {
+                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
+                }
+            });
+
+        let mut current = self.optimize()?;
+        // Stack frames: (parent, child_idx, done_predicate_for_child)
+        let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
+
+        for _ in 0..*MAX_ITERATIONS {
+            // Check for termination: use the stack frame's done predicate, or the root matcher.
+            let is_done = stack
+                .last()
+                .map_or(M::matches as DonePredicate, |frame| frame.2);
+            if is_done(current.as_ref()) {
+                match stack.pop() {
+                    None => {
+                        ctx.log(format_args!("-> {}", current));
+                        return Ok(current);
+                    }
+                    Some((parent, child_idx, _)) => {
+                        current = parent.with_child(child_idx, current)?;
+                        current = current.optimize()?;
+                        continue;
+                    }
+                }
+            }
+
+            // If we've reached canonical form, we can't execute any further regardless
+            // of whether the matcher matched.
+            if AnyCanonical::matches(current.as_ref()) {
+                match stack.pop() {
+                    None => {
+                        ctx.log(format_args!("-> canonical (unmatched) {}", current));
+                        return Ok(current);
+                    }
+                    Some((parent, child_idx, _)) => {
+                        current = parent.with_child(child_idx, current)?;
+                        current = current.optimize()?;
+                        continue;
+                    }
+                }
+            }
+
+            // Try execute_parent (child-driven optimized execution)
+            if let Some(rewritten) = try_execute_parent(&current, ctx)? {
+                ctx.log(format_args!(
+                    "execute_parent rewrote {} -> {}",
+                    current, rewritten
+                ));
+                current = rewritten.optimize()?;
+                continue;
+            }
+
+            // Execute the array itself
+            match current.vtable().execute(&current, ctx)? {
+                ExecutionStep::ExecuteChild(i, done) => {
+                    let child = current
+                        .nth_child(i)
+                        .vortex_expect("ExecuteChild index in bounds");
+                    ctx.log(format_args!(
+                        "ExecuteChild({i}): pushing {}, focusing on {}",
+                        current, child
+                    ));
+                    stack.push((current, i, done));
+                    current = child.optimize()?;
+                }
+                ExecutionStep::Done(result) => {
+                    ctx.log(format_args!("Done: {} -> {}", current, result));
+                    current = result;
+                }
+            }
+        }
+
+        vortex_bail!(
+            "Exceeded maximum execution iterations ({}) while executing array",
+            *MAX_ITERATIONS,
+        )
     }
 }
 
@@ -138,10 +245,10 @@ impl Drop for ExecutionCtx {
 ///
 /// The execution steps are as follows:
 /// 0. Check for canonical.
-/// 1. Attempt to call `reduce_parent` on each child.
-/// 2. Attempt to `reduce` the array with metadata-only optimizations.
+/// 1. Attempt to `reduce` the array with metadata-only optimizations.
+/// 2. Attempt to call `reduce_parent` on each child.
 /// 3. Attempt to call `execute_parent` on each child.
-/// 4. Call `execute` on the array itself.
+/// 4. Call `execute` on the array itself (which returns an [`ExecutionStep`]).
 ///
 /// Most users will not call this method directly, instead preferring to specify an executable
 /// target such as [`crate::Columnar`], [`Canonical`], or any of the canonical array types (such as
@@ -198,16 +305,85 @@ impl Executable for ArrayRef {
             }
         }
 
-        // 4. execute (optimized execution)
+        // 4. execute (returns an ExecutionStep)
         ctx.log(format_args!("executing {}", array));
-        let array = array
-            .vtable()
-            .execute(&array, ctx)
-            .map(|c| c.into_array())?;
-        array.statistics().inherit_from(array.statistics());
-        ctx.log(format_args!("-> {}", array.as_ref()));
+        match array.vtable().execute(&array, ctx)? {
+            ExecutionStep::Done(result) => {
+                ctx.log(format_args!("-> {}", result.as_ref()));
+                Ok(result)
+            }
+            ExecutionStep::ExecuteChild(i, _) => {
+                // For single-step execution, handle ExecuteChild by executing the child,
+                // replacing it, and returning the updated array.
+                let child = array.nth_child(i).vortex_expect("valid child index");
+                let executed_child = child.execute::<ArrayRef>(ctx)?;
+                array.with_child(i, executed_child)
+            }
+        }
+    }
+}
 
-        Ok(array)
+/// Try execute_parent on each child of the array.
+fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
+    for child_idx in 0..array.nchildren() {
+        let child = array
+            .nth_child(child_idx)
+            .vortex_expect("checked nchildren");
+        if let Some(result) = child
+            .vtable()
+            .execute_parent(&child, array, child_idx, ctx)?
+        {
+            result.statistics().inherit_from(array.statistics());
+            return Ok(Some(result));
+        }
+    }
+    Ok(None)
+}
+
+/// A predicate that determines when an array has reached a desired form during execution.
+pub type DonePredicate = fn(&dyn DynArray) -> bool;
+
+/// The result of a single execution step on an array encoding.
+///
+/// Instead of recursively executing children, encodings return an `ExecutionStep` that tells the
+/// scheduler what to do next. This enables the scheduler to manage execution iteratively using
+/// an explicit work stack, run cross-step optimizations, and cache shared sub-expressions.
+pub enum ExecutionStep {
+    /// Request that the scheduler execute child at the given index, using the provided
+    /// [`DonePredicate`] to determine when the child is "done", then replace the child in this
+    /// array and re-enter execution.
+    ///
+    /// Between steps, the scheduler runs reduce/reduce_parent rules to fixpoint, enabling
+    /// cross-step optimization (e.g., pushing scalar functions through newly-decoded children).
+    ///
+    /// Use [`ExecutionStep::execute_child`] instead of constructing this variant directly.
+    ExecuteChild(usize, DonePredicate),
+
+    /// Execution is complete. The result may be in any encoding — not necessarily canonical.
+    /// The scheduler will continue executing the result if it has not yet reached the target form.
+    Done(ArrayRef),
+}
+
+impl ExecutionStep {
+    /// Request execution of child at `child_idx` until it matches the given [`Matcher`].
+    pub fn execute_child<M: Matcher>(child_idx: usize) -> Self {
+        ExecutionStep::ExecuteChild(child_idx, M::matches)
+    }
+
+    /// Signal that execution is complete with the given result.
+    pub fn done(result: ArrayRef) -> Self {
+        ExecutionStep::Done(result)
+    }
+}
+
+impl fmt::Debug for ExecutionStep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionStep::ExecuteChild(idx, _) => {
+                f.debug_tuple("ExecuteChild").field(idx).finish()
+            }
+            ExecutionStep::Done(result) => f.debug_tuple("Done").field(result).finish(),
+        }
     }
 }
 

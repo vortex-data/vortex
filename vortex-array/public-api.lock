@@ -598,7 +598,7 @@ pub fn vortex_array::arrays::BoolVTable::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_array::arrays::BoolVTable::dtype(array: &vortex_array::arrays::BoolArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::BoolVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::BoolVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::BoolVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -774,7 +774,7 @@ pub fn vortex_array::arrays::ChunkedVTable::deserialize(_bytes: &[u8], _dtype: &
 
 pub fn vortex_array::arrays::ChunkedVTable::dtype(array: &vortex_array::arrays::ChunkedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ChunkedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ChunkedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ChunkedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -928,7 +928,7 @@ pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], dtype: &
 
 pub fn vortex_array::arrays::ConstantVTable::dtype(array: &vortex_array::arrays::ConstantArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ConstantVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -1214,7 +1214,7 @@ pub fn vortex_array::arrays::DecimalVTable::deserialize(bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::DecimalVTable::dtype(array: &vortex_array::arrays::DecimalArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::DecimalVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -1334,7 +1334,7 @@ pub fn vortex_array::arrays::dict::DictVTable::deserialize(bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::dict::DictVTable::dtype(array: &vortex_array::arrays::dict::DictArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::dict::DictVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -1548,7 +1548,7 @@ pub fn vortex_array::arrays::dict::DictVTable::deserialize(bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::dict::DictVTable::dtype(array: &vortex_array::arrays::dict::DictArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::dict::DictVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -1826,7 +1826,7 @@ pub fn vortex_array::arrays::ExtensionVTable::deserialize(_bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::ExtensionVTable::dtype(array: &vortex_array::arrays::ExtensionArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ExtensionVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -1982,7 +1982,7 @@ pub fn vortex_array::arrays::FilterVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::FilterVTable::dtype(array: &vortex_array::arrays::FilterArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::FilterVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FilterVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::FilterVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -2188,7 +2188,7 @@ pub fn vortex_array::arrays::FixedSizeListVTable::deserialize(_bytes: &[u8], _dt
 
 pub fn vortex_array::arrays::FixedSizeListVTable::dtype(array: &vortex_array::arrays::FixedSizeListArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::FixedSizeListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -2364,7 +2364,7 @@ pub fn vortex_array::arrays::ListVTable::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_array::arrays::ListVTable::dtype(array: &vortex_array::arrays::ListArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ListVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -2560,7 +2560,7 @@ pub fn vortex_array::arrays::ListViewVTable::deserialize(bytes: &[u8], _dtype: &
 
 pub fn vortex_array::arrays::ListViewVTable::dtype(array: &vortex_array::arrays::ListViewArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ListViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -2694,7 +2694,7 @@ pub fn vortex_array::arrays::MaskedVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::MaskedVTable::dtype(array: &vortex_array::arrays::MaskedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::MaskedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -2834,7 +2834,7 @@ pub fn vortex_array::arrays::null::NullVTable::deserialize(_bytes: &[u8], _dtype
 
 pub fn vortex_array::arrays::null::NullVTable::dtype(_array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::null::NullVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3160,7 +3160,7 @@ pub fn vortex_array::arrays::PrimitiveVTable::deserialize(_bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::PrimitiveVTable::dtype(array: &vortex_array::arrays::PrimitiveArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::PrimitiveVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3338,7 +3338,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::deserialize(_bytes: &[u8
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::dtype(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3460,7 +3460,7 @@ pub fn vortex_array::arrays::SharedVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::SharedVTable::dtype(array: &vortex_array::arrays::SharedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::SharedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::SharedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::SharedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3626,7 +3626,7 @@ pub fn vortex_array::arrays::slice::SliceVTable::deserialize(_bytes: &[u8], _dty
 
 pub fn vortex_array::arrays::slice::SliceVTable::dtype(array: &vortex_array::arrays::slice::SliceArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::slice::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::slice::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::slice::SliceVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3896,7 +3896,7 @@ pub fn vortex_array::arrays::StructVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::StructVTable::dtype(array: &vortex_array::arrays::StructArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::StructVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -4162,7 +4162,7 @@ pub fn vortex_array::arrays::VarBinVTable::deserialize(bytes: &[u8], _dtype: &vo
 
 pub fn vortex_array::arrays::VarBinVTable::dtype(array: &vortex_array::arrays::VarBinArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::VarBinVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::VarBinVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -4570,7 +4570,7 @@ pub fn vortex_array::arrays::VarBinViewVTable::deserialize(_bytes: &[u8], _dtype
 
 pub fn vortex_array::arrays::VarBinViewVTable::dtype(array: &vortex_array::arrays::VarBinViewArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::VarBinViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -4770,7 +4770,7 @@ pub fn vortex_array::arrays::BoolVTable::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_array::arrays::BoolVTable::dtype(array: &vortex_array::arrays::BoolArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::BoolVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::BoolVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::BoolVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -4944,7 +4944,7 @@ pub fn vortex_array::arrays::ChunkedVTable::deserialize(_bytes: &[u8], _dtype: &
 
 pub fn vortex_array::arrays::ChunkedVTable::dtype(array: &vortex_array::arrays::ChunkedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ChunkedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ChunkedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ChunkedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5096,7 +5096,7 @@ pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], dtype: &
 
 pub fn vortex_array::arrays::ConstantVTable::dtype(array: &vortex_array::arrays::ConstantArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ConstantVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5292,7 +5292,7 @@ pub fn vortex_array::arrays::DecimalVTable::deserialize(bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::DecimalVTable::dtype(array: &vortex_array::arrays::DecimalArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::DecimalVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5464,7 +5464,7 @@ pub fn vortex_array::arrays::dict::DictVTable::deserialize(bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::dict::DictVTable::dtype(array: &vortex_array::arrays::dict::DictArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::dict::DictVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5638,7 +5638,7 @@ pub fn vortex_array::arrays::ExtensionVTable::deserialize(_bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::ExtensionVTable::dtype(array: &vortex_array::arrays::ExtensionArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ExtensionVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5754,7 +5754,7 @@ pub fn vortex_array::arrays::FilterVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::FilterVTable::dtype(array: &vortex_array::arrays::FilterArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::FilterVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FilterVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::FilterVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5914,7 +5914,7 @@ pub fn vortex_array::arrays::FixedSizeListVTable::deserialize(_bytes: &[u8], _dt
 
 pub fn vortex_array::arrays::FixedSizeListVTable::dtype(array: &vortex_array::arrays::FixedSizeListArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::FixedSizeListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6078,7 +6078,7 @@ pub fn vortex_array::arrays::ListVTable::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_array::arrays::ListVTable::dtype(array: &vortex_array::arrays::ListArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ListVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6250,7 +6250,7 @@ pub fn vortex_array::arrays::ListViewVTable::deserialize(bytes: &[u8], _dtype: &
 
 pub fn vortex_array::arrays::ListViewVTable::dtype(array: &vortex_array::arrays::ListViewArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ListViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6376,7 +6376,7 @@ pub fn vortex_array::arrays::MaskedVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::MaskedVTable::dtype(array: &vortex_array::arrays::MaskedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::MaskedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6512,7 +6512,7 @@ pub fn vortex_array::arrays::null::NullVTable::deserialize(_bytes: &[u8], _dtype
 
 pub fn vortex_array::arrays::null::NullVTable::dtype(_array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::null::NullVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6746,7 +6746,7 @@ pub fn vortex_array::arrays::PrimitiveVTable::deserialize(_bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::PrimitiveVTable::dtype(array: &vortex_array::arrays::PrimitiveArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::PrimitiveVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6870,7 +6870,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::deserialize(_bytes: &[u8
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::dtype(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6982,7 +6982,7 @@ pub fn vortex_array::arrays::SharedVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::SharedVTable::dtype(array: &vortex_array::arrays::SharedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::SharedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::SharedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::SharedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7102,7 +7102,7 @@ pub fn vortex_array::arrays::slice::SliceVTable::deserialize(_bytes: &[u8], _dty
 
 pub fn vortex_array::arrays::slice::SliceVTable::dtype(array: &vortex_array::arrays::slice::SliceArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::slice::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::slice::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::slice::SliceVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7286,7 +7286,7 @@ pub fn vortex_array::arrays::StructVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::StructVTable::dtype(array: &vortex_array::arrays::StructArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::StructVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7584,7 +7584,7 @@ pub fn vortex_array::arrays::VarBinVTable::deserialize(bytes: &[u8], _dtype: &vo
 
 pub fn vortex_array::arrays::VarBinVTable::dtype(array: &vortex_array::arrays::VarBinArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::VarBinVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::VarBinVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7796,7 +7796,7 @@ pub fn vortex_array::arrays::VarBinViewVTable::deserialize(_bytes: &[u8], _dtype
 
 pub fn vortex_array::arrays::VarBinViewVTable::dtype(array: &vortex_array::arrays::VarBinViewArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::VarBinViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20218,7 +20218,7 @@ pub trait vortex_array::vtable::DynVTable: 'static + vortex_array::vtable::dyn_:
 
 pub fn vortex_array::vtable::DynVTable::build(&self, id: vortex_array::vtable::ArrayId, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::vtable::DynVTable::execute(&self, array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::vtable::DynVTable::execute(&self, array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::vtable::DynVTable::execute_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20342,7 +20342,7 @@ pub fn vortex_array::vtable::VTable::deserialize(bytes: &[u8], _dtype: &vortex_a
 
 pub fn vortex_array::vtable::VTable::dtype(array: &Self::Array) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::vtable::VTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::vtable::VTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::vtable::VTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20396,7 +20396,7 @@ pub fn vortex_array::arrays::BoolVTable::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_array::arrays::BoolVTable::dtype(array: &vortex_array::arrays::BoolArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::BoolVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::BoolVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::BoolVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20450,7 +20450,7 @@ pub fn vortex_array::arrays::ChunkedVTable::deserialize(_bytes: &[u8], _dtype: &
 
 pub fn vortex_array::arrays::ChunkedVTable::dtype(array: &vortex_array::arrays::ChunkedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ChunkedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ChunkedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ChunkedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20504,7 +20504,7 @@ pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], dtype: &
 
 pub fn vortex_array::arrays::ConstantVTable::dtype(array: &vortex_array::arrays::ConstantArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ConstantVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20558,7 +20558,7 @@ pub fn vortex_array::arrays::DecimalVTable::deserialize(bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::DecimalVTable::dtype(array: &vortex_array::arrays::DecimalArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::DecimalVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20612,7 +20612,7 @@ pub fn vortex_array::arrays::ExtensionVTable::deserialize(_bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::ExtensionVTable::dtype(array: &vortex_array::arrays::ExtensionArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ExtensionVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20666,7 +20666,7 @@ pub fn vortex_array::arrays::FilterVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::FilterVTable::dtype(array: &vortex_array::arrays::FilterArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::FilterVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FilterVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::FilterVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20720,7 +20720,7 @@ pub fn vortex_array::arrays::FixedSizeListVTable::deserialize(_bytes: &[u8], _dt
 
 pub fn vortex_array::arrays::FixedSizeListVTable::dtype(array: &vortex_array::arrays::FixedSizeListArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::FixedSizeListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20774,7 +20774,7 @@ pub fn vortex_array::arrays::ListVTable::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_array::arrays::ListVTable::dtype(array: &vortex_array::arrays::ListArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ListVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20828,7 +20828,7 @@ pub fn vortex_array::arrays::ListViewVTable::deserialize(bytes: &[u8], _dtype: &
 
 pub fn vortex_array::arrays::ListViewVTable::dtype(array: &vortex_array::arrays::ListViewArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::ListViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20882,7 +20882,7 @@ pub fn vortex_array::arrays::MaskedVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::MaskedVTable::dtype(array: &vortex_array::arrays::MaskedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::MaskedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20936,7 +20936,7 @@ pub fn vortex_array::arrays::PrimitiveVTable::deserialize(_bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::PrimitiveVTable::dtype(array: &vortex_array::arrays::PrimitiveArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::PrimitiveVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20990,7 +20990,7 @@ pub fn vortex_array::arrays::SharedVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::SharedVTable::dtype(array: &vortex_array::arrays::SharedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::SharedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::SharedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::SharedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21044,7 +21044,7 @@ pub fn vortex_array::arrays::StructVTable::deserialize(_bytes: &[u8], _dtype: &v
 
 pub fn vortex_array::arrays::StructVTable::dtype(array: &vortex_array::arrays::StructArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::StructVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21098,7 +21098,7 @@ pub fn vortex_array::arrays::VarBinVTable::deserialize(bytes: &[u8], _dtype: &vo
 
 pub fn vortex_array::arrays::VarBinVTable::dtype(array: &vortex_array::arrays::VarBinArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::VarBinVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::VarBinVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21152,7 +21152,7 @@ pub fn vortex_array::arrays::VarBinViewVTable::deserialize(_bytes: &[u8], _dtype
 
 pub fn vortex_array::arrays::VarBinViewVTable::dtype(array: &vortex_array::arrays::VarBinViewArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::VarBinViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21206,7 +21206,7 @@ pub fn vortex_array::arrays::dict::DictVTable::deserialize(bytes: &[u8], _dtype:
 
 pub fn vortex_array::arrays::dict::DictVTable::dtype(array: &vortex_array::arrays::dict::DictArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::dict::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::dict::DictVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21260,7 +21260,7 @@ pub fn vortex_array::arrays::null::NullVTable::deserialize(_bytes: &[u8], _dtype
 
 pub fn vortex_array::arrays::null::NullVTable::dtype(_array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::null::NullVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21314,7 +21314,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::deserialize(_bytes: &[u8
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::dtype(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21368,7 +21368,7 @@ pub fn vortex_array::arrays::slice::SliceVTable::deserialize(_bytes: &[u8], _dty
 
 pub fn vortex_array::arrays::slice::SliceVTable::dtype(array: &vortex_array::arrays::slice::SliceArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::slice::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::slice::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::slice::SliceVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21715,6 +21715,22 @@ pub vortex_array::ColumnarView::Constant(&'a vortex_array::arrays::ConstantArray
 impl<'a> core::convert::AsRef<dyn vortex_array::DynArray> for vortex_array::ColumnarView<'a>
 
 pub fn vortex_array::ColumnarView<'a>::as_ref(&self) -> &dyn vortex_array::DynArray
+
+pub enum vortex_array::ExecutionStep
+
+pub vortex_array::ExecutionStep::Done(vortex_array::ArrayRef)
+
+pub vortex_array::ExecutionStep::ExecuteChild(usize, vortex_array::DonePredicate)
+
+impl vortex_array::ExecutionStep
+
+pub fn vortex_array::ExecutionStep::done(result: vortex_array::ArrayRef) -> Self
+
+pub fn vortex_array::ExecutionStep::execute_child<M: vortex_array::matcher::Matcher>(child_idx: usize) -> Self
+
+impl core::fmt::Debug for vortex_array::ExecutionStep
+
+pub fn vortex_array::ExecutionStep::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub enum vortex_array::Precision
 
@@ -22623,3 +22639,5 @@ pub fn vortex_session::VortexSession::create_execution_ctx(&self) -> vortex_arra
 pub type vortex_array::ArrayContext = vortex_session::registry::Context<&'static dyn vortex_array::vtable::DynVTable>
 
 pub type vortex_array::ArrayRef = alloc::sync::Arc<dyn vortex_array::DynArray>
+
+pub type vortex_array::DonePredicate = fn(&dyn vortex_array::DynArray) -> bool
