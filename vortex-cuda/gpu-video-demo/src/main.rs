@@ -72,6 +72,7 @@ use vortex_cuda_macros::cuda_not_available;
 
 mod mux;
 mod nv12;
+mod posterize;
 mod transport;
 
 /// RAII wrapper for GPU memory allocated with `cuMemAlloc` (synchronous).
@@ -152,6 +153,11 @@ struct Cli {
     /// Unprojected channels are zero-filled (black). Reduces S3 I/O.
     #[arg(long, value_delimiter = ',')]
     columns: Option<Vec<String>>,
+
+    /// Posterize (discretize) each color channel to N levels on the GPU.
+    /// E.g. --posterize 4 maps each channel to {0, 85, 170, 255}.
+    #[arg(long)]
+    posterize: Option<u32>,
 }
 
 /// Sent from main task → encoder thread when an NV12 buffer is ready to encode.
@@ -292,8 +298,14 @@ async fn main() -> VortexResult<()> {
         "column projection (unprojected channels will be black)"
     );
 
-    // Load RGB→NV12 kernel
+    // Load GPU kernels
     let nv12_kernel = nv12::load_rgb_to_nv12_kernel(&session)?;
+    let posterize_kernel = if cli.posterize.is_some() {
+        Some(posterize::load_posterize_kernel(&session)?)
+    } else {
+        None
+    };
+    let posterize_levels = cli.posterize.unwrap_or(0);
 
     let cuda_context = cuda_ctx.stream().context().clone();
 
@@ -687,6 +699,38 @@ async fn main() -> VortexResult<()> {
                 if frame_fill == pixels_per_frame {
                     // Full frame accumulated — convert and hand off to encoder.
                     let _span = tracing::info_span!("produce_frame", frame = frame_idx).entered();
+
+                    // Posterize each projected channel in-place on GPU
+                    if let Some(ref kern) = posterize_kernel {
+                        let ppf = pixels_per_frame as u32;
+                        if has_r {
+                            posterize::posterize_launch(
+                                cuda_ctx.stream(),
+                                kern,
+                                r_frame_ptr,
+                                ppf,
+                                posterize_levels,
+                            )?;
+                        }
+                        if has_g {
+                            posterize::posterize_launch(
+                                cuda_ctx.stream(),
+                                kern,
+                                g_frame_ptr,
+                                ppf,
+                                posterize_levels,
+                            )?;
+                        }
+                        if has_b {
+                            posterize::posterize_launch(
+                                cuda_ctx.stream(),
+                                kern,
+                                b_frame_ptr,
+                                ppf,
+                                posterize_levels,
+                            )?;
+                        }
+                    }
 
                     // Launch RGB→NV12 kernel into current double buffer
                     let t = std::time::Instant::now();
