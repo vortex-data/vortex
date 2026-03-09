@@ -3007,14 +3007,8 @@ pub fn transpose_1024_best(input: &[u8; 128], output: &mut [u8; 128]) {
         if x86::has_gfni() && x86::has_avx512() {
             return unsafe { x86::transpose_1024_avx512_gfni(input, output) };
         }
-        if x86::has_gfni() && x86::has_avx2() {
-            return unsafe { x86::transpose_1024_avx2_gfni(input, output) };
-        }
         if x86::has_bmi2() {
             return unsafe { x86::transpose_1024_bmi2(input, output) };
-        }
-        if x86::has_avx2() {
-            return unsafe { x86::transpose_1024_avx2(input, output) };
         }
         // Fall back to fast scalar on x86_64
         transpose_1024_scalar_fast(input, output)
