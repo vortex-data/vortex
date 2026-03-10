@@ -152,7 +152,7 @@ impl PinnedByteBufferPool {
     /// Acquire a pooled pinned buffer of the given size in bytes.
     ///
     /// The buffer is returned to the pool when the [`PooledPinnedBuffer`] is dropped.
-    pub(crate) fn get(self: &Arc<Self>, len: usize) -> VortexResult<PooledPinnedBuffer> {
+    pub fn get(self: &Arc<Self>, len: usize) -> VortexResult<PooledPinnedBuffer> {
         let inner = self.get_inner(len)?;
         Ok(PooledPinnedBuffer::new(inner, self.clone()))
     }

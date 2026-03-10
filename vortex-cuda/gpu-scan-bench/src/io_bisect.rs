@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
         cli.concurrency,
     );
 
-    let ctx = cudarc::driver::safe::CudaDevice::new(0)?;
+    let ctx = cudarc::driver::CudaContext::new(0)?;
     let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&ctx)));
     let cuda_streams = VortexCudaStreamPool::new(Arc::clone(&ctx), cli.concurrency);
 
