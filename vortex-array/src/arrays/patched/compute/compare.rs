@@ -1,16 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBufferMut;
+use vortex_error::{VortexExpect, VortexResult};
+
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::PatchedVTable;
 use crate::arrays::bool::BoolArrayParts;
 use crate::arrays::patched::patch_lanes;
-use crate::arrays::{BoolArray, ConstantArray, PatchedVTable};
+use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
+use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::{ArrayRef, Canonical, ExecutionCtx, IntoArray, match_each_unsigned_integer_ptype};
-use vortex_buffer::BitBufferMut;
-use vortex_error::VortexResult;
 
 impl CompareKernel for PatchedVTable {
     fn compare(
@@ -79,12 +87,12 @@ impl CompareKernel for PatchedVTable {
         let lane_offsets = lhs.lane_offsets.as_host().reinterpret::<u32>();
         let indices = lhs.indices.as_host().reinterpret::<u16>();
 
-        match_each_unsigned_integer_ptype!(lhs.values_ptype, |V| {
+        match_each_native_ptype!(lhs.values_ptype, |V| {
             let values = lhs.values.as_host().reinterpret::<V>();
             let constant = constant
                 .as_primitive()
                 .as_::<V>()
-                .expect("compare constant not null");
+                .vortex_expect("compare constant not null");
 
             match operator {
                 CompareOperator::Eq => {
@@ -94,7 +102,7 @@ impl CompareKernel for PatchedVTable {
                         indices,
                         values,
                         constant,
-                        |l, r| l == r,
+                        |l, r| NativeValue(l) == NativeValue(r),
                     )?;
                 }
                 CompareOperator::NotEq => {
@@ -104,7 +112,7 @@ impl CompareKernel for PatchedVTable {
                         indices,
                         values,
                         constant,
-                        |l, r| l != r,
+                        |l, r| NativeValue(l) != NativeValue(r),
                     )?;
                 }
                 CompareOperator::Gt => {
@@ -114,7 +122,7 @@ impl CompareKernel for PatchedVTable {
                         indices,
                         values,
                         constant,
-                        |l, r| l > r,
+                        |l, r| NativeValue(l) > NativeValue(r),
                     )?;
                 }
                 CompareOperator::Gte => {
@@ -124,7 +132,7 @@ impl CompareKernel for PatchedVTable {
                         indices,
                         values,
                         constant,
-                        |l, r| l >= r,
+                        |l, r| NativeValue(l) >= NativeValue(r),
                     )?;
                 }
                 CompareOperator::Lt => {
@@ -134,7 +142,7 @@ impl CompareKernel for PatchedVTable {
                         indices,
                         values,
                         constant,
-                        |l, r| l < r,
+                        |l, r| NativeValue(l) < NativeValue(r),
                     )?;
                 }
                 CompareOperator::Lte => {
@@ -144,13 +152,13 @@ impl CompareKernel for PatchedVTable {
                         indices,
                         values,
                         constant,
-                        |l, r| l <= r,
+                        |l, r| NativeValue(l) <= NativeValue(r),
                     )?;
                 }
             }
         });
 
-        // Stitch up final bool array with validity
+        // SAFETY: thing
         let result = unsafe { BoolArray::new_unchecked(bits.freeze(), validity) };
         Ok(Some(result.into_array()))
     }
@@ -158,13 +166,22 @@ impl CompareKernel for PatchedVTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::arrays::{BoolArray, ConstantArray, PatchedArray, PatchedVTable, PrimitiveArray};
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::ExecutionCtx;
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PatchedArray;
+    use crate::arrays::PatchedVTable;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::scalar_fn::fns::binary::CompareKernel;
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::validity::Validity;
-    use crate::{ExecutionCtx, IntoArray, LEGACY_SESSION, assert_arrays_eq};
-    use vortex_buffer::buffer;
 
     #[test]
     fn test_basic() {
@@ -196,7 +213,61 @@ mod tests {
     }
 
     #[test]
-    fn test_subnormal() {
+    fn test_subnormal_f32() -> VortexResult<()> {
+        // Subnormal f32 values are smaller than f32::MIN_POSITIVE but greater than 0
+        let subnormal: f32 = f32::MIN_POSITIVE / 2.0;
+        assert!(subnormal > 0.0 && subnormal < f32::MIN_POSITIVE);
 
+        let lhs = PrimitiveArray::from_iter((0..512).map(|i| i as f32)).into_array();
+
+        let patches = Patches::new(
+            512,
+            0,
+            buffer![509u16, 510, 511].into_array(),
+            buffer![f32::NAN, subnormal, f32::NEG_INFINITY].into_array(),
+            None,
+        )?;
+
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?;
+
+        let rhs = ConstantArray::new(subnormal, 512).into_array();
+
+        let result =
+            <PatchedVTable as CompareKernel>::compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx)?
+                .unwrap();
+
+        let expected = BoolArray::from_indices(512, [510], Validity::NonNullable).into_array();
+
+        assert_arrays_eq!(expected, result);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pos_neg_zero() -> VortexResult<()> {
+        let lhs = PrimitiveArray::from_iter([-0.0f32; 10]).into_array();
+
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![5u16, 6, 7, 8, 9].into_array(),
+            buffer![f32::NAN, f32::NEG_INFINITY, 0f32, -0.0f32, f32::INFINITY].into_array(),
+            None,
+        )?;
+
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?;
+
+        let rhs = ConstantArray::new(0.0f32, 10).into_array();
+
+        let result =
+            <PatchedVTable as CompareKernel>::compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx)?
+                .unwrap();
+
+        let expected = BoolArray::from_indices(10, [7], Validity::NonNullable).into_array();
+
+        assert_arrays_eq!(expected, result);
+
+        Ok(())
     }
 }
