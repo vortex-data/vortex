@@ -329,17 +329,18 @@ fn merge_row_by_row(
         .collect::<VortexResult<_>>()?;
     let else_value = else_value.cast(builder_dtype)?;
 
-    let mut cursor = 0;
-    for row in 0..row_count {
-        while cursor < spans.len() && spans[cursor].1 <= row {
-            cursor += 1;
+    let mut pos = 0;
+    for &(start, end, branch_idx) in spans {
+        for row in pos..start {
+            builder.append_scalar(&else_value.scalar_at(row)?)?;
         }
-        let src = if cursor < spans.len() && spans[cursor].0 <= row {
-            &branch_arrays[spans[cursor].2]
-        } else {
-            &else_value
-        };
-        builder.append_scalar(&src.scalar_at(row)?)?;
+        for row in start..end {
+            builder.append_scalar(&branch_arrays[branch_idx].scalar_at(row)?)?;
+        }
+        pos = end;
+    }
+    for row in pos..row_count {
+        builder.append_scalar(&else_value.scalar_at(row)?)?;
     }
 
     Ok(builder.finish())
