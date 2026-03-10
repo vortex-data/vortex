@@ -630,7 +630,7 @@ impl Executable for CanonicalValidity {
             Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
                 ExtensionArray::new(
                     ext.ext_dtype().clone(),
-                    ext.storage()
+                    ext.storage_array()
                         .clone()
                         .execute::<CanonicalValidity>(ctx)?
                         .0
@@ -760,7 +760,7 @@ impl Executable for RecursiveCanonical {
             Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension(
                 ExtensionArray::new(
                     ext.ext_dtype().clone(),
-                    ext.storage()
+                    ext.storage_array()
                         .clone()
                         .execute::<RecursiveCanonical>(ctx)?
                         .0

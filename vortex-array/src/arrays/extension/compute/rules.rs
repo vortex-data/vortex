@@ -39,7 +39,7 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
         let filtered_storage = child
-            .storage()
+            .storage_array()
             .clone()
             .filter(parent.filter_mask().clone())?;
         Ok(Some(
@@ -147,7 +147,7 @@ mod tests {
         assert_eq!(ext_result.ext_dtype(), &ext_dtype);
 
         // Check the storage values
-        let storage_result: &[i64] = &ext_result.storage().to_primitive().to_buffer::<i64>();
+        let storage_result: &[i64] = &ext_result.storage_array().to_primitive().to_buffer::<i64>();
         assert_eq!(storage_result, &[1, 3, 5]);
     }
 
@@ -173,7 +173,7 @@ mod tests {
         assert_eq!(ext_result.len(), 3);
 
         // Check values: should be [Some(1), None, None]
-        let canonical = ext_result.storage().to_primitive();
+        let canonical = ext_result.storage_array().to_primitive();
         assert_eq!(canonical.len(), 3);
     }
 
