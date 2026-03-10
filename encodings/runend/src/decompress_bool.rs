@@ -9,11 +9,11 @@
 use itertools::Itertools;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::Nullability;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -84,7 +84,7 @@ pub fn runend_decode_typed_bool(
 /// This avoids the `trimmed_ends_iter` iterator chain which adds significant overhead
 /// for small numbers of runs.
 #[inline(always)]
-fn decode_few_runs_no_offset<E: vortex_dtype::IntegerPType>(
+fn decode_few_runs_no_offset<E: vortex_array::dtype::IntegerPType>(
     ends: &[E],
     values: &BitBuffer,
     validity: Mask,
@@ -147,39 +147,19 @@ fn decode_bool_non_nullable(
         return BoolArray::new(decoded.freeze(), nullability.into());
     }
 
-    // Adaptive strategy: choose based on which value is more common
-    let true_count = values.true_count();
-    let false_count = num_runs - true_count;
+    // Adaptive strategy: prefill with majority value, only flip minority runs
+    let prefill = values.true_count() > num_runs - values.true_count();
+    let mut decoded = prefill_buffer(prefill, length);
+    let decoded_bytes = decoded.as_mut_slice();
+    let mut current_pos = 0usize;
 
-    if true_count > false_count {
-        // More true runs - pre-fill with 1s and clear false runs
-        let mut decoded = BitBufferMut::new_set(length);
-        let decoded_bytes = decoded.as_mut_slice();
-        let mut current_pos = 0usize;
-
-        for (end, value) in run_ends.zip_eq(values.iter()) {
-            // Only clear when value is false (true is already 1)
-            if end > current_pos && !value {
-                fill_bits_false(decoded_bytes, current_pos, end);
-            }
-            current_pos = end;
+    for (end, value) in run_ends.zip_eq(values.iter()) {
+        if end > current_pos && value != prefill {
+            flip_bits(decoded_bytes, current_pos, end, value);
         }
-        BoolArray::new(decoded.freeze(), nullability.into())
-    } else {
-        // More or equal false runs - pre-fill with 0s and fill true runs
-        let mut decoded = BitBufferMut::new_unset(length);
-        let decoded_bytes = decoded.as_mut_slice();
-        let mut current_pos = 0usize;
-
-        for (end, value) in run_ends.zip_eq(values.iter()) {
-            // Only fill when value is true (false is already 0)
-            if end > current_pos && value {
-                fill_bits_true(decoded_bytes, current_pos, end);
-            }
-            current_pos = end;
-        }
-        BoolArray::new(decoded.freeze(), nullability.into())
+        current_pos = end;
     }
+    BoolArray::new(decoded.freeze(), nullability.into())
 }
 
 /// Decodes run-end encoded booleans when values may be null (nullable).
@@ -196,20 +176,30 @@ fn decode_bool_nullable(
         return decode_nullable_sequential(run_ends, values, validity_mask, length);
     }
 
-    let true_count = values.true_count();
-    let false_count = num_runs - true_count;
-    let valid_count = validity_mask.true_count();
-    let null_count = num_runs - valid_count;
+    // Adaptive strategy: prefill each buffer with its majority value
+    let prefill_decoded = values.true_count() > num_runs - values.true_count();
+    let prefill_valid = validity_mask.true_count() > num_runs - validity_mask.true_count();
 
-    let prefill_true = true_count > false_count;
-    let prefill_valid = valid_count > null_count;
+    let mut decoded = prefill_buffer(prefill_decoded, length);
+    let mut decoded_validity = prefill_buffer(prefill_valid, length);
+    let decoded_bytes = decoded.as_mut_slice();
+    let validity_bytes = decoded_validity.as_mut_slice();
+    let mut current_pos = 0usize;
 
-    match (prefill_true, prefill_valid) {
-        (true, true) => decode_nullable_true_valid(run_ends, values, validity_mask, length),
-        (true, false) => decode_nullable_true_null(run_ends, values, validity_mask, length),
-        (false, true) => decode_nullable_false_valid(run_ends, values, validity_mask, length),
-        (false, false) => decode_nullable_false_null(run_ends, values, validity_mask, length),
+    for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
+        if end > current_pos {
+            if is_valid != prefill_valid {
+                flip_bits(validity_bytes, current_pos, end, is_valid);
+            }
+            // Decoded bit should be the actual value when valid, false when null.
+            let want_decoded = is_valid && value;
+            if want_decoded != prefill_decoded {
+                flip_bits(decoded_bytes, current_pos, end, want_decoded);
+            }
+            current_pos = end;
+        }
     }
+    BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
 }
 
 /// Sequential decode for few runs - avoids prefill overhead.
@@ -237,117 +227,23 @@ fn decode_nullable_sequential(
     BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
 }
 
-/// Prefill decoded=1s, validity=1s. Clear for false values and nulls.
 #[inline(always)]
-fn decode_nullable_true_valid(
-    run_ends: impl Iterator<Item = usize>,
-    values: &BitBuffer,
-    validity_mask: &BitBuffer,
-    length: usize,
-) -> BoolArray {
-    let mut decoded = BitBufferMut::new_set(length);
-    let mut decoded_validity = BitBufferMut::new_set(length);
-    let decoded_bytes = decoded.as_mut_slice();
-    let validity_bytes = decoded_validity.as_mut_slice();
-    let mut current_pos = 0usize;
-
-    for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
-        if end > current_pos {
-            if !is_valid {
-                fill_bits_false(validity_bytes, current_pos, end);
-                fill_bits_false(decoded_bytes, current_pos, end);
-            } else if !value {
-                fill_bits_false(decoded_bytes, current_pos, end);
-            }
-            current_pos = end;
-        }
+fn prefill_buffer(set: bool, length: usize) -> BitBufferMut {
+    if set {
+        BitBufferMut::new_set(length)
+    } else {
+        BitBufferMut::new_unset(length)
     }
-    BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
 }
 
-/// Prefill decoded=1s, validity=0s. Set validity for valid, clear decoded for false/null.
+/// Sets or clears all bits in `[start, end)` to match `value`.
 #[inline(always)]
-fn decode_nullable_true_null(
-    run_ends: impl Iterator<Item = usize>,
-    values: &BitBuffer,
-    validity_mask: &BitBuffer,
-    length: usize,
-) -> BoolArray {
-    let mut decoded = BitBufferMut::new_set(length);
-    let mut decoded_validity = BitBufferMut::new_unset(length);
-    let decoded_bytes = decoded.as_mut_slice();
-    let validity_bytes = decoded_validity.as_mut_slice();
-    let mut current_pos = 0usize;
-
-    for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
-        if end > current_pos {
-            if is_valid {
-                fill_bits_true(validity_bytes, current_pos, end);
-                if !value {
-                    fill_bits_false(decoded_bytes, current_pos, end);
-                }
-            } else {
-                fill_bits_false(decoded_bytes, current_pos, end);
-            }
-            current_pos = end;
-        }
+fn flip_bits(slice: &mut [u8], start: usize, end: usize, value: bool) {
+    if value {
+        fill_bits_true(slice, start, end);
+    } else {
+        fill_bits_false(slice, start, end);
     }
-    BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
-}
-
-/// Prefill decoded=0s, validity=1s. Clear validity for nulls, set decoded for true.
-#[inline(always)]
-fn decode_nullable_false_valid(
-    run_ends: impl Iterator<Item = usize>,
-    values: &BitBuffer,
-    validity_mask: &BitBuffer,
-    length: usize,
-) -> BoolArray {
-    let mut decoded = BitBufferMut::new_unset(length);
-    let mut decoded_validity = BitBufferMut::new_set(length);
-    let decoded_bytes = decoded.as_mut_slice();
-    let validity_bytes = decoded_validity.as_mut_slice();
-    let mut current_pos = 0usize;
-
-    for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
-        if end > current_pos {
-            if !is_valid {
-                fill_bits_false(validity_bytes, current_pos, end);
-            } else if value {
-                fill_bits_true(decoded_bytes, current_pos, end);
-            }
-            current_pos = end;
-        }
-    }
-    BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
-}
-
-/// Prefill decoded=0s, validity=0s. Set validity and decoded for valid true values.
-#[inline(always)]
-fn decode_nullable_false_null(
-    run_ends: impl Iterator<Item = usize>,
-    values: &BitBuffer,
-    validity_mask: &BitBuffer,
-    length: usize,
-) -> BoolArray {
-    let mut decoded = BitBufferMut::new_unset(length);
-    let mut decoded_validity = BitBufferMut::new_unset(length);
-    let decoded_bytes = decoded.as_mut_slice();
-    let validity_bytes = decoded_validity.as_mut_slice();
-    let mut current_pos = 0usize;
-
-    for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
-        if end > current_pos {
-            if is_valid {
-                fill_bits_true(validity_bytes, current_pos, end);
-                if value {
-                    fill_bits_true(decoded_bytes, current_pos, end);
-                }
-            }
-            current_pos = end;
-        }
-    }
-    BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
 }
 
 /// Fills bits in range [start, end) to true.
