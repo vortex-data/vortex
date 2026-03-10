@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -100,6 +102,41 @@ impl PatchedArray {
             indices: self.indices.as_host().reinterpret::<u16>(),
             values: self.values.as_host().reinterpret::<V>(),
         }
+    }
+
+    /// Slice the array to just the patches and inner values that are within the chunk range.
+    pub(crate) fn slice_chunks(&self, chunks: Range<usize>) -> VortexResult<Self> {
+        let lane_offsets_start = chunks.start * self.n_lanes;
+        let lane_offsets_stop = chunks.end * self.n_lanes + 1;
+
+        let sliced_lane_offsets = self
+            .lane_offsets
+            .slice_typed::<u32>(lane_offsets_start..lane_offsets_stop);
+        let indices = self.indices.clone();
+        let values = self.values.clone();
+
+        let begin = (chunks.start * 1024).max(self.offset);
+        let end = (chunks.end * 1024).min(self.len);
+
+        let offset = begin % 1024;
+
+        let inner = self.inner.slice(begin..end)?;
+
+        let len = end - begin;
+        let n_chunks = (end - begin).div_ceil(1024);
+
+        Ok(PatchedArray {
+            inner,
+            n_chunks,
+            n_lanes: self.n_lanes,
+            offset,
+            len,
+            indices,
+            values,
+            values_ptype: self.values_ptype,
+            lane_offsets: sliced_lane_offsets,
+            stats_set: ArrayStats::default(),
+        })
     }
 }
 

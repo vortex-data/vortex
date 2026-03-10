@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBufferMut;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
