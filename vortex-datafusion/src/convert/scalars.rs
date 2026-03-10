@@ -101,6 +101,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     }
                 }
             }
+            // SAFETY: By construction Utf8 scalar values are utf8.
             DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().cloned().map(|s| unsafe {
                 String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_inner()))
             })),
