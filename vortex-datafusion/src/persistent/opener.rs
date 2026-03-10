@@ -20,6 +20,7 @@ use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::projection::Projector;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr::utils::collect_columns;
@@ -186,12 +187,157 @@ fn estimate_bytes_per_row(
 
 struct VortexMorsel {
     row_range: Range<u64>,
-    /// Cached layout reader, shared across all morsels from the same file.
-    layout_reader: Arc<dyn LayoutReader>,
+    /// Cached scan preparation shared across all morsels from the same file.
+    prepared_scan: Arc<PreparedFileScan>,
     /// Estimated projected bytes per row for the touched columns.
     bytes_per_row: u64,
     /// Whether this morsel is a sub-morsel produced by split_morsel.
     is_sub_morsel: bool,
+}
+
+struct PreparedFileScan {
+    layout_reader: Arc<dyn LayoutReader>,
+    file_row_count: u64,
+    scan_projection: vortex::expr::Expression,
+    pushed_filter: Option<vortex::expr::Expression>,
+    stream_schema: Arc<Schema>,
+    projector: Projector,
+}
+
+fn assert_extensions_can_be_replaced_with_morsel(file: &PartitionedFile) {
+    assert!(
+        file.extensions
+            .as_ref()
+            .is_none_or(|extensions| extensions.is::<VortexMorsel>()),
+        "expected PartitionedFile.extensions to be empty or VortexMorsel before replacing it"
+    );
+}
+
+fn prepare_file_scan(
+    unified_file_schema: &Schema,
+    projection: ProjectionExprs,
+    filter: Option<PhysicalExprRef>,
+    expr_adapter_factory: &Arc<dyn PhysicalExprAdapterFactory>,
+    expr_convertor: &Arc<dyn ExpressionConvertor>,
+    projection_pushdown: bool,
+    layout_reader: Arc<dyn LayoutReader>,
+) -> DFResult<PreparedFileScan> {
+    let file_row_count = layout_reader.row_count();
+    let file_dtype = layout_reader.dtype().clone();
+    let this_file_schema = Arc::new(calculate_physical_schema(&file_dtype, unified_file_schema)?);
+    let projected_physical_schema = projection.project_schema(unified_file_schema)?;
+
+    let expr_adapter = expr_adapter_factory.create(
+        Arc::new(unified_file_schema.clone()),
+        Arc::clone(&this_file_schema),
+    )?;
+
+    let simplifier = PhysicalExprSimplifier::new(&this_file_schema);
+
+    let filter = filter
+        .map(|filter| simplifier.simplify(expr_adapter.rewrite(filter)?))
+        .transpose()?;
+    let projection = projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
+
+    let ProcessedProjection {
+        scan_projection,
+        leftover_projection,
+    } = if projection_pushdown {
+        expr_convertor.split_projection(
+            projection.clone(),
+            &this_file_schema,
+            &projected_physical_schema,
+        )?
+    } else {
+        expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
+    };
+
+    let scan_dtype = scan_projection.return_dtype(&file_dtype).map_err(|_e| {
+        exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+    })?;
+
+    let scan_reference_schema = if projection_pushdown {
+        projected_physical_schema
+    } else {
+        let column_indices = projection.column_indices();
+        let fields: Vec<_> = column_indices
+            .into_iter()
+            .map(|idx| this_file_schema.field(idx).clone())
+            .collect();
+        Schema::new(fields)
+    };
+    let stream_schema = Arc::new(calculate_physical_schema(
+        &scan_dtype,
+        &scan_reference_schema,
+    )?);
+
+    let leftover_projection =
+        leftover_projection.try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
+    let projector = leftover_projection.make_projector(&stream_schema)?;
+
+    let pushed_filter = filter
+        .and_then(|f| {
+            let (pushed, unpushed): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) =
+                split_conjunction(&f)
+                    .into_iter()
+                    .cloned()
+                    .partition(|expr| expr_convertor.can_be_pushed_down(expr, &this_file_schema));
+
+            if !unpushed.is_empty() {
+                return Some(Err(exec_datafusion_err!(
+                    r#"VortexSource accepted but failed to push {} filters.
+                    This should never happen if you have a properly configured
+                    PhysicalExprAdapterFactory configured on the source.
+
+                    Failed filters:
+
+                    {unpushed:#?}
+                    "#,
+                    unpushed.len()
+                )));
+            }
+
+            make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
+        })
+        .transpose()?;
+
+    Ok(PreparedFileScan {
+        layout_reader,
+        file_row_count,
+        scan_projection,
+        pushed_filter,
+        stream_schema,
+        projector,
+    })
+}
+
+fn replace_partition_column_literals(
+    table_schema: &TableSchema,
+    file: &PartitionedFile,
+    projection: ProjectionExprs,
+    filter: Option<PhysicalExprRef>,
+) -> DFResult<(ProjectionExprs, Option<PhysicalExprRef>)> {
+    #[allow(clippy::disallowed_types)]
+    let literal_value_cols = table_schema
+        .table_partition_cols()
+        .iter()
+        .map(|f| f.name())
+        .cloned()
+        .zip(file.partition_values.clone())
+        .collect::<std::collections::HashMap<String, ScalarValue>>();
+
+    if literal_value_cols.is_empty() {
+        return Ok((projection, filter));
+    }
+
+    let projection = projection.try_map_exprs(|expr| {
+        replace_columns_with_literals(Arc::clone(&expr), &literal_value_cols)
+    })?;
+    let filter = filter
+        .map(|p| replace_columns_with_literals(p, &literal_value_cols))
+        .transpose()?;
+
+    Ok((projection, filter))
 }
 
 impl FileOpener for VortexOpener {
@@ -219,6 +365,18 @@ impl FileOpener for VortexOpener {
         let session = self.session.clone();
         let vortex_reader_factory = self.vortex_reader_factory.clone();
         let metrics_registry = self.metrics_registry.clone();
+        let expr_adapter_factory = self.expr_adapter_factory.clone();
+        let expr_convertor = self.expression_convertor.clone();
+        let projection_pushdown = self.projection_pushdown;
+        let (projection, filter) = match replace_partition_column_literals(
+            &table_schema,
+            &partitioned_file,
+            self.projection.clone(),
+            self.filter.clone(),
+        ) {
+            Ok(values) => values,
+            Err(err) => return Box::pin(ready(Err(err))),
+        };
 
         // Gather the set of column indices touched by projection and filter
         let touched_col_indices: HashSet<usize> = {
@@ -263,6 +421,15 @@ impl FileOpener for VortexOpener {
             let layout_reader = vxf
                 .layout_reader()
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
+            let prepared_scan = Arc::new(prepare_file_scan(
+                table_schema.file_schema(),
+                projection.clone(),
+                filter.clone(),
+                &expr_adapter_factory,
+                &expr_convertor,
+                projection_pushdown,
+                layout_reader.clone(),
+            )?);
 
             let bytes_per_row = estimate_bytes_per_row(
                 partitioned_file.statistics.as_deref(),
@@ -285,9 +452,10 @@ impl FileOpener for VortexOpener {
 
                 if projected_bytes >= MIN_BYTES_PER_MORSEL || end == row_count {
                     let mut f = partitioned_file.clone();
+                    assert_extensions_can_be_replaced_with_morsel(&f);
                     f.extensions = Some(Arc::new(VortexMorsel {
                         row_range: coalesce_start..end,
-                        layout_reader: layout_reader.clone(),
+                        prepared_scan: prepared_scan.clone(),
                         bytes_per_row,
                         is_sub_morsel: false,
                     }));
@@ -325,16 +493,15 @@ impl FileOpener for VortexOpener {
         let projected_bytes = row_count * morsel.bytes_per_row;
 
         // Compute number of splits: each sub-morsel should be at least MIN_BYTES_PER_MORSEL.
-        let n_splits =
-            usize::try_from((projected_bytes / MIN_BYTES_PER_MORSEL).clamp(1, n as u64))
-                .unwrap_or(n);
+        let n_splits = usize::try_from((projected_bytes / MIN_BYTES_PER_MORSEL).clamp(1, n as u64))
+            .unwrap_or(n);
         if n_splits <= 1 {
             return vec![file];
         }
 
         let rows_per_split = row_count / n_splits as u64;
         let remainder = row_count % n_splits as u64;
-        let layout_reader = morsel.layout_reader.clone();
+        let prepared_scan = morsel.prepared_scan.clone();
         let bytes_per_row = morsel.bytes_per_row;
         let base_start = morsel.row_range.start;
 
@@ -344,9 +511,10 @@ impl FileOpener for VortexOpener {
             let extra = if (i as u64) < remainder { 1 } else { 0 };
             let end = start + rows_per_split + extra;
             let mut f = file.clone();
+            assert_extensions_can_be_replaced_with_morsel(&f);
             f.extensions = Some(Arc::new(VortexMorsel {
                 row_range: start..end,
-                layout_reader: layout_reader.clone(),
+                prepared_scan: prepared_scan.clone(),
                 bytes_per_row,
                 is_sub_morsel: true,
             }));
@@ -368,10 +536,14 @@ impl FileOpener for VortexOpener {
             .extensions
             .as_ref()
             .and_then(|e| e.downcast_ref::<VortexMorsel>())
-            .map(|m| (m.row_range.clone(), m.layout_reader.clone()));
+            .map(|m| (m.row_range.clone(), m.prepared_scan.clone()));
 
-        let mut projection = self.projection.clone();
-        let mut filter = self.filter.clone();
+        let (projection, filter) = replace_partition_column_literals(
+            &self.table_schema,
+            &file,
+            self.projection.clone(),
+            self.filter.clone(),
+        )?;
 
         // Only create I/O reader if not a morsel (morsels have a cached layout reader).
         let reader = if morsel.is_none() {
@@ -400,26 +572,6 @@ impl FileOpener for VortexOpener {
 
         let expr_convertor = self.expression_convertor.clone();
         let projection_pushdown = self.projection_pushdown;
-
-        // Replace column access for partition columns with literals
-        #[allow(clippy::disallowed_types)]
-        let literal_value_cols = self
-            .table_schema
-            .table_partition_cols()
-            .iter()
-            .map(|f| f.name())
-            .cloned()
-            .zip(file.partition_values.clone())
-            .collect::<std::collections::HashMap<String, ScalarValue>>();
-
-        if !literal_value_cols.is_empty() {
-            projection = projection.try_map_exprs(|expr| {
-                replace_columns_with_literals(Arc::clone(&expr), &literal_value_cols)
-            })?;
-            filter = filter
-                .map(|p| replace_columns_with_literals(p, &literal_value_cols))
-                .transpose()?;
-        }
 
         Ok(async move {
             // Create FilePruner when we have a predicate and either dynamic expressions
@@ -450,15 +602,9 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            // Get layout reader and file dtype - either from morsel cache or by opening the file.
-            let (scan_layout_reader, file_dtype, file_row_count) = if let Some((_, ref morsel_lr)) =
-                morsel
-            {
-                (
-                    morsel_lr.clone(),
-                    morsel_lr.dtype().clone(),
-                    morsel_lr.row_count(),
-                )
+            // Get the prepared scan state - either from the morsel cache or by opening the file.
+            let prepared_scan = if let Some((_, ref prepared_scan)) = morsel {
+                prepared_scan.clone()
             } else {
                 let mut open_opts = session
                     .open_options()
@@ -481,9 +627,6 @@ impl FileOpener for VortexOpener {
                     .open_read(reader.vortex_expect("reader must exist for non-morsel path"))
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
-
-                let dtype = vxf.dtype().clone();
-                let rc = vxf.row_count();
 
                 // We share layout readers across partitions so we only read each layout once.
                 let lr = match layout_reader.entry(file.object_meta.location.clone()) {
@@ -514,78 +657,19 @@ impl FileOpener for VortexOpener {
                     }
                 };
 
-                (lr, dtype, rc)
-            };
-
-            // This is the expected arrow types of the actual columns in the file, which might have different types
-            // from the unified logical schema or miss
-            let this_file_schema = Arc::new(calculate_physical_schema(
-                &file_dtype,
-                &unified_file_schema,
-            )?);
-
-            let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
-
-            let expr_adapter = expr_adapter_factory.create(
-                Arc::clone(&unified_file_schema),
-                Arc::clone(&this_file_schema),
-            )?;
-
-            let simplifier = PhysicalExprSimplifier::new(&this_file_schema);
-
-            // The adapter rewrites the expressions to the local file schema, allowing
-            // for schema evolution and divergence between the table's schema and individual files.
-            let filter = filter
-                .map(|filter| {
-                    // Expression might now reference columns that don't exist in the file, so we can give it
-                    // another simplification pass.
-                    simplifier.simplify(expr_adapter.rewrite(filter)?)
-                })
-                .transpose()?;
-            let projection =
-                projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
-
-            let ProcessedProjection {
-                scan_projection,
-                leftover_projection,
-            } = if projection_pushdown {
-                expr_convertor.split_projection(
+                Arc::new(prepare_file_scan(
+                    &unified_file_schema,
                     projection.clone(),
-                    &this_file_schema,
-                    &projected_physical_schema,
-                )?
-            } else {
-                // When projection pushdown is disabled, read only the required columns
-                // and apply the full projection after the scan.
-                expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
+                    filter.clone(),
+                    &expr_adapter_factory,
+                    &expr_convertor,
+                    projection_pushdown,
+                    lr,
+                )?)
             };
 
-            // The schema of the stream returned from the vortex scan.
-            // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_dtype = scan_projection.return_dtype(&file_dtype).map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-            })?;
-
-            // When projection pushdown is enabled, the scan outputs the projected columns.
-            // When disabled, the scan outputs raw columns and the projection is applied after.
-            let scan_reference_schema = if projection_pushdown {
-                projected_physical_schema
-            } else {
-                // Build schema from the raw columns being read
-                let column_indices = projection.column_indices();
-                let fields: Vec<_> = column_indices
-                    .into_iter()
-                    .map(|idx| this_file_schema.field(idx).clone())
-                    .collect();
-                Schema::new(fields)
-            };
-            let stream_schema = calculate_physical_schema(&scan_dtype, &scan_reference_schema)?;
-
-            let leftover_projection = leftover_projection
-                .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
-            let projector = leftover_projection.make_projector(&stream_schema)?;
-
-            let mut scan_builder = ScanBuilder::new(session.clone(), scan_layout_reader);
+            let mut scan_builder =
+                ScanBuilder::new(session.clone(), prepared_scan.layout_reader.clone());
 
             if let Some((row_range, _)) = morsel {
                 // Morsel: restrict the scan to the morsel's row range.
@@ -600,46 +684,13 @@ impl FileOpener for VortexOpener {
                 scan_builder = apply_byte_range(
                     file_range,
                     file.object_meta.size,
-                    file_row_count,
+                    prepared_scan.file_row_count,
                     scan_builder,
                 );
             }
 
-            let filter = filter
-                .and_then(|f| {
-                    // Verify that all filters we've accepted from DataFusion get pushed down.
-                    // This will only fail if the user has not configured a suitable
-                    // PhysicalExprAdapterFactory on the file source to handle rewriting the
-                    // expression to handle missing/reordered columns in the Vortex file.
-
-                    let (pushed, unpushed): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) =
-                        split_conjunction(&f)
-                            .into_iter()
-                            .cloned()
-                            .partition(|expr| {
-                                expr_convertor.can_be_pushed_down(expr, &this_file_schema)
-                            });
-
-                    if !unpushed.is_empty() {
-                        return Some(Err(exec_datafusion_err!(
-                            r#"VortexSource accepted but failed to push {} filters.
-                            This should never happen if you have a properly configured
-                            PhysicalExprAdapterFactory configured on the source.
-
-                            Failed filters:
-
-                            {unpushed:#?}
-                            "#,
-                            unpushed.len()
-                        )));
-                    }
-
-                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
-                })
-                .transpose()?;
-
             if let Some(limit) = limit
-                && filter.is_none()
+                && prepared_scan.pushed_filter.is_none()
             {
                 scan_builder = scan_builder.with_limit(limit);
             }
@@ -648,14 +699,16 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_concurrency(concurrency);
             }
 
+            let prepared_scan_for_execute = prepared_scan.clone();
+            let prepared_scan_for_project = prepared_scan.clone();
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
-                .with_projection(scan_projection)
-                .with_some_filter(filter)
+                .with_projection(prepared_scan.scan_projection.clone())
+                .with_some_filter(prepared_scan.pushed_filter.clone())
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
-                    chunk.execute_record_batch(&stream_schema, &mut ctx)
+                    chunk.execute_record_batch(&prepared_scan_for_execute.stream_schema, &mut ctx)
                 })
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
@@ -688,10 +741,15 @@ impl FileOpener for VortexOpener {
                 })
                 .try_flatten()
                 .map(move |batch| {
-                    if projector.projection().as_ref().is_empty() {
+                    if prepared_scan_for_project
+                        .projector
+                        .projection()
+                        .as_ref()
+                        .is_empty()
+                    {
                         batch
                     } else {
-                        batch.and_then(|b| projector.project_batch(&b))
+                        batch.and_then(|b| prepared_scan_for_project.projector.project_batch(&b))
                     }
                 })
                 .boxed();
