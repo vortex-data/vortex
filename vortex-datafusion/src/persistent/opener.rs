@@ -107,14 +107,14 @@ pub(crate) struct VortexOpener {
     pub scan_concurrency: Option<usize>,
 }
 
-/// Target byte budget per morsel (8 MB).
-const TARGET_MORSEL_BYTES: u64 = 8 * 1024 * 1024;
+/// Target byte budget per morsel (16 MB).
+const TARGET_MORSEL_BYTES: u64 = 16 * 1024 * 1024;
 /// Minimum rows per morsel to avoid excessive overhead.
-const MIN_MORSEL_ROWS: u64 = 2048;
+const MIN_MORSEL_ROWS: u64 = 32 * 1024;
 /// Maximum rows per morsel to bound memory usage.
-const MAX_MORSEL_ROWS: u64 = 128 * 1024;
+const MAX_MORSEL_ROWS: u64 = 256 * 1024;
 /// Minimum projected bytes per morsel. Small row ranges are coalesced until this threshold.
-const MIN_BYTES_PER_MORSEL: u64 = 1024 * 1024; // 1 MB
+const MIN_BYTES_PER_MORSEL: u64 = 4 * 1024 * 1024; // 4 MB
 
 /// Estimate the average byte width of a DType for morsel sizing fallback.
 fn estimate_dtype_byte_width(dtype: &DType) -> u64 {
