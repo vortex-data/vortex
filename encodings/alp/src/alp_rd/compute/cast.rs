@@ -78,6 +78,7 @@ mod tests {
         let decoded = casted.to_primitive();
         let f64_values = decoded.as_slice::<f64>();
         assert_eq!(f64_values.len(), 5);
+        println!("vlaues {:?}", f64_values);
         assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);
         assert!((f64_values[1] - 1.1).abs() < 1e-6); // Use larger epsilon for f32->f64 conversion
     }
