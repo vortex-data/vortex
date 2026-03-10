@@ -156,7 +156,6 @@ async fn main() -> VortexResult<()> {
 
     // Run benchmark iterations
     let mut iteration_times = Vec::with_capacity(cli.iterations);
-    let mut output_bytes: u64 = 0;
     let concurrency = cli.concurrency;
     let no_execute = cli.no_execute;
 
@@ -167,7 +166,7 @@ async fn main() -> VortexResult<()> {
 
         let batches = gpu_file.scan()?.into_array_stream()?;
 
-        let batch_bytes: Vec<u64> = batches
+        batches
             .enumerate()
             .map(|(chunk, batch)| {
                 let session = &session;
@@ -184,27 +183,22 @@ async fn main() -> VortexResult<()> {
                     async {
                         if no_execute {
                             tracing::info!(len, "skipping execute (--no-execute)");
-                            VortexResult::Ok(0u64)
                         } else {
                             let mut cuda_ctx = CudaSession::create_execution_ctx(session)?;
-                            let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
-                            let nbytes = canonical.into_array().nbytes();
-                            VortexResult::Ok(nbytes)
+                            batch.execute_cuda(&mut cuda_ctx).await?;
                         }
+                        VortexResult::Ok(())
                     }
                     .instrument(span)
                     .await
                 }
             })
             .buffered(concurrency)
-            .try_collect()
+            .try_collect::<Vec<_>>()
             .await?;
 
         let elapsed = start.elapsed();
         iteration_times.push(elapsed);
-        if iteration == 0 {
-            output_bytes = batch_bytes.iter().sum();
-        }
         tracing::info!(
             "Iteration {}/{}: {:.3}s",
             iteration + 1,
@@ -212,6 +206,29 @@ async fn main() -> VortexResult<()> {
             elapsed.as_secs_f64()
         );
     }
+
+    // Measure output size in a separate untimed pass
+    let output_bytes: u64 = if !no_execute {
+        let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
+        let batches = gpu_file.scan()?.into_array_stream()?;
+        batches
+            .map(|batch| {
+                let session = &session;
+                async move {
+                    let batch = batch?;
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(session)?;
+                    let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
+                    VortexResult::Ok(canonical.into_array().nbytes())
+                }
+            })
+            .buffered(1)
+            .try_collect::<Vec<_>>()
+            .await?
+            .iter()
+            .sum()
+    } else {
+        0
+    };
 
     // Compute summary stats
     let total: std::time::Duration = iteration_times.iter().sum();
