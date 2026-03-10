@@ -83,6 +83,24 @@ if has_z_pr:
     df3["cv_pct_pr"] = df3["all_runtimes_pr"].apply(compute_cv_pct)
 if has_z_base:
     df3["cv_pct_base"] = df3["all_runtimes_base"].apply(compute_cv_pct)
+if has_z_pr or has_z_base:
+    cv_columns = [column for column in ["cv_pct_pr", "cv_pct_base"] if column in df3.columns]
+    df3["cv_pct_max"] = df3[cv_columns].max(axis=1, skipna=True)
+
+
+def describe_noise(cv_pct):
+    """Bucket runtime noise into labels that are easy to scan in GitHub tables."""
+    if pd.isna(cv_pct):
+        return "unknown"
+    if cv_pct < 5:
+        return "low"
+    if cv_pct < 15:
+        return "medium"
+    return "high"
+
+
+if "cv_pct_max" in df3.columns:
+    df3["noise"] = df3["cv_pct_max"].apply(describe_noise)
 
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
@@ -118,10 +136,75 @@ def calculate_geo_mean(df):
         return float("nan")
 
 
+def calculate_run_drift_metrics(df):
+    """Summarize common-mode movement across the whole benchmark run.
+
+    We work in log-ratio space because ratios compose multiplicatively:
+    a 10% slowdown (1.10x) and a 10% speedup (0.90x) are roughly symmetric
+    once transformed with log(). That makes the median log-ratio a robust
+    estimate of "the whole run was faster/slower than usual".
+    """
+    valid_ratios = [r for r in df["ratio"] if r > 0 and not pd.isna(r)]
+    if not valid_ratios:
+        return {
+            "drift_ratio": float("nan"),
+            "same_direction_pct": float("nan"),
+            "residual_mad_pct": float("nan"),
+            "is_baseline_suspect": False,
+            "drift_level": "unknown",
+        }
+
+    log_ratios = pd.Series([math.log(r) for r in valid_ratios])
+    median_log_ratio = float(log_ratios.median())
+    drift_ratio = math.exp(median_log_ratio)
+
+    # Count how often benchmarks move in the same direction as the run-wide drift.
+    # This distinguishes "everything got faster/slower together" from a mixed run
+    # with a similar central tendency.
+    if median_log_ratio < 0:
+        same_direction_pct = float((log_ratios < 0).mean() * 100)
+    elif median_log_ratio > 0:
+        same_direction_pct = float((log_ratios > 0).mean() * 100)
+    else:
+        same_direction_pct = float((log_ratios == 0).mean() * 100)
+
+    # Residual MAD measures how tightly benchmarks cluster around the run-wide
+    # drift. Small residual spread plus broad agreement is a strong indicator
+    # that the baseline itself is shifted rather than the PR changing specific
+    # benchmarks independently.
+    residual_logs = log_ratios - median_log_ratio
+    residual_mad = float(residual_logs.abs().median())
+    residual_mad_pct = (math.exp(residual_mad) - 1.0) * 100
+
+    drift_threshold_pct = 5.0
+    consistency_threshold_pct = 80.0
+    residual_spread_threshold_pct = 5.0
+    is_baseline_suspect = (
+        abs(drift_ratio - 1.0) * 100 >= drift_threshold_pct
+        and same_direction_pct >= consistency_threshold_pct
+        and residual_mad_pct <= residual_spread_threshold_pct
+    )
+    if is_baseline_suspect:
+        drift_level = "large"
+    elif abs(drift_ratio - 1.0) * 100 >= drift_threshold_pct:
+        drift_level = "noticeable"
+    else:
+        drift_level = "small"
+
+    return {
+        "drift_ratio": drift_ratio,
+        "same_direction_pct": same_direction_pct,
+        "residual_mad_pct": residual_mad_pct,
+        "is_baseline_suspect": is_baseline_suspect,
+        "drift_level": drift_level,
+    }
+
+
 vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
 duckdb_vortex_geo_mean_ratio = calculate_geo_mean(duckdb_vortex_df)
 datafusion_vortex_geo_mean_ratio = calculate_geo_mean(datafusion_vortex_df)
 parquet_geo_mean_ratio = calculate_geo_mean(parquet_df)
+run_drift_metrics = calculate_run_drift_metrics(df3)
 
 # Find best and worst changes for vortex-only results
 vortex_valid_ratios = vortex_df["ratio"].dropna()
@@ -176,6 +259,14 @@ summary_lines = [
     "## Summary",
     "",
     f"- **Overall**: {overall_performance}",
+    (
+        f"- **Run drift**: {run_drift_metrics['drift_ratio']:.3f}x, "
+        f"{run_drift_metrics['drift_level']} run-wide shift "
+        f"({run_drift_metrics['same_direction_pct']:.0f}% aligned, "
+        f"residual MAD {run_drift_metrics['residual_mad_pct']:.1f}%)"
+        if not pd.isna(run_drift_metrics["drift_ratio"])
+        else "- **Run drift**: no data"
+    ),
 ]
 
 # Only add vortex-specific sections if we have vortex data
@@ -203,19 +294,30 @@ if len(vortex_df) > 0:
         ]
     )
 
+if run_drift_metrics["is_baseline_suspect"]:
+    summary_lines.append("- **Baseline signal**: suspect common-mode drift; this run moved together more than expected")
+
+# Convert rendered timing values from ns to ms to keep the GitHub table narrower.
+# This affects display only; all comparison math above stays in the original units.
+display_pr_values = df3["value_pr"].copy()
+display_base_values = df3["value_base"].copy()
+display_units = df3["unit_base"].copy()
+ns_mask = display_units == "ns"
+display_pr_values.loc[ns_mask] = display_pr_values.loc[ns_mask] / 1_000_000
+display_base_values.loc[ns_mask] = display_base_values.loc[ns_mask] / 1_000_000
+display_units.loc[ns_mask] = "ms"
+
 # Build table
 table_dict = {
     "name": df3["name"],
-    f"PR {pr_commit_id[:8]}": df3["value_pr"],
-    f"base {base_commit_id[:8]}": df3["value_base"],
+    f"PR {pr_commit_id[:8]}": display_pr_values,
+    f"base {base_commit_id[:8]}": display_base_values,
     "ratio (PR/base)": df3["ratio"],
-    "unit": df3["unit_base"],
+    "unit": display_units,
 }
 
-if has_z_pr:
-    table_dict["CV% PR"] = df3["cv_pct_pr"]
-if has_z_base:
-    table_dict["CV% base"] = df3["cv_pct_base"]
+if "cv_pct_max" in df3.columns:
+    table_dict["noise"] = df3["noise"]
 
 table_dict["remark"] = df3["remark"]
 table_df = pd.DataFrame(table_dict)
