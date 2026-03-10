@@ -190,7 +190,6 @@ pub async fn transpose_patches(
     //                                uint16_t *__restrict output_indices,
     //                                ValueT *__restrict output_values) {
 
-
     let indices_ptr = indices.buffer_handle().cuda_device_ptr()?;
     let values_ptr = values.buffer_handle().cuda_device_ptr()?;
     let len_u64 = indices.len() as u64;
@@ -199,16 +198,6 @@ pub async fn transpose_patches(
     let lane_offsets_ptr = lane_offsets.cuda_device_ptr()?;
     let indices_out_ptr = indices_out.cuda_device_ptr()?;
     let values_out_ptr = values_out.cuda_device_ptr()?;
-
-
-    println!("indices_ptr: 0x{indices_ptr:x?}");
-    println!("values_ptr: 0x{values_ptr:x?}");
-    println!("len: {len_u64}");
-    println!("offset: {offset_u64}");
-    println!("array_len: {array_len_u64}");
-    println!("lane_offsets_ptr: 0x{lane_offsets_ptr:x?}");
-    println!("indices_out_ptr: 0x{indices_out_ptr:x?}");
-    println!("values_out_ptr: 0x{values_out_ptr:x?}");
 
     ctx.launch_kernel_config(
         &transpose_kernel,

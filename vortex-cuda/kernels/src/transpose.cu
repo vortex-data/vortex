@@ -29,24 +29,16 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
                                uint32_t *__restrict lane_offsets,
                                uint16_t *__restrict output_indices,
                                ValueT *__restrict output_values) {
-
-    printf("patch_indices: %p\n", (void*) patch_indices);
-    printf("patch_values: %p\n", (void*) patch_values);
-    printf("len: %d\n", len);
-    printf("offset: %d\n", offset);
-    printf("array_len: %d\n", array_len);
-    printf("lane_offsets: %p\n", (void*) lane_offsets);
-    printf("output_indices: %p\n", (void*) output_indices);
-    printf("output_values: %p\n", (void*) output_values);
+    if (threadIdx.x >= array_len) {
+        return;
+    }
 
     const uint32_t n_chunks = (array_len + 1023) / 1024; // div_ceil(array_len, 1024)
     const uint32_t n_lanes = patch_lanes<ValueT>();
     const uint32_t num_slots = n_chunks * n_lanes + 1;
-    printf("num_slots: %d\n", num_slots);
 
     // Initialize lane_offsets to zero
     for (uint32_t i = 0; i < num_slots; i++) {
-        printf("A: idx = %d\n", i);
         lane_offsets[i] = 0;
     }
 
@@ -56,15 +48,11 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
         uint32_t chunk = index / 1024;
         uint32_t lane = index % n_lanes;
 
-        printf("B: idx = %d\n", chunk * n_lanes + lane + 1);
-
         lane_offsets[chunk * n_lanes + lane + 1] += 1;
     }
 
     // Prefix sum: convert counts to offsets
     for (uint32_t i = 1; i < num_slots; i++) {
-        printf("C: idx = %d\n", i);
-
         lane_offsets[i] += lane_offsets[i - 1];
     }
 
@@ -78,7 +66,6 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
         output_indices[position] = static_cast<uint16_t>(index % 1024);
         output_values[position] = patch_values[i];
 
-        printf("D: idx = %d\n", chunk * n_lanes + lane);
         lane_offsets[chunk * n_lanes + lane] += 1;
     }
 
@@ -88,7 +75,6 @@ __device__ void transpose_impl(const IndexT *__restrict patch_indices,
         uint32_t chunk = index / 1024;
         uint32_t lane = index % n_lanes;
 
-        printf("E: idx = %d\n", chunk * n_lanes + lane);
         lane_offsets[chunk * n_lanes + lane] -= 1;
     }
 }
