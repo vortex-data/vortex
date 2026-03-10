@@ -166,7 +166,8 @@ fn decode_bool_non_nullable(
 
     for (end, value) in run_ends.zip_eq(values.iter()) {
         if end > current_pos && value != prefill {
-            decoded.fill_range(current_pos, end, value);
+            // SAFETY: current_pos < end <= length == decoded.len()
+            unsafe { decoded.fill_range_unchecked(current_pos, end, value) };
         }
         current_pos = end;
     }
@@ -197,13 +198,14 @@ fn decode_bool_nullable(
 
     for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
         if end > current_pos {
+            // SAFETY: current_pos < end <= length == decoded.len() == decoded_validity.len()
             if is_valid != prefill_valid {
-                decoded_validity.fill_range(current_pos, end, is_valid);
+                unsafe { decoded_validity.fill_range_unchecked(current_pos, end, is_valid) };
             }
             // Decoded bit should be the actual value when valid, false when null.
             let want_decoded = is_valid && value;
             if want_decoded != prefill_decoded {
-                decoded.fill_range(current_pos, end, want_decoded);
+                unsafe { decoded.fill_range_unchecked(current_pos, end, want_decoded) };
             }
             current_pos = end;
         }

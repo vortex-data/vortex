@@ -16,6 +16,61 @@ use crate::bit::set_bit_unchecked;
 use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
 
+/// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
+#[inline(always)]
+fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
+    if start_bit >= end_bit {
+        return;
+    }
+
+    let fill_byte: u8 = if value { 0xFF } else { 0x00 };
+
+    let start_byte = start_bit / 8;
+    let start_rem = start_bit % 8;
+    let end_byte = end_bit / 8;
+    let end_rem = end_bit % 8;
+
+    if start_byte == end_byte {
+        // All bits are in the same byte
+        let mask = ((1u8 << (end_rem - start_rem)) - 1) << start_rem;
+        if value {
+            slice[start_byte] |= mask;
+        } else {
+            slice[start_byte] &= !mask;
+        }
+    } else {
+        // First partial byte
+        if start_rem != 0 {
+            let mask = !((1u8 << start_rem) - 1);
+            if value {
+                slice[start_byte] |= mask;
+            } else {
+                slice[start_byte] &= !mask;
+            }
+        }
+
+        // Middle bytes
+        let fill_start = if start_rem != 0 {
+            start_byte + 1
+        } else {
+            start_byte
+        };
+        if fill_start < end_byte {
+            slice[fill_start..end_byte].fill(fill_byte);
+        }
+
+        // Last partial byte
+        if end_rem != 0 {
+            let mask = (1u8 << end_rem) - 1;
+            if value {
+                slice[end_byte] |= mask;
+            } else {
+                slice[end_byte] &= !mask;
+            }
+        }
+    }
+}
+
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
 ///
@@ -426,7 +481,19 @@ impl BitBufferMut {
         assert!(end <= self.len, "end {end} exceeds len {}", self.len);
         assert!(start <= end, "start {start} exceeds end {end}");
 
-        crate::bit::fill_bits(
+        // SAFETY: assertions above guarantee start <= end <= self.len,
+        // so offset + end fits within the buffer.
+        unsafe { self.fill_range_unchecked(start, end, value) }
+    }
+
+    /// Sets all bits in the range `[start, end)` to `value` without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `start <= end <= self.len`.
+    #[inline(always)]
+    pub unsafe fn fill_range_unchecked(&mut self, start: usize, end: usize, value: bool) {
+        fill_bits(
             self.buffer.as_mut_slice(),
             self.offset + start,
             self.offset + end,
