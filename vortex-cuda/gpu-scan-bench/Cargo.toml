@@ -23,7 +23,13 @@ path = "src/main.rs"
 name = "resegment"
 path = "src/resegment.rs"
 
+[[bin]]
+name = "io-bisect"
+path = "src/io_bisect.rs"
+
 [dependencies]
+anyhow = { workspace = true }
+cudarc = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true, features = ["executor"] }
 object_store = { workspace = true, features = ["aws", "fs"] }

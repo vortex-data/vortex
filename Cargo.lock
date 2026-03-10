@@ -4103,7 +4103,9 @@ dependencies = [
 name = "gpu-scan-bench"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
+ "cudarc",
  "futures",
  "object_store",
  "tokio",
