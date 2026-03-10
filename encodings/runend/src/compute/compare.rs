@@ -31,13 +31,13 @@ impl CompareKernel for RunEndVTable {
                 ConstantArray::new(const_scalar, lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;
-            let decoded = runend_decode_bools(
+            return runend_decode_bools(
                 lhs.ends().clone().execute::<PrimitiveArray>(ctx)?,
                 values.execute::<BoolArray>(ctx)?,
                 lhs.offset(),
                 lhs.len(),
-            )?;
-            return Ok(Some(decoded.into_array()));
+            )
+            .map(Some);
         }
 
         // Otherwise, fall back

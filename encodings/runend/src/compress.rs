@@ -188,8 +188,6 @@ pub fn runend_decode_primitive(
     }))
 }
 
-pub use crate::decompress_bool::runend_decode_bools;
-
 /// Decode a run-end encoded slice of values into a flat `Buffer<T>` and `Validity`.
 ///
 /// This is the core decode loop shared by primitive and varbinview run-end decoding.

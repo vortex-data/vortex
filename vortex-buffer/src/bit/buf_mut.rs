@@ -398,13 +398,13 @@ impl BitBufferMut {
     /// the length will be incremented by `n`.
     ///
     /// Panics if the buffer does not have `n` slots left.
+    #[inline]
     pub fn append_n(&mut self, value: bool, n: usize) {
         if n == 0 {
             return;
         }
 
-        let start_bit_pos = self.offset + self.len;
-        let end_bit_pos = start_bit_pos + n;
+        let end_bit_pos = self.offset + self.len + n;
         let required_bytes = end_bit_pos.div_ceil(8);
 
         // Ensure buffer has enough bytes
@@ -412,58 +412,26 @@ impl BitBufferMut {
             self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        let fill_byte = if value { 0xFF } else { 0x00 };
-
-        // Calculate byte positions
-        let start_byte = start_bit_pos / 8;
-        let start_bit = start_bit_pos % 8;
-        let end_byte = end_bit_pos / 8;
-        let end_bit = end_bit_pos % 8;
-
-        let slice = self.buffer.as_mut_slice();
-
-        if start_byte == end_byte {
-            // All bits are in the same byte
-            let mask = ((1u8 << (end_bit - start_bit)) - 1) << start_bit;
-            if value {
-                slice[start_byte] |= mask;
-            } else {
-                slice[start_byte] &= !mask;
-            }
-        } else {
-            // Fill the first partial byte
-            if start_bit != 0 {
-                let mask = !((1u8 << start_bit) - 1);
-                if value {
-                    slice[start_byte] |= mask;
-                } else {
-                    slice[start_byte] &= !mask;
-                }
-            }
-
-            // Fill the complete middle bytes
-            let fill_start = if start_bit != 0 {
-                start_byte + 1
-            } else {
-                start_byte
-            };
-            let fill_end = end_byte;
-            if fill_start < fill_end {
-                slice[fill_start..fill_end].fill(fill_byte);
-            }
-
-            // Fill the last partial byte
-            if end_bit != 0 {
-                let mask = (1u8 << end_bit) - 1;
-                if value {
-                    slice[end_byte] |= mask;
-                } else {
-                    slice[end_byte] &= !mask;
-                }
-            }
-        }
-
+        let start = self.len;
         self.len += n;
+        self.fill_range(start, self.len, value);
+    }
+
+    /// Sets all bits in the range `[start, end)` to `value`.
+    ///
+    /// This operates on an arbitrary range within the existing length of the buffer.
+    /// Panics if `end > self.len` or `start > end`.
+    #[inline(always)]
+    pub fn fill_range(&mut self, start: usize, end: usize, value: bool) {
+        assert!(end <= self.len, "end {end} exceeds len {}", self.len);
+        assert!(start <= end, "start {start} exceeds end {end}");
+
+        crate::bit::fill_bits(
+            self.buffer.as_mut_slice(),
+            self.offset + start,
+            self.offset + end,
+            value,
+        );
     }
 
     /// Append a [`BitBuffer`] to this [`BitBufferMut`]

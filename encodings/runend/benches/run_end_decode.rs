@@ -11,7 +11,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_runend::decompress_bool::runend_decode_bools;
 
@@ -82,9 +81,9 @@ fn create_bool_test_data(
         ends.push(pos as u32);
 
         let val = match distribution {
-            BoolDistribution::Alternating => run_index % 2 == 0,
-            BoolDistribution::MostlyTrue => run_index % 10 != 0, // 90% true
-            BoolDistribution::MostlyFalse => run_index % 10 == 0, // 10% true (90% false)
+            BoolDistribution::Alternating => run_index.is_multiple_of(2),
+            BoolDistribution::MostlyTrue => !run_index.is_multiple_of(10), // 90% true
+            BoolDistribution::MostlyFalse => run_index.is_multiple_of(10), // 10% true (90% false)
             BoolDistribution::AllTrue => true,
             BoolDistribution::AllFalse => false,
         };
@@ -276,18 +275,18 @@ fn create_nullable_bool_test_data(
         ends.push(pos as u32);
 
         let val = match distribution {
-            BoolDistribution::Alternating => run_index % 2 == 0,
-            BoolDistribution::MostlyTrue => run_index % 10 != 0,
-            BoolDistribution::MostlyFalse => run_index % 10 == 0,
+            BoolDistribution::Alternating => run_index.is_multiple_of(2),
+            BoolDistribution::MostlyTrue => !run_index.is_multiple_of(10),
+            BoolDistribution::MostlyFalse => run_index.is_multiple_of(10),
             BoolDistribution::AllTrue => true,
             BoolDistribution::AllFalse => false,
         };
         values.push(val);
 
         let is_valid = match validity {
-            ValidityDistribution::MostlyValid => run_index % 10 != 0,
-            ValidityDistribution::HalfValid => run_index % 2 == 0,
-            ValidityDistribution::MostlyNull => run_index % 10 == 0,
+            ValidityDistribution::MostlyValid => !run_index.is_multiple_of(10),
+            ValidityDistribution::HalfValid => run_index.is_multiple_of(2),
+            ValidityDistribution::MostlyNull => run_index.is_multiple_of(10),
         };
         validity_bits.push(is_valid);
 
@@ -377,59 +376,5 @@ fn decode_bool_nullable(bencher: Bencher, args: NullableBoolBenchArgs) {
         .with_inputs(|| (ends.clone(), values.clone()))
         .bench_refs(|(ends, values)| {
             runend_decode_bools(ends.clone(), values.clone(), 0, total_length)
-        });
-}
-
-/// Baseline using develop branch's append_n approach
-fn decode_bool_nullable_baseline(
-    ends: &[u32],
-    values: &BitBuffer,
-    validity_mask: &BitBuffer,
-    _length: usize,
-) -> BoolArray {
-    let mut decoded = BitBufferMut::with_capacity(ends.last().copied().unwrap_or(0) as usize);
-    let mut decoded_validity =
-        BitBufferMut::with_capacity(ends.last().copied().unwrap_or(0) as usize);
-
-    let mut prev_end = 0usize;
-    for ((&end, value), is_valid) in ends.iter().zip(values.iter()).zip(validity_mask.iter()) {
-        let end = end as usize;
-        if is_valid {
-            decoded_validity.append_n(true, end - prev_end);
-            decoded.append_n(value, end - prev_end);
-        } else {
-            decoded_validity.append_n(false, end - prev_end);
-            decoded.append_n(false, end - prev_end);
-        }
-        prev_end = end;
-    }
-
-    BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
-}
-
-#[divan::bench(args = NULLABLE_BOOL_ARGS)]
-fn decode_bool_nullable_develop(bencher: Bencher, args: NullableBoolBenchArgs) {
-    let NullableBoolBenchArgs {
-        total_length,
-        avg_run_length,
-        distribution,
-        validity,
-    } = args;
-    let (ends, values) =
-        create_nullable_bool_test_data(total_length, avg_run_length, distribution, validity);
-
-    bencher
-        .with_inputs(|| {
-            let ends_slice: Vec<u32> = ends.as_slice::<u32>().to_vec();
-            let values_buf = values.to_bit_buffer();
-            let validity_buf = values.validity_mask().unwrap();
-            let validity_bits = match validity_buf {
-                vortex_mask::Mask::Values(m) => m.bit_buffer().clone(),
-                _ => BitBuffer::new_set(values.len()),
-            };
-            (ends_slice, values_buf, validity_bits)
-        })
-        .bench_refs(|(ends, values, validity)| {
-            decode_bool_nullable_baseline(ends, values, validity, total_length)
         });
 }

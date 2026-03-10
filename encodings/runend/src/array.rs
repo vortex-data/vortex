@@ -486,7 +486,7 @@ pub(super) fn run_end_canonicalize(
     Ok(match array.dtype() {
         DType::Bool(_) => {
             let bools = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_bools(pends, bools, array.offset(), array.len())?.into_array()
+            runend_decode_bools(pends, bools, array.offset(), array.len())?
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute_as("values", ctx)?;

@@ -7,10 +7,15 @@
 //! (0s or 1s) and only fills the minority runs, minimizing work for skewed distributions.
 
 use itertools::Itertools;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -29,7 +34,7 @@ pub fn runend_decode_bools(
     values: BoolArray,
     offset: usize,
     length: usize,
-) -> VortexResult<BoolArray> {
+) -> VortexResult<ArrayRef> {
     let validity = values.validity_mask()?;
     let values_buf = values.to_bit_buffer();
     let nullability = values.dtype().nullability();
@@ -72,11 +77,18 @@ pub fn runend_decode_typed_bool(
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
-) -> BoolArray {
+) -> ArrayRef {
     match values_validity {
-        Mask::AllTrue(_) => decode_bool_non_nullable(run_ends, values, values_nullability, length),
-        Mask::AllFalse(_) => BoolArray::new(BitBuffer::new_unset(length), Validity::AllInvalid),
-        Mask::Values(mask) => decode_bool_nullable(run_ends, values, mask.bit_buffer(), length),
+        Mask::AllTrue(_) => {
+            decode_bool_non_nullable(run_ends, values, values_nullability, length).into_array()
+        }
+        Mask::AllFalse(_) => {
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), length)
+                .into_array()
+        }
+        Mask::Values(mask) => {
+            decode_bool_nullable(run_ends, values, mask.bit_buffer(), length).into_array()
+        }
     }
 }
 
@@ -90,7 +102,7 @@ fn decode_few_runs_no_offset<E: vortex_array::dtype::IntegerPType>(
     validity: Mask,
     nullability: Nullability,
     length: usize,
-) -> BoolArray {
+) -> ArrayRef {
     match validity {
         Mask::AllTrue(_) => {
             let mut decoded = BitBufferMut::with_capacity(length);
@@ -100,31 +112,31 @@ fn decode_few_runs_no_offset<E: vortex_array::dtype::IntegerPType>(
                 decoded.append_n(values.value(i), end - prev_end);
                 prev_end = end;
             }
-            BoolArray::new(decoded.freeze(), nullability.into())
+            BoolArray::new(decoded.freeze(), nullability.into()).into_array()
         }
-        Mask::AllFalse(_) => BoolArray::new(BitBuffer::new_unset(length), Validity::AllInvalid),
+        Mask::AllFalse(_) => {
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), length)
+                .into_array()
+        }
         Mask::Values(mask) => {
             let validity_buf = mask.bit_buffer();
-            // Use prefill + fill_bits for better performance with larger runs
-            let mut decoded = BitBufferMut::new_unset(length);
-            let mut decoded_validity = BitBufferMut::new_unset(length);
-            let decoded_bytes = decoded.as_mut_slice();
-            let validity_bytes = decoded_validity.as_mut_slice();
+            let mut decoded = BitBufferMut::with_capacity(length);
+            let mut decoded_validity = BitBufferMut::with_capacity(length);
             let mut prev_end = 0usize;
             for (i, &end) in ends.iter().enumerate() {
                 let end = end.as_().min(length);
-                if end > prev_end {
-                    let is_valid = validity_buf.value(i);
-                    if is_valid {
-                        fill_bits_true(validity_bytes, prev_end, end);
-                        if values.value(i) {
-                            fill_bits_true(decoded_bytes, prev_end, end);
-                        }
-                    }
+                let run_len = end - prev_end;
+                let is_valid = validity_buf.value(i);
+                if is_valid {
+                    decoded_validity.append_n(true, run_len);
+                    decoded.append_n(values.value(i), run_len);
+                } else {
+                    decoded_validity.append_n(false, run_len);
+                    decoded.append_n(false, run_len);
                 }
                 prev_end = end;
             }
-            BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
+            BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze())).into_array()
         }
     }
 }
@@ -149,13 +161,12 @@ fn decode_bool_non_nullable(
 
     // Adaptive strategy: prefill with majority value, only flip minority runs
     let prefill = values.true_count() > num_runs - values.true_count();
-    let mut decoded = prefill_buffer(prefill, length);
-    let decoded_bytes = decoded.as_mut_slice();
+    let mut decoded = BitBufferMut::full(prefill, length);
     let mut current_pos = 0usize;
 
     for (end, value) in run_ends.zip_eq(values.iter()) {
         if end > current_pos && value != prefill {
-            flip_bits(decoded_bytes, current_pos, end, value);
+            decoded.fill_range(current_pos, end, value);
         }
         current_pos = end;
     }
@@ -180,21 +191,19 @@ fn decode_bool_nullable(
     let prefill_decoded = values.true_count() > num_runs - values.true_count();
     let prefill_valid = validity_mask.true_count() > num_runs - validity_mask.true_count();
 
-    let mut decoded = prefill_buffer(prefill_decoded, length);
-    let mut decoded_validity = prefill_buffer(prefill_valid, length);
-    let decoded_bytes = decoded.as_mut_slice();
-    let validity_bytes = decoded_validity.as_mut_slice();
+    let mut decoded = BitBufferMut::full(prefill_decoded, length);
+    let mut decoded_validity = BitBufferMut::full(prefill_valid, length);
     let mut current_pos = 0usize;
 
     for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
         if end > current_pos {
             if is_valid != prefill_valid {
-                flip_bits(validity_bytes, current_pos, end, is_valid);
+                decoded_validity.fill_range(current_pos, end, is_valid);
             }
             // Decoded bit should be the actual value when valid, false when null.
             let want_decoded = is_valid && value;
             if want_decoded != prefill_decoded {
-                flip_bits(decoded_bytes, current_pos, end, want_decoded);
+                decoded.fill_range(current_pos, end, want_decoded);
             }
             current_pos = end;
         }
@@ -227,110 +236,13 @@ fn decode_nullable_sequential(
     BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
 }
 
-#[inline(always)]
-fn prefill_buffer(set: bool, length: usize) -> BitBufferMut {
-    if set {
-        BitBufferMut::new_set(length)
-    } else {
-        BitBufferMut::new_unset(length)
-    }
-}
-
-/// Sets or clears all bits in `[start, end)` to match `value`.
-#[inline(always)]
-fn flip_bits(slice: &mut [u8], start: usize, end: usize, value: bool) {
-    if value {
-        fill_bits_true(slice, start, end);
-    } else {
-        fill_bits_false(slice, start, end);
-    }
-}
-
-/// Fills bits in range [start, end) to true.
-/// Assumes the buffer is pre-initialized to all zeros.
-#[inline(always)]
-fn fill_bits_true(slice: &mut [u8], start: usize, end: usize) {
-    if start >= end {
-        return;
-    }
-
-    let start_byte = start / 8;
-    let start_bit = start % 8;
-    let end_byte = end / 8;
-    let end_bit = end % 8;
-
-    if start_byte == end_byte {
-        #[allow(clippy::cast_possible_truncation)]
-        let mask = ((1u16 << (end_bit - start_bit)) - 1) as u8;
-        slice[start_byte] |= mask << start_bit;
-    } else {
-        // First partial byte
-        if start_bit != 0 {
-            slice[start_byte] |= !((1u8 << start_bit) - 1);
-        }
-
-        // Middle bytes
-        let fill_start = if start_bit != 0 {
-            start_byte + 1
-        } else {
-            start_byte
-        };
-        if fill_start < end_byte {
-            slice[fill_start..end_byte].fill(0xFF);
-        }
-
-        // Last partial byte
-        if end_bit != 0 {
-            slice[end_byte] |= (1u8 << end_bit) - 1;
-        }
-    }
-}
-
-/// Clears bits in range [start, end) to false.
-/// Assumes the buffer is pre-initialized to all ones.
-#[inline(always)]
-fn fill_bits_false(slice: &mut [u8], start: usize, end: usize) {
-    if start >= end {
-        return;
-    }
-
-    let start_byte = start / 8;
-    let start_bit = start % 8;
-    let end_byte = end / 8;
-    let end_bit = end % 8;
-
-    if start_byte == end_byte {
-        #[allow(clippy::cast_possible_truncation)]
-        let mask = ((1u16 << (end_bit - start_bit)) - 1) as u8;
-        slice[start_byte] &= !(mask << start_bit);
-    } else {
-        // First partial byte
-        if start_bit != 0 {
-            slice[start_byte] &= (1u8 << start_bit) - 1;
-        }
-
-        // Middle bytes
-        let fill_start = if start_bit != 0 {
-            start_byte + 1
-        } else {
-            start_byte
-        };
-        if fill_start < end_byte {
-            slice[fill_start..end_byte].fill(0x00);
-        }
-
-        // Last partial byte
-        if end_bit != 0 {
-            slice[end_byte] &= !((1u8 << end_bit) - 1);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
 
@@ -444,15 +356,13 @@ mod tests {
 
     #[test]
     fn decode_bools_nullable_few_runs() -> VortexResult<()> {
-        use vortex_array::validity::Validity;
-
         // Test few runs (uses fast path): 5 runs of length 2000 each
         let ends = PrimitiveArray::from_iter([2000u32, 4000, 6000, 8000, 10000]);
         let values = BoolArray::new(
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
         );
-        let decoded = runend_decode_bools(ends, values, 0, 10000)?;
+        let decoded = runend_decode_bools(ends, values, 0, 10000)?.to_bool();
 
         // Check length and a few values
         assert_eq!(decoded.len(), 10000);

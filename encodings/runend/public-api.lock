@@ -2,8 +2,6 @@ pub mod vortex_runend
 
 pub mod vortex_runend::compress
 
-pub fn vortex_runend::compress::runend_decode_bools(ends: vortex_array::arrays::primitive::array::PrimitiveArray, values: vortex_array::arrays::bool::array::BoolArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::arrays::bool::array::BoolArray>
-
 pub fn vortex_runend::compress::runend_decode_primitive(ends: vortex_array::arrays::primitive::array::PrimitiveArray, values: vortex_array::arrays::primitive::array::PrimitiveArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>
 
 pub fn vortex_runend::compress::runend_decode_typed_bool(run_ends: impl core::iter::traits::iterator::Iterator<Item = usize>, values: &vortex_buffer::bit::buf::BitBuffer, values_validity: vortex_mask::Mask, values_nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_array::arrays::bool::array::BoolArray
