@@ -6,6 +6,7 @@ use crate::BitBufferMut;
 use crate::Buffer;
 use crate::trusted_len::TrustedLenExt;
 
+#[inline]
 pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
     let iter = buffer.chunks().iter_padded().map(op);
     let iter = unsafe { iter.trusted_len() };
@@ -15,6 +16,7 @@ pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) 
     BitBuffer::new(result, buffer.len())
 }
 
+#[inline]
 pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, mut op: F) {
     let slice_mut = buffer.as_mut_slice();
 

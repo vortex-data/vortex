@@ -647,6 +647,7 @@ impl Default for BitBufferMut {
 impl Not for BitBufferMut {
     type Output = BitBufferMut;
 
+    #[inline]
     fn not(mut self) -> Self::Output {
         ops::bitwise_unary_op_mut(&mut self, |b| !b);
         self
