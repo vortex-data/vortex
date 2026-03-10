@@ -55,6 +55,10 @@ def main():
     parser.add_argument("--max-frames", type=int, default=0, help="Stop after N frames (0 = all)")
     parser.add_argument("--verbose", action="store_true", help="Print all detected classes per frame")
     parser.add_argument("--list-objects", action="store_true", help="List all detectable object classes and exit")
+    parser.add_argument(
+        "--smooth", type=int, default=0, metavar="N",
+        help="Smooth detections: dilate by N frames then erode by N frames (morphological closing)"
+    )
     args = parser.parse_args()
 
     model = YOLO(args.model)
@@ -120,8 +124,27 @@ def main():
 
     cap.release()
 
-    positives = sum(detections)
-    print(f"Done: {frame_idx} frames, {positives} with {args.object} ({positives * 100 // max(frame_idx, 1)}%)")
+    raw_positives = sum(detections)
+    print(f"Raw: {frame_idx} frames, {raw_positives} with {args.object} ({raw_positives * 100 // max(frame_idx, 1)}%)")
+
+    if args.smooth > 0:
+        n = args.smooth
+        # Dilate: expand each True by N frames in both directions
+        dilated = [False] * len(detections)
+        for i, v in enumerate(detections):
+            if v:
+                for j in range(max(0, i - n), min(len(detections), i + n + 1)):
+                    dilated[j] = True
+        # Erode: shrink back by N frames (only keep True if all within N are True)
+        eroded = [False] * len(dilated)
+        for i, v in enumerate(dilated):
+            if v:
+                # Check if any False within N frames
+                all_true = all(dilated[j] for j in range(max(0, i - n), min(len(dilated), i + n + 1)))
+                eroded[i] = all_true
+        detections = eroded
+        smoothed_positives = sum(detections)
+        print(f"Smoothed (N={n}): {smoothed_positives} frames ({smoothed_positives * 100 // max(frame_idx, 1)}%)")
 
     with open(args.output, "w") as f:
         json.dump(detections, f)
