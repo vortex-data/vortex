@@ -13,6 +13,7 @@
 #include "duckdb_vx/file_system.h"
 #include "duckdb_vx/logical_type.h"
 #include "duckdb_vx/object_cache.h"
+#include "duckdb_vx/reusable_dict.h"
 #include "duckdb_vx/replacement_scan.h"
 #include "duckdb_vx/scalar_function.h"
 #include "duckdb_vx/table_filter.h"

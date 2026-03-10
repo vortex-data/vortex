@@ -14,11 +14,13 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
@@ -149,7 +151,7 @@ impl AggregateFnVTable for Sum {
     fn accumulate(
         &self,
         partial: &mut Self::Partial,
-        batch: &Canonical,
+        batch: &Columnar,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut inner = match partial.current.take() {
@@ -158,10 +160,13 @@ impl AggregateFnVTable for Sum {
         };
 
         let result = match batch {
-            Canonical::Primitive(p) => accumulate_primitive(&mut inner, p),
-            Canonical::Bool(b) => accumulate_bool(&mut inner, b),
-            Canonical::Decimal(d) => accumulate_decimal(&mut inner, d),
-            _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
+            Columnar::Canonical(c) => match c {
+                Canonical::Primitive(p) => accumulate_primitive(&mut inner, p),
+                Canonical::Bool(b) => accumulate_bool(&mut inner, b),
+                Canonical::Decimal(d) => accumulate_decimal(&mut inner, d),
+                _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
+            },
+            Columnar::Constant(c) => accumulate_constant(&mut inner, c),
         };
 
         match result {
@@ -347,6 +352,85 @@ fn accumulate_bool(inner: &mut SumState, b: &BoolArray) -> VortexResult<bool> {
     };
 
     Ok(checked_add_u64(acc, true_count))
+}
+
+/// Accumulate a constant array into the sum state.
+/// Computes `scalar * len` and adds to the accumulator.
+/// Returns Ok(true) if saturated (overflow), Ok(false) if not.
+fn accumulate_constant(inner: &mut SumState, c: &ConstantArray) -> VortexResult<bool> {
+    let scalar = c.scalar();
+    if scalar.is_null() || c.is_empty() {
+        return Ok(false);
+    }
+    let len = c.len();
+
+    match scalar.dtype() {
+        DType::Bool(_) => {
+            let SumState::Unsigned(acc) = inner else {
+                vortex_panic!("expected unsigned sum state for bool input");
+            };
+            let val = scalar
+                .as_bool()
+                .value()
+                .ok_or_else(|| vortex_err!("Expected non-null bool scalar for sum"))?;
+            if val {
+                Ok(checked_add_u64(acc, len as u64))
+            } else {
+                Ok(false)
+            }
+        }
+        DType::Primitive(..) => {
+            let pvalue = scalar
+                .as_primitive()
+                .pvalue()
+                .ok_or_else(|| vortex_err!("Expected non-null primitive scalar for sum"))?;
+            match inner {
+                SumState::Unsigned(acc) => {
+                    let val = pvalue.cast::<u64>()?;
+                    match val.checked_mul(len as u64) {
+                        Some(product) => Ok(checked_add_u64(acc, product)),
+                        None => Ok(true),
+                    }
+                }
+                SumState::Signed(acc) => {
+                    let val = pvalue.cast::<i64>()?;
+                    match i64::try_from(len).ok().and_then(|l| val.checked_mul(l)) {
+                        Some(product) => Ok(checked_add_i64(acc, product)),
+                        None => Ok(true),
+                    }
+                }
+                SumState::Float(acc) => {
+                    let val = pvalue.cast::<f64>()?;
+                    *acc += val * len as f64;
+                    Ok(false)
+                }
+                SumState::Decimal(_) => {
+                    vortex_panic!("decimal sum state with primitive input")
+                }
+            }
+        }
+        DType::Decimal(..) => {
+            let SumState::Decimal(acc) = inner else {
+                vortex_panic!("expected decimal sum state for decimal input");
+            };
+            let val = scalar
+                .as_decimal()
+                .decimal_value()
+                .ok_or_else(|| vortex_err!("Expected non-null decimal scalar for sum"))?;
+            let len_decimal = DecimalValue::from(len as i128);
+            match val.checked_mul(&len_decimal) {
+                Some(product) => match acc.checked_add(&product) {
+                    Some(r) => {
+                        *acc = r;
+                        Ok(false)
+                    }
+                    None => Ok(true),
+                },
+                None => Ok(true),
+            }
+        }
+        _ => vortex_bail!("Unsupported constant type for sum: {}", scalar.dtype()),
+    }
 }
 
 /// Accumulate a decimal array into the sum state.

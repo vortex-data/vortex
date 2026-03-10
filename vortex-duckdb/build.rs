@@ -29,7 +29,7 @@ static DUCKDB_VERSION: Lazy<DuckDBVersion> = Lazy::new(|| {
         parse_version(&version)
     } else {
         // The default DuckDB version to use when DUCKDB_VERSION env var is not set.
-        DuckDBVersion::Release("1.4.2".to_owned())
+        DuckDBVersion::Release("1.5.0".to_owned())
     }
 });
 
@@ -275,7 +275,15 @@ fn extract_duckdb_source(source_dir: &Path) -> Result<PathBuf, Box<dyn std::erro
 }
 
 /// Build DuckDB from source. Used for commit hashes or when VX_DUCKDB_DEBUG is set.
-fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn build_duckdb(
+    duckdb_source_dir: &Path,
+    version: &DuckDBVersion,
+    debug: bool,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let build_type = match debug {
+        true => "debug",
+        false => "release",
+    };
     // Check for ninja
     if Command::new("ninja").arg("--version").output().is_err() {
         return Err(
@@ -285,10 +293,12 @@ fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error:
 
     let inner_dir_name = DUCKDB_VERSION.archive_inner_dir_name();
     let duckdb_repo_dir = duckdb_source_dir.join(&inner_dir_name);
-    let build_dir = duckdb_repo_dir.join("build").join("debug");
+    let build_dir = duckdb_repo_dir.join("build").join(build_type);
 
-    // Check if already built
     let lib_dir = build_dir.join("src");
+    let lib_dir_str = lib_dir.display();
+    println!("cargo:info=Checking if DuckDB is already built in {lib_dir_str}",);
+
     let already_built = lib_dir.join("libduckdb.dylib").exists()
         || lib_dir.join("libduckdb.so").exists()
         || lib_dir
@@ -309,12 +319,26 @@ fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error:
                 ("1", "0")
             };
 
+        let mut envs = vec![
+            ("GEN", "ninja"),
+            ("DISABLE_SANITIZER", asan_option),
+            ("THREADSAN", tsan_option),
+            ("BUILD_SHELL", "false"),
+            ("BUILD_UNITTESTS", "false"),
+            ("ENABLE_UNITTEST_CPP_TESTS", "false"),
+        ];
+
+        // If we're building from a commit (likely a pre-release), we need to
+        // build extensions statically. Otherwise DuckDB tries to load them
+        // from an http endpoint with version 0.0.1 (all non-tagged builds)
+        // which doesn't exists. httpfs also requires CURL dev headers
+        if matches!(version, DuckDBVersion::Commit(_)) {
+            envs.push(("BUILD_EXTENSIONS", "httpfs;parquet;tpch;tpcds;jemalloc"));
+        };
+
         let output = Command::new("make")
             .current_dir(&duckdb_repo_dir)
-            .env("GEN", "ninja")
-            .env("DISABLE_SANITIZER", asan_option)
-            .env("THREADSAN", tsan_option)
-            .arg("debug")
+            .envs(envs)
             .output()?;
 
         if !output.status.success() {
@@ -398,15 +422,21 @@ fn main() {
     drop(fs::remove_dir_all(&duckdb_symlink));
     std::os::unix::fs::symlink(&extracted_source_path, &duckdb_symlink).unwrap();
 
-    // Determine whether to build from source or use prebuilt libraries
     let use_debug_build =
         env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true"));
+    println!("cargo:info=DuckDB debug build: {use_debug_build}");
 
     let library_path = if use_debug_build || !DUCKDB_VERSION.is_release() {
         // Build from source for:
         // - Commit hashes (no prebuilt available)
         // - When VX_DUCKDB_DEBUG=1 (user wants debug build)
-        build_duckdb(&extracted_source_path).unwrap()
+        match build_duckdb(&extracted_source_path, &DUCKDB_VERSION, use_debug_build) {
+            Ok(path) => path,
+            Err(err) => {
+                println!("cargo:error={err}");
+                panic!("duckdb build failed");
+            }
+        }
     } else {
         // Download prebuilt libraries for release versions
         let archive_path = download_duckdb_lib_archive().unwrap();
@@ -494,6 +524,7 @@ fn main() {
         .file("cpp/file_system.cpp")
         .file("cpp/logical_type.cpp")
         .file("cpp/object_cache.cpp")
+        .file("cpp/reusable_dict.cpp")
         .file("cpp/replacement_scan.cpp")
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")

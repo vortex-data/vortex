@@ -173,6 +173,10 @@ impl TableFilterRef {
                 };
                 TableFilterClass::ExpressionRef(expr)
             }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_BLOOM_FILTER => {
+                // TODO(aduffy): actually extract these parameters
+                TableFilterClass::Bloom
+            }
         }
     }
 }
@@ -198,6 +202,7 @@ pub enum TableFilterClass<'a> {
     InFilter(Values<'a>),
     Dynamic(DynamicFilter),
     ExpressionRef(&'a ExpressionRef),
+    Bloom,
 }
 
 pub struct ConstantComparison<'a> {

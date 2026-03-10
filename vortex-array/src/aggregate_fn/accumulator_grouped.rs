@@ -14,6 +14,7 @@ use vortex_session::VortexSession;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::Columnar;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -121,7 +122,11 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
 
         // We first execute the groups until it is a ListView or FixedSizeList, since we only
         // dispatch the aggregate kernel over the elements of these arrays.
-        match groups.clone().execute::<Canonical>(&mut ctx)? {
+        let canonical = match groups.clone().execute::<Columnar>(&mut ctx)? {
+            Columnar::Canonical(c) => c,
+            Columnar::Constant(c) => c.into_array().execute::<Canonical>(&mut ctx)?,
+        };
+        match canonical {
             Canonical::List(groups) => self.accumulate_list_view(&groups, &mut ctx),
             Canonical::FixedSizeList(groups) => self.accumulate_fixed_size_list(&groups, &mut ctx),
             _ => vortex_panic!("We checked the DType above, so this should never happen"),
@@ -192,7 +197,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         }
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
-        let elements = elements.execute::<Canonical>(ctx)?.into_array();
+        let elements = elements.execute::<Columnar>(ctx)?.into_array();
         let offsets = groups.offsets();
         let sizes = groups.sizes().cast(offsets.dtype().clone())?;
         let validity = groups.validity().to_mask(offsets.len());
@@ -279,7 +284,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         }
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
-        let elements = elements.execute::<Canonical>(ctx)?.into_array();
+        let elements = elements.execute::<Columnar>(ctx)?.into_array();
         let validity = groups.validity().to_mask(groups.len());
 
         let mut accumulator = Accumulator::try_new(

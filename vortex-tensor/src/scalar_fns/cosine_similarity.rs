@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Cosine similarity expression for [`FixedShapeTensor`](crate::FixedShapeTensor) arrays.
+//! Cosine similarity expression for [`FixedShapeTensor`](crate::fixed_shape::FixedShapeTensor)
+//! arrays.
 
 use std::fmt::Formatter;
 
@@ -30,16 +31,18 @@ use vortex::scalar_fn::ExecutionArgs;
 use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
 
-/// Cosine similarity between two [`FixedShapeTensor`] columns.
+// TODO(connor): We will want to add implementations for unit normalized vectors and also vectors
+// encoded in spherical coordinates.
+/// Cosine similarity between two columns.
 ///
-/// Computes `dot(a, b) / (||a|| * ||b||)` over the flat backing buffer of each tensor. The
-/// shape and permutation do not affect the result because cosine similarity only depends on the
-/// element values, not their logical arrangement.
+/// For [`FixedShapeTensor`], computes `dot(a, b) / (||a|| * ||b||)` over the flat backing buffer of
+/// each tensor. The shape and permutation do not affect the result because cosine similarity only
+/// depends on the element values, not their logical arrangement.
 ///
-/// Both inputs must be [`FixedShapeTensor`] extension arrays with the same dtype and a float
-/// element type (`f32` or `f64`). The output is a primitive column of the same float type.
+/// Right now, both inputs must be [`FixedShapeTensor`] extension arrays with the same dtype and a
+/// float element type. The output is a float column of the same float type.
 ///
-/// [`FixedShapeTensor`]: crate::FixedShapeTensor
+/// [`FixedShapeTensor`]: crate::fixed_shape::FixedShapeTensor
 #[derive(Clone)]
 pub struct CosineSimilarity;
 
@@ -259,8 +262,8 @@ mod tests {
     use vortex::scalar_fn::EmptyOptions;
     use vortex::scalar_fn::ScalarFn;
 
-    use crate::FixedShapeTensor;
-    use crate::FixedShapeTensorMetadata;
+    use crate::fixed_shape::FixedShapeTensor;
+    use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 
     /// Builds a [`FixedShapeTensor`] extension array from flat f64 elements and a logical shape.

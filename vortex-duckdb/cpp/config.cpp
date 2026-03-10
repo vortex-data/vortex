@@ -40,9 +40,9 @@ duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char *key, d
 
         std::string key_str(key);
 
-        // First check set_variables (the primary location for config values)
-        auto set_it = db_config->options.set_variables.find(key_str);
-        if (set_it != db_config->options.set_variables.end()) {
+        // First check set_variable_defaults (the primary location for config values)
+        auto set_it = db_config->options.set_variable_defaults.find(key_str);
+        if (set_it != db_config->options.set_variable_defaults.end()) {
             *out_value = reinterpret_cast<duckdb_value>(new Value(set_it->second));
             return DuckDBSuccess;
         }
@@ -75,8 +75,9 @@ int duckdb_vx_config_has_key(duckdb_config config, const char *key) {
 
         std::string key_str(key);
 
-        // Check if the key exists in set_variables (primary location)
-        if (db_config->options.set_variables.find(key_str) != db_config->options.set_variables.end()) {
+        // Check if the key exists in set_variable_defaults (primary location)
+        if (db_config->options.set_variable_defaults.find(key_str) !=
+            db_config->options.set_variable_defaults.end()) {
             return 1;
         }
 

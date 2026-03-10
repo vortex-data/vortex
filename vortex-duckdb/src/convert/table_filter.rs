@@ -120,5 +120,8 @@ pub fn try_from_table_filter(
             // TODO(ngates): figure out which column ID DuckDB is using for the expression.
             vortex_bail!("expression table filter is not supported: {}", expr);
         }
+        TableFilterClass::Bloom => {
+            vortex_bail!("bloom filter table filter is not supported")
+        }
     }))
 }
