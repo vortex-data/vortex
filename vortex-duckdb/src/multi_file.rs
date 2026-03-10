@@ -24,14 +24,32 @@ use crate::filesystem::resolve_filesystem;
 ///
 /// Accepts full URLs (e.g. `s3://bucket/prefix/*.vortex`, `file:///data/*.vortex`) as well as
 /// bare file paths. For bare paths, the path is made absolute (without requiring it to exist)
-/// so that relative paths such as `./data/*.vortex` are resolved correctly.
+/// so that relative paths such as `./data/*.vortex` or `../data/*.vortex` are resolved correctly.
 fn parse_glob_url(glob_url_str: &str) -> VortexResult<Url> {
     Url::parse(glob_url_str).or_else(|_| {
         let path = absolute(Path::new(glob_url_str))
             .map_err(|e| vortex_err!("Failed making {glob_url_str} absolute: {e}"))?;
-        Url::from_file_path(path)
-            .map_err(|_| vortex_err!("Neither URL nor path: {glob_url_str}"))
+        // `absolute()` does not normalize `..` components, so `/a/b/../c` stays as-is.
+        // Normalizing manually avoids `..` being percent-encoded in the resulting URL.
+        let path = normalize_path(path);
+        Url::from_file_path(path).map_err(|_| vortex_err!("Neither URL nor path: {glob_url_str}"))
     })
+}
+
+/// Normalize a path by resolving `.` and `..` components without accessing the filesystem.
+fn normalize_path(path: std::path::PathBuf) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            c => normalized.push(c),
+        }
+    }
+    normalized
 }
 
 /// Vortex multi-file scan table function (`vortex_scan` / `read_vortex`).
@@ -75,6 +93,8 @@ impl DataSourceTableFunction for VortexMultiFileScan {
 #[cfg(test)]
 mod tests {
     #[allow(clippy::wildcard_imports)]
+    use rstest::rstest;
+
     use super::*;
 
     #[test]
@@ -150,6 +170,49 @@ mod tests {
         let url = parse_glob_url("/nonexistent/path/file.vortex")?;
         assert_eq!(url.scheme(), "file");
         assert_eq!(url.path(), "/nonexistent/path/file.vortex");
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_glob_url_parent_relative_path() -> VortexResult<()> {
+        // A path starting with `..` must be resolved to an absolute path without
+        // percent-encoding the `..` component in the resulting URL.
+        let tmpfile = tempfile::NamedTempFile::new_in("..").unwrap();
+        let filename = tmpfile.path().file_name().unwrap().to_str().unwrap();
+        let relative = format!("../{filename}");
+
+        let url = parse_glob_url(&relative)?;
+        assert_eq!(url.scheme(), "file");
+        // The resolved path must be absolute and must not contain encoded dots.
+        assert!(url.path().starts_with('/'));
+        assert!(
+            !url.path().contains("%2E"),
+            "path must not contain percent-encoded dots"
+        );
+        assert!(url.path().ends_with(filename));
+        Ok(())
+    }
+
+    // Use absolute paths so the expected result is cwd-independent.
+    #[rstest]
+    #[case("/a/./b", "/a/b")]
+    #[case("/a/b/./c", "/a/b/c")]
+    #[case("/a/../b", "/b")]
+    #[case("/a/b/../c", "/a/c")]
+    #[case("/a/b/../../c", "/c")]
+    #[case("/a/./b/.././c", "/a/c")]
+    #[case("/a/b/../..", "/")]
+    fn test_parse_glob_url_dot_normalization(
+        #[case] input: &str,
+        #[case] expected_path: &str,
+    ) -> VortexResult<()> {
+        let url = parse_glob_url(input)?;
+        assert_eq!(url.scheme(), "file");
+        assert_eq!(
+            url.path(),
+            expected_path,
+            "input {input:?} should normalize to {expected_path:?}"
+        );
         Ok(())
     }
 }
