@@ -6,6 +6,7 @@
 //! Reads a CUDA-compatible Vortex file and rewrites it with a different segment size.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser;
 use tokio::fs::File;
@@ -16,6 +17,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
+use vortex_cuda::layout::CudaFlatLayoutStrategy;
 use vortex_cuda::layout::register_cuda_layout;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
@@ -61,6 +63,7 @@ async fn main() -> vortex::error::VortexResult<()> {
     let write_options = session.write_options().with_strategy(
         WriteStrategyBuilder::default()
             .with_cuda_compatible_encodings()
+            .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
             .with_coalescing_block_size(segment_size_bytes)
             .build(),
     );
