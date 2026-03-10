@@ -448,6 +448,10 @@ pub fn vortex_buffer::BitBufferMut::empty() -> Self
 
 pub fn vortex_buffer::BitBufferMut::false_count(&self) -> usize
 
+pub fn vortex_buffer::BitBufferMut::fill_range(&mut self, start: usize, end: usize, value: bool)
+
+pub unsafe fn vortex_buffer::BitBufferMut::fill_range_unchecked(&mut self, start: usize, end: usize, value: bool)
+
 pub fn vortex_buffer::BitBufferMut::freeze(self) -> vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBufferMut::from_buffer(buffer: vortex_buffer::ByteBufferMut, offset: usize, len: usize) -> Self
