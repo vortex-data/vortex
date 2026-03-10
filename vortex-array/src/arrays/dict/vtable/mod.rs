@@ -24,8 +24,7 @@ use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
-use crate::arrays::constant::constant_canonicalize;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -35,6 +34,7 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionStep;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
@@ -195,31 +195,29 @@ impl VTable for DictVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        if let Some(canonical) = execute_fast_path(array, ctx)? {
-            return Ok(ExecutionStep::Done(canonical));
+        if array.is_empty() {
+            let result_dtype = array
+                .dtype()
+                .union_nullability(array.codes().dtype().nullability());
+            return Ok(ExecutionStep::Done(
+                Canonical::empty(&result_dtype).into_array(),
+            ));
         }
 
-        // Ensure codes (child 0) are in canonical form.
-        let codes = if let Some(canonical) = array.codes().as_opt::<AnyCanonical>() {
-            Canonical::from(canonical)
-        } else if let Some(constant) = array.codes().as_opt::<ConstantVTable>() {
-            constant_canonicalize(constant)?
-        } else {
-            return Ok(ExecutionStep::execute_child::<AnyCanonical>(0));
-        };
-        let codes = codes.into_primitive();
+        let codes = require_child!(array.codes(), 0 => PrimitiveVTable);
 
-        // Ensure values (child 1) are in canonical form.
-        let values = if let Some(canonical) = array.values().as_opt::<AnyCanonical>() {
-            Canonical::from(canonical)
-        } else if let Some(constant) = array.values().as_opt::<ConstantVTable>() {
-            constant_canonicalize(constant)?
-        } else {
-            return Ok(ExecutionStep::execute_child::<AnyCanonical>(1));
-        };
+        if codes.all_invalid()? {
+            return Ok(ExecutionStep::Done(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
+                    .into_array(),
+            ));
+        }
+
+        let values = require_child!(array.values(), 1 => AnyCanonical);
+        let values = Canonical::from(values);
 
         Ok(ExecutionStep::Done(
-            take_canonical(values, &codes, ctx)?.into_array(),
+            take_canonical(values, codes, ctx)?.into_array(),
         ))
     }
 
@@ -239,28 +237,4 @@ impl VTable for DictVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
-}
-
-/// Check for fast-path execution conditions.
-pub(super) fn execute_fast_path(
-    array: &DictArray,
-    _ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    // Empty array - nothing to do
-    if array.is_empty() {
-        let result_dtype = array
-            .dtype()
-            .union_nullability(array.codes().dtype().nullability());
-        return Ok(Some(Canonical::empty(&result_dtype).into_array()));
-    }
-
-    // All codes are null - result is all nulls
-    if array.codes.all_invalid()? {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
-                .into_array(),
-        ));
-    }
-
-    Ok(None)
 }
