@@ -6,6 +6,7 @@ mod operations;
 mod validity;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -149,7 +150,7 @@ impl VTable for ExtensionVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 

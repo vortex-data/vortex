@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -155,7 +156,7 @@ impl VTable for FilterVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if let Some(canonical) = execute_filter_fast_paths(&array, ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }

@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -166,7 +167,7 @@ impl VTable for FoRVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
     }
 

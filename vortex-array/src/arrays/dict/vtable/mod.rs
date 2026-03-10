@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
@@ -191,7 +192,7 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if let Some(canonical) = execute_fast_path(&array, ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }

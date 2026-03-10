@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -131,7 +132,7 @@ impl VTable for NullVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }

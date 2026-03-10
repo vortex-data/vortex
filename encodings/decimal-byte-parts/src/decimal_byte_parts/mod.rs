@@ -6,6 +6,7 @@ mod rules;
 mod slice;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use prost::Message as _;
 use vortex_array::ArrayEq;
@@ -190,7 +191,7 @@ impl VTable for DecimalBytePartsVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         to_canonical_decimal(&array, ctx).map(ExecutionResult::done)
     }
 

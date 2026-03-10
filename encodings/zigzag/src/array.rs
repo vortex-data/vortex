@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -149,7 +150,7 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
         ))

@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -178,7 +179,7 @@ impl VTable for ConstantVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             constant_canonicalize(&array)?.into_array(),
         ))

@@ -339,7 +339,7 @@ impl VTable for FSSTVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         canonicalize_fsst(&array, ctx).map(ExecutionResult::done)
     }
 

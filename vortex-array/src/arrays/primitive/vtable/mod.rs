@@ -29,6 +29,7 @@ mod validity;
 
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
@@ -198,7 +199,7 @@ impl VTable for PrimitiveVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 

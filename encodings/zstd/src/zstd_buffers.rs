@@ -467,7 +467,7 @@ impl VTable for ZstdBuffersVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
         inner_array

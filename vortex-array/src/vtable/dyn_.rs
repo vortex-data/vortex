@@ -212,20 +212,20 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
         .as_inner()
 }
 
-/// Downcast an `ArrayRef` into an owned `V::Array`, avoiding a clone when possible.
+/// Downcast an `ArrayRef` into an `Arc<V::Array>` without cloning.
 ///
-/// If the `Arc` refcount is 1, the inner array is moved out without cloning.
-/// Otherwise, falls back to cloning the inner array.
-fn downcast_owned<V: VTable>(array: ArrayRef) -> V::Array {
+/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
+/// [`ArrayAdapter`].
+fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
     let adapter: Arc<ArrayAdapter<V>> = array
         .as_any_arc()
         .downcast::<ArrayAdapter<V>>()
         .ok()
         .vortex_expect("Failed to downcast array to expected encoding type");
-    match Arc::try_unwrap(adapter) {
-        Ok(adapter) => adapter.into_inner(),
-        Err(arc) => arc.as_inner().clone(),
-    }
+    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
+    // so Arc<ArrayAdapter<V>> and Arc<V::Array> have identical layout.
+    let raw = Arc::into_raw(adapter) as *const V::Array;
+    unsafe { Arc::from_raw(raw) }
 }
 
 impl<V: VTable> Debug for ArrayVTableAdapter<V> {

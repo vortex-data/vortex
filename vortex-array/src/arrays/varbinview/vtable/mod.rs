@@ -242,7 +242,7 @@ impl VTable for VarBinViewVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }

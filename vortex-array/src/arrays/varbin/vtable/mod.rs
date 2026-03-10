@@ -32,6 +32,7 @@ mod kernel;
 mod operations;
 mod validity;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use canonical::varbin_to_canonical;
 use kernel::PARENT_KERNELS;
@@ -219,7 +220,7 @@ impl VTable for VarBinVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             varbin_to_canonical(&array, ctx)?.into_array(),
         ))

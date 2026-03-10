@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -183,7 +184,7 @@ impl VTable for ByteBoolVTable {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
         Ok(ExecutionResult::done(

@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayEq;
@@ -296,7 +297,7 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
         let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
 

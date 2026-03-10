@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -155,7 +156,7 @@ impl VTable for SliceVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it
         let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
             // If the child is not canonical, recurse.

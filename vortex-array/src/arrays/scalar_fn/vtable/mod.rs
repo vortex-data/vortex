@@ -8,6 +8,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
@@ -195,7 +196,7 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = VecExecutionArgs::new(array.children.clone(), array.len);
         array
