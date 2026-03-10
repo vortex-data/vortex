@@ -273,7 +273,15 @@ fn merge_case_branches(
     }
 
     let row_count = else_value.len();
-    let mut spans: Vec<(usize, usize, usize)> = Vec::new();
+    let spans_cap: usize = branches
+        .iter()
+        .map(|(mask, _)| match mask.slices() {
+            AllOr::All => 1,
+            AllOr::None => 0,
+            AllOr::Some(slices) => slices.len(),
+        })
+        .sum();
+    let mut spans: Vec<(usize, usize, usize)> = Vec::with_capacity(spans_cap);
     for (branch_idx, (mask, _)) in branches.iter().enumerate() {
         match mask.slices() {
             AllOr::All => spans.push((0, row_count, branch_idx)),
