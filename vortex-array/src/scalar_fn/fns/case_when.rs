@@ -282,15 +282,7 @@ fn merge_case_branches(
         });
     let output_dtype = else_value.dtype().with_nullability(output_nullability);
 
-    let spans_cap: usize = branches
-        .iter()
-        .map(|(mask, _)| match mask.slices() {
-            AllOr::All => 1,
-            AllOr::None => 0,
-            AllOr::Some(slices) => slices.len(),
-        })
-        .sum();
-    let mut spans: Vec<(usize, usize, usize)> = Vec::with_capacity(spans_cap);
+    let mut spans: Vec<(usize, usize, usize)> = Vec::new();
     for (branch_idx, (mask, _)) in branches.iter().enumerate() {
         match mask.slices() {
             AllOr::All => return branches[branch_idx].1.cast(output_dtype),
@@ -305,30 +297,29 @@ fn merge_case_branches(
     spans.sort_unstable_by_key(|&(start, ..)| start);
     let builder = builder_with_capacity(&output_dtype, row_count);
 
+    let branch_arrays: Vec<ArrayRef> = branches
+        .iter()
+        .map(|(_, arr)| arr.cast(output_dtype.clone()))
+        .collect::<VortexResult<_>>()?;
+    let else_value = else_value.cast(output_dtype)?;
+
     let fragmented = !spans.is_empty() && spans.len() > row_count / SLICE_CROSSOVER_RUN_LEN;
     if fragmented {
-        merge_row_by_row(&branches, &else_value, &spans, row_count, builder)
+        merge_row_by_row(&branch_arrays, &else_value, &spans, row_count, builder)
     } else {
-        merge_run_by_run(&branches, &else_value, &spans, row_count, builder)
+        merge_run_by_run(&branch_arrays, &else_value, &spans, row_count, builder)
     }
 }
 
 /// Iterates spans directly, emitting one `scalar_at` per row.
 /// Zero per-run allocations; preferred for fragmented masks (avg run < [`SLICE_CROSSOVER_RUN_LEN`]).
 fn merge_row_by_row(
-    branches: &[(Mask, ArrayRef)],
+    branch_arrays: &[ArrayRef],
     else_value: &ArrayRef,
     spans: &[(usize, usize, usize)],
     row_count: usize,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
-    let builder_dtype = builder.dtype().clone();
-    let branch_arrays: Vec<ArrayRef> = branches
-        .iter()
-        .map(|(_, arr)| arr.cast(builder_dtype.clone()))
-        .collect::<VortexResult<_>>()?;
-    let else_value = else_value.cast(builder_dtype)?;
-
     let mut pos = 0;
     for &(start, end, branch_idx) in spans {
         for row in pos..start {
@@ -349,7 +340,7 @@ fn merge_row_by_row(
 /// Bulk-copies each span via `slice()` + `extend_from_array`.
 /// Preferred when runs are long enough that memcpy dominates over per-slice allocation cost.
 fn merge_run_by_run(
-    branches: &[(Mask, ArrayRef)],
+    branch_arrays: &[ArrayRef],
     else_value: &ArrayRef,
     spans: &[(usize, usize, usize)],
     row_count: usize,
@@ -359,7 +350,7 @@ fn merge_run_by_run(
         if builder.len() < *start {
             builder.extend_from_array(&else_value.slice(builder.len()..*start)?);
         }
-        builder.extend_from_array(&branches[*branch_idx].1.slice(*start..*end)?);
+        builder.extend_from_array(&branch_arrays[*branch_idx].slice(*start..*end)?);
     }
     if builder.len() < row_count {
         builder.extend_from_array(&else_value.slice(builder.len()..row_count)?);
@@ -380,6 +371,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute as _;
+    use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -397,7 +389,6 @@ mod tests {
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::case_when::BoolArray;
     use crate::session::ArraySession;
 
     static SESSION: LazyLock<VortexSession> =
