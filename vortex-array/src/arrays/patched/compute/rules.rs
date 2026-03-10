@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::PatchedVTable;
-use crate::arrays::SliceReduceAdaptor;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<PatchedVTable> =

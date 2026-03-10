@@ -26,7 +26,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveArrayParts;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::patch_lanes;
