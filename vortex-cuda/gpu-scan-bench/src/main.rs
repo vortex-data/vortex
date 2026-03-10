@@ -22,6 +22,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 use vortex::VortexSessionDefault;
+use vortex::array::IntoArray;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
@@ -151,6 +152,7 @@ async fn main() -> VortexResult<()> {
 
     // Run benchmark iterations
     let mut iteration_times = Vec::with_capacity(cli.iterations);
+    let mut output_bytes: u64 = 0;
     let concurrency = cli.concurrency;
 
     for iteration in 0..cli.iterations {
@@ -160,7 +162,7 @@ async fn main() -> VortexResult<()> {
 
         let batches = gpu_file.scan()?.into_array_stream()?;
 
-        batches
+        let batch_bytes: Vec<u64> = batches
             .enumerate()
             .map(|(chunk, batch)| {
                 let session = &session;
@@ -176,19 +178,23 @@ async fn main() -> VortexResult<()> {
 
                     async {
                         let mut cuda_ctx = CudaSession::create_execution_ctx(session)?;
-                        batch.execute_cuda(&mut cuda_ctx).await?;
-                        VortexResult::Ok(())
+                        let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
+                        let nbytes = canonical.into_array().nbytes();
+                        VortexResult::Ok(nbytes)
                     }
                     .instrument(span)
                     .await
                 }
             })
             .buffered(concurrency)
-            .try_collect::<Vec<_>>()
+            .try_collect()
             .await?;
 
         let elapsed = start.elapsed();
         iteration_times.push(elapsed);
+        if iteration == 0 {
+            output_bytes = batch_bytes.iter().sum();
+        }
         tracing::info!(
             "Iteration {}/{}: {:.3}s",
             iteration + 1,
@@ -202,15 +208,19 @@ async fn main() -> VortexResult<()> {
     let avg = total / iteration_times.len() as u32;
     let file_size = reader.size().await?;
     let file_size_mb = file_size as f64 / (1024.0 * 1024.0);
-    let throughput_mbs = file_size_mb / avg.as_secs_f64();
+    let output_size_mb = output_bytes as f64 / (1024.0 * 1024.0);
+    let input_throughput_mbs = file_size_mb / avg.as_secs_f64();
+    let output_throughput_mbs = output_size_mb / avg.as_secs_f64();
     // Always print human-readable to stderr
     eprintln!();
     eprintln!("=== Benchmark Results ===");
-    eprintln!("Source:     {}", cli.source);
-    eprintln!("Iterations: {}", cli.iterations);
-    eprintln!("Avg time:   {:.3}s", avg.as_secs_f64());
-    eprintln!("File size:  {file_size_mb:.2} MB");
-    eprintln!("Throughput: {throughput_mbs:.2} MB/s");
+    eprintln!("Source:      {}", cli.source);
+    eprintln!("Iterations:  {}", cli.iterations);
+    eprintln!("Avg time:    {:.3}s", avg.as_secs_f64());
+    eprintln!("Input size:  {file_size_mb:.2} MB");
+    eprintln!("Output size: {output_size_mb:.2} MB");
+    eprintln!("Input throughput:  {input_throughput_mbs:.2} MB/s");
+    eprintln!("Output throughput: {output_throughput_mbs:.2} MB/s");
 
     Ok(())
 }

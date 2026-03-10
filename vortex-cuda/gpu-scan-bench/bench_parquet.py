@@ -66,10 +66,13 @@ def main():
         )
 
     iteration_secs = []
+    output_bytes = 0
     for i in range(args.iterations):
         start = time.perf_counter()
+        iter_bytes = 0
         if args.full_file_read:
             df = cudf.read_parquet(source)
+            iter_bytes = df.memory_usage(deep=True).sum()
             del df
         else:
             for rg_start in range(0, num_row_groups, args.row_group_batch_size):
@@ -77,24 +80,31 @@ def main():
                     range(rg_start, min(rg_start + args.row_group_batch_size, num_row_groups))
                 )
                 df = cudf.read_parquet(source, row_groups=row_groups)
+                iter_bytes += df.memory_usage(deep=True).sum()
                 del df
         elapsed = time.perf_counter() - start
         iteration_secs.append(elapsed)
+        if i == 0:
+            output_bytes = iter_bytes
         print(
             f"Iteration {i + 1}/{args.iterations}: {elapsed:.3f}s",
             file=sys.stderr,
         )
 
     avg_secs = sum(iteration_secs) / len(iteration_secs)
-    throughput_mbs = file_size_mb / avg_secs
+    output_size_mb = output_bytes / (1024 * 1024)
+    input_throughput_mbs = file_size_mb / avg_secs
+    output_throughput_mbs = output_size_mb / avg_secs
 
     print(file=sys.stderr)
     print("=== Benchmark Results ===", file=sys.stderr)
-    print(f"Source:     {source}", file=sys.stderr)
-    print(f"Iterations: {args.iterations}", file=sys.stderr)
-    print(f"Avg time:   {avg_secs:.3f}s", file=sys.stderr)
-    print(f"File size:  {file_size_mb:.2f} MB", file=sys.stderr)
-    print(f"Throughput: {throughput_mbs:.2f} MB/s", file=sys.stderr)
+    print(f"Source:      {source}", file=sys.stderr)
+    print(f"Iterations:  {args.iterations}", file=sys.stderr)
+    print(f"Avg time:    {avg_secs:.3f}s", file=sys.stderr)
+    print(f"Input size:  {file_size_mb:.2f} MB", file=sys.stderr)
+    print(f"Output size: {output_size_mb:.2f} MB", file=sys.stderr)
+    print(f"Input throughput:  {input_throughput_mbs:.2f} MB/s", file=sys.stderr)
+    print(f"Output throughput: {output_throughput_mbs:.2f} MB/s", file=sys.stderr)
 
 
 if __name__ == "__main__":
