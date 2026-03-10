@@ -153,15 +153,14 @@ impl CudaBufferExt for BufferHandle {
     }
 
     fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr> {
-        let ptr = self
+        let alloc = self
             .as_device_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on device"))?
             .as_any()
             .downcast_ref::<CudaDeviceBuffer>()
-            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
-            .device_ptr;
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?;
 
-        Ok(ptr)
+        Ok(alloc.device_ptr + alloc.offset as u64)
     }
 }
 
@@ -333,5 +332,31 @@ impl DeviceBuffer for CudaDeviceBuffer {
         } else {
             vortex_panic!("some how we alloc a cuda buffer with alignment less than 256")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::buffer::BufferHandle;
+
+    use crate::CudaBufferExt;
+    use crate::CudaDeviceBuffer;
+    use crate::CudaSession;
+
+    #[crate::test]
+    fn test_device_ptr() {
+        let ctx = CudaSession::create_execution_ctx(&*LEGACY_SESSION).unwrap();
+        let handle1 = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+            ctx.device_alloc::<u32>(1024).unwrap(),
+        )));
+
+        let handle2 = handle1.slice_typed::<u32>(10..1024);
+        assert_eq!(
+            handle2.cuda_device_ptr().unwrap(),
+            handle1.cuda_device_ptr().unwrap() + 40
+        );
     }
 }
