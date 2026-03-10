@@ -267,47 +267,6 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
     PrimitiveArray::new(decoded, validity)
 }
 
-pub fn runend_decode_typed_bool(
-    run_ends: impl Iterator<Item = usize>,
-    values: &BitBuffer,
-    values_validity: Mask,
-    values_nullability: Nullability,
-    length: usize,
-) -> BoolArray {
-    match values_validity {
-        Mask::AllTrue(_) => {
-            let mut decoded = BitBufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values.iter()) {
-                decoded.append_n(value, end - decoded.len());
-            }
-            BoolArray::new(decoded.freeze(), values_nullability.into())
-        }
-        Mask::AllFalse(_) => BoolArray::new(BitBuffer::new_unset(length), Validity::AllInvalid),
-        Mask::Values(mask) => {
-            let mut decoded = BitBufferMut::with_capacity(length);
-            let mut decoded_validity = BitBufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(
-                values
-                    .iter()
-                    .zip(mask.bit_buffer().iter())
-                    .map(|(v, is_valid)| is_valid.then_some(v)),
-            ) {
-                match value {
-                    None => {
-                        decoded_validity.append_n(false, end - decoded.len());
-                        decoded.append_n(false, end - decoded.len());
-                    }
-                    Some(value) => {
-                        decoded_validity.append_n(true, end - decoded.len());
-                        decoded.append_n(value, end - decoded.len());
-                    }
-                }
-            }
-            BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
-        }
-    }
-}
-
 /// Decode a run-end encoded VarBinView array by expanding views directly.
 pub fn runend_decode_varbinview(
     ends: PrimitiveArray,
