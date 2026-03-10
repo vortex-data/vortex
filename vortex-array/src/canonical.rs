@@ -217,10 +217,17 @@ impl Canonical {
                     0,
                 )
             }),
-            DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
-                ext_dtype.clone(),
-                Canonical::empty(ext_dtype.storage_dtype()).into_array(),
-            )),
+
+            DType::Extension(ext_dtype) => Canonical::Extension(
+                // SAFETY: An empty array is always valid, no matter what the extension type is
+                // (unless we decide to add a `Never` or `Void` extension type).
+                unsafe {
+                    ExtensionArray::new_unchecked(
+                        ext_dtype.clone(),
+                        Canonical::empty(ext_dtype.storage_dtype()).into_array(),
+                    )
+                },
+            ),
         }
     }
 
@@ -628,16 +635,18 @@ impl Executable for CanonicalValidity {
                     StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
                 })))
             }
-            Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
-                ExtensionArray::new(
+            // SAFETY: The storage array is executed from an already-valid extension array,
+            // which preserves the storage dtype.
+            Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(unsafe {
+                ExtensionArray::new_unchecked(
                     ext.ext_dtype().clone(),
                     ext.storage_array()
                         .clone()
                         .execute::<CanonicalValidity>(ctx)?
                         .0
                         .into_array(),
-                ),
-            ))),
+                )
+            }))),
         }
     }
 }
@@ -758,16 +767,18 @@ impl Executable for RecursiveCanonical {
                     )
                 })))
             }
-            Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension(
-                ExtensionArray::new(
+            // SAFETY: The storage array is executed from an already-valid extension array,
+            // which preserves the storage dtype.
+            Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension(unsafe {
+                ExtensionArray::new_unchecked(
                     ext.ext_dtype().clone(),
                     ext.storage_array()
                         .clone()
                         .execute::<RecursiveCanonical>(ctx)?
                         .0
                         .into_array(),
-                ),
-            ))),
+                )
+            }))),
         }
     }
 }

@@ -348,6 +348,7 @@ mod tests {
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::Timestamp;
     use vortex::scalar::ScalarValue;
+    use vortex_array::DynArray;
 
     use crate::cpp;
     use crate::duckdb::LogicalType;
@@ -601,6 +602,14 @@ mod tests {
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")
+            }
+
+            fn validate_array<'a>(
+                &self,
+                _ext_dtype: &'a ExtDType<Self>,
+                _storage_array: &'a dyn DynArray,
+            ) -> VortexResult<()> {
+                Ok(())
             }
         }
 

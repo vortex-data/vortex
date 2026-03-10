@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::DynArray;
 use vortex::dtype::DType;
 use vortex::dtype::extension::ExtDType;
 use vortex::dtype::extension::ExtId;
@@ -72,6 +73,15 @@ impl ExtVTable for FixedShapeTensor {
         // type for a singular tensor, we do not need to validate anything as any backing memory
         // should be valid for a given tensor.
         Ok(storage_value)
+    }
+
+    fn validate_array<'a>(
+        &self,
+        _ext_dtype: &'a ExtDType<Self>,
+        _storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()> {
+        // As long as the dtype and the metadata is correct, any value is valid under a tensor.
+        Ok(())
     }
 }
 

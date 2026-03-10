@@ -3,8 +3,9 @@
 
 use std::any::Any;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -40,15 +41,21 @@ impl ExtensionBuilder {
         }
     }
 
+    // TODO(connor): Should we be validating scalars? Or do we just leave this all to the `finish`?
     /// Appends an extension `value` to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.to_storage_scalar())
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if any values are invalid for the extension type.
     pub fn finish_into_extension(&mut self) -> ExtensionArray {
         let storage = self.storage.finish();
-        ExtensionArray::new(self.ext_dtype(), storage)
+        ExtensionArray::try_new(self.ext_dtype(), storage)
+            .vortex_expect("Failed to create `ExtensionArray` from `ExtensionBuilder`")
     }
 
     /// The [`ExtDType`] of this builder.
@@ -87,8 +94,9 @@ impl ArrayBuilder for ExtensionBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        vortex_ensure!(
-            scalar.dtype() == self.dtype(),
+        vortex_ensure_eq!(
+            scalar.dtype(),
+            self.dtype(),
             "ExtensionBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()

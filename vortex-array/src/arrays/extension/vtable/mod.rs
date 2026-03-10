@@ -137,7 +137,10 @@ impl VTable for Extension {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(ExtensionArray::new(ext_dtype.clone(), storage))
+
+        // TODO(connor): Is this correct?
+        // We do not know what might be on disk, so we must run validation on read.
+        ExtensionArray::try_new(ext_dtype.clone(), storage)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

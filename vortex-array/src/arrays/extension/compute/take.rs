@@ -18,13 +18,18 @@ impl TakeExecute for Extension {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_storage = array.storage_array().take(indices.to_array())?;
+
         Ok(Some(
-            ExtensionArray::new(
-                array
-                    .ext_dtype()
-                    .with_nullability(taken_storage.dtype().nullability()),
-                taken_storage,
-            )
+            // SAFETY: The storage array is taken from an already-valid extension array, which
+            // preserves the storage dtype and does not change values.
+            unsafe {
+                ExtensionArray::new_unchecked(
+                    array
+                        .ext_dtype()
+                        .with_nullability(taken_storage.dtype().nullability()),
+                    taken_storage,
+                )
+            }
             .into_array(),
         ))
     }

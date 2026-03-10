@@ -7,6 +7,7 @@ use std::hash::Hash;
 
 use vortex_error::VortexResult;
 
+use crate::DynArray;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::scalar::ScalarValue;
@@ -38,7 +39,7 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Validate that the given storage type is compatible with this extension type.
     fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
-    // Methods related to the extension scalar values.
+    // Methods related to extension scalar values.
 
     /// Validate the given storage value is compatible with the extension type.
     ///
@@ -69,4 +70,17 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>>;
+
+    // Methods related to extension arrays.
+
+    /// Validates that the given storage array is compatible with this extension type and type
+    /// medatada.
+    ///
+    /// Note that [`ExtVTable::validate_dtype()`] is always called first on the dtype of the storage
+    /// array to validate the storage [`DType`](crate::dtype::DType).
+    fn validate_array<'a>(
+        &self,
+        ext_dtype: &'a ExtDType<Self>,
+        storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()>;
 }

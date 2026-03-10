@@ -161,8 +161,19 @@ pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             let s = scalar.as_extension();
 
             let storage_scalar = s.to_storage_scalar();
+
+            // Validate that this scalar is valid for this type.
+            if let Some(storage_value) = storage_scalar.value() {
+                ext_dtype.validate_storage_value(storage_value)?;
+            }
+
             let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
-            Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
+
+            Canonical::Extension(
+                // SAFETY: We validated that the scalar was valid, and since this array only
+                // contains this scalar, we know the storage array is valid.
+                unsafe { ExtensionArray::new_unchecked(ext_dtype.clone(), storage_self) },
+            )
         }
     })
 }

@@ -14,6 +14,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::DynArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -174,6 +175,13 @@ impl ExtVTable for Timestamp {
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"
         );
+
+        if let Some(tz) = &ext_dtype.metadata().tz {
+            jiff::Timestamp::UNIX_EPOCH
+                .in_tz(tz.as_ref())
+                .map_err(|e| vortex_err!("Invalid timezone for timestamp: {}", e))?;
+        }
+
         Ok(())
     }
 
@@ -218,6 +226,37 @@ impl ExtVTable for Timestamp {
 
         Ok(value)
     }
+
+    fn validate_array<'a>(
+        &self,
+        ext_dtype: &'a ExtDType<Self>,
+        storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()> {
+        // The stored i64 can be negative (representing times before the Unix epoch), which is
+        // valid. Both bounds only fail for extreme values near the edges of jiff's supported
+        // range.
+        let stats = storage_array.statistics();
+        let build_span = |v: i64| match ext_dtype.metadata().unit {
+            TimeUnit::Nanoseconds => Span::new().nanoseconds(v),
+            TimeUnit::Microseconds => Span::new().microseconds(v),
+            TimeUnit::Milliseconds => Span::new().milliseconds(v),
+            TimeUnit::Seconds => Span::new().seconds(v),
+            TimeUnit::Days => unreachable!(),
+        };
+
+        if let Some(min) = stats.compute_min::<i64>() {
+            jiff::Timestamp::UNIX_EPOCH
+                .checked_add(build_span(min))
+                .map_err(|e| vortex_err!("Timestamp array min value {min} is out of range: {e}"))?;
+        }
+        if let Some(max) = stats.compute_max::<i64>() {
+            jiff::Timestamp::UNIX_EPOCH
+                .checked_add(build_span(max))
+                .map_err(|e| vortex_err!("Timestamp array max value {max} is out of range: {e}"))?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -226,10 +265,15 @@ mod tests {
 
     use vortex_error::VortexResult;
 
+    use crate::array::IntoArray;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
+    use crate::dtype::extension::ExtDType;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+    use crate::extension::datetime::TimestampOptions;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
@@ -245,15 +289,13 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn reject_timestamp_with_invalid_timezone() {
-        let dtype = DType::Extension(
-            Timestamp::new_with_tz(
-                TimeUnit::Seconds,
-                Some(Arc::from("Not/A/Timezone")),
-                Nullable,
-            )
-            .erased(),
+        let result = ExtDType::<Timestamp>::try_new(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: Some(Arc::from("Not/A/Timezone")),
+            },
+            DType::Primitive(crate::dtype::PType::I64, Nullable),
         );
-        let result = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(0))));
         assert!(result.is_err());
     }
 
@@ -279,5 +321,27 @@ mod tests {
             format!("{}", scalar.as_extension()),
             "1969-12-31T19:00:00-05:00[America/New_York]"
         );
+    }
+
+    #[test]
+    fn validate_timestamp_array() -> VortexResult<()> {
+        let ext_dtype = Timestamp::new(TimeUnit::Seconds, Nullable).erased();
+        let storage = PrimitiveArray::from_option_iter([Some(0i64), Some(1_000_000)]);
+        ExtensionArray::try_new(ext_dtype, storage.into_array())?;
+        Ok(())
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn validate_timestamp_array_with_timezone() -> VortexResult<()> {
+        let ext_dtype = Timestamp::new_with_tz(
+            TimeUnit::Seconds,
+            Some(Arc::from("America/New_York")),
+            Nullable,
+        )
+        .erased();
+        let storage = PrimitiveArray::from_option_iter([Some(0i64)]);
+        ExtensionArray::try_new(ext_dtype, storage.into_array())?;
+        Ok(())
     }
 }

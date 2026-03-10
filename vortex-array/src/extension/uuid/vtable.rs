@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use uuid;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
+use crate::DynArray;
+use crate::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
@@ -119,6 +122,40 @@ impl ExtVTable for Uuid {
 
         Ok(parsed)
     }
+
+    fn validate_array<'a>(
+        &self,
+        ext_dtype: &'a ExtDType<Self>,
+        storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()> {
+        let fsl = storage_array.to_fixed_size_list();
+        let elements = fsl.elements().to_primitive();
+        let bytes = elements.as_slice::<u8>();
+
+        for chunk in bytes.chunks_exact(UUID_BYTE_LEN) {
+            let bytes: [u8; UUID_BYTE_LEN] = chunk
+                .try_into()
+                .map_err(|_| vortex_err!("hack bc we can't have nice things"))
+                .vortex_expect("The chunk needs to be exactly size UUID_BYTE_LEN");
+
+            let uuid = uuid::Uuid::from_bytes(bytes);
+            let actual = uuid
+                .get_version()
+                .ok_or_else(|| vortex_err!("UUID has unrecognized version nibble"))?
+                as u8;
+
+            if let Some(expected) = ext_dtype.metadata().version {
+                let expected = expected as u8;
+                vortex_ensure_eq!(
+                    expected,
+                    actual,
+                    "UUID version mismatch: expected v{expected}, got v{actual}",
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[expect(
@@ -131,8 +168,13 @@ mod tests {
 
     use rstest::rstest;
     use uuid::Version;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
 
+    use crate::array::IntoArray;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -143,6 +185,7 @@ mod tests {
     use crate::extension::uuid::vtable::UUID_BYTE_LEN;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::validity::Validity;
 
     #[rstest]
     #[case::no_version(None)]
@@ -346,5 +389,77 @@ mod tests {
             UUID_BYTE_LEN as u32,
             nullability,
         )
+    }
+
+    /// Builds a [`FixedSizeListArray`] storage array from a slice of UUIDs.
+    fn uuid_storage_array(uuids: &[uuid::Uuid]) -> crate::ArrayRef {
+        let flat_bytes: Vec<u8> = uuids
+            .iter()
+            .flat_map(|u| u.as_bytes().iter().copied())
+            .collect();
+        let elements =
+            PrimitiveArray::new(Buffer::copy_from(&flat_bytes), Validity::NonNullable).into_array();
+        FixedSizeListArray::new(
+            elements,
+            UUID_BYTE_LEN as u32,
+            Validity::NonNullable,
+            uuids.len(),
+        )
+        .into_array()
+    }
+
+    #[test]
+    fn validate_uuid_array_with_matching_version() -> VortexResult<()> {
+        let v4_a = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
+            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
+        let v4_b = uuid::Uuid::parse_str("6ba7b810-9dad-41d4-80b4-00c04fd430c8")
+            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
+
+        let ext_dtype = ExtDType::<Uuid>::try_new(
+            UuidMetadata {
+                version: Some(Version::Random),
+            },
+            uuid_storage_dtype(Nullability::NonNullable),
+        )?
+        .erased();
+
+        let storage = uuid_storage_array(&[v4_a, v4_b]);
+        ExtensionArray::try_new(ext_dtype, storage)?;
+        Ok(())
+    }
+
+    #[test]
+    fn validate_uuid_array_rejects_version_mismatch() -> VortexResult<()> {
+        // This is a v4 UUID, but the metadata says v7.
+        let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
+            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
+
+        let ext_dtype = ExtDType::<Uuid>::try_new(
+            UuidMetadata {
+                version: Some(Version::SortRand),
+            },
+            uuid_storage_dtype(Nullability::NonNullable),
+        )?
+        .erased();
+
+        let storage = uuid_storage_array(&[v4_uuid]);
+        assert!(ExtensionArray::try_new(ext_dtype, storage).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn validate_uuid_array_no_version_constraint() -> VortexResult<()> {
+        let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
+            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
+
+        let ext_dtype = ExtDType::<Uuid>::try_new(
+            UuidMetadata::default(),
+            uuid_storage_dtype(Nullability::NonNullable),
+        )?
+        .erased();
+
+        let storage = uuid_storage_array(&[v4_uuid]);
+        ExtensionArray::try_new(ext_dtype, storage)?;
+        Ok(())
     }
 }

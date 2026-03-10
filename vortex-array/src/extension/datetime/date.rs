@@ -7,9 +7,10 @@ use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
+use crate::DynArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -96,11 +97,10 @@ impl ExtVTable for Date {
         let ptype = date_ptype(metadata)
             .ok_or_else(|| vortex_err!("Date type does not support time unit {}", metadata))?;
 
-        vortex_ensure!(
-            ext_dtype.storage_dtype().as_ptype() == ptype,
-            "Date storage dtype for {} must be {}",
-            metadata,
-            ptype
+        vortex_ensure_eq!(
+            ext_dtype.storage_dtype().as_ptype(),
+            ptype,
+            "Date storage dtype for {metadata} must be {ptype}",
         );
 
         Ok(())
@@ -119,6 +119,15 @@ impl ExtVTable for Date {
             TimeUnit::Days => Ok(DateValue::Days(storage_value.as_primitive().cast::<i32>()?)),
             _ => vortex_bail!("Date type does not support time unit {}", metadata),
         }
+    }
+
+    fn validate_array<'a>(
+        &self,
+        _ext_dtype: &'a ExtDType<Self>,
+        _storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()> {
+        // All i64 and i32 values are valid dates.
+        Ok(())
     }
 }
 

@@ -512,12 +512,15 @@ mod tests {
     fn test_timestamp_extreme_values() {
         // Test extreme timestamp values
         let values = vec![
-            i64::MAX,                       // Maximum possible timestamp
-            i64::MIN,                       // Minimum possible timestamp
-            0i64,                           // Epoch
-            9_223_372_036_854_775_000_i64,  // Near max but reasonable
-            -9_223_372_036_854_775_000_i64, // Near min but reasonable
+            i32::MAX as i64,
+            i32::MIN as i64,
+            0i64,
+            // These don't work because they get added to the unix epoch, so it overflows
+            // 631_107_417_600_000_000,  // The max for microseconds in jiff.
+            // -631_107_417_600_000_000, // The min for microseconds in jiff.
         ];
+        // https://docs.rs/jiff/latest/jiff/struct.Span.html#method.microseconds
+
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);

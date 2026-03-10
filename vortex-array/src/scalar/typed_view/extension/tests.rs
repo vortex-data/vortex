@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::DynArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -42,6 +43,14 @@ impl ExtVTable for TestI32Ext {
         _storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         Ok("")
+    }
+
+    fn validate_array<'a>(
+        &self,
+        _ext_dtype: &'a ExtDType<Self>,
+        _storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()> {
+        Ok(())
     }
 }
 
@@ -126,6 +135,14 @@ fn test_ext_scalar_partial_ord_different_types() {
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")
+        }
+
+        fn validate_array<'a>(
+            &self,
+            _ext_dtype: &'a ExtDType<Self>,
+            _storage_array: &'a dyn DynArray,
+        ) -> VortexResult<()> {
+            Ok(())
         }
     }
 
@@ -309,6 +326,14 @@ fn test_ext_scalar_with_metadata() {
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")
+        }
+
+        fn validate_array<'a>(
+            &self,
+            _ext_dtype: &'a ExtDType<Self>,
+            _storage_array: &'a dyn DynArray,
+        ) -> VortexResult<()> {
+            Ok(())
         }
     }
 

@@ -10,6 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::DynArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -143,12 +144,76 @@ impl ExtVTable for Time {
 
         Ok(value)
     }
+
+    fn validate_array<'a>(
+        &self,
+        ext_dtype: &'a ExtDType<Self>,
+        storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()> {
+        // We check both min and max because the stored integer can be negative, which is invalid
+        // for a time of day.
+        let stats = storage_array.statistics();
+
+        let metadata = ext_dtype.metadata();
+        match metadata {
+            TimeUnit::Seconds | TimeUnit::Milliseconds => {
+                let build_span = |v: i32| match metadata {
+                    TimeUnit::Seconds => Span::new().seconds(v),
+                    TimeUnit::Milliseconds => Span::new().milliseconds(v),
+                    _ => unreachable!(),
+                };
+
+                if let Some(min) = stats.compute_min::<i32>() {
+                    jiff::civil::Time::MIN
+                        .checked_add(build_span(min))
+                        .map_err(|e| {
+                            vortex_err!("Time array min value {min} is out of range: {e}")
+                        })?;
+                }
+                if let Some(max) = stats.compute_max::<i32>() {
+                    jiff::civil::Time::MIN
+                        .checked_add(build_span(max))
+                        .map_err(|e| {
+                            vortex_err!("Time array max value {max} is out of range: {e}")
+                        })?;
+                }
+            }
+            TimeUnit::Microseconds | TimeUnit::Nanoseconds => {
+                let build_span = |v: i64| match metadata {
+                    TimeUnit::Microseconds => Span::new().microseconds(v),
+                    TimeUnit::Nanoseconds => Span::new().nanoseconds(v),
+                    _ => unreachable!(),
+                };
+
+                if let Some(min) = stats.compute_min::<i64>() {
+                    jiff::civil::Time::MIN
+                        .checked_add(build_span(min))
+                        .map_err(|e| {
+                            vortex_err!("Time array min value {min} is out of range: {e}")
+                        })?;
+                }
+                if let Some(max) = stats.compute_max::<i64>() {
+                    jiff::civil::Time::MIN
+                        .checked_add(build_span(max))
+                        .map_err(|e| {
+                            vortex_err!("Time array max value {max} is out of range: {e}")
+                        })?;
+                }
+            }
+            d @ TimeUnit::Days => vortex_bail!("Time type does not support time unit {d}"),
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
 
+    use crate::array::IntoArray;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::extension::datetime::Time;
@@ -186,5 +251,28 @@ mod tests {
 
         let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(0))));
         assert_eq!(format!("{}", scalar.as_extension()), "00:00:00");
+    }
+
+    #[test]
+    fn validate_time_array() -> VortexResult<()> {
+        let ext_dtype = Time::new(TimeUnit::Seconds, Nullable).erased();
+        let storage = PrimitiveArray::from_option_iter([Some(0i32), Some(3661), Some(86399)]);
+        ExtensionArray::try_new(ext_dtype, storage.into_array())?;
+        Ok(())
+    }
+
+    #[test]
+    fn reject_time_array_out_of_range() {
+        // 86400 seconds = exactly 24 hours, which exceeds the valid time-of-day range.
+        let ext_dtype = Time::new(TimeUnit::Seconds, Nullable).erased();
+        let storage = PrimitiveArray::from_option_iter([Some(0i32), Some(86400)]);
+        assert!(ExtensionArray::try_new(ext_dtype, storage.into_array()).is_err());
+    }
+
+    #[test]
+    fn reject_time_array_negative() {
+        let ext_dtype = Time::new(TimeUnit::Seconds, Nullable).erased();
+        let storage = PrimitiveArray::from_option_iter([Some(-1i32)]);
+        assert!(ExtensionArray::try_new(ext_dtype, storage.into_array()).is_err());
     }
 }

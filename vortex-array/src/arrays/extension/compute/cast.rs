@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexResult;
+
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Extension;
@@ -10,7 +12,7 @@ use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
-    fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {
+    fn cast(array: &ExtensionArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -30,8 +32,9 @@ impl CastReduce for Extension {
             }
         };
 
+        // We have no idea if the cast invalidated the storage array, so we must run validation.
         Ok(Some(
-            ExtensionArray::new(ext_dtype.clone(), new_storage).into_array(),
+            ExtensionArray::try_new(ext_dtype.clone(), new_storage)?.into_array(),
         ))
     }
 }

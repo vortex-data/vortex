@@ -138,10 +138,10 @@ impl CanonicalCudaExt for Canonical {
                     .into_host()
                     .await?
                     .into_array();
-                Ok(Canonical::Extension(ExtensionArray::new(
-                    ext.ext_dtype().clone(),
-                    host_storage,
-                )))
+                Ok(Canonical::Extension(
+                    // SAFETY: The values of the array are the same, so no validation is needed.
+                    unsafe { ExtensionArray::new_unchecked(ext.ext_dtype().clone(), host_storage) },
+                ))
             }
             c => todo!("{} not implemented", c.dtype()),
         }

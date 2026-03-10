@@ -6,11 +6,14 @@
 use std::fmt;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
+use crate::DynArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
@@ -51,10 +54,7 @@ impl ExtVTable for DivisibleInt {
         Ok(Divisor(n))
     }
 
-    fn validate_dtype(
-        &self,
-        ext_dtype: &crate::dtype::extension::ExtDType<Self>,
-    ) -> VortexResult<()> {
+    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
             "divisible int storage dtype must be u64"
@@ -64,15 +64,46 @@ impl ExtVTable for DivisibleInt {
 
     fn unpack_native<'a>(
         &self,
-        ext_dtype: &'a crate::dtype::extension::ExtDType<Self>,
+        ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         let value = storage_value.as_primitive().cast::<u64>()?;
+
         let metadata = ext_dtype.metadata();
-        if value % metadata.0 != 0 {
-            vortex_bail!("{} is not divisible by {}", value, metadata.0);
-        }
+        vortex_ensure_eq!(
+            value % metadata.0,
+            0,
+            "{value} is not divisible by {}",
+            metadata.0
+        );
+
         Ok(value)
+    }
+
+    fn validate_array<'a>(
+        &self,
+        ext_dtype: &'a ExtDType<Self>,
+        storage_array: &'a dyn DynArray,
+    ) -> VortexResult<()> {
+        let primitive = DynArray::as_any(storage_array)
+            .downcast_ref::<PrimitiveArray>()
+            .ok_or_else(|| {
+                vortex_error::vortex_err!("expected PrimitiveArray for divisible int storage")
+            })?;
+
+        let slice = primitive.as_slice::<u64>();
+        let metadata = ext_dtype.metadata();
+
+        for value in slice {
+            vortex_ensure_eq!(
+                value % metadata.0,
+                0,
+                "{value} is not divisible by {}",
+                metadata.0
+            );
+        }
+
+        Ok(())
     }
 }
 

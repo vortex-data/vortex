@@ -15,7 +15,9 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
+use crate::DynArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
@@ -118,11 +120,13 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn metadata_serialize(&self) -> VortexResult<Vec<u8>>;
     /// Returns a new [`ExtDTypeRef`] with the given nullability.
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
-    /// Validates that the given storage scalar value is valid for this dtype.
+    /// Validates that the given storage scalar value is valid for this extension type.
     fn value_validate(&self, storage_value: &ScalarValue) -> VortexResult<()>;
     /// Formats an extension scalar value using the current dtype for metadata context.
     fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
     -> fmt::Result;
+    /// Validates that the given storage array is valid for this extension type.
+    fn array_validate(&self, storage_array: &dyn DynArray) -> VortexResult<()>;
 }
 
 impl<V: ExtVTable> DynExtDType for ExtDType<V> {
@@ -193,5 +197,15 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
                 self.id()
             ),
         }
+    }
+
+    fn array_validate(&self, storage_array: &dyn DynArray) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            &self.storage_dtype,
+            storage_array.dtype(),
+            "tried to construct an extension array with a storage array that has the wrong dtype"
+        );
+
+        self.vtable.validate_array(self, storage_array)
     }
 }

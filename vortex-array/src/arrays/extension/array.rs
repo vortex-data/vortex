@@ -75,13 +75,7 @@ impl ExtensionArray {
     ///
     /// Returns an error if the storage array in not compatible with the extension dtype.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        // TODO(connor): Replace these statements once we add `validate_storage_array`.
-        // ext_dtype.validate_storage_array(&storage_array)?;
-        assert_eq!(
-            ext_dtype.storage_dtype(),
-            storage_array.dtype(),
-            "ExtensionArray: storage_dtype must match storage array DType",
-        );
+        ext_dtype.validate_storage_array(&storage_array)?;
 
         // SAFETY: we validate that the inputs are valid above.
         Ok(unsafe { Self::new_unchecked(ext_dtype, storage_array) })
@@ -95,15 +89,16 @@ impl ExtensionArray {
     /// other words, they must know that `ext_dtype.validate_storage_array(&storage_array)` has been
     /// called successfully on this storage array.
     pub unsafe fn new_unchecked(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
-        // TODO(connor): Replace these statements once we add `validate_storage_array`.
-        // #[cfg(debug_assertions)]
-        // ext_dtype
-        //     .validate_storage_array(&storage_array)
-        //     .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
-        debug_assert_eq!(
+        #[cfg(debug_assertions)]
+        ext_dtype
+            .validate_storage_array(&storage_array)
+            .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
+
+        // The dtype check is much cheaper than the storage validation, so we might as well do this.
+        assert_eq!(
             ext_dtype.storage_dtype(),
             storage_array.dtype(),
-            "ExtensionArray: storage_dtype must match storage array DType",
+            "tried to construct an extension array with a storage array that has the wrong dtype"
         );
 
         Self {

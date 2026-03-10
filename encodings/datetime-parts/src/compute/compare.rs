@@ -321,7 +321,8 @@ mod test {
         .unwrap();
 
         // Timestamp with a value larger than i32::MAX.
-        let rhs = dtp_array_from_timestamp(i64::MAX, rhs_validity);
+        // https://github.com/BurntSushi/jiff/blob/e5b7f0d061e4da9598aed73f6171e78baa8b007f/src/shared/tzif.rs#L23
+        let rhs = dtp_array_from_timestamp(253_402_207_200i64, rhs_validity);
 
         let comparison = lhs
             .clone()

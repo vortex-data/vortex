@@ -11,6 +11,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
+    use crate::DynArray;
     use crate::dtype::DType;
     use crate::dtype::FieldDType;
     use crate::dtype::Nullability;
@@ -53,6 +54,14 @@ mod tests {
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")
+        }
+
+        fn validate_array<'a>(
+            &self,
+            _ext_dtype: &'a ExtDType<Self>,
+            _storage_array: &'a dyn DynArray,
+        ) -> VortexResult<()> {
+            Ok(())
         }
     }
 
@@ -270,6 +279,14 @@ mod tests {
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")
             }
+
+            fn validate_array<'a>(
+                &self,
+                _ext_dtype: &'a ExtDType<Self>,
+                _storage_array: &'a dyn DynArray,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
         }
 
         let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
@@ -327,6 +344,14 @@ mod tests {
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")
+            }
+
+            fn validate_array<'a>(
+                &self,
+                _ext_dtype: &'a ExtDType<Self>,
+                _storage_array: &'a dyn DynArray,
+            ) -> VortexResult<()> {
+                Ok(())
             }
         }
 

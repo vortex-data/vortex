@@ -92,7 +92,11 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
                 .storage_array()
                 .filter(values_to_mask(mask))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
-            Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
+            Canonical::Extension(
+                // SAFETY: The storage array is filtered from an already-valid extension array,
+                // which preserves the storage dtype and does not change values.
+                unsafe { ExtensionArray::new_unchecked(a.ext_dtype().clone(), filtered_storage) },
+            )
         }
     }
 }

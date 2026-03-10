@@ -47,6 +47,7 @@ pub struct TemporalArray {
 }
 
 impl TemporalArray {
+    // TODO(connor): This should really be fallible!!!
     /// Create a new `TemporalArray` holding either i32 day offsets, or i64 millisecond offsets
     /// that are evenly divisible by the number of 86,400,000.
     ///
@@ -69,6 +70,7 @@ impl TemporalArray {
         }
     }
 
+    // TODO(connor): This should really be fallible!!!
     /// Create a new `TemporalArray` holding one of the following values:
     ///
     /// * `i32` values representing seconds since midnight
@@ -97,6 +99,7 @@ impl TemporalArray {
         }
     }
 
+    // TODO(connor): This should really be fallible!!!
     /// Create a new `TemporalArray` holding Arrow spec compliant Timestamp data, with an
     /// optional timezone.
     ///

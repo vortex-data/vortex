@@ -134,7 +134,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             let ext_dtype = array
                 .ext_dtype()
                 .with_nullability(masked_storage.dtype().nullability());
-            ExtensionArray::new(ext_dtype, masked_storage).into_array()
+            ExtensionArray::try_new(ext_dtype, masked_storage)?.into_array()
         }
     })
 }

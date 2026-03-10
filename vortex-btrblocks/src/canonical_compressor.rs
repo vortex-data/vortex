@@ -302,8 +302,14 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 let compressed_storage = self.compress(ext_array.storage_array())?;
 
                 Ok(
-                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array(),
+                    // SAFETY: The values of the array are the same, so no validation is needed.
+                    unsafe {
+                        ExtensionArray::new_unchecked(
+                            ext_array.ext_dtype().clone(),
+                            compressed_storage,
+                        )
+                    }
+                    .into_array(),
                 )
             }
         }

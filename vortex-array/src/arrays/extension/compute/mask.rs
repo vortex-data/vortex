@@ -19,13 +19,18 @@ impl MaskReduce for Extension {
             EmptyOptions,
             [array.storage_array().clone(), mask.clone()],
         )?;
+
         Ok(Some(
-            ExtensionArray::new(
-                array
-                    .ext_dtype()
-                    .with_nullability(masked_storage.dtype().nullability()),
-                masked_storage,
-            )
+            // SAFETY: The storage array is masked from an already-valid extension array, which
+            // preserves the storage dtype and does not change values.
+            unsafe {
+                ExtensionArray::new_unchecked(
+                    array
+                        .ext_dtype()
+                        .with_nullability(masked_storage.dtype().nullability()),
+                    masked_storage,
+                )
+            }
             .into_array(),
         ))
     }

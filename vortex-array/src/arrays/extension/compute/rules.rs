@@ -42,8 +42,12 @@ impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
             .storage_array()
             .clone()
             .filter(parent.filter_mask().clone())?;
+
         Ok(Some(
-            ExtensionArray::new(child.ext_dtype().clone(), filtered_storage).into_array(),
+            // SAFETY: The storage array is filtered from an already-valid extension array, which
+            // preserves the storage dtype and does not change values.
+            unsafe { ExtensionArray::new_unchecked(child.ext_dtype().clone(), filtered_storage) }
+                .into_array(),
         ))
     }
 }
@@ -105,6 +109,14 @@ mod tests {
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")
+        }
+
+        fn validate_array<'a>(
+            &self,
+            _ext_dtype: &'a ExtDType<Self>,
+            _storage_array: &'a dyn DynArray,
+        ) -> VortexResult<()> {
+            Ok(())
         }
     }
 
@@ -202,6 +214,14 @@ mod tests {
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")
+            }
+
+            fn validate_array<'a>(
+                &self,
+                _ext_dtype: &'a ExtDType<Self>,
+                _storage_array: &'a dyn DynArray,
+            ) -> VortexResult<()> {
+                Ok(())
             }
         }
 
