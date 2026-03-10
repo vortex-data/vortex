@@ -222,11 +222,11 @@ impl<T> Buffer<T> {
                 out_buf
                     .spare_capacity_mut()
                     .iter_mut()
-                    .zip(buf.into_iter())
+                    .zip(buf.as_slice().iter().copied())
                     .for_each(|(out, in_)| {
                         out.write(f(in_));
                     });
-                // Safety: just asigned to each value
+                // Safety: just assigned to each value
                 unsafe { out_buf.set_len(len) }
                 out_buf
             }
