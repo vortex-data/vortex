@@ -10,6 +10,11 @@ if [ "$EUID" -ne 0 ]; then
     exit 0
 fi
 
+# Turn off frequency scaling
+for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    echo performance > "$gov" 2>/dev/null || true
+done
+
 # Really discourage swapping to disk
 sysctl vm.swappiness=0
 
