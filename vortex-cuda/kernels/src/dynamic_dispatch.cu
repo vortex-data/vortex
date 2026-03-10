@@ -164,12 +164,22 @@ __device__ inline void apply_scalar_op(T *values, const struct ScalarOp &op, T *
         break;
     }
     case ScalarOp::DICT: {
-        const T *dict_values = &smem_base[op.params.dict.values_smem_offset];
-        // clang-format off
-        #pragma unroll
-        // clang-format on
-        for (uint32_t i = 0; i < N; ++i) {
-            values[i] = dict_values[static_cast<uint32_t>(values[i])];
+        if (op.params.dict.use_global_mem) {
+            const T *dict_values = reinterpret_cast<const T *>(op.params.dict.values_global_ptr);
+            // clang-format off
+            #pragma unroll
+            // clang-format on
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = dict_values[static_cast<uint32_t>(values[i])];
+            }
+        } else {
+            const T *dict_values = &smem_base[op.params.dict.values_smem_offset];
+            // clang-format off
+            #pragma unroll
+            // clang-format on
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = dict_values[static_cast<uint32_t>(values[i])];
+            }
         }
         break;
     }
@@ -247,9 +257,10 @@ __device__ void apply_scalar_ops(const T *__restrict smem_input,
     }
 }
 
-/// Decodes and transforms a stage's data through shared memory, writing
-/// final results to `write_dest` at `write_offset`. Input stages write
-/// back to smem; the output stage writes to global memory.
+/// Decodes and transforms a stage's data, writing final results to either
+/// shared memory (for input stages) or global memory (for large intermediates
+/// like dictionary values). Input stages write their output; the output stage
+/// writes directly to the final global memory buffer.
 template <typename T, StorePolicy S>
 __device__ void execute_stage(const struct Stage &stage,
                               T *__restrict smem_base,
@@ -257,17 +268,27 @@ __device__ void execute_stage(const struct Stage &stage,
                               uint32_t chunk_len,
                               T *__restrict write_dest,
                               uint64_t write_offset) {
-    T *smem_output = &smem_base[stage.smem_offset];
+    // Determine where to decode the source op: shared memory for normal
+    // input stages, or global memory for large intermediate data.
+    T *output_buffer;
+    if (stage.uses_global_memory) {
+        output_buffer = reinterpret_cast<T *>(stage.global_memory_ptr);
+    } else {
+        output_buffer = &smem_base[stage.smem_offset];
+    }
 
     dynamic_source_op<T>(reinterpret_cast<const T *>(stage.input_ptr),
-                         smem_output,
+                         output_buffer,
                          chunk_start,
                          chunk_len,
                          stage.source,
                          smem_base);
     __syncthreads();
 
-    apply_scalar_ops<T, S>(smem_output,
+    // For input stages writing to global memory, write_dest should point to
+    // the global memory buffer (with write_offset=0). For output stages,
+    // write_dest is the final output buffer (which may be global memory anyway).
+    apply_scalar_ops<T, S>(output_buffer,
                            write_dest,
                            write_offset,
                            chunk_len,

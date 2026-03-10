@@ -107,13 +107,33 @@ impl ScalarOp {
         }
     }
 
-    /// Dictionary gather: use current value as index into decoded values
-    /// in shared memory (populated by an earlier input stage).
-    pub fn dict(values_smem_offset: u32) -> Self {
+    /// Dictionary gather from shared memory: use current value as index into
+    /// decoded values at `values_smem_offset` (populated by an earlier input stage).
+    pub fn dict_shared_memory(values_smem_offset: u32) -> Self {
         Self {
             op_code: ScalarOp_ScalarOpCode_DICT,
             params: ScalarParams {
-                dict: ScalarParams_DictParams { values_smem_offset },
+                dict: ScalarParams_DictParams {
+                    values_smem_offset,
+                    values_global_ptr: 0,
+                    use_global_mem: false,
+                },
+            },
+        }
+    }
+
+    /// Dictionary gather from global memory: use current value as index into
+    /// pre-decoded values at `values_global_ptr`. Used when the dictionary is
+    /// too large to fit in shared memory.
+    pub fn dict_global_memory(values_global_ptr: u64) -> Self {
+        Self {
+            op_code: ScalarOp_ScalarOpCode_DICT,
+            params: ScalarParams {
+                dict: ScalarParams_DictParams {
+                    values_smem_offset: 0,
+                    values_global_ptr,
+                    use_global_mem: true,
+                },
             },
         }
     }
@@ -139,6 +159,33 @@ impl Stage {
             source,
             num_scalar_ops: scalar_ops.len() as u8,
             scalar_ops: ops,
+            global_memory_ptr: 0,
+            uses_global_memory: false,
+        }
+    }
+
+    /// Create an input stage that decodes into pre-allocated global memory.
+    /// Used for large intermediate results (e.g., large dictionary values)
+    /// that don't fit in shared memory.
+    pub fn input_global_memory(
+        input_ptr: u64,
+        global_memory_ptr: u64,
+        len: u32,
+        source: SourceOp,
+        scalar_ops: &[ScalarOp],
+    ) -> Self {
+        assert!(scalar_ops.len() <= MAX_SCALAR_OPS as usize);
+        let mut ops: [ScalarOp; MAX_SCALAR_OPS as usize] = unsafe { std::mem::zeroed() };
+        ops[..scalar_ops.len()].copy_from_slice(scalar_ops);
+        Self {
+            input_ptr,
+            smem_offset: 0,
+            len,
+            source,
+            num_scalar_ops: scalar_ops.len() as u8,
+            scalar_ops: ops,
+            global_memory_ptr,
+            uses_global_memory: true,
         }
     }
 
@@ -150,7 +197,9 @@ impl Stage {
         source: SourceOp,
         scalar_ops: &[ScalarOp],
     ) -> Self {
-        Self::input(input_ptr, smem_offset, SMEM_TILE_SIZE, source, scalar_ops)
+        let mut stage = Self::input(input_ptr, smem_offset, SMEM_TILE_SIZE, source, scalar_ops);
+        stage.len = SMEM_TILE_SIZE;
+        stage
     }
 }
 
@@ -294,7 +343,7 @@ mod tests {
                 0xBBBB,
                 256,
                 SourceOp::bitunpack(6, 0),
-                &[ScalarOp::frame_of_ref(42), ScalarOp::dict(0)],
+                &[ScalarOp::frame_of_ref(42), ScalarOp::dict_shared_memory(0)],
             ),
         ]);
 

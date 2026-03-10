@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /// Elements processed per CUDA block.
@@ -79,9 +80,10 @@ union ScalarParams {
         float e;
     } alp;
 
-    /// Dictionary gather: use current value as index into decoded values in smem.
     struct DictParams {
         uint32_t values_smem_offset; // element offset to decoded dict values in smem
+        uint64_t values_global_ptr;  // device pointer to decoded dict values in global mem
+        bool use_global_mem;         // false = shared memory, true = global memory
     } dict;
 };
 
@@ -95,12 +97,15 @@ struct ScalarOp {
 /// A single stage in the dispatch plan.
 ///
 /// Each stage is a pipeline (source + scalar ops) that writes decoded data
-/// into a shared memory region at `smem_offset`. Input stage outputs persist
-/// in smem so the output stage can reference them (via DICT or RUNEND offsets).
+/// into either shared memory (for small intermediate results) or global memory
+/// (for large data like dictionary values). If `uses_global_memory` is false,
+/// output goes to `smem_offset`; otherwise it goes to `global_memory_ptr`.
 struct Stage {
-    uint64_t input_ptr;   // global memory pointer to this stage's encoded input
-    uint32_t smem_offset; // element offset within dynamic shared memory for output
-    uint32_t len;         // number of elements this stage produces
+    uint64_t input_ptr;        // global memory pointer to this stage's encoded input
+    uint32_t smem_offset;      // element offset within dynamic shared memory for output (if not using global mem)
+    uint32_t len;              // number of elements this stage produces
+    uint64_t global_memory_ptr; // global memory pointer for output (if uses_global_memory is true)
+    bool uses_global_memory;   // false = write to smem, true = write to global memory
 
     struct SourceOp source;
     uint8_t num_scalar_ops;
