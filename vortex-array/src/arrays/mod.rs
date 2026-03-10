@@ -66,6 +66,10 @@ pub mod null;
 pub use null::NullArray;
 pub use null::NullVTable;
 
+pub mod patched;
+pub use patched::PatchedArray;
+pub use patched::PatchedVTable;
+
 pub mod primitive;
 pub use primitive::PrimitiveArray;
 pub use primitive::PrimitiveVTable;

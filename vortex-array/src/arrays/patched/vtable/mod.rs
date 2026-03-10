@@ -21,6 +21,7 @@ use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
@@ -29,6 +30,7 @@ use crate::arrays::PrimitiveArrayParts;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::patch_lanes;
+use crate::arrays::primitive::PrimitiveArrayParts;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -208,7 +210,7 @@ impl VTable for PatchedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let inner = array
             .inner
             .clone()
@@ -251,7 +253,7 @@ impl VTable for PatchedVTable {
             PrimitiveArray::from_byte_buffer(output.into_byte_buffer(), ptype, validity)
         });
 
-        Ok(patched_values.into_array())
+        Ok(ExecutionStep::done(patched_values.into_array()))
     }
 
     fn reduce_parent(

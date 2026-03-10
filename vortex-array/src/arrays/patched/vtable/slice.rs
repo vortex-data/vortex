@@ -10,7 +10,7 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::PatchedArray;
 use crate::arrays::PatchedVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 use crate::stats::ArrayStats;
 
 /// Is this something that uses a SliceKernel or a SliceReduce
