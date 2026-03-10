@@ -59,6 +59,10 @@ struct Cli {
     #[arg(long, default_value_t = 1)]
     concurrency: usize,
 
+    /// Skip GPU kernel execution (measure IO + deserialization only).
+    #[arg(long)]
+    no_execute: bool,
+
     /// Output logs as JSON.
     #[arg(long)]
     json: bool,
@@ -154,6 +158,7 @@ async fn main() -> VortexResult<()> {
     let mut iteration_times = Vec::with_capacity(cli.iterations);
     let mut output_bytes: u64 = 0;
     let concurrency = cli.concurrency;
+    let no_execute = cli.no_execute;
 
     for iteration in 0..cli.iterations {
         let start = Instant::now();
@@ -177,10 +182,15 @@ async fn main() -> VortexResult<()> {
                     );
 
                     async {
-                        let mut cuda_ctx = CudaSession::create_execution_ctx(session)?;
-                        let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
-                        let nbytes = canonical.into_array().nbytes();
-                        VortexResult::Ok(nbytes)
+                        if no_execute {
+                            tracing::info!(len, "skipping execute (--no-execute)");
+                            VortexResult::Ok(0u64)
+                        } else {
+                            let mut cuda_ctx = CudaSession::create_execution_ctx(session)?;
+                            let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
+                            let nbytes = canonical.into_array().nbytes();
+                            VortexResult::Ok(nbytes)
+                        }
                     }
                     .instrument(span)
                     .await
