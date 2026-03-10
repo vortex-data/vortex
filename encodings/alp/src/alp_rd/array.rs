@@ -17,12 +17,14 @@ use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -41,7 +43,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
@@ -297,17 +298,12 @@ impl VTable for ALPRDVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
-        let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
+        let left_parts = require_child!(array.left_parts(), 0 => PrimitiveVTable).clone();
+        let right_parts = require_child!(array.right_parts(), 1 => PrimitiveVTable).clone();
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
-
-        let validity = array
-            .left_parts()
-            .validity()?
-            .to_array(array.len())
-            .execute::<Mask>(ctx)?;
+        let validity = left_parts.validity_mask()?;
 
         let decoded_array = if array.is_f32() {
             PrimitiveArray::new(

@@ -387,6 +387,23 @@ impl fmt::Debug for ExecutionStep {
     }
 }
 
+/// Require that a child array matches `$M`. If it does, evaluates to the matched value.
+/// Otherwise, early-returns `Ok(ExecutionStep::execute_child::<$M>($idx))`.
+///
+/// ```ignore
+/// let codes = require_child!(array.codes(), 0 => PrimitiveVTable);
+/// let values = require_child!(array.values(), 1 => AnyCanonical);
+/// ```
+#[macro_export]
+macro_rules! require_child {
+    ($child:expr, $idx:expr => $M:ty) => {
+        match $child.as_opt::<$M>() {
+            Some(c) => c,
+            None => return Ok($crate::ExecutionStep::execute_child::<$M>($idx)),
+        }
+    };
+}
+
 /// Extension trait for creating an execution context from a session.
 pub trait VortexSessionExecute {
     /// Create a new execution context from this session.
