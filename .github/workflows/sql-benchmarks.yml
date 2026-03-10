@@ -118,6 +118,8 @@ jobs:
 
       - uses: actions/checkout@v6
         if: inputs.mode != 'pr'
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}

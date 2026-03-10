@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+set -Eeu -o pipefail -x
+
+if [ "$EUID" -ne 0 ]; then
+    echo "Environment setup script for benchmarks should run as root."
+    exit 0
+fi
+
+# Turn off frequency scaling
+for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    echo performance > "$gov" 2>/dev/null || true
+done
+
+# Really discourage swapping to disk
+sysctl vm.swappiness=0
+
+# Disable ASLR - https://docs.kernel.org/admin-guide/sysctl/kernel.html#randomize-va-space
+sysctl kernel.randomize_va_space=0
+
+# Reduce kernel logging to minimum
+dmesg -n 1
+
+# Disable some unused services and features
+systemctl stop apparmor ModemManager
+systemctl disable apparmor ModemManager
+
+# mask prevents them from being started by other services
+systemctl mask ModemManager
+
+# For apparmor specifically, also teardown loaded profiles
+aa-teardown

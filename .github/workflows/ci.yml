@@ -726,6 +726,8 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
