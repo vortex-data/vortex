@@ -89,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
 
     let ctx = cudarc::driver::CudaContext::new(0)?;
     let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&ctx)));
-    let cuda_streams = VortexCudaStreamPool::new(Arc::clone(&ctx), cli.concurrency);
+    let cuda_streams = Arc::new(VortexCudaStreamPool::new(Arc::clone(&ctx), cli.concurrency));
 
     for iteration in 0..cli.iterations {
         let start = Instant::now();
@@ -142,12 +142,14 @@ async fn main() -> anyhow::Result<()> {
             Level::PinnedH2d => {
                 let file = Arc::clone(&file);
                 let pool = Arc::clone(&pool);
-                stream::iter(chunks.into_iter().enumerate().collect::<Vec<_>>())
-                    .map(move |(i, (offset, len))| {
+                let cuda_streams = Arc::clone(&cuda_streams);
+                stream::iter(chunks)
+                    .map(move |(offset, len)| {
                         let file = Arc::clone(&file);
                         let pool = Arc::clone(&pool);
-                        let stream =
-                            cuda_streams.get_stream().expect("failed to get cuda stream");
+                        let stream = cuda_streams
+                            .get_stream()
+                            .expect("failed to get cuda stream");
                         async move {
                             let pinned = tokio::task::spawn_blocking(move || {
                                 let mut pinned = pool.get(len)?;
