@@ -295,11 +295,12 @@ fn merge_case_branches(
     }
     spans.sort_unstable_by_key(|&(start, ..)| start);
 
-    let output_dtype = branches
+    let output_nullability = branches
         .iter()
-        .fold(else_value.dtype().clone(), |acc, (_, arr)| {
-            acc.union_nullability(arr.dtype().nullability())
+        .fold(else_value.dtype().nullability(), |acc, (_, arr)| {
+            acc | arr.dtype().nullability()
         });
+    let output_dtype = else_value.dtype().with_nullability(output_nullability);
     let builder = builder_with_capacity(&output_dtype, row_count);
 
     let fragmented = !spans.is_empty() && spans.len() > row_count / SLICE_CROSSOVER_RUN_LEN;
