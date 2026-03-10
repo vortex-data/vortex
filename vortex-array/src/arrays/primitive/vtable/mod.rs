@@ -40,6 +40,7 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
+use crate::vtable::upcast_array;
 
 vtable!(Primitive);
 
@@ -200,7 +201,7 @@ impl VTable for PrimitiveVTable {
     }
 
     fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
+        Ok(ExecutionResult::done(upcast_array::<Self>(array)))
     }
 
     fn reduce_parent(

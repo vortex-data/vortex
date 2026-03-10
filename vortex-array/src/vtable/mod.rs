@@ -328,15 +328,6 @@ macro_rules! vtable {
                 }
             }
 
-            impl $crate::IntoArray for std::sync::Arc<[<$V Array>]> {
-                fn into_array(self) -> $crate::ArrayRef {
-                    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
-                    // so Arc<V::Array> has identical layout to Arc<ArrayAdapter<V>>.
-                    let raw = std::sync::Arc::into_raw(self) as *const $crate::ArrayAdapter<[<$V VTable>]>;
-                    unsafe { std::sync::Arc::from_raw(raw) }
-                }
-            }
-
             impl From<[<$V Array>]> for $crate::ArrayRef {
                 fn from(value: [<$V Array>]) -> $crate::ArrayRef {
                     use $crate::IntoArray;

@@ -27,6 +27,7 @@ use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
+use crate::vtable::upcast_array;
 
 pub(crate) mod compute;
 
@@ -133,7 +134,7 @@ impl VTable for NullVTable {
     }
 
     fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
+        Ok(ExecutionResult::done(upcast_array::<Self>(array)))
     }
 }
 

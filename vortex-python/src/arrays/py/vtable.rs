@@ -156,7 +156,7 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(_array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         todo!()
     }
 }

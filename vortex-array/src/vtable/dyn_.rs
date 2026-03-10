@@ -228,6 +228,17 @@ fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
     unsafe { Arc::from_raw(raw) }
 }
 
+/// Upcast an `Arc<V::Array>` into an `ArrayRef` without cloning.
+///
+/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
+/// [`ArrayAdapter`]. It is the reverse of `downcast_owned`.
+pub fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
+    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
+    // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
+    let raw = Arc::into_raw(array) as *const ArrayAdapter<V>;
+    unsafe { Arc::from_raw(raw) }
+}
+
 impl<V: VTable> Debug for ArrayVTableAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Encoding<{}>", type_name::<V>())

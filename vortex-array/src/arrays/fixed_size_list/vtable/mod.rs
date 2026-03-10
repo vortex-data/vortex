@@ -29,6 +29,7 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::upcast_array;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod kernel;
@@ -220,6 +221,6 @@ impl VTable for FixedSizeListVTable {
     }
 
     fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
+        Ok(ExecutionResult::done(upcast_array::<Self>(array)))
     }
 }
