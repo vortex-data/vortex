@@ -14,7 +14,7 @@ use crate::scalar::Scalar;
 impl SumKernel for ChunkedVTable {
     fn sum(&self, array: &ChunkedArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         array
-            .chunks
+            .chunks()
             .iter()
             .try_fold(accumulator.clone(), |result, chunk| {
                 sum_with_accumulator(chunk, &result)

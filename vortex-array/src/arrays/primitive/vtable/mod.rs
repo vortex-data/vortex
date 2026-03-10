@@ -14,6 +14,8 @@ use crate::ExecutionCtx;
 use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::array::NUM_SLOTS;
+use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -181,6 +183,29 @@ impl VTable for PrimitiveVTable {
                 buffer, ptype, validity,
             ))
         }
+    }
+
+    fn nslots(_array: &PrimitiveArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &PrimitiveArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("PrimitiveArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &PrimitiveArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("PrimitiveArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut PrimitiveArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "PrimitiveArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

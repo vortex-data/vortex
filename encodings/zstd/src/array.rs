@@ -272,6 +272,29 @@ impl VTable for ZstdVTable {
         Ok(())
     }
 
+    fn nslots(_array: &ZstdArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &ZstdArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("ZstdArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &ZstdArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("ZstdArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut ZstdArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "ZstdArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         array
             .decompress()?
@@ -295,6 +318,9 @@ impl ZstdVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
 }
 
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 pub struct ZstdArray {
     pub(crate) dictionary: Option<ByteBuffer>,
@@ -303,6 +329,7 @@ pub struct ZstdArray {
     dtype: DType,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
@@ -418,6 +445,7 @@ impl ZstdArray {
             dtype,
             unsliced_validity: validity,
             unsliced_n_rows: n_rows,
+            slots: vec![],
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: n_rows,

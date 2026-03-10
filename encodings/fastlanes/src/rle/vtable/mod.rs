@@ -141,21 +141,37 @@ impl VTable for RLEVTable {
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // RLEArray children order (from visit_children):
-        // 1. values
-        // 2. indices
-        // 3. values_idx_offsets
-
         vortex_ensure!(
             children.len() == 3,
             "Expected 3 children for RLE encoding, got {}",
             children.len()
         );
 
-        array.values = children[0].clone();
-        array.indices = children[1].clone();
-        array.values_idx_offsets = children[2].clone();
+        array.slots = children.into_iter().map(Some).collect();
 
+        Ok(())
+    }
+
+    fn nslots(array: &RLEArray) -> usize {
+        array.slots.len()
+    }
+
+    fn slot(array: &RLEArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &RLEArray, idx: usize) -> &str {
+        crate::rle::array::SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut RLEArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == crate::rle::array::NUM_SLOTS,
+            "RLEArray expects {} slots, got {}",
+            crate::rle::array::NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
         Ok(())
     }
 

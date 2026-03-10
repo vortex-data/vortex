@@ -26,6 +26,11 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
+pub(super) const ELEMENTS_SLOT: usize = 0;
+pub(super) const OFFSETS_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets"];
+
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
 ///
 /// This mirrors the Apache Arrow List array encoding and provides efficient storage
@@ -81,8 +86,7 @@ use crate::validity::Validity;
 #[derive(Clone, Debug)]
 pub struct ListArray {
     pub(super) dtype: DType,
-    pub(super) elements: ArrayRef,
-    pub(super) offsets: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
@@ -147,8 +151,7 @@ impl ListArray {
 
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
-            elements,
-            offsets,
+            slots: vec![Some(elements), Some(offsets)],
             validity,
             stats_set: Default::default(),
         }
@@ -242,8 +245,12 @@ impl ListArray {
     pub fn into_parts(self) -> ListArrayParts {
         ListArrayParts {
             dtype: self.dtype,
-            elements: self.elements,
-            offsets: self.offsets,
+            elements: self.slots[ELEMENTS_SLOT]
+                .clone()
+                .vortex_expect("ListArray elements slot"),
+            offsets: self.slots[OFFSETS_SLOT]
+                .clone()
+                .vortex_expect("ListArray offsets slot"),
             validity: self.validity,
         }
     }
@@ -290,7 +297,9 @@ impl ListArray {
 
     /// Returns the offsets array.
     pub fn offsets(&self) -> &ArrayRef {
-        &self.offsets
+        self.slots[OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray offsets slot")
     }
 
     /// Returns the element dtype of the list array.
@@ -303,7 +312,9 @@ impl ListArray {
 
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
-        &self.elements
+        self.slots[ELEMENTS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray elements slot")
     }
 
     // TODO(connor)[ListView]: Create 2 functions `reset_offsets` and `recursive_reset_offsets`,

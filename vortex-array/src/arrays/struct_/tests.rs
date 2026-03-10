@@ -45,13 +45,13 @@ fn test_project() {
 
     assert_eq!(struct_b.len(), 5);
 
-    let bools = &struct_b.fields[0];
+    let bools = &struct_b.unmasked_fields()[0];
     assert_arrays_eq!(
         bools,
         BoolArray::from_iter([true, true, true, false, false])
     );
 
-    let prims = &struct_b.fields[1];
+    let prims = &struct_b.unmasked_fields()[1];
     assert_arrays_eq!(prims, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 }
 
@@ -76,14 +76,14 @@ fn test_remove_column() {
     assert_arrays_eq!(removed, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 
     assert_eq!(struct_a.names(), &["ys"]);
-    assert_eq!(struct_a.fields.len(), 1);
+    assert_eq!(struct_a.unmasked_fields().len(), 1);
     assert_eq!(struct_a.len(), 5);
     assert_eq!(
-        struct_a.fields[0].dtype(),
+        struct_a.unmasked_fields()[0].dtype(),
         &DType::Primitive(PType::U64, Nullability::NonNullable)
     );
     assert_arrays_eq!(
-        struct_a.fields[0],
+        struct_a.unmasked_fields()[0],
         PrimitiveArray::from_iter([4u64, 5, 6, 7, 8])
     );
 

@@ -22,6 +22,8 @@ use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ExtensionArray;
+use crate::arrays::extension::array::NUM_SLOTS;
+use crate::arrays::extension::array::SLOT_NAMES;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -48,7 +50,7 @@ impl VTable for ExtensionVTable {
     }
 
     fn len(array: &ExtensionArray) -> usize {
-        array.storage.len()
+        array.storage().len()
     }
 
     fn dtype(array: &ExtensionArray) -> &DType {
@@ -65,11 +67,11 @@ impl VTable for ExtensionVTable {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.storage.array_hash(state, precision);
+        array.storage().array_hash(state, precision);
     }
 
     fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
-        array.dtype == other.dtype && array.storage.array_eq(&other.storage, precision)
+        array.dtype == other.dtype && array.storage().array_eq(other.storage(), precision)
     }
 
     fn nbuffers(_array: &ExtensionArray) -> usize {
@@ -90,7 +92,7 @@ impl VTable for ExtensionVTable {
 
     fn child(array: &ExtensionArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.storage.clone(),
+            0 => array.storage().clone(),
             _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
         }
     }
@@ -100,6 +102,18 @@ impl VTable for ExtensionVTable {
             0 => "storage".to_string(),
             _ => vortex_panic!("ExtensionArray child_name index {idx} out of bounds"),
         }
+    }
+
+    fn nslots(_array: &ExtensionArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &ExtensionArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ExtensionArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
@@ -137,16 +151,28 @@ impl VTable for ExtensionVTable {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
+    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ExtensionArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "ExtensionArray expects exactly 1 child (storage), got {}",
             children.len()
         );
-        array.storage = children
+        let storage = children
             .into_iter()
             .next()
             .vortex_expect("children length already validated");
+        array.slots = vec![Some(storage)];
         Ok(())
     }
 

@@ -17,6 +17,8 @@ use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::array::NUM_SLOTS;
+use crate::arrays::fixed_size_list::array::SLOT_NAMES;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -194,6 +196,32 @@ impl VTable for FixedSizeListVTable {
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
+    }
+
+    fn nslots(_array: &FixedSizeListArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &FixedSizeListArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &FixedSizeListArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(
+        array: &mut FixedSizeListArray,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "FixedSizeListArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

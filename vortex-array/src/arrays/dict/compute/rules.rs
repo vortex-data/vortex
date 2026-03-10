@@ -95,7 +95,9 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
 
         // If the scalar function is null-sensitive, then we cannot push it down to values if
         // we have any nulls in the codes.
-        if array.codes.dtype().is_nullable() && !array.codes.all_valid()? && sig.is_null_sensitive()
+        if array.codes().dtype().is_nullable()
+            && !array.codes().all_valid()?
+            && sig.is_null_sensitive()
         {
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
@@ -184,10 +186,13 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnCodesPullUpRule {
             }
         }
 
-        let new_values =
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, array.values.len())?
-                .into_array()
-                .optimize()?;
+        let new_values = ScalarFnArray::try_new(
+            parent.scalar_fn().clone(),
+            new_children,
+            array.values().len(),
+        )?
+        .into_array()
+        .optimize()?;
 
         let new_dict =
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();

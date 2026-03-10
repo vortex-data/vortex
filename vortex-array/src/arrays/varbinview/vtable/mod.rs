@@ -10,6 +10,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -22,6 +23,8 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::array::NUM_SLOTS;
+use crate::arrays::varbinview::array::SLOT_NAMES;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -207,6 +210,29 @@ impl VTable for VarBinViewVTable {
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
 
         VarBinViewArray::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
+    }
+
+    fn nslots(_array: &VarBinViewArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &VarBinViewArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("VarBinViewArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &VarBinViewArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("VarBinViewArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut VarBinViewArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "VarBinViewArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

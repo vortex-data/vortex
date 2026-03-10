@@ -26,6 +26,12 @@ pub trait ArrayVisitor {
     /// Returns the names of the children of the array.
     fn children_names(&self) -> Vec<String>;
 
+    /// Returns the number of slots in the array.
+    fn nslots(&self) -> usize;
+
+    /// Returns a clone of the slot at the given index, or `None` if the slot is empty.
+    fn slot(&self, idx: usize) -> Option<ArrayRef>;
+
     /// Returns the array's children with their names.
     fn named_children(&self) -> Vec<(String, ArrayRef)>;
 
@@ -72,6 +78,14 @@ impl ArrayVisitor for Arc<dyn DynArray> {
 
     fn children_names(&self) -> Vec<String> {
         self.as_ref().children_names()
+    }
+
+    fn nslots(&self) -> usize {
+        self.as_ref().nslots()
+    }
+
+    fn slot(&self, idx: usize) -> Option<ArrayRef> {
+        self.as_ref().slot(idx)
     }
 
     fn named_children(&self) -> Vec<(String, ArrayRef)> {

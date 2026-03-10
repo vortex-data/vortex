@@ -175,6 +175,29 @@ impl VTable for ByteBoolVTable {
         Ok(())
     }
 
+    fn nslots(_array: &ByteBoolArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &ByteBoolArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("ByteBoolArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &ByteBoolArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("ByteBoolArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut ByteBoolArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "ByteBoolArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -201,11 +224,15 @@ impl VTable for ByteBoolVTable {
     }
 }
 
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 pub struct ByteBoolArray {
     dtype: DType,
     buffer: BufferHandle,
     validity: Validity,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -232,6 +259,7 @@ impl ByteBoolArray {
             dtype: DType::Bool(validity.nullability()),
             buffer,
             validity,
+            slots: vec![],
             stats_set: Default::default(),
         }
     }

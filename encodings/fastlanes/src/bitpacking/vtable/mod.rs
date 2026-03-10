@@ -43,6 +43,8 @@ use vortex_session::VortexSession;
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpacking::array::NUM_SLOTS;
+use crate::bitpacking::array::SLOT_NAMES;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -232,6 +234,30 @@ impl VTable for BitPackedVTable {
         array.patches = patches;
         array.validity = validity;
 
+        Ok(())
+    }
+
+    fn nslots(_array: &BitPackedArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &BitPackedArray, idx: usize) -> &Option<ArrayRef> {
+        let _ = SLOT_NAMES;
+        vortex_panic!("BitPackedArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &BitPackedArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("BitPackedArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut BitPackedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "BitPackedArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
         Ok(())
     }
 

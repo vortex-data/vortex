@@ -42,8 +42,8 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedUnaryScalarFnPushDownRule {
         }
 
         let new_chunks: Vec<_> = array
-            .chunks
-            .iter()
+            .chunks()
+            .into_iter()
             .map(|chunk| {
                 ScalarFnArray::try_new(
                     parent.scalar_fn().clone(),
@@ -83,8 +83,8 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedConstantScalarFnPushDownRul
         }
 
         let new_chunks: Vec<_> = array
-            .chunks
-            .iter()
+            .chunks()
+            .into_iter()
             .map(|chunk| {
                 let new_children: Vec<_> = parent
                     .children()

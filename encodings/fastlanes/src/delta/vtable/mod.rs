@@ -23,6 +23,7 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -30,6 +31,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaArray;
+use crate::delta::array::NUM_SLOTS;
+use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod operations;
@@ -128,19 +131,41 @@ impl VTable for DeltaVTable {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // DeltaArray children order (from visit_children):
-        // 1. bases
-        // 2. deltas
+    fn nslots(_array: &DeltaArray) -> usize {
+        NUM_SLOTS
+    }
 
+    fn slot(array: &DeltaArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &DeltaArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut DeltaArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "DeltaArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 2,
             "Expected 2 children for Delta encoding, got {}",
             children.len()
         );
 
-        array.bases = children[0].clone();
-        array.deltas = children[1].clone();
+        let mut children_iter = children.into_iter();
+        array.slots = vec![
+            Some(children_iter.next().vortex_expect("bases child")),
+            Some(children_iter.next().vortex_expect("deltas child")),
+        ];
 
         Ok(())
     }

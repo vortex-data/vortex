@@ -4,6 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
@@ -15,6 +16,8 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::VarBinArray;
+use crate::arrays::varbin::array::NUM_SLOTS;
+use crate::arrays::varbin::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -179,19 +182,42 @@ impl VTable for VarBinVTable {
         VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
     }
 
+    fn nslots(_array: &VarBinArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &VarBinArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &VarBinArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut VarBinArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "VarBinArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         match children.len() {
             1 => {
                 let [offsets]: [ArrayRef; 1] = children
                     .try_into()
                     .map_err(|_| vortex_err!("Failed to convert children to array"))?;
-                array.offsets = offsets;
+                array.slots = vec![Some(offsets)];
             }
             2 => {
                 let [offsets, validity]: [ArrayRef; 2] = children
                     .try_into()
                     .map_err(|_| vortex_err!("Failed to convert children to array"))?;
-                array.offsets = offsets;
+                array.slots = vec![Some(offsets)];
                 array.validity = Validity::Array(validity);
             }
             _ => vortex_bail!(

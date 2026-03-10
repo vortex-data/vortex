@@ -76,7 +76,7 @@ impl VTable for ScalarFnVTable {
         array.len.hash(state);
         array.dtype.hash(state);
         array.scalar_fn.hash(state);
-        for child in &array.children {
+        for child in array.children() {
             child.array_hash(state, precision);
         }
     }
@@ -91,7 +91,7 @@ impl VTable for ScalarFnVTable {
         if array.scalar_fn != other.scalar_fn {
             return false;
         }
-        for (child, other_child) in array.children.iter().zip(other.children.iter()) {
+        for (child, other_child) in array.children().iter().zip(other.children().iter()) {
             if !child.array_eq(other_child, precision) {
                 return false;
             }
@@ -112,11 +112,14 @@ impl VTable for ScalarFnVTable {
     }
 
     fn nchildren(array: &ScalarFnArray) -> usize {
-        array.children.len()
+        array.slots.len()
     }
 
     fn child(array: &ScalarFnArray, idx: usize) -> ArrayRef {
-        array.children[idx].clone()
+        array.slots[idx]
+            .as_ref()
+            .vortex_expect("ScalarFnArray child slot")
+            .clone()
     }
 
     fn child_name(array: &ScalarFnArray, idx: usize) -> String {
@@ -179,25 +182,42 @@ impl VTable for ScalarFnVTable {
             scalar_fn: metadata.scalar_fn.clone(),
             dtype: dtype.clone(),
             len,
-            children,
+            slots: children.into_iter().map(Some).collect(),
             stats: Default::default(),
         })
     }
 
+    fn nslots(array: &ScalarFnArray) -> usize {
+        array.slots.len()
+    }
+
+    fn slot(array: &ScalarFnArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ScalarFnArray, _idx: usize) -> &str {
+        "child"
+    }
+
+    fn with_slots(array: &mut ScalarFnArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == array.children.len(),
+            children.len() == array.slots.len(),
             "ScalarFnArray expects {} children, got {}",
-            array.children.len(),
+            array.slots.len(),
             children.len()
         );
-        array.children = children;
+        array.slots = children.into_iter().map(Some).collect();
         Ok(())
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
-        let args = VecExecutionArgs::new(array.children.clone(), array.len);
+        let args = VecExecutionArgs::new(array.children(), array.len);
         array.scalar_fn.execute(&args, ctx).map(ExecutionStep::Done)
     }
 
@@ -237,7 +257,7 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
             scalar_fn,
             dtype,
             len,
-            children,
+            slots: children.into_iter().map(Some).collect(),
             stats: Default::default(),
         }
         .into_array())

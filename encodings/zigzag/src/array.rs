@@ -53,7 +53,7 @@ impl VTable for ZigZagVTable {
     }
 
     fn len(array: &ZigZagArray) -> usize {
-        array.encoded.len()
+        array.encoded().len()
     }
 
     fn dtype(array: &ZigZagArray) -> &DType {
@@ -66,11 +66,11 @@ impl VTable for ZigZagVTable {
 
     fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
+        array.encoded().array_hash(state, precision);
     }
 
     fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
-        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
+        array.dtype == other.dtype && array.encoded().array_eq(other.encoded(), precision)
     }
 
     fn nbuffers(_array: &ZigZagArray) -> usize {
@@ -139,13 +139,36 @@ impl VTable for ZigZagVTable {
         ZigZagArray::try_new(encoded)
     }
 
+    fn nslots(_array: &ZigZagArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &ZigZagArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ZigZagArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut ZigZagArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ZigZagArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "ZigZagArray expects exactly 1 child (encoded), got {}",
             children.len()
         );
-        array.encoded = children.into_iter().next().vortex_expect("checked");
+        array.slots = vec![Some(children.into_iter().next().vortex_expect("checked"))];
         Ok(())
     }
 
@@ -173,10 +196,14 @@ impl VTable for ZigZagVTable {
     }
 }
 
+pub(super) const ENCODED_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
+
 #[derive(Clone, Debug)]
 pub struct ZigZagArray {
     dtype: DType,
-    encoded: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -203,7 +230,7 @@ impl ZigZagArray {
 
         Ok(Self {
             dtype,
-            encoded,
+            slots: vec![Some(encoded)],
             stats_set: Default::default(),
         })
     }
@@ -213,7 +240,9 @@ impl ZigZagArray {
     }
 
     pub fn encoded(&self) -> &ArrayRef {
-        &self.encoded
+        self.slots[ENCODED_SLOT]
+            .as_ref()
+            .vortex_expect("ZigZagArray encoded slot")
     }
 }
 

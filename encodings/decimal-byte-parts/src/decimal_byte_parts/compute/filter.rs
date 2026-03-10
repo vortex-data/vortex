@@ -12,7 +12,7 @@ use crate::DecimalBytePartsVTable;
 
 impl FilterReduce for DecimalBytePartsVTable {
     fn filter(array: &DecimalBytePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        DecimalBytePartsArray::try_new(array.msp.filter(mask.clone())?, *array.decimal_dtype())
+        DecimalBytePartsArray::try_new(array.msp().filter(mask.clone())?, *array.decimal_dtype())
             .map(|d| Some(d.into_array()))
     }
 }

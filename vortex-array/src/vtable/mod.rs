@@ -86,19 +86,40 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn buffer_name(array: &Self::Array, idx: usize) -> Option<String>;
 
     /// Returns the number of children in the array.
-    fn nchildren(array: &Self::Array) -> usize;
+    ///
+    /// The default counts non-None slots.
+    fn nchildren(array: &Self::Array) -> usize {
+        (0..Self::nslots(array))
+            .filter(|i| Self::slot(array, *i).is_some())
+            .count()
+    }
 
     /// Returns the child at the given index.
     ///
-    /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef;
-
-    /// Returns the name of the child at the given index.
+    /// The default returns the `idx`-th non-None slot.
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child_name(array: &Self::Array, idx: usize) -> String;
+    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+        (0..Self::nslots(array))
+            .filter_map(|i| Self::slot(array, i).clone())
+            .nth(idx)
+            .vortex_expect("child index out of bounds")
+    }
+
+    /// Returns the name of the child at the given index.
+    ///
+    /// The default returns the slot name of the `idx`-th non-None slot.
+    ///
+    /// # Panics
+    /// Panics if `idx >= nchildren(array)`.
+    fn child_name(array: &Self::Array, idx: usize) -> String {
+        (0..Self::nslots(array))
+            .filter(|i| Self::slot(array, *i).is_some())
+            .nth(idx)
+            .map(|slot_idx| Self::slot_name(array, slot_idx).to_string())
+            .vortex_expect("child_name index out of bounds")
+    }
 
     /// Exports metadata for an array.
     ///
@@ -177,15 +198,51 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
+    /// Returns the number of slots in the array.
+    ///
+    /// Slots provide fixed-position storage for child arrays, enabling direct access
+    /// by slot index without the overhead of dynamic child lookups. Optional children
+    /// (like validity) are represented as `None` slots rather than shifting dense indices.
+    fn nslots(array: &Self::Array) -> usize;
+
+    /// Returns a reference to the slot at the given index.
+    ///
+    /// # Panics
+    /// Panics if `idx >= nslots(array)`.
+    fn slot(array: &Self::Array, idx: usize) -> &Option<ArrayRef>;
+
+    /// Returns the name of the slot at the given index.
+    ///
+    /// # Panics
+    /// Panics if `idx >= nslots(array)`.
+    fn slot_name(array: &Self::Array, idx: usize) -> &str;
+
+    /// Replaces the slots in `array` with `slots`.
+    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
+
     /// Replaces the children in `array` with `children`. The count must be the same and types
     /// of children must be expected.
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
+    ///
+    /// The default maps children back onto the current slot structure and calls `with_slots`.
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        let mut child_iter = children.into_iter();
+        let slots: Vec<Option<ArrayRef>> = (0..Self::nslots(array))
+            .map(|i| {
+                Self::slot(array, i).is_some().then(|| {
+                    child_iter
+                        .next()
+                        .vortex_expect("too few children for with_children")
+                })
+            })
+            .collect();
+        Self::with_slots(array, slots)
+    }
 
     /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
     /// do next.
     ///
     /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionStep::ExecuteChild(i)`] to request that the scheduler execute a child first,
+    /// [`ExecutionStep::ExecuteSlot(i)`] to request that the scheduler execute a slot first,
     /// or [`ExecutionStep::Done(result)`] when the
     /// encoding can produce a result directly.
     ///

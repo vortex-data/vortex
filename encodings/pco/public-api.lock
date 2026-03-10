@@ -172,13 +172,21 @@ pub fn vortex_pco::PcoVTable::nbuffers(array: &vortex_pco::PcoArray) -> usize
 
 pub fn vortex_pco::PcoVTable::nchildren(array: &vortex_pco::PcoArray) -> usize
 
+pub fn vortex_pco::PcoVTable::nslots(_array: &vortex_pco::PcoArray) -> usize
+
 pub fn vortex_pco::PcoVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_pco::PcoVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_pco::PcoVTable::slot(_array: &vortex_pco::PcoArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_pco::PcoVTable::slot_name(_array: &vortex_pco::PcoArray, idx: usize) -> &str
+
 pub fn vortex_pco::PcoVTable::stats(array: &vortex_pco::PcoArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_pco::PcoVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_pco::PcoVTable::with_slots(array: &mut vortex_pco::PcoArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_pco::PcoVTable> for vortex_pco::PcoVTable
 

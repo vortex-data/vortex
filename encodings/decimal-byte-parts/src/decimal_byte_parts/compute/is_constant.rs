@@ -17,7 +17,7 @@ impl IsConstantKernel for DecimalBytePartsVTable {
         array: &DecimalBytePartsArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        is_constant_opts(&array.msp, opts)
+        is_constant_opts(array.msp(), opts)
     }
 }
 

@@ -19,6 +19,11 @@ use vortex_error::vortex_bail;
 pub mod delta_compress;
 pub mod delta_decompress;
 
+pub(super) const BASES_SLOT: usize = 0;
+pub(super) const DELTAS_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
+
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
 /// A [`DeltaArray`] comprises a sequence of _chunks_ each representing 1,024 delta-encoded values,
@@ -58,8 +63,7 @@ pub struct DeltaArray {
     pub(super) offset: usize,
     pub(super) len: usize,
     pub(super) dtype: DType,
-    pub(super) bases: ArrayRef,
-    pub(super) deltas: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -141,24 +145,28 @@ impl DeltaArray {
         offset: usize,
         logical_len: usize,
     ) -> Self {
+        let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         Self {
             offset,
             len: logical_len,
-            dtype: bases.dtype().with_nullability(deltas.dtype().nullability()),
-            bases,
-            deltas,
+            dtype,
+            slots: vec![Some(bases), Some(deltas)],
             stats_set: Default::default(),
         }
     }
 
     #[inline]
     pub fn bases(&self) -> &ArrayRef {
-        &self.bases
+        self.slots[BASES_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray bases slot")
     }
 
     #[inline]
     pub fn deltas(&self) -> &ArrayRef {
-        &self.deltas
+        self.slots[DELTAS_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray deltas slot")
     }
 
     #[inline]
@@ -191,12 +199,12 @@ impl DeltaArray {
 
     #[inline]
     pub(crate) fn bases_len(&self) -> usize {
-        self.bases.len()
+        self.bases().len()
     }
 
     #[inline]
     pub(crate) fn deltas_len(&self) -> usize {
-        self.deltas.len()
+        self.deltas().len()
     }
 
     #[inline]

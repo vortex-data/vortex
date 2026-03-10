@@ -18,6 +18,8 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
+use crate::arrays::list::array::NUM_SLOTS;
+use crate::arrays::list::array::SLOT_NAMES;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
@@ -61,7 +63,7 @@ impl VTable for ListVTable {
     }
 
     fn len(array: &ListArray) -> usize {
-        array.offsets.len().saturating_sub(1)
+        array.offsets().len().saturating_sub(1)
     }
 
     fn dtype(array: &ListArray) -> &DType {
@@ -74,15 +76,15 @@ impl VTable for ListVTable {
 
     fn array_hash<H: std::hash::Hasher>(array: &ListArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.elements.array_hash(state, precision);
-        array.offsets.array_hash(state, precision);
+        array.elements().array_hash(state, precision);
+        array.offsets().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
     fn array_eq(array: &ListArray, other: &ListArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.elements.array_eq(&other.elements, precision)
-            && array.offsets.array_eq(&other.offsets, precision)
+            && array.elements().array_eq(other.elements(), precision)
+            && array.offsets().array_eq(other.offsets(), precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 
@@ -184,6 +186,29 @@ impl VTable for ListVTable {
         )?;
 
         ListArray::try_new(elements, offsets, validity)
+    }
+
+    fn nslots(_array: &ListArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &ListArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ListArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut ListArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ListArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

@@ -11,11 +11,13 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::bool;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -51,6 +53,7 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
@@ -101,6 +104,7 @@ impl BoolArray {
         let (offset, len, buffer) = bits.into_inner();
 
         Ok(Self {
+            slots: vec![],
             dtype: DType::Bool(validity.nullability()),
             bits: BufferHandle::new_host(buffer),
             offset,
@@ -138,6 +142,7 @@ impl BoolArray {
         );
 
         Ok(Self {
+            slots: vec![],
             dtype: DType::Bool(validity.nullability()),
             bits,
             offset,
@@ -159,6 +164,7 @@ impl BoolArray {
             let (offset, len, buffer) = bits.into_inner();
 
             Self {
+                slots: vec![],
                 dtype: DType::Bool(validity.nullability()),
                 bits: BufferHandle::new_host(buffer),
                 offset,

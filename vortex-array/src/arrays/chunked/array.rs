@@ -10,13 +10,14 @@ use std::fmt::Debug;
 use futures::stream;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::iter::ArrayIterator;
@@ -28,12 +29,15 @@ use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
 
+// ChunkedArray has a variable number of slots:
+// slots[0] = chunk_offsets
+// slots[1..] = chunks
+
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) chunk_offsets: PrimitiveArray,
-    pub(super) chunks: Vec<ArrayRef>,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -78,15 +82,19 @@ impl ChunkedArray {
             unsafe { chunk_offsets_buf.push_unchecked(curr_offset) }
         }
 
-        let chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable);
+        let chunk_offsets =
+            PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array();
+
+        let mut slots = Vec::with_capacity(1 + nchunks);
+        slots.push(Some(chunk_offsets));
+        slots.extend(chunks.into_iter().map(Some));
 
         Self {
             dtype,
             len: curr_offset
                 .try_into()
                 .vortex_expect("chunk offset must fit in usize"),
-            chunk_offsets,
-            chunks,
+            slots,
             stats_set: Default::default(),
         }
     }
@@ -108,16 +116,26 @@ impl ChunkedArray {
     pub fn chunk(&self, idx: usize) -> &ArrayRef {
         assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
 
-        &self.chunks[idx]
+        self.slots[idx + 1]
+            .as_ref()
+            .vortex_expect("ChunkedArray chunk slot")
     }
 
     pub fn nchunks(&self) -> usize {
-        self.chunks.len()
+        self.slots.len().saturating_sub(1)
+    }
+
+    /// Returns the chunk offsets as a primitive array.
+    pub(crate) fn chunk_offsets_array(&self) -> PrimitiveArray {
+        self.slots[0]
+            .as_ref()
+            .vortex_expect("ChunkedArray chunk_offsets slot")
+            .to_primitive()
     }
 
     #[inline]
     pub fn chunk_offsets(&self) -> Buffer<u64> {
-        self.chunk_offsets.to_buffer()
+        self.chunk_offsets_array().to_buffer()
     }
 
     pub(crate) fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
@@ -138,22 +156,38 @@ impl ChunkedArray {
         Ok((index_chunk, index_in_chunk))
     }
 
-    pub fn chunks(&self) -> &[ArrayRef] {
-        &self.chunks
+    /// Returns the chunks as a vector of owned references.
+    pub fn chunks(&self) -> Vec<ArrayRef> {
+        self.slots[1..]
+            .iter()
+            .map(|s| s.as_ref().vortex_expect("ChunkedArray chunk slot").clone())
+            .collect()
     }
 
     pub fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.chunks().iter().filter(|c| !c.is_empty())
+        self.slots[1..]
+            .iter()
+            .filter_map(|s| s.as_ref())
+            .filter(|c| !c.is_empty())
     }
 
     pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
-        ArrayIteratorAdapter::new(self.dtype().clone(), self.chunks().iter().cloned().map(Ok))
+        ArrayIteratorAdapter::new(
+            self.dtype().clone(),
+            self.slots[1..]
+                .iter()
+                .map(|s| Ok(s.as_ref().vortex_expect("ChunkedArray chunk slot").clone())),
+        )
     }
 
     pub fn array_stream(&self) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
             self.dtype().clone(),
-            stream::iter(self.chunks().iter().cloned().map(Ok)),
+            stream::iter(
+                self.slots[1..]
+                    .iter()
+                    .map(|s| Ok(s.as_ref().vortex_expect("ChunkedArray chunk slot").clone())),
+            ),
         )
     }
 

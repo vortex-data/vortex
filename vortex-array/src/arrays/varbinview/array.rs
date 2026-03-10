@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -21,6 +22,9 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A variable-length binary view array that stores strings and binary data efficiently.
 ///
@@ -83,6 +87,7 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
@@ -245,6 +250,7 @@ impl VarBinViewArray {
         validity: Validity,
     ) -> Self {
         Self {
+            slots: vec![],
             views,
             buffers,
             dtype,

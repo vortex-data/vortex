@@ -17,6 +17,8 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::array::NUM_SLOTS;
+use crate::arrays::bool::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -167,6 +169,29 @@ impl VTable for BoolVTable {
         let buffer = buffers[0].clone();
 
         BoolArray::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
+    }
+
+    fn nslots(_array: &BoolArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &BoolArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("BoolArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &BoolArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("BoolArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut BoolArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "BoolArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

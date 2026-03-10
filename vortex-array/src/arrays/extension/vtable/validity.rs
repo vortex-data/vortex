@@ -8,6 +8,6 @@ use crate::vtable::ValidityChild;
 
 impl ValidityChild<ExtensionVTable> for ExtensionVTable {
     fn validity_child(array: &ExtensionArray) -> &ArrayRef {
-        &array.storage
+        array.storage()
     }
 }

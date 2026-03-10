@@ -263,6 +263,29 @@ impl VTable for PcoVTable {
         Ok(())
     }
 
+    fn nslots(_array: &PcoArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &PcoArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("PcoArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &PcoArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("PcoArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut PcoArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "PcoArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(array.decompress()?.into_array()))
     }
@@ -313,6 +336,9 @@ impl PcoVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
 }
 
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 pub struct PcoArray {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
@@ -321,6 +347,7 @@ pub struct PcoArray {
     dtype: DType,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
@@ -342,6 +369,7 @@ impl PcoArray {
             dtype,
             unsliced_validity: validity,
             unsliced_n_rows: len,
+            slots: vec![],
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: len,

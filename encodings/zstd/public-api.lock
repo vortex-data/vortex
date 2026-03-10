@@ -212,13 +212,21 @@ pub fn vortex_zstd::ZstdVTable::nbuffers(array: &vortex_zstd::ZstdArray) -> usiz
 
 pub fn vortex_zstd::ZstdVTable::nchildren(array: &vortex_zstd::ZstdArray) -> usize
 
+pub fn vortex_zstd::ZstdVTable::nslots(_array: &vortex_zstd::ZstdArray) -> usize
+
 pub fn vortex_zstd::ZstdVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_zstd::ZstdVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_zstd::ZstdVTable::slot(_array: &vortex_zstd::ZstdArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_zstd::ZstdVTable::slot_name(_array: &vortex_zstd::ZstdArray, idx: usize) -> &str
+
 pub fn vortex_zstd::ZstdVTable::stats(array: &vortex_zstd::ZstdArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_zstd::ZstdVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_zstd::ZstdVTable::with_slots(array: &mut vortex_zstd::ZstdArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
 

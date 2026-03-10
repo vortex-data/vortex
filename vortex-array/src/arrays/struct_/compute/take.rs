@@ -20,7 +20,7 @@ impl TakeReduce for StructVTable {
         // an out of bounds element.
         if array.is_empty() {
             return StructArray::try_new_with_dtype(
-                array.unmasked_fields().clone(),
+                array.unmasked_fields().iter().cloned().collect::<Vec<_>>(),
                 array.struct_fields().clone(),
                 indices.len(),
                 Validity::AllInvalid,

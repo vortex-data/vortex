@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
+
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::stats::ArrayStats;
+
+pub(super) const STORAGE_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
 
 /// An extension array that wraps another array with additional type information.
 ///
@@ -48,7 +54,7 @@ use crate::stats::ArrayStats;
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
     pub(super) dtype: DType,
-    pub(super) storage: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -61,7 +67,7 @@ impl ExtensionArray {
         );
         Self {
             dtype: DType::Extension(ext_dtype),
-            storage,
+            slots: vec![Some(storage)],
             stats_set: ArrayStats::default(),
         }
     }
@@ -74,7 +80,9 @@ impl ExtensionArray {
     }
 
     pub fn storage(&self) -> &ArrayRef {
-        &self.storage
+        self.slots[STORAGE_SLOT]
+            .as_ref()
+            .vortex_expect("ExtensionArray storage slot")
     }
 
     #[inline]

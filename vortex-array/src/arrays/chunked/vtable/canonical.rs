@@ -34,10 +34,11 @@ pub(super) fn _canonicalize(
         return array.chunks()[0].clone().execute::<Canonical>(ctx);
     }
 
+    let owned_chunks = array.chunks();
     Ok(match array.dtype() {
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
-                array.chunks(),
+                &owned_chunks,
                 Validity::copy_from_array(&array.clone().into_array())?,
                 struct_dtype,
                 ctx,
@@ -45,7 +46,7 @@ pub(super) fn _canonicalize(
             Canonical::Struct(struct_array)
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
-            array.chunks(),
+            &owned_chunks,
             Validity::copy_from_array(&array.clone().into_array())?,
             elem_dtype,
             ctx,

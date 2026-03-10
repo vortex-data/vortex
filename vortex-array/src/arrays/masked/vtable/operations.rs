@@ -12,6 +12,6 @@ use crate::vtable::OperationsVTable;
 impl OperationsVTable<MaskedVTable> for MaskedVTable {
     fn scalar_at(array: &MaskedArray, index: usize) -> VortexResult<Scalar> {
         // Invalid indices are handled by the entrypoint function.
-        Ok(array.child.scalar_at(index)?.into_nullable())
+        Ok(array.child().scalar_at(index)?.into_nullable())
     }
 }

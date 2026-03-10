@@ -44,6 +44,7 @@ use vortex_array::vtable::validity_nchildren;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -102,7 +103,7 @@ impl VTable for FSSTVTable {
         array.symbols.array_hash(state, precision);
         array.symbol_lengths.array_hash(state, precision);
         array.codes.as_ref().array_hash(state, precision);
-        array.uncompressed_lengths.array_hash(state, precision);
+        array.uncompressed_lengths().array_hash(state, precision);
     }
 
     fn array_eq(array: &FSSTArray, other: &FSSTArray, precision: Precision) -> bool {
@@ -116,8 +117,8 @@ impl VTable for FSSTVTable {
                 .as_ref()
                 .array_eq(other.codes.as_ref(), precision)
             && array
-                .uncompressed_lengths
-                .array_eq(&other.uncompressed_lengths, precision)
+                .uncompressed_lengths()
+                .array_eq(other.uncompressed_lengths(), precision)
     }
 
     fn nbuffers(_array: &FSSTArray) -> usize {
@@ -308,6 +309,29 @@ impl VTable for FSSTVTable {
         );
     }
 
+    fn nslots(_array: &FSSTArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &FSSTArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &FSSTArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut FSSTArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "FSSTArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 2,
@@ -334,7 +358,7 @@ impl VTable for FSSTVTable {
             .ok_or_else(|| vortex_err!("FSSTArray with_children missing uncompressed_lengths"))?;
 
         array.codes = codes;
-        array.uncompressed_lengths = uncompressed_lengths;
+        array.slots[UNCOMPRESSED_LENGTHS_SLOT] = Some(uncompressed_lengths);
 
         Ok(())
     }
@@ -361,6 +385,10 @@ impl VTable for FSSTVTable {
     }
 }
 
+pub(crate) const UNCOMPRESSED_LENGTHS_SLOT: usize = 0;
+pub(crate) const NUM_SLOTS: usize = 1;
+pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["uncompressed_lengths"];
+
 #[derive(Clone)]
 pub struct FSSTArray {
     dtype: DType,
@@ -370,7 +398,7 @@ pub struct FSSTArray {
     /// NOTE(ngates): this === codes, but is stored as an ArrayRef so we can return &ArrayRef!
     codes_array: ArrayRef,
     /// Lengths of the original values before compression, can be compressed.
-    uncompressed_lengths: ArrayRef,
+    slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 
     /// Memoized compressor used for push-down of compute by compressing the RHS.
@@ -384,7 +412,7 @@ impl Debug for FSSTArray {
             .field("symbols", &self.symbols)
             .field("symbol_lengths", &self.symbol_lengths)
             .field("codes", &self.codes)
-            .field("uncompressed_lengths", &self.uncompressed_lengths)
+            .field("uncompressed_lengths", self.uncompressed_lengths())
             .finish()
     }
 }
@@ -466,7 +494,7 @@ impl FSSTArray {
             symbol_lengths,
             codes,
             codes_array,
-            uncompressed_lengths,
+            slots: vec![Some(uncompressed_lengths)],
             stats_set: Default::default(),
             compressor,
         }
@@ -495,13 +523,15 @@ impl FSSTArray {
 
     /// Get the uncompressed length for each element in the array.
     pub fn uncompressed_lengths(&self) -> &ArrayRef {
-        &self.uncompressed_lengths
+        self.slots[UNCOMPRESSED_LENGTHS_SLOT]
+            .as_ref()
+            .vortex_expect("FSSTArray uncompressed_lengths slot")
     }
 
     /// Get the DType of the uncompressed lengths array
     #[inline]
     pub fn uncompressed_lengths_dtype(&self) -> &DType {
-        self.uncompressed_lengths.dtype()
+        self.uncompressed_lengths().dtype()
     }
 
     /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from

@@ -28,9 +28,11 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ZstdBuffersMetadata;
@@ -56,7 +58,7 @@ pub struct ZstdBuffersArray {
     compressed_buffers: Vec<BufferHandle>,
     uncompressed_sizes: Vec<u64>,
     buffer_alignments: Vec<u32>,
-    children: Vec<ArrayRef>,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     dtype: DType,
     len: usize,
     stats_set: ArrayStats,
@@ -172,7 +174,7 @@ impl ZstdBuffersArray {
             compressed_buffers,
             uncompressed_sizes,
             buffer_alignments,
-            children,
+            slots: children.into_iter().map(Some).collect(),
             dtype: array.dtype().clone(),
             len: array.len(),
             stats_set: Default::default(),
@@ -248,14 +250,14 @@ impl ZstdBuffersArray {
             .find(&self.inner_encoding_id)
             .ok_or_else(|| vortex_err!("Unknown inner encoding: {}", self.inner_encoding_id))?;
 
-        let children = self.children.as_slice();
+        let children: Vec<ArrayRef> = self.slots.iter().flatten().cloned().collect();
         inner_vtable.build(
             self.inner_encoding_id.clone(),
             &self.dtype,
             self.len,
             &self.inner_metadata,
             buffer_handles,
-            &children,
+            &children.as_slice(),
             session,
         )
     }
@@ -360,7 +362,7 @@ impl VTable for ZstdBuffersVTable {
         array.buffer_alignments.hash(state);
         array.dtype.hash(state);
         array.len.hash(state);
-        for child in &array.children {
+        for child in array.slots.iter().flatten() {
             child.array_hash(state, precision);
         }
     }
@@ -378,11 +380,12 @@ impl VTable for ZstdBuffersVTable {
             && array.buffer_alignments == other.buffer_alignments
             && array.dtype == other.dtype
             && array.len == other.len
-            && array.children.len() == other.children.len()
+            && array.slots.len() == other.slots.len()
             && array
-                .children
+                .slots
                 .iter()
-                .zip(&other.children)
+                .flatten()
+                .zip(other.slots.iter().flatten())
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
@@ -399,15 +402,35 @@ impl VTable for ZstdBuffersVTable {
     }
 
     fn nchildren(array: &ZstdBuffersArray) -> usize {
-        array.children.len()
+        array.slots.len()
     }
 
     fn child(array: &ZstdBuffersArray, idx: usize) -> ArrayRef {
-        array.children[idx].clone()
+        array.slots[idx]
+            .as_ref()
+            .vortex_expect("ZstdBuffersArray child slot is None")
+            .clone()
     }
 
     fn child_name(_array: &ZstdBuffersArray, idx: usize) -> String {
         format!("child_{idx}")
+    }
+
+    fn nslots(array: &ZstdBuffersArray) -> usize {
+        array.slots.len()
+    }
+
+    fn slot(array: &ZstdBuffersArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ZstdBuffersArray, idx: usize) -> &str {
+        vortex_panic!("ZstdBuffersArray slot names are dynamic, index {idx}")
+    }
+
+    fn with_slots(array: &mut ZstdBuffersArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        array.slots = slots;
+        Ok(())
     }
 
     fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
@@ -442,8 +465,8 @@ impl VTable for ZstdBuffersVTable {
     ) -> VortexResult<ZstdBuffersArray> {
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
-        let child_arrays: Vec<ArrayRef> = (0..children.len())
-            .map(|i| children.get(i, dtype, len))
+        let child_arrays: Vec<Option<ArrayRef>> = (0..children.len())
+            .map(|i| children.get(i, dtype, len).map(Some))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let array = ZstdBuffersArray {
@@ -452,7 +475,7 @@ impl VTable for ZstdBuffersVTable {
             compressed_buffers,
             uncompressed_sizes: metadata.0.uncompressed_sizes.clone(),
             buffer_alignments: metadata.0.buffer_alignments.clone(),
-            children: child_arrays,
+            slots: child_arrays,
             dtype: dtype.clone(),
             len,
             stats_set: Default::default(),
@@ -463,7 +486,7 @@ impl VTable for ZstdBuffersVTable {
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        array.children = children;
+        array.slots = children.into_iter().map(Some).collect();
         Ok(())
     }
 

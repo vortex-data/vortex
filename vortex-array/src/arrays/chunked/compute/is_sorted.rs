@@ -52,7 +52,7 @@ fn is_sorted_impl(
     }
 
     for chunk in array.chunks() {
-        match reentry_fn(chunk)? {
+        match reentry_fn(&chunk)? {
             None => {
                 return Ok(None);
             }

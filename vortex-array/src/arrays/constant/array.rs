@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::ArrayRef;
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
+
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
     pub(super) scalar: Scalar,
     pub(super) len: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -20,6 +25,7 @@ impl ConstantArray {
         Self {
             scalar,
             len,
+            slots: vec![],
             stats_set: Default::default(),
         }
     }

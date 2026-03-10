@@ -74,7 +74,7 @@ impl VTable for RunEndVTable {
     }
 
     fn dtype(array: &RunEndArray) -> &DType {
-        array.values.dtype()
+        array.values().dtype()
     }
 
     fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
@@ -82,15 +82,15 @@ impl VTable for RunEndVTable {
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
-        array.ends.array_hash(state, precision);
-        array.values.array_hash(state, precision);
+        array.ends().array_hash(state, precision);
+        array.values().array_hash(state, precision);
         array.offset.hash(state);
         array.length.hash(state);
     }
 
     fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
-        array.ends.array_eq(&other.ends, precision)
-            && array.values.array_eq(&other.values, precision)
+        array.ends().array_eq(other.ends(), precision)
+            && array.values().array_eq(other.values(), precision)
             && array.offset == other.offset
             && array.length == other.length
     }
@@ -172,6 +172,29 @@ impl VTable for RunEndVTable {
         )
     }
 
+    fn nslots(_array: &RunEndArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &RunEndArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &RunEndArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut RunEndArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "RunEndArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 2,
@@ -180,8 +203,10 @@ impl VTable for RunEndVTable {
         );
 
         let mut children_iter = children.into_iter();
-        array.ends = children_iter.next().vortex_expect("ends child");
-        array.values = children_iter.next().vortex_expect("values child");
+        array.slots = vec![
+            Some(children_iter.next().vortex_expect("ends child")),
+            Some(children_iter.next().vortex_expect("values child")),
+        ];
 
         Ok(())
     }
@@ -208,10 +233,14 @@ impl VTable for RunEndVTable {
     }
 }
 
+pub(super) const ENDS_SLOT: usize = 0;
+pub(super) const VALUES_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["ends", "values"];
+
 #[derive(Clone, Debug)]
 pub struct RunEndArray {
-    ends: ArrayRef,
-    values: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     offset: usize,
     length: usize,
     stats_set: ArrayStats,
@@ -362,8 +391,7 @@ impl RunEndArray {
         Self::validate(&ends, &values, offset, length)?;
 
         Ok(Self {
-            ends,
-            values,
+            slots: vec![Some(ends), Some(values)],
             offset,
             length,
             stats_set: Default::default(),
@@ -385,8 +413,7 @@ impl RunEndArray {
         length: usize,
     ) -> Self {
         Self {
-            ends,
-            values,
+            slots: vec![Some(ends), Some(values)],
             offset,
             length,
             stats_set: Default::default(),
@@ -437,7 +464,9 @@ impl RunEndArray {
     /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
     #[inline]
     pub fn ends(&self) -> &ArrayRef {
-        &self.ends
+        self.slots[ENDS_SLOT]
+            .as_ref()
+            .vortex_expect("RunEndArray ends slot")
     }
 
     /// The scalar values.
@@ -446,15 +475,21 @@ impl RunEndArray {
     /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
     #[inline]
     pub fn values(&self) -> &ArrayRef {
-        &self.values
+        self.slots[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("RunEndArray values slot")
     }
 
     /// Split an `RunEndArray` into parts.
     #[inline]
     pub fn into_parts(self) -> RunEndArrayParts {
         RunEndArrayParts {
-            ends: self.ends,
-            values: self.values,
+            ends: self.slots[ENDS_SLOT]
+                .clone()
+                .vortex_expect("RunEndArray ends slot"),
+            values: self.slots[VALUES_SLOT]
+                .clone()
+                .vortex_expect("RunEndArray values slot"),
         }
     }
 }

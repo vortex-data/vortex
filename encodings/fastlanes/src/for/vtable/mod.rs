@@ -21,6 +21,7 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -28,6 +29,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRArray;
+use crate::r#for::array::NUM_SLOTS;
+use crate::r#for::array::SLOT_NAMES;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
@@ -104,17 +107,39 @@ impl VTable for FoRVTable {
         }
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // FoRArray children order (from visit_children):
-        // 1. encoded
+    fn nslots(_array: &FoRArray) -> usize {
+        NUM_SLOTS
+    }
 
+    fn slot(array: &FoRArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &FoRArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut FoRArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "FoRArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "Expected 1 child for FoR encoding, got {}",
             children.len()
         );
 
-        array.encoded = children[0].clone();
+        array.slots = vec![Some(
+            children.into_iter().next().vortex_expect("encoded child"),
+        )];
 
         Ok(())
     }

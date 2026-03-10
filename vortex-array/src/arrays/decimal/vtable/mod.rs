@@ -18,6 +18,8 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
+use crate::arrays::decimal::array::NUM_SLOTS;
+use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -185,6 +187,29 @@ impl VTable for DecimalVTable {
             );
             DecimalArray::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
         })
+    }
+
+    fn nslots(_array: &DecimalArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &DecimalArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("DecimalArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &DecimalArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("DecimalArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut DecimalArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "DecimalArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

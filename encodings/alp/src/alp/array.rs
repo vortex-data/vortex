@@ -59,7 +59,7 @@ impl VTable for ALPVTable {
     }
 
     fn len(array: &ALPArray) -> usize {
-        array.encoded.len()
+        array.encoded().len()
     }
 
     fn dtype(array: &ALPArray) -> &DType {
@@ -72,14 +72,14 @@ impl VTable for ALPVTable {
 
     fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
+        array.encoded().array_hash(state, precision);
         array.exponents.hash(state);
         array.patches.array_hash(state, precision);
     }
 
     fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.encoded.array_eq(&other.encoded, precision)
+            && array.encoded().array_eq(other.encoded(), precision)
             && array.exponents == other.exponents
             && array.patches.array_eq(&other.patches, precision)
     }
@@ -94,6 +94,29 @@ impl VTable for ALPVTable {
 
     fn buffer_name(_array: &ALPArray, _idx: usize) -> Option<String> {
         None
+    }
+
+    fn nslots(_array: &ALPArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &ALPArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ALPArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut ALPArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ALPArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn nchildren(array: &ALPArray) -> usize {
@@ -210,9 +233,11 @@ impl VTable for ALPVTable {
         );
 
         let mut children_iter = children.into_iter();
-        array.encoded = children_iter
-            .next()
-            .ok_or_else(|| vortex_err!("Expected encoded child"))?;
+        array.slots[ENCODED_SLOT] = Some(
+            children_iter
+                .next()
+                .ok_or_else(|| vortex_err!("Expected encoded child"))?,
+        );
 
         if let Some((array_len, offset, _has_chunk_offsets)) = patches_info {
             let indices = children_iter
@@ -260,9 +285,13 @@ impl VTable for ALPVTable {
     }
 }
 
+pub(super) const ENCODED_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
+
 #[derive(Clone, Debug)]
 pub struct ALPArray {
-    encoded: ArrayRef,
+    slots: Vec<Option<ArrayRef>>,
     patches: Option<Patches>,
     dtype: DType,
     exponents: Exponents,
@@ -433,7 +462,7 @@ impl ALPArray {
 
         Ok(Self {
             dtype,
-            encoded,
+            slots: vec![Some(encoded)],
             exponents,
             patches,
             stats_set: Default::default(),
@@ -452,7 +481,7 @@ impl ALPArray {
     ) -> Self {
         Self {
             dtype,
-            encoded,
+            slots: vec![Some(encoded)],
             exponents,
             patches,
             stats_set: Default::default(),
@@ -464,7 +493,9 @@ impl ALPArray {
     }
 
     pub fn encoded(&self) -> &ArrayRef {
-        &self.encoded
+        self.slots[ENCODED_SLOT]
+            .as_ref()
+            .vortex_expect("ALPArray encoded slot")
     }
 
     #[inline]
@@ -479,7 +510,13 @@ impl ALPArray {
     /// Consumes the array and returns its parts.
     #[inline]
     pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
-        (self.encoded, self.exponents, self.patches, self.dtype)
+        let encoded = self
+            .slots
+            .into_iter()
+            .next()
+            .flatten()
+            .vortex_expect("ALPArray encoded slot");
+        (encoded, self.exponents, self.patches, self.dtype)
     }
 }
 

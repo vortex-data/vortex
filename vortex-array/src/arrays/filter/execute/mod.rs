@@ -60,7 +60,7 @@ pub(super) fn execute_filter_fast_paths(
 
     // If the mask selects everything, then we can just fully decompress the whole thing.
     if true_count == array.mask.len() {
-        return Ok(Some(array.child.clone()));
+        return Ok(Some(array.child().clone()));
     }
 
     // Also check if the array itself is completely null, in which case we only care about the total

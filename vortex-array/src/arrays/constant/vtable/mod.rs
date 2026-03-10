@@ -17,6 +17,8 @@ use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
+use crate::arrays::constant::array::NUM_SLOTS;
+use crate::arrays::constant::array::SLOT_NAMES;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -117,6 +119,30 @@ impl VTable for ConstantVTable {
 
     fn child_name(_array: &ConstantArray, idx: usize) -> String {
         vortex_panic!("ConstantArray child_name index {idx} out of bounds")
+    }
+
+    fn nslots(_array: &ConstantArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &ConstantArray, idx: usize) -> &Option<ArrayRef> {
+        let _ = SLOT_NAMES;
+        vortex_panic!("ConstantArray slot index {idx} out of bounds")
+    }
+
+    fn slot_name(_array: &ConstantArray, idx: usize) -> &str {
+        vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
+    }
+
+    fn with_slots(array: &mut ConstantArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ConstantArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {

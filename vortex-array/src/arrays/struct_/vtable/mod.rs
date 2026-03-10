@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use itertools::Itertools;
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -66,7 +64,7 @@ impl VTable for StructVTable {
     fn array_hash<H: std::hash::Hasher>(array: &StructArray, state: &mut H, precision: Precision) {
         array.len.hash(state);
         array.dtype.hash(state);
-        for field in array.fields.iter() {
+        for field in array.unmasked_fields().iter() {
             field.array_hash(state, precision);
         }
         array.validity.array_hash(state, precision);
@@ -75,11 +73,11 @@ impl VTable for StructVTable {
     fn array_eq(array: &StructArray, other: &StructArray, precision: Precision) -> bool {
         array.len == other.len
             && array.dtype == other.dtype
-            && array.fields.len() == other.fields.len()
+            && array.slots.len() == other.slots.len()
             && array
-                .fields
+                .unmasked_fields()
                 .iter()
-                .zip(other.fields.iter())
+                .zip(other.unmasked_fields().iter())
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.validity.array_eq(&other.validity, precision)
     }
@@ -97,7 +95,7 @@ impl VTable for StructVTable {
     }
 
     fn nchildren(array: &StructArray) -> usize {
-        validity_nchildren(&array.validity) + array.unmasked_fields().len()
+        validity_nchildren(&array.validity) + array.slots.len()
     }
 
     fn child(array: &StructArray, idx: usize) -> ArrayRef {
@@ -106,7 +104,10 @@ impl VTable for StructVTable {
             validity_to_child(&array.validity, array.len())
                 .vortex_expect("StructArray validity child out of bounds")
         } else {
-            array.unmasked_fields()[idx - vc].clone()
+            array.slots[idx - vc]
+                .as_ref()
+                .vortex_expect("StructArray field slot")
+                .clone()
         }
     }
 
@@ -175,6 +176,23 @@ impl VTable for StructVTable {
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
+    fn nslots(array: &StructArray) -> usize {
+        array.slots.len()
+    }
+
+    fn slot(array: &StructArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(array: &StructArray, idx: usize) -> &str {
+        array.names()[idx].as_ref()
+    }
+
+    fn with_slots(array: &mut StructArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         let DType::Struct(struct_dtype, _nullability) = &array.dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", array.dtype)
@@ -194,15 +212,19 @@ impl VTable for StructVTable {
             );
         };
 
-        let fields: Arc<[ArrayRef]> = children.into_iter().skip(non_data_children).collect();
+        let slots: Vec<Option<ArrayRef>> = children
+            .into_iter()
+            .skip(non_data_children)
+            .map(Some)
+            .collect();
         vortex_ensure!(
-            fields.len() == struct_dtype.nfields(),
+            slots.len() == struct_dtype.nfields(),
             "Expected {} field children, found {}",
             struct_dtype.nfields(),
-            fields.len()
+            slots.len()
         );
 
-        array.fields = fields;
+        array.slots = slots;
         array.validity = validity;
         Ok(())
     }

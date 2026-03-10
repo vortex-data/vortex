@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -15,6 +16,8 @@ use crate::ExecutionCtx;
 use crate::ExecutionStep;
 use crate::Precision;
 use crate::arrays::SharedArray;
+use crate::arrays::shared::array::NUM_SLOTS;
+use crate::arrays::shared::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
@@ -102,6 +105,29 @@ impl VTable for SharedVTable {
         }
     }
 
+    fn nslots(_array: &SharedArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &SharedArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &SharedArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "SharedArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
@@ -132,7 +158,7 @@ impl VTable for SharedVTable {
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_error::vortex_ensure!(
+        vortex_ensure!(
             children.len() == 1,
             "SharedArray expects exactly 1 child, got {}",
             children.len()

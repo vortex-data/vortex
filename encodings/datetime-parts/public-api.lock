@@ -196,13 +196,21 @@ pub fn vortex_datetime_parts::DateTimePartsVTable::nbuffers(_array: &vortex_date
 
 pub fn vortex_datetime_parts::DateTimePartsVTable::nchildren(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
 
+pub fn vortex_datetime_parts::DateTimePartsVTable::nslots(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_datetime_parts::DateTimePartsVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_datetime_parts::DateTimePartsVTable::slot(array: &vortex_datetime_parts::DateTimePartsArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_datetime_parts::DateTimePartsVTable::slot_name(_array: &vortex_datetime_parts::DateTimePartsArray, idx: usize) -> &str
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::stats(array: &vortex_datetime_parts::DateTimePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_datetime_parts::DateTimePartsVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datetime_parts::DateTimePartsVTable::with_slots(array: &mut vortex_datetime_parts::DateTimePartsArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_datetime_parts::DateTimePartsVTable> for vortex_datetime_parts::DateTimePartsVTable
 

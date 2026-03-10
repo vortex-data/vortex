@@ -256,13 +256,21 @@ pub fn vortex_fastlanes::BitPackedVTable::nbuffers(_array: &vortex_fastlanes::Bi
 
 pub fn vortex_fastlanes::BitPackedVTable::nchildren(array: &vortex_fastlanes::BitPackedArray) -> usize
 
+pub fn vortex_fastlanes::BitPackedVTable::nslots(_array: &vortex_fastlanes::BitPackedArray) -> usize
+
 pub fn vortex_fastlanes::BitPackedVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::BitPackedVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_fastlanes::BitPackedVTable::slot(_array: &vortex_fastlanes::BitPackedArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_fastlanes::BitPackedVTable::slot_name(_array: &vortex_fastlanes::BitPackedArray, idx: usize) -> &str
+
 pub fn vortex_fastlanes::BitPackedVTable::stats(array: &vortex_fastlanes::BitPackedArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_fastlanes::BitPackedVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_fastlanes::BitPackedVTable::with_slots(array: &mut vortex_fastlanes::BitPackedArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::BitPackedVTable> for vortex_fastlanes::BitPackedVTable
 
@@ -384,13 +392,21 @@ pub fn vortex_fastlanes::DeltaVTable::nbuffers(_array: &vortex_fastlanes::DeltaA
 
 pub fn vortex_fastlanes::DeltaVTable::nchildren(_array: &vortex_fastlanes::DeltaArray) -> usize
 
+pub fn vortex_fastlanes::DeltaVTable::nslots(_array: &vortex_fastlanes::DeltaArray) -> usize
+
 pub fn vortex_fastlanes::DeltaVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::DeltaVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_fastlanes::DeltaVTable::slot(array: &vortex_fastlanes::DeltaArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_fastlanes::DeltaVTable::slot_name(_array: &vortex_fastlanes::DeltaArray, idx: usize) -> &str
+
 pub fn vortex_fastlanes::DeltaVTable::stats(array: &vortex_fastlanes::DeltaArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_fastlanes::DeltaVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_fastlanes::DeltaVTable::with_slots(array: &mut vortex_fastlanes::DeltaArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::DeltaVTable> for vortex_fastlanes::DeltaVTable
 
@@ -524,13 +540,21 @@ pub fn vortex_fastlanes::FoRVTable::nbuffers(_array: &vortex_fastlanes::FoRArray
 
 pub fn vortex_fastlanes::FoRVTable::nchildren(_array: &vortex_fastlanes::FoRArray) -> usize
 
+pub fn vortex_fastlanes::FoRVTable::nslots(_array: &vortex_fastlanes::FoRArray) -> usize
+
 pub fn vortex_fastlanes::FoRVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::FoRVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_fastlanes::FoRVTable::slot(array: &vortex_fastlanes::FoRArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_fastlanes::FoRVTable::slot_name(_array: &vortex_fastlanes::FoRArray, idx: usize) -> &str
+
 pub fn vortex_fastlanes::FoRVTable::stats(array: &vortex_fastlanes::FoRArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_fastlanes::FoRVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_fastlanes::FoRVTable::with_slots(array: &mut vortex_fastlanes::FoRArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::FoRVTable> for vortex_fastlanes::FoRVTable
 
@@ -660,13 +684,21 @@ pub fn vortex_fastlanes::RLEVTable::nbuffers(_array: &vortex_fastlanes::RLEArray
 
 pub fn vortex_fastlanes::RLEVTable::nchildren(_array: &vortex_fastlanes::RLEArray) -> usize
 
+pub fn vortex_fastlanes::RLEVTable::nslots(array: &vortex_fastlanes::RLEArray) -> usize
+
 pub fn vortex_fastlanes::RLEVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::RLEVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_fastlanes::RLEVTable::slot(array: &vortex_fastlanes::RLEArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_fastlanes::RLEVTable::slot_name(_array: &vortex_fastlanes::RLEArray, idx: usize) -> &str
+
 pub fn vortex_fastlanes::RLEVTable::stats(array: &vortex_fastlanes::RLEArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_fastlanes::RLEVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_fastlanes::RLEVTable::with_slots(array: &mut vortex_fastlanes::RLEArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::RLEVTable> for vortex_fastlanes::RLEVTable
 

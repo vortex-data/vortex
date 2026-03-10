@@ -216,6 +216,29 @@ impl VTable for SparseVTable {
         )
     }
 
+    fn nslots(_array: &SparseArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &SparseArray, idx: usize) -> &Option<ArrayRef> {
+        vortex_panic!("SparseArray has no slots, requested index {idx}")
+    }
+
+    fn slot_name(_array: &SparseArray, idx: usize) -> &str {
+        let _ = SLOT_NAMES;
+        vortex_panic!("SparseArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut SparseArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "SparseArray expects 0 slots, got {}",
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure_eq!(
             children.len(),
@@ -261,8 +284,12 @@ impl VTable for SparseVTable {
     }
 }
 
+pub(crate) const NUM_SLOTS: usize = 0;
+pub(crate) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 pub struct SparseArray {
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     patches: Patches,
     fill_value: Scalar,
     stats_set: ArrayStats,
@@ -308,6 +335,7 @@ impl SparseArray {
         }
 
         Ok(Self {
+            slots: vec![],
             // TODO(0ax1): handle chunk offsets
             patches: Patches::new(len, 0, indices, values, None)?,
             fill_value,
@@ -326,6 +354,7 @@ impl SparseArray {
         );
 
         Ok(Self {
+            slots: vec![],
             patches,
             fill_value,
             stats_set: Default::default(),
@@ -334,6 +363,7 @@ impl SparseArray {
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
         Self {
+            slots: vec![],
             patches,
             fill_value,
             stats_set: Default::default(),

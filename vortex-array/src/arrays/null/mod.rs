@@ -28,6 +28,9 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
+const NUM_SLOTS: usize = 0;
+const SLOT_NAMES: [&str; 0] = [];
+
 pub(crate) mod compute;
 
 vtable!(Null);
@@ -85,6 +88,30 @@ impl VTable for NullVTable {
 
     fn child_name(_array: &NullArray, idx: usize) -> String {
         vortex_panic!("NullArray child_name index {idx} out of bounds")
+    }
+
+    fn nslots(_array: &NullArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(_array: &NullArray, idx: usize) -> &Option<ArrayRef> {
+        let _ = SLOT_NAMES;
+        vortex_panic!("NullArray slot index {idx} out of bounds")
+    }
+
+    fn slot_name(_array: &NullArray, idx: usize) -> &str {
+        vortex_panic!("NullArray slot_name index {idx} out of bounds")
+    }
+
+    fn with_slots(array: &mut NullArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "NullArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -167,6 +194,7 @@ impl VTable for NullVTable {
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
+    slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -181,6 +209,7 @@ impl NullArray {
     pub fn new(len: usize) -> Self {
         Self {
             len,
+            slots: vec![],
             stats_set: Default::default(),
         }
     }

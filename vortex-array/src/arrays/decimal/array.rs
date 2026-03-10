@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
@@ -27,6 +28,9 @@ use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
+
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A decimal array that stores fixed-precision decimal numbers with configurable scale.
 ///
@@ -87,6 +91,7 @@ use crate::vtable::ValidityHelper;
 /// ```
 #[derive(Clone, Debug)]
 pub struct DecimalArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
@@ -223,6 +228,7 @@ impl DecimalArray {
         }
 
         Self {
+            slots: vec![],
             values,
             values_type,
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),

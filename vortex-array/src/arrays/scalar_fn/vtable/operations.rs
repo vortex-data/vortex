@@ -18,7 +18,7 @@ use crate::vtable::OperationsVTable;
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn scalar_at(array: &ScalarFnArray, index: usize) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
-            .children
+            .children()
             .iter()
             .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
             .collect::<VortexResult<_>>()?;

@@ -20,11 +20,15 @@ use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
+pub(super) const OFFSETS_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets"];
+
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
     pub(super) dtype: DType,
     pub(super) bytes: BufferHandle,
-    pub(super) offsets: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
@@ -157,7 +161,7 @@ impl VarBinArray {
         Self {
             dtype,
             bytes,
-            offsets,
+            slots: vec![Some(offsets)],
             validity,
             stats_set: Default::default(),
         }
@@ -259,7 +263,9 @@ impl VarBinArray {
 
     #[inline]
     pub fn offsets(&self) -> &ArrayRef {
-        &self.offsets
+        self.slots[OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("VarBinArray offsets slot")
     }
 
     /// Access the value bytes child buffer
@@ -371,7 +377,10 @@ impl VarBinArray {
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(self) -> (DType, BufferHandle, ArrayRef, Validity) {
-        (self.dtype, self.bytes, self.offsets, self.validity)
+        let offsets = self.slots[OFFSETS_SLOT]
+            .clone()
+            .vortex_expect("VarBinArray offsets slot");
+        (self.dtype, self.bytes, offsets, self.validity)
     }
 }
 

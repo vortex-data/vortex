@@ -24,7 +24,7 @@ impl SliceReduce for ScalarFnVTable {
                 scalar_fn: array.scalar_fn.clone(),
                 dtype: array.dtype.clone(),
                 len: range.len(),
-                children,
+                slots: children.into_iter().map(Some).collect(),
                 stats: Default::default(),
             }
             .into_array(),

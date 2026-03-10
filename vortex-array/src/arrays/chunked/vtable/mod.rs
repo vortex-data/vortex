@@ -74,8 +74,11 @@ impl VTable for ChunkedVTable {
     fn array_hash<H: std::hash::Hasher>(array: &ChunkedArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.len.hash(state);
-        array.chunk_offsets.as_ref().array_hash(state, precision);
-        for chunk in &array.chunks {
+        array
+            .chunk_offsets_array()
+            .as_ref()
+            .array_hash(state, precision);
+        for chunk in array.chunks() {
             chunk.array_hash(state, precision);
         }
     }
@@ -84,14 +87,14 @@ impl VTable for ChunkedVTable {
         array.dtype == other.dtype
             && array.len == other.len
             && array
-                .chunk_offsets
+                .chunk_offsets_array()
                 .as_ref()
-                .array_eq(other.chunk_offsets.as_ref(), precision)
-            && array.chunks.len() == other.chunks.len()
+                .array_eq(other.chunk_offsets_array().as_ref(), precision)
+            && array.nchunks() == other.nchunks()
             && array
-                .chunks
+                .chunks()
                 .iter()
-                .zip(&other.chunks)
+                .zip(other.chunks().iter())
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
@@ -113,7 +116,7 @@ impl VTable for ChunkedVTable {
 
     fn child(array: &ChunkedArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.chunk_offsets.clone().into_array(),
+            0 => array.chunk_offsets_array().into_array(),
             n => array.chunks()[n - 1].clone(),
         }
     }
@@ -169,7 +172,7 @@ impl VTable for ChunkedVTable {
         let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         // The remaining children contain the actual data of the chunks
-        let chunks = chunk_offsets_buf
+        let chunks: Vec<ArrayRef> = chunk_offsets_buf
             .iter()
             .tuple_windows()
             .enumerate()
@@ -188,12 +191,14 @@ impl VTable for ChunkedVTable {
         let len = usize::try_from(*total_len)
             .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
-        // Construct directly using the struct fields to avoid recomputing chunk_offsets
+        // Construct directly using slots to avoid recomputing chunk_offsets
+        let mut slots = Vec::with_capacity(1 + chunks.len());
+        slots.push(Some(chunk_offsets.into_array()));
+        slots.extend(chunks.into_iter().map(Some));
         Ok(ChunkedArray {
             dtype: dtype.clone(),
             len,
-            chunk_offsets,
-            chunks,
+            slots,
             stats_set: Default::default(),
         })
     }
@@ -216,9 +221,12 @@ impl VTable for ChunkedVTable {
             chunk_offsets_buf.len()
         );
 
-        let chunks = children.into_iter().skip(1).collect();
-        array.chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable);
-        array.chunks = chunks;
+        let mut slots = Vec::with_capacity(children.len());
+        slots.push(Some(
+            PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable).into_array(),
+        ));
+        slots.extend(children.into_iter().skip(1).map(Some));
+        array.slots = slots;
 
         let total_len = chunk_offsets_buf
             .last()
@@ -244,10 +252,30 @@ impl VTable for ChunkedVTable {
         Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
     }
 
+    fn nslots(array: &ChunkedArray) -> usize {
+        array.slots.len()
+    }
+
+    fn slot(array: &ChunkedArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ChunkedArray, idx: usize) -> &str {
+        match idx {
+            0 => "chunk_offsets",
+            _ => "chunk",
+        }
+    }
+
+    fn with_slots(array: &mut ChunkedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        array.slots = slots;
+        Ok(())
+    }
+
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
-        Ok(match array.chunks.len() {
+        Ok(match array.nchunks() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
-            1 => Some(array.chunks[0].clone()),
+            1 => Some(array.chunk(0).clone()),
             _ => None,
         })
     }

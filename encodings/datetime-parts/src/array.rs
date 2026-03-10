@@ -83,7 +83,7 @@ impl VTable for DateTimePartsVTable {
     }
 
     fn len(array: &DateTimePartsArray) -> usize {
-        array.days.len()
+        array.days().len()
     }
 
     fn dtype(array: &DateTimePartsArray) -> &DType {
@@ -100,9 +100,9 @@ impl VTable for DateTimePartsVTable {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.days.array_hash(state, precision);
-        array.seconds.array_hash(state, precision);
-        array.subseconds.array_hash(state, precision);
+        array.days().array_hash(state, precision);
+        array.seconds().array_hash(state, precision);
+        array.subseconds().array_hash(state, precision);
     }
 
     fn array_eq(
@@ -111,9 +111,9 @@ impl VTable for DateTimePartsVTable {
         precision: Precision,
     ) -> bool {
         array.dtype == other.dtype
-            && array.days.array_eq(&other.days, precision)
-            && array.seconds.array_eq(&other.seconds, precision)
-            && array.subseconds.array_eq(&other.subseconds, precision)
+            && array.days().array_eq(other.days(), precision)
+            && array.seconds().array_eq(other.seconds(), precision)
+            && array.subseconds().array_eq(other.subseconds(), precision)
     }
 
     fn nbuffers(_array: &DateTimePartsArray) -> usize {
@@ -207,6 +207,32 @@ impl VTable for DateTimePartsVTable {
         DateTimePartsArray::try_new(dtype.clone(), days, seconds, subseconds)
     }
 
+    fn nslots(_array: &DateTimePartsArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &DateTimePartsArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &DateTimePartsArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(
+        array: &mut DateTimePartsArray,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "DateTimePartsArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 3,
@@ -215,9 +241,11 @@ impl VTable for DateTimePartsVTable {
         );
 
         let mut children_iter = children.into_iter();
-        array.days = children_iter.next().vortex_expect("checked");
-        array.seconds = children_iter.next().vortex_expect("checked");
-        array.subseconds = children_iter.next().vortex_expect("checked");
+        array.slots = vec![
+            Some(children_iter.next().vortex_expect("days child")),
+            Some(children_iter.next().vortex_expect("seconds child")),
+            Some(children_iter.next().vortex_expect("subseconds child")),
+        ];
 
         Ok(())
     }
@@ -246,12 +274,16 @@ impl VTable for DateTimePartsVTable {
     }
 }
 
+pub(super) const DAYS_SLOT: usize = 0;
+pub(super) const SECONDS_SLOT: usize = 1;
+pub(super) const SUBSECONDS_SLOT: usize = 2;
+pub(super) const NUM_SLOTS: usize = 3;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["days", "seconds", "subseconds"];
+
 #[derive(Clone, Debug)]
 pub struct DateTimePartsArray {
     dtype: DType,
-    days: ArrayRef,
-    seconds: ArrayRef,
-    subseconds: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -303,9 +335,7 @@ impl DateTimePartsArray {
 
         Ok(Self {
             dtype,
-            days,
-            seconds,
-            subseconds,
+            slots: vec![Some(days), Some(seconds), Some(subseconds)],
             stats_set: Default::default(),
         })
     }
@@ -318,9 +348,7 @@ impl DateTimePartsArray {
     ) -> Self {
         Self {
             dtype,
-            days,
-            seconds,
-            subseconds,
+            slots: vec![Some(days), Some(seconds), Some(subseconds)],
             stats_set: Default::default(),
         }
     }
@@ -328,22 +356,34 @@ impl DateTimePartsArray {
     pub fn into_parts(self) -> DateTimePartsArrayParts {
         DateTimePartsArrayParts {
             dtype: self.dtype,
-            days: self.days,
-            seconds: self.seconds,
-            subseconds: self.subseconds,
+            days: self.slots[DAYS_SLOT]
+                .clone()
+                .vortex_expect("DateTimePartsArray days slot"),
+            seconds: self.slots[SECONDS_SLOT]
+                .clone()
+                .vortex_expect("DateTimePartsArray seconds slot"),
+            subseconds: self.slots[SUBSECONDS_SLOT]
+                .clone()
+                .vortex_expect("DateTimePartsArray subseconds slot"),
         }
     }
 
     pub fn days(&self) -> &ArrayRef {
-        &self.days
+        self.slots[DAYS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray days slot")
     }
 
     pub fn seconds(&self) -> &ArrayRef {
-        &self.seconds
+        self.slots[SECONDS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray seconds slot")
     }
 
     pub fn subseconds(&self) -> &ArrayRef {
-        &self.subseconds
+        self.slots[SUBSECONDS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray subseconds slot")
     }
 }
 

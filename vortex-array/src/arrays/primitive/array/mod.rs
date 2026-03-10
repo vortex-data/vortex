@@ -31,7 +31,11 @@ mod top_value;
 pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
+use crate::ArrayRef;
 use crate::buffer::BufferHandle;
+
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
@@ -70,6 +74,7 @@ use crate::buffer::BufferHandle;
 /// ```
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
@@ -96,6 +101,7 @@ impl PrimitiveArray {
         validity: Validity,
     ) -> Self {
         Self {
+            slots: vec![],
             buffer: handle,
             dtype: DType::Primitive(ptype, validity.nullability()),
             validity,
@@ -149,6 +155,7 @@ impl PrimitiveArray {
             .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
 
         Self {
+            slots: vec![],
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
             validity,
@@ -204,6 +211,7 @@ impl PrimitiveArray {
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
         let dtype = DType::Primitive(ptype, validity.nullability());
         Self {
+            slots: vec![],
             buffer: handle,
             dtype,
             validity,

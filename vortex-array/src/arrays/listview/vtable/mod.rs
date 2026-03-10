@@ -19,6 +19,8 @@ use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::array::NUM_SLOTS;
+use crate::arrays::listview::array::SLOT_NAMES;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -209,6 +211,29 @@ impl VTable for ListViewVTable {
         )?;
 
         ListViewArray::try_new(elements, offsets, sizes, validity)
+    }
+
+    fn nslots(_array: &ListViewArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &ListViewArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &ListViewArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut ListViewArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ListViewArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

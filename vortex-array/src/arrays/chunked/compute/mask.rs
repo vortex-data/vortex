@@ -22,7 +22,7 @@ impl MaskKernel for ChunkedVTable {
         let chunk_offsets = array.chunk_offsets();
         let new_chunks: Vec<ArrayRef> = array
             .chunks()
-            .iter()
+            .into_iter()
             .enumerate()
             .map(|(i, chunk)| {
                 let start: usize = chunk_offsets[i].try_into()?;

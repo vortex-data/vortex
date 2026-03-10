@@ -20,6 +20,8 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
+use crate::arrays::masked::array::NUM_SLOTS;
+use crate::arrays::masked::array::SLOT_NAMES;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -59,7 +61,7 @@ impl VTable for MaskedVTable {
     }
 
     fn len(array: &MaskedArray) -> usize {
-        array.child.len()
+        array.child().len()
     }
 
     fn dtype(array: &MaskedArray) -> &DType {
@@ -71,13 +73,13 @@ impl VTable for MaskedVTable {
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
+        array.child().array_hash(state, precision);
         array.validity.array_hash(state, precision);
         array.dtype.hash(state);
     }
 
     fn array_eq(array: &MaskedArray, other: &MaskedArray, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision)
+        array.child().array_eq(other.child(), precision)
             && array.validity.array_eq(&other.validity, precision)
             && array.dtype == other.dtype
     }
@@ -100,8 +102,8 @@ impl VTable for MaskedVTable {
 
     fn child(array: &Self::Array, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.child.clone(),
-            1 => validity_to_child(&array.validity, array.child.len())
+            0 => array.child().clone(),
+            1 => validity_to_child(&array.validity, array.child().len())
                 .vortex_expect("MaskedArray validity child out of bounds"),
             _ => vortex_panic!("MaskedArray child index {idx} out of bounds"),
         }
@@ -190,6 +192,29 @@ impl VTable for MaskedVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn nslots(_array: &MaskedArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &MaskedArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &MaskedArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(array: &mut MaskedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "MaskedArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

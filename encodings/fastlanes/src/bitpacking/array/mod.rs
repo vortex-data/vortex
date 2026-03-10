@@ -23,6 +23,9 @@ use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked;
 use crate::unpack_iter::BitUnpackedChunks;
 
+pub(super) const NUM_SLOTS: usize = 0;
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 pub struct BitPackedArrayParts {
     pub offset: u16,
     pub bit_width: u8,
@@ -34,6 +37,7 @@ pub struct BitPackedArrayParts {
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
@@ -77,6 +81,7 @@ impl BitPackedArray {
         offset: u16,
     ) -> Self {
         Self {
+            slots: vec![],
             offset,
             len,
             dtype,

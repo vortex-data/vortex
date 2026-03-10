@@ -78,7 +78,7 @@ pub(super) fn to_arrow_struct(
         };
         return create_from_fields(
             target_fields.ok_or_else(|| struct_fields.names().clone()),
-            array.children(),
+            &array.children(),
             None, // Pack is never null,
             len,
             ctx,

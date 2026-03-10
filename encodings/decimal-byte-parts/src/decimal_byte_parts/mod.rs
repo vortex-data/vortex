@@ -70,7 +70,7 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn len(array: &DecimalBytePartsArray) -> usize {
-        array.msp.len()
+        array.msp().len()
     }
 
     fn dtype(array: &DecimalBytePartsArray) -> &DType {
@@ -87,7 +87,7 @@ impl VTable for DecimalBytePartsVTable {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.msp.array_hash(state, precision);
+        array.msp().array_hash(state, precision);
     }
 
     fn array_eq(
@@ -95,7 +95,7 @@ impl VTable for DecimalBytePartsVTable {
         other: &DecimalBytePartsArray,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
+        array.dtype == other.dtype && array.msp().array_eq(other.msp(), precision)
     }
 
     fn nbuffers(_array: &DecimalBytePartsArray) -> usize {
@@ -116,7 +116,7 @@ impl VTable for DecimalBytePartsVTable {
 
     fn child(array: &DecimalBytePartsArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.msp.clone(),
+            0 => array.msp().clone(),
             _ => vortex_panic!("DecimalBytePartsArray child index {idx} out of bounds"),
         }
     }
@@ -130,7 +130,7 @@ impl VTable for DecimalBytePartsVTable {
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DecimalBytesPartsMetadata {
-            zeroth_child_ptype: PType::try_from(array.msp.dtype())? as i32,
+            zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
             lower_part_count: 0,
         }))
     }
@@ -172,13 +172,39 @@ impl VTable for DecimalBytePartsVTable {
         DecimalBytePartsArray::try_new(msp, *decimal_dtype)
     }
 
+    fn nslots(_array: &DecimalBytePartsArray) -> usize {
+        NUM_SLOTS
+    }
+
+    fn slot(array: &DecimalBytePartsArray, idx: usize) -> &Option<ArrayRef> {
+        &array.slots[idx]
+    }
+
+    fn slot_name(_array: &DecimalBytePartsArray, idx: usize) -> &str {
+        SLOT_NAMES[idx]
+    }
+
+    fn with_slots(
+        array: &mut DecimalBytePartsArray,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "DecimalBytePartsArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
+    }
+
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "DecimalBytePartsArray expects exactly 1 child (msp), got {}",
             children.len()
         );
-        array.msp = children.into_iter().next().vortex_expect("checked");
+        array.slots = vec![Some(children.into_iter().next().vortex_expect("checked"))];
         Ok(())
     }
 
@@ -204,6 +230,10 @@ impl VTable for DecimalBytePartsVTable {
     }
 }
 
+pub(super) const MSP_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["msp"];
+
 /// This array encodes decimals as between 1-4 columns of primitive typed children.
 /// The most significant part (msp) sorting the most significant decimal bits.
 /// This array must be signed and is nullable iff the decimal is nullable.
@@ -211,7 +241,7 @@ impl VTable for DecimalBytePartsVTable {
 /// e.g. for a decimal i128 \[ 127..64 | 64..0 \] msp = 127..64 and lower_part\[0\] = 64..0
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsArray {
-    msp: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
     //  read/written during serde, but provide no constructor to initialize this to anything
     //  other than the empty Vec.
@@ -234,7 +264,7 @@ impl DecimalBytePartsArray {
 
         let nullable = msp.dtype().nullability();
         Ok(Self {
-            msp,
+            slots: vec![Some(msp)],
             _lower_parts: Vec::new(),
             dtype: DType::Decimal(decimal_dtype, nullable),
             stats_set: Default::default(),
@@ -244,7 +274,7 @@ impl DecimalBytePartsArray {
     pub(crate) unsafe fn new_unchecked(msp: ArrayRef, decimal_dtype: DecimalDType) -> Self {
         let nullable = msp.dtype().nullability();
         Self {
-            msp,
+            slots: vec![Some(msp)],
             _lower_parts: Vec::new(),
             dtype: DType::Decimal(decimal_dtype, nullable),
             stats_set: Default::default(),
@@ -254,7 +284,9 @@ impl DecimalBytePartsArray {
     /// If `_lower_parts` is supported check all calls use this correctly.
     pub fn into_parts(self) -> DecimalBytePartsArrayParts {
         DecimalBytePartsArrayParts {
-            msp: self.msp,
+            msp: self.slots[MSP_SLOT]
+                .clone()
+                .vortex_expect("DecimalBytePartsArray msp slot"),
             dtype: self.dtype,
         }
     }
@@ -266,7 +298,9 @@ impl DecimalBytePartsArray {
     }
 
     pub(crate) fn msp(&self) -> &ArrayRef {
-        &self.msp
+        self.slots[MSP_SLOT]
+            .as_ref()
+            .vortex_expect("DecimalBytePartsArray msp slot")
     }
 }
 
@@ -283,7 +317,7 @@ fn to_canonical_decimal(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // TODO(joe): support parts len != 1
-    let prim = array.msp.clone().execute::<PrimitiveArray>(ctx)?;
+    let prim = array.msp().clone().execute::<PrimitiveArray>(ctx)?;
     // Depending on the decimal type and the min/max of the primitive array we can choose
     // the correct buffer size
 
@@ -304,7 +338,7 @@ fn to_canonical_decimal(
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
-        let scalar = array.msp.scalar_at(index)?;
+        let scalar = array.msp().scalar_at(index)?;
 
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();
@@ -320,7 +354,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn validity_child(array: &DecimalBytePartsArray) -> &ArrayRef {
         // validity stored in 0th child
-        &array.msp
+        array.msp()
     }
 }
 

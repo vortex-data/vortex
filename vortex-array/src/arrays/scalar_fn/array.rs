@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -10,12 +11,14 @@ use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
 use crate::stats::ArrayStats;
 
+// ScalarFnArray has a variable number of slots (one per child)
+
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {
     pub(super) scalar_fn: ScalarFnRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) children: Vec<ArrayRef>,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats: ArrayStats,
 }
 
@@ -30,11 +33,13 @@ impl ScalarFnArray {
             "ScalarFnArray must have children equal to the array length"
         );
 
+        let slots = children.into_iter().map(Some).collect();
+
         Ok(Self {
             scalar_fn: bound,
             dtype,
             len,
-            children,
+            slots,
             stats: Default::default(),
         })
     }
@@ -46,7 +51,10 @@ impl ScalarFnArray {
     }
 
     /// Get the children arrays of this scalar function array.
-    pub fn children(&self) -> &[ArrayRef] {
-        &self.children
+    pub fn children(&self) -> Vec<ArrayRef> {
+        self.slots
+            .iter()
+            .map(|s| s.as_ref().vortex_expect("ScalarFnArray child slot").clone())
+            .collect()
     }
 }

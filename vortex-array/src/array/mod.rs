@@ -366,6 +366,19 @@ impl dyn DynArray + '_ {
         children[child_idx] = replacement;
         self.with_children(children)
     }
+
+    /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
+    pub fn with_slot(&self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
+        vortex_ensure!(
+            slot_idx < self.nslots(),
+            "slot index {} out of bounds for array with {} slots",
+            slot_idx,
+            self.nslots()
+        );
+        let mut slots: Vec<Option<ArrayRef>> = (0..self.nslots()).map(|i| self.slot(i)).collect();
+        slots[slot_idx] = Some(replacement);
+        self.vtable().with_slots(&self.to_array(), slots)
+    }
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -728,6 +741,14 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
 
     fn nbuffers(&self) -> usize {
         V::nbuffers(&self.0)
+    }
+
+    fn nslots(&self) -> usize {
+        V::nslots(&self.0)
+    }
+
+    fn slot(&self, idx: usize) -> Option<ArrayRef> {
+        V::slot(&self.0, idx).clone()
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {

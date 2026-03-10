@@ -160,13 +160,21 @@ pub fn vortex_fsst::FSSTVTable::nbuffers(_array: &vortex_fsst::FSSTArray) -> usi
 
 pub fn vortex_fsst::FSSTVTable::nchildren(array: &vortex_fsst::FSSTArray) -> usize
 
+pub fn vortex_fsst::FSSTVTable::nslots(_array: &vortex_fsst::FSSTArray) -> usize
+
 pub fn vortex_fsst::FSSTVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fsst::FSSTVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_fsst::FSSTVTable::slot(array: &vortex_fsst::FSSTArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
+
+pub fn vortex_fsst::FSSTVTable::slot_name(_array: &vortex_fsst::FSSTArray, idx: usize) -> &str
+
 pub fn vortex_fsst::FSSTVTable::stats(array: &vortex_fsst::FSSTArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_fsst::FSSTVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_fsst::FSSTVTable::with_slots(array: &mut vortex_fsst::FSSTArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSSTVTable> for vortex_fsst::FSSTVTable
 
