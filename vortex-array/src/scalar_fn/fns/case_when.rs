@@ -295,6 +295,11 @@ fn merge_case_branches(
         }
     }
     spans.sort_unstable_by_key(|&(start, ..)| start);
+
+    if spans.is_empty() {
+        return else_value.cast(output_dtype);
+    }
+
     let builder = builder_with_capacity(&output_dtype, row_count);
 
     let branch_arrays: Vec<ArrayRef> = branches
