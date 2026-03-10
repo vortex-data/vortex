@@ -240,19 +240,31 @@ def build_summary_lines(
     datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ratio, "datafusion:vortex")
     parquet_performance = format_performance(parquet_geo_mean_ratio, "parquet")
 
-    summary_lines = [
-        "## Summary",
-        "",
-        f"- **Overall**: {overall_performance}",
-        (
-            f"- **Run drift**: {run_drift_metrics['drift_ratio']:.3f}x, "
-            f"{run_drift_metrics['drift_level']} whole-run shift "
-            f"({run_drift_metrics['same_direction_pct']:.0f}% aligned, "
-            f"residual MAD {run_drift_metrics['residual_mad_pct']:.1f}%)"
-            if not pd.isna(run_drift_metrics["drift_ratio"])
-            else "- **Run drift**: no data"
-        ),
-    ]
+    summary_lines = []
+
+    if run_drift_metrics["is_baseline_suspect"]:
+        summary_lines.extend(
+            [
+                "Most benchmarks shifted together, so comparing to baseline likely unreliable",
+                "",
+            ]
+        )
+
+    summary_lines.extend(
+        [
+            "## Summary",
+            "",
+            f"- **Overall**: {overall_performance}",
+            (
+                f"- **Run drift**: {run_drift_metrics['drift_ratio']:.3f}x, "
+                f"**{run_drift_metrics['drift_level']}** whole-run shift "
+                f"({run_drift_metrics['same_direction_pct']:.0f}% aligned, "
+                f"residual MAD {run_drift_metrics['residual_mad_pct']:.1f}%)"
+                if not pd.isna(run_drift_metrics["drift_ratio"])
+                else "- **Run drift**: no data"
+            ),
+        ]
+    )
 
     if len(vortex_df) > 0:
         summary_lines.append(f"- **Vortex**: {vortex_performance}")
@@ -295,9 +307,6 @@ def build_summary_lines(
                 f"- **Significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
             ]
         )
-
-    if run_drift_metrics["is_baseline_suspect"]:
-        summary_lines.append("- **Baseline**: likely unreliable for this run; most benchmarks shifted together")
 
     return summary_lines
 
