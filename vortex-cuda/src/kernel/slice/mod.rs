@@ -10,6 +10,8 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::BoolArrayParts;
+use vortex::array::arrays::BoolVTable;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::SliceArrayParts;
@@ -19,33 +21,56 @@ use vortex::array::arrays::StructArrayParts;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 
-#[derive(Debug)]
-pub struct SliceExecutor;
+/// Slice a BoolArray that may have device-resident buffers.
+///
+/// Unlike the standard BoolArray::slice which calls to_bit_buffer() (requires host access),
+/// this works at the BufferHandle level: it byte-slices the buffer to absorb full bytes
+/// and keeps only the sub-byte remainder as the bit offset.
+fn slice_bool_device_safe(bool_array: BoolArray, range: Range<usize>) -> VortexResult<BoolArray> {
+    let BoolArrayParts {
+        bits,
+        offset,
+        validity,
+        ..
+    } = bool_array.into_parts();
+
+    let abs_start = offset + range.start;
+    let new_len = range.len();
+
+    // Slice the buffer to absorb full bytes, keep sub-byte remainder as offset
+    let byte_start = abs_start / 8;
+    let new_offset = abs_start % 8;
+    let byte_end = (abs_start + new_len + 7) / 8; // ceiling division
+
+    let sliced_bits = bits.slice(byte_start..byte_end);
+    let sliced_validity = slice_validity_device_safe(validity, range)?;
+
+    Ok(BoolArray::new_handle(
+        sliced_bits,
+        new_offset,
+        new_len,
+        sliced_validity,
+    ))
+}
 
 /// Slice validity in a device-buffer-safe way.
-///
-/// For `AllValid`, `AllInvalid`, and `NonNullable`, slicing is trivial.
-/// For `Array` validity (a BoolArray), we need to handle device buffers.
-fn slice_validity(validity: Validity, range: Range<usize>) -> VortexResult<Validity> {
+fn slice_validity_device_safe(
+    validity: Validity,
+    range: Range<usize>,
+) -> VortexResult<Validity> {
     match &validity {
         Validity::NonNullable | Validity::AllValid | Validity::AllInvalid => Ok(validity),
         Validity::Array(a) => {
-            // The validity array is a BoolArray. We slice it without accessing buffer contents
-            // by adjusting the bit offset and length, which is safe for device buffers.
-            if let Some(bool_array) = a.as_opt::<vortex::array::arrays::BoolVTable>() {
-                let parts = bool_array.clone().into_parts();
-                let new_offset = parts.offset + range.start;
-                let new_len = range.len();
+            if let Some(bool_array) = a.as_opt::<BoolVTable>() {
                 Ok(Validity::Array(
-                    BoolArray::new_handle(parts.bits, new_offset, new_len, parts.validity)
-                        .into_array(),
+                    slice_bool_device_safe(bool_array.clone(), range)?.into_array(),
                 ))
             } else {
-                // Fall back to standard slice for non-Bool validity arrays
                 Ok(Validity::Array(a.slice(range)?))
             }
         }
@@ -56,6 +81,9 @@ fn slice_validity(validity: Validity, range: Range<usize>) -> VortexResult<Valid
 fn slice_canonical(canonical: Canonical, range: Range<usize>) -> VortexResult<Canonical> {
     match canonical {
         Canonical::Null(null_array) => null_array.slice(range)?.to_canonical(),
+        Canonical::Bool(bool_array) => {
+            Ok(Canonical::Bool(slice_bool_device_safe(bool_array, range)?))
+        }
         Canonical::Primitive(prim_array) => {
             let PrimitiveArrayParts {
                 ptype,
@@ -66,7 +94,7 @@ fn slice_canonical(canonical: Canonical, range: Range<usize>) -> VortexResult<Ca
             let byte_start = range.start * ptype.byte_width();
             let byte_end = range.end * ptype.byte_width();
             let sliced_buf = buffer.slice(byte_start..byte_end);
-            let sliced_validity = slice_validity(validity, range)?;
+            let sliced_validity = slice_validity_device_safe(validity, range)?;
             Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
                 sliced_buf,
                 ptype,
@@ -88,23 +116,11 @@ fn slice_canonical(canonical: Canonical, range: Range<usize>) -> VortexResult<Ca
                     Ok(slice_canonical(canonical, range.clone())?.into_array())
                 })
                 .collect::<VortexResult<_>>()?;
-            let sliced_validity = slice_validity(validity, range)?;
+            let sliced_validity = slice_validity_device_safe(validity, range)?;
             Ok(Canonical::Struct(StructArray::new(
                 struct_fields.names().clone(),
                 sliced_fields,
                 len,
-                sliced_validity,
-            )))
-        }
-        Canonical::Bool(bool_array) => {
-            let parts = bool_array.into_parts();
-            let new_offset = parts.offset + range.start;
-            let new_len = range.len();
-            let sliced_validity = slice_validity(parts.validity, range)?;
-            Ok(Canonical::Bool(BoolArray::new_handle(
-                parts.bits,
-                new_offset,
-                new_len,
                 sliced_validity,
             )))
         }
@@ -114,6 +130,9 @@ fn slice_canonical(canonical: Canonical, range: Range<usize>) -> VortexResult<Ca
         c => todo!("Device-aware slice not implemented for {}", c.dtype()),
     }
 }
+
+#[derive(Debug)]
+pub struct SliceExecutor;
 
 #[async_trait]
 impl CudaExecute for SliceExecutor {
