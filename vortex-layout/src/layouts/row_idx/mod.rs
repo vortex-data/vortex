@@ -98,7 +98,9 @@ impl RowIdxLayoutReader {
         // If there's only a single partition, we can directly return the expression.
         if partitioned.partitions.len() == 1 {
             return match &partitioned.partition_annotations[0] {
-                Partition::RowIdx => Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root())),
+                Partition::RowIdx => {
+                    Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root()))
+                }
                 Partition::Child => Partitioning::Child(expr.clone()),
             };
         }
