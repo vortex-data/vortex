@@ -222,7 +222,7 @@ impl<T> Buffer<T> {
                 out_buf
                     .spare_capacity_mut()
                     .iter_mut()
-                    .zip(buf.as_slice().iter().copied())
+                    .zip(buf.into_iter())
                     .for_each(|(out, in_)| {
                         out.write(f(in_));
                     });
