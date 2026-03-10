@@ -112,6 +112,10 @@ name = "take_patches"
 harness = false
 
 [[bench]]
+name = "apply_patches"
+harness = false
+
+[[bench]]
 name = "chunk_array_builder"
 harness = false
 

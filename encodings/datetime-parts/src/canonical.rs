@@ -54,7 +54,7 @@ pub fn decode_to_temporal(
     // We split this into separate passes because often the seconds and/org subseconds components
     // are constant.
     let mut values: BufferMut<i64> = days_buf
-        .into_buffer_mut::<i64>()
+        .into_buffer::<i64>()
         .map_each_in_place(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
