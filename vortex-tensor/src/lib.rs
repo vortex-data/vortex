@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tensor extension type.
+//! Types and functionality for working with tensors, vectors, and related mathematical constructs
+//! including unit vectors, spherical coordinates, and similarity measures such as cosine
+//! similarity.
 
-mod metadata;
-pub use metadata::FixedShapeTensorMetadata;
-
-mod proto;
-mod vtable;
+pub mod fixed_shape;
 
 pub mod scalar_fns;
-
-/// The VTable for the Tensor extension type.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct FixedShapeTensor;

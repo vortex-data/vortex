@@ -9730,6 +9730,7 @@ dependencies = [
  "tabled",
  "termtree",
  "tracing",
+ "uuid",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",

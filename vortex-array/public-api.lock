@@ -10292,6 +10292,24 @@ pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, _meta
 
 pub fn vortex_array::extension::datetime::Timestamp::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::uuid::Uuid
+
+pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension::uuid::UuidMetadata
+
+pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+
+pub fn vortex_array::extension::uuid::Uuid::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::extension::uuid::Uuid::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+
 pub trait vortex_array::dtype::extension::Matcher
 
 pub type vortex_array::dtype::extension::Matcher::Match<'a>
@@ -14255,6 +14273,82 @@ impl core::hash::Hash for vortex_array::extension::datetime::TimestampOptions
 pub fn vortex_array::extension::datetime::TimestampOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::TimestampOptions
+
+pub mod vortex_array::extension::uuid
+
+pub struct vortex_array::extension::uuid::Uuid
+
+impl core::clone::Clone for vortex_array::extension::uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::clone(&self) -> vortex_array::extension::uuid::Uuid
+
+impl core::cmp::Eq for vortex_array::extension::uuid::Uuid
+
+impl core::cmp::PartialEq for vortex_array::extension::uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::eq(&self, other: &vortex_array::extension::uuid::Uuid) -> bool
+
+impl core::default::Default for vortex_array::extension::uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::default() -> vortex_array::extension::uuid::Uuid
+
+impl core::fmt::Debug for vortex_array::extension::uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::uuid::Uuid
+
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::uuid::Uuid
+
+pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension::uuid::UuidMetadata
+
+pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+
+pub fn vortex_array::extension::uuid::Uuid::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::extension::uuid::Uuid::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+
+pub struct vortex_array::extension::uuid::UuidMetadata
+
+pub vortex_array::extension::uuid::UuidMetadata::version: core::option::Option<uuid::Version>
+
+impl core::clone::Clone for vortex_array::extension::uuid::UuidMetadata
+
+pub fn vortex_array::extension::uuid::UuidMetadata::clone(&self) -> vortex_array::extension::uuid::UuidMetadata
+
+impl core::cmp::Eq for vortex_array::extension::uuid::UuidMetadata
+
+impl core::cmp::PartialEq for vortex_array::extension::uuid::UuidMetadata
+
+pub fn vortex_array::extension::uuid::UuidMetadata::eq(&self, other: &Self) -> bool
+
+impl core::default::Default for vortex_array::extension::uuid::UuidMetadata
+
+pub fn vortex_array::extension::uuid::UuidMetadata::default() -> vortex_array::extension::uuid::UuidMetadata
+
+impl core::fmt::Debug for vortex_array::extension::uuid::UuidMetadata
+
+pub fn vortex_array::extension::uuid::UuidMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::extension::uuid::UuidMetadata
+
+pub fn vortex_array::extension::uuid::UuidMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::uuid::UuidMetadata
+
+pub fn vortex_array::extension::uuid::UuidMetadata::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
 pub struct vortex_array::extension::EmptyMetadata
 
