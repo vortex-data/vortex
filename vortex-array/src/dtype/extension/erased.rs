@@ -20,7 +20,6 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
 use crate::dtype::extension::typed::DynExtDType;
-use crate::dtype::extension::typed::ExtDTypeInner;
 use crate::scalar::ScalarValue;
 
 /// A type-erased extension dtype.
@@ -127,12 +126,10 @@ impl ExtDTypeRef {
     /// Downcast to the concrete [`ExtDType`].
     ///
     /// Returns `Err(self)` if the downcast fails.
-    pub fn try_downcast<V: ExtVTable>(self) -> Result<ExtDType<V>, ExtDTypeRef> {
-        if self.0.as_any().is::<ExtDTypeInner<V>>() {
-            // SAFETY: type matches and ExtDTypeInner<V> is the only implementor
-            let ptr = Arc::into_raw(self.0) as *const ExtDTypeInner<V>;
-            let inner = unsafe { Arc::from_raw(ptr) };
-            Ok(ExtDType(inner))
+    pub fn try_downcast<V: ExtVTable>(self) -> Result<Arc<ExtDType<V>>, ExtDTypeRef> {
+        if self.0.as_any().is::<ExtDType<V>>() {
+            let ptr = Arc::into_raw(self.0) as *const ExtDType<V>;
+            Ok(unsafe { Arc::from_raw(ptr) })
         } else {
             Err(self)
         }
@@ -143,7 +140,7 @@ impl ExtDTypeRef {
     /// # Panics
     ///
     /// Panics if the downcast fails.
-    pub fn downcast<V: ExtVTable>(self) -> ExtDType<V> {
+    pub fn downcast<V: ExtVTable>(self) -> Arc<ExtDType<V>> {
         self.try_downcast::<V>()
             .map_err(|this| {
                 vortex_err!(

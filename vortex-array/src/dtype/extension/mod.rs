@@ -34,11 +34,11 @@ pub type ExtId = arcref::ArcRef<str>;
 /// Private module to seal [`typed::DynExtDType`].
 mod sealed {
     use crate::dtype::extension::ExtVTable;
-    use crate::dtype::extension::typed::ExtDTypeInner;
+    use crate::dtype::extension::typed::ExtDType;
 
     /// Marker trait to prevent external implementations of [`super::typed::DynExtDType`].
     pub(crate) trait Sealed {}
 
     /// This can be the **only** implementor for [`super::typed::DynExtDType`].
-    impl<V: ExtVTable> Sealed for ExtDTypeInner<V> {}
+    impl<V: ExtVTable> Sealed for ExtDType<V> {}
 }

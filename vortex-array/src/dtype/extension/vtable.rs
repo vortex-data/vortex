@@ -7,7 +7,7 @@ use std::hash::Hash;
 
 use vortex_error::VortexResult;
 
-use crate::dtype::DType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::scalar::ScalarValue;
 
@@ -36,7 +36,7 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
 
     /// Validate that the given storage type is compatible with this extension type.
-    fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;
+    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
     // Methods related to the extension scalar values.
 
@@ -49,12 +49,10 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Returns an error if the storage [`ScalarValue`] is not compatible with the extension type.
     fn validate_scalar_value(
         &self,
-        metadata: &Self::Metadata,
-        storage_dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         storage_value: &ScalarValue,
     ) -> VortexResult<()> {
-        self.unpack_native(metadata, storage_dtype, storage_value)
-            .map(|_| ())
+        self.unpack_native(ext_dtype, storage_value).map(|_| ())
     }
 
     /// Validate and unpack a native value from the storage [`ScalarValue`].
@@ -68,8 +66,7 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Returns an error if the storage [`ScalarValue`] is not compatible with the extension type.
     fn unpack_native<'a>(
         &self,
-        metadata: &'a Self::Metadata,
-        storage_dtype: &'a DType,
+        ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>>;
 }

@@ -10,6 +10,7 @@ use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::uuid::Uuid;
@@ -46,11 +47,8 @@ impl ExtVTable for Uuid {
         Ok(UuidMetadata { version })
     }
 
-    fn validate_dtype(
-        &self,
-        _metadata: &Self::Metadata,
-        storage_dtype: &DType,
-    ) -> VortexResult<()> {
+    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        let storage_dtype = ext_dtype.storage_dtype();
         let DType::FixedSizeList(element_dtype, list_size, _nullability) = storage_dtype else {
             vortex_bail!("UUID storage dtype must be a FixedSizeList, got {storage_dtype}");
         };
@@ -80,8 +78,7 @@ impl ExtVTable for Uuid {
 
     fn unpack_native<'a>(
         &self,
-        metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
+        ext_dtype: &ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         let elements = storage_value.as_list();
@@ -106,7 +103,7 @@ impl ExtVTable for Uuid {
         let parsed = uuid::Uuid::from_bytes(bytes);
 
         // Verify the parsed UUID matches the expected version, if one is set.
-        if let Some(expected) = metadata.version {
+        if let Some(expected) = ext_dtype.metadata().version {
             let expected = expected as u8;
             let actual = parsed
                 .get_version()

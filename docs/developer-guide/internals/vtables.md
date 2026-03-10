@@ -63,21 +63,21 @@ registered in the session by their ID.
 
 For a concept `Foo`, the components are organized into these files:
 
-| File          | Contains                                                              |
-|---------------|-----------------------------------------------------------------------|
-| `vtable.rs`   | `FooVTable` trait definition                                         |
-| `typed.rs`    | `Foo<V>` data struct, inherent methods, `Deref` impl                |
-| `erased.rs`   | `FooRef` struct, `DynFoo` sealed trait, blanket impl                 |
-| `plugin.rs`   | `FooPlugin` trait, registration                                      |
-| `matcher.rs`  | Downcasting helpers (`is`, `as_`, `as_opt`, pattern matching traits) |
+| File         | Contains                                                             |
+|--------------|----------------------------------------------------------------------|
+| `vtable.rs`  | `FooVTable` trait definition                                         |
+| `typed.rs`   | `Foo<V>` data struct, inherent methods, `Deref` impl                 |
+| `erased.rs`  | `FooRef` struct, `DynFoo` sealed trait, blanket impl                 |
+| `plugin.rs`  | `FooPlugin` trait, registration                                      |
+| `matcher.rs` | Downcasting helpers (`is`, `as_`, `as_opt`, pattern matching traits) |
 
 For Array encodings, each encoding has its own module (e.g. `arrays/primitive/`):
 
-| File                    | Contains                                                    |
-|-------------------------|-------------------------------------------------------------|
-| `arrays/foo/mod.rs`     | `V::Array` associated type, encoding-specific methods on it |
-| `arrays/foo/vtable.rs`  | `ArrayVTable` impl for this encoding                        |
-| `arrays/foo/compute/`   | Compute kernel implementations                              |
+| File                   | Contains                                                    |
+|------------------------|-------------------------------------------------------------|
+| `arrays/foo/mod.rs`    | `V::Array` associated type, encoding-specific methods on it |
+| `arrays/foo/vtable.rs` | `ArrayVTable` impl for this encoding                        |
+| `arrays/foo/compute/`  | Compute kernel implementations                              |
 
 ## Example: ExtDType
 
