@@ -216,7 +216,7 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
 ///
 /// If the `Arc` refcount is 1, the inner array is moved out without cloning.
 /// Otherwise, falls back to cloning the inner array.
-fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
+fn downcast_owned<V: VTable>(array: ArrayRef) -> V::Array {
     let adapter: Arc<ArrayAdapter<V>> = array
         .as_any_arc()
         .downcast::<ArrayAdapter<V>>()
@@ -224,7 +224,7 @@ fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
         .vortex_expect("Failed to downcast array to expected encoding type");
     match Arc::try_unwrap(adapter) {
         Ok(adapter) => adapter.into_inner(),
-        Err(arc) => unsarc,
+        Err(arc) => arc.as_inner().clone(),
     }
 }
 
