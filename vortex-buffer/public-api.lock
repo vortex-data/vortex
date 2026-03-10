@@ -336,6 +336,10 @@ impl core::fmt::Debug for vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl core::fmt::Display for vortex_buffer::BitBuffer
+
+pub fn vortex_buffer::BitBuffer::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::iter::traits::collect::FromIterator<bool> for vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::from_iter<T: core::iter::traits::collect::IntoIterator<Item = bool>>(iter: T) -> Self

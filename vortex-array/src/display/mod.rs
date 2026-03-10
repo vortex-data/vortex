@@ -476,8 +476,9 @@ impl dyn DynArray + '_ {
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
-                write!(f, "[")?;
+                write!(f, "{}", if f.alternate() { "[\n" } else { "[" })?;
                 let sep = if *omit_comma_after_space { "," } else { ", " };
+                let sep = if f.alternate() { ",\n" } else { sep };
                 write!(
                     f,
                     "{}",
@@ -487,7 +488,7 @@ impl dyn DynArray + '_ {
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string()))
                         .format(sep)
                 )?;
-                write!(f, "]")
+                write!(f, "{}", if f.alternate() { "\n]" } else { "]" })
             }
             DisplayOptions::TreeDisplay {
                 buffers,

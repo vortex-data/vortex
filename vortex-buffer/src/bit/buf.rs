@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FmtResult;
 use std::ops::BitAnd;
 use std::ops::BitOr;
 use std::ops::BitXor;
@@ -33,6 +36,18 @@ pub struct BitBuffer {
     /// This is always less than 8 (for when the bit buffer is not aligned to a byte).
     offset: usize,
     len: usize,
+}
+
+const LIMIT_LEN: usize = 16;
+impl Display for BitBuffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let limit = f.precision().unwrap_or(LIMIT_LEN);
+        let buf: Vec<bool> = self.into_iter().take(limit).collect();
+        f.debug_struct("BitBuffer")
+            .field("len", &self.len)
+            .field("buffer", &buf)
+            .finish()
+    }
 }
 
 impl PartialEq for BitBuffer {

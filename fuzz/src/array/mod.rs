@@ -37,6 +37,7 @@ use strum::EnumIter;
 use strum::IntoEnumIterator;
 pub(crate) use sum::*;
 pub(crate) use take::*;
+use tracing::info;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
@@ -560,7 +561,14 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
 
+    info!(
+        "Initial array:\nTree:\n{}Values:\n{:#}",
+        current_array.display_tree(),
+        current_array.display_values()
+    );
+
     for (i, (action, expected)) in actions.into_iter().enumerate() {
+        info!(id = i, action = ?action);
         match action {
             Action::Compress(strategy) => {
                 let canonical = current_array

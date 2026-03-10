@@ -10141,6 +10141,8 @@ dependencies = [
  "libfuzzer-sys",
  "strum 0.27.2",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "vortex",
  "vortex-array",
  "vortex-btrblocks",

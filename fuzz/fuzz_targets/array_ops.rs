@@ -10,7 +10,11 @@ use vortex_error::vortex_panic;
 use vortex_fuzz::FuzzArrayAction;
 use vortex_fuzz::run_fuzz_action;
 
-fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
+fuzz_target!(
+    init: {
+        tracing_subscriber::fmt::init();
+    },
+    |fuzz_action: FuzzArrayAction| -> Corpus {
     match run_fuzz_action(fuzz_action) {
         Ok(true) => Corpus::Keep,
         Ok(false) => Corpus::Reject,
