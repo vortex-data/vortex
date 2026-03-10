@@ -257,12 +257,12 @@ impl ScalarFnVTable for CaseWhen {
     }
 }
 
-/// Merges disjoint `(mask, then_value)` branch pairs with an `else_value` in a single pass.
-///
 /// Average run length at which slicing + `extend_from_array` becomes cheaper than `scalar_at`.
 /// Measured empirically via benchmarks.
 const SLICE_CROSSOVER_RUN_LEN: usize = 4;
 
+/// Merges disjoint `(mask, then_value)` branch pairs with an `else_value` into a single array.
+///
 /// Branch masks are guaranteed disjoint by the remaining-row tracking in [`CaseWhen::execute`].
 fn merge_case_branches(
     branches: Vec<(Mask, ArrayRef)>,
@@ -313,7 +313,7 @@ fn merge_case_branches(
     }
 }
 
-/// Walks rows with a span cursor, emitting one `scalar_at` per row.
+/// Iterates spans directly, emitting one `scalar_at` per row.
 /// Zero per-run allocations; preferred for fragmented masks (avg run < [`SLICE_CROSSOVER_RUN_LEN`]).
 fn merge_row_by_row(
     branches: &[(Mask, ArrayRef)],
@@ -346,8 +346,8 @@ fn merge_row_by_row(
     Ok(builder.finish())
 }
 
-/// Bulk-copies each span via `extend_from_array`, one `slice()` per run.
-/// Preferred when runs are long enough that memcpy dominates over per-run Arc allocation.
+/// Bulk-copies each span via `slice()` + `extend_from_array`.
+/// Preferred when runs are long enough that memcpy dominates over per-slice allocation cost.
 fn merge_run_by_run(
     branches: &[(Mask, ArrayRef)],
     else_value: &ArrayRef,
