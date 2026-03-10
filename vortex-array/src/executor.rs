@@ -331,14 +331,7 @@ impl Executable for ArrayRef {
 ///
 /// Extracts the vtable before consuming the array to avoid borrow conflicts.
 fn execute_step(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-    // Extract vtable ref before the move. VTable references are &'static in practice
-    // (backed by const statics in ArrayVTableAdapter), so we can safely extend the lifetime.
-    let vtable = array.as_ref().vtable();
-    // SAFETY: The vtable is always a &'static reference (see ArrayVTableAdapter::vtable),
-    // but the DynArray trait signature ties it to &self. We extend the lifetime to allow
-    // consuming the array.
-    let vtable: &'static dyn crate::vtable::DynVTable =
-        unsafe { &*(vtable as *const dyn crate::vtable::DynVTable) };
+    let vtable = array.vtable();
     vtable.execute(array, ctx)
 }
 

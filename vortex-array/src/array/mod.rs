@@ -98,7 +98,7 @@ pub trait DynArray:
     fn dtype(&self) -> &DType;
 
     /// Returns the vtable of the array.
-    fn vtable(&self) -> &dyn DynVTable;
+    fn vtable(&self) -> &'static dyn DynVTable;
 
     /// Returns the encoding ID of the array.
     fn encoding_id(&self) -> ArrayId;
@@ -192,7 +192,7 @@ impl DynArray for Arc<dyn DynArray> {
         self.as_ref().dtype()
     }
 
-    fn vtable(&self) -> &dyn DynVTable {
+    fn vtable(&self) -> &'static dyn DynVTable {
         self.as_ref().vtable()
     }
 
@@ -459,7 +459,7 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
         V::dtype(&self.0)
     }
 
-    fn vtable(&self) -> &dyn DynVTable {
+    fn vtable(&self) -> &'static dyn DynVTable {
         V::vtable()
     }
 
