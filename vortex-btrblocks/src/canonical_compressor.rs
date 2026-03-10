@@ -299,7 +299,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 }
 
                 // Compress the underlying storage array.
-                let compressed_storage = self.compress(ext_array.storage())?;
+                let compressed_storage = self.compress(ext_array.storage_array())?;
 
                 Ok(
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)

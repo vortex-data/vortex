@@ -147,7 +147,7 @@ where
 
     let ext_array = array.execute::<ExtensionArray>(ctx)?;
     let primitive = ext_array
-        .storage()
+        .storage_array()
         .clone()
         .execute::<VortexPrimitiveArray>(ctx)?;
     vortex_ensure!(

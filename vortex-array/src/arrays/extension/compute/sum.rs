@@ -13,7 +13,7 @@ use crate::scalar::Scalar;
 
 impl SumKernel for ExtensionVTable {
     fn sum(&self, array: &ExtensionArray, accumulator: &Scalar) -> VortexResult<Scalar> {
-        compute::sum_with_accumulator(array.storage(), accumulator)
+        compute::sum_with_accumulator(array.storage_array(), accumulator)
     }
 }
 
