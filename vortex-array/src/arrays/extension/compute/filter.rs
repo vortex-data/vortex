@@ -15,7 +15,7 @@ impl FilterReduce for ExtensionVTable {
         Ok(Some(
             ExtensionArray::new(
                 array.ext_dtype().clone(),
-                array.storage().filter(mask.clone())?,
+                array.storage_array().filter(mask.clone())?,
             )
             .into_array(),
         ))

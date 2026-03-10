@@ -91,7 +91,8 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             Scalar::struct_(array.dtype().clone(), field_scalars)
         }
         Canonical::Extension(array) => {
-            let storage_scalar = scalar_at_canonical_array(array.storage().to_canonical()?, index)?;
+            let storage_scalar =
+                scalar_at_canonical_array(array.storage_array().to_canonical()?, index)?;
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
     })

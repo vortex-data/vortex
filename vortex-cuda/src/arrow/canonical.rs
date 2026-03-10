@@ -116,7 +116,7 @@ fn export_canonical(
                     vortex_bail!("only support temporal extension types currently");
                 }
 
-                let values = extension.storage().to_primitive();
+                let values = extension.storage_array().to_primitive();
                 let len = extension.len();
 
                 let PrimitiveArrayParts {

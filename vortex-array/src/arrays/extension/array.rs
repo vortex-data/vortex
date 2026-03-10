@@ -53,7 +53,7 @@ pub struct ExtensionArray {
     pub(super) dtype: DType,
 
     /// The backing storage array for this extension array.
-    pub(super) storage: ArrayRef,
+    pub(super) storage_array: ArrayRef,
 
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
@@ -97,7 +97,7 @@ impl ExtensionArray {
 
         Self {
             dtype: DType::Extension(ext_dtype),
-            storage: storage_array,
+            storage_array,
             stats_set: ArrayStats::default(),
         }
     }
@@ -111,8 +111,7 @@ impl ExtensionArray {
         ext
     }
 
-    // TODO(connor): Rename to storage array
-    pub fn storage(&self) -> &ArrayRef {
-        &self.storage
+    pub fn storage_array(&self) -> &ArrayRef {
+        &self.storage_array
     }
 }

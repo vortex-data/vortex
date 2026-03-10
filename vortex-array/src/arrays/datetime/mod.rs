@@ -125,7 +125,7 @@ impl TemporalArray {
     /// These values are to be interpreted based on the time unit and optional time-zone stored
     /// in the TemporalMetadata.
     pub fn temporal_values(&self) -> &ArrayRef {
-        self.ext.storage()
+        self.ext.storage_array()
     }
 
     /// Retrieve the temporal metadata.
