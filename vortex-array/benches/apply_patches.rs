@@ -22,7 +22,6 @@ fn main() {
 
 const ARRAY_LEN: usize = 1 << 16; // 65536
 
-/// Distribution types for patch index placement.
 #[derive(Clone, Copy, Debug)]
 enum Distribution {
     /// Patch indices are uniformly random across the array.
