@@ -66,6 +66,10 @@ struct Cli {
     /// Output logs as JSON.
     #[arg(long)]
     json: bool,
+
+    /// Scan concurrency (splits per worker thread).
+    #[arg(long, default_value_t = 4)]
+    scan_concurrency: usize,
 }
 
 #[cuda_not_available]
@@ -164,7 +168,10 @@ async fn main() -> VortexResult<()> {
 
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
 
-        let batches = gpu_file.scan()?.into_array_stream()?;
+        let batches = gpu_file
+            .scan()?
+            .with_concurrency(cli.scan_concurrency)
+            .into_array_stream()?;
 
         batches
             .enumerate()
@@ -210,7 +217,10 @@ async fn main() -> VortexResult<()> {
     // Measure output size in a separate untimed pass
     let output_bytes: u64 = if !no_execute {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
-        let batches = gpu_file.scan()?.into_array_stream()?;
+        let batches = gpu_file
+            .scan()?
+            .with_concurrency(cli.scan_concurrency)
+            .into_array_stream()?;
         batches
             .map(|batch| {
                 let session = &session;
@@ -241,8 +251,9 @@ async fn main() -> VortexResult<()> {
     // Always print human-readable to stderr
     eprintln!();
     eprintln!("=== Benchmark Results ===");
-    eprintln!("Source:      {}", cli.source);
-    eprintln!("Iterations:  {}", cli.iterations);
+    eprintln!("Source:           {}", cli.source);
+    eprintln!("Iterations:       {}", cli.iterations);
+    eprintln!("Scan concurrency: {} per thread", cli.scan_concurrency);
     eprintln!("Avg time:    {:.3}s", avg.as_secs_f64());
     eprintln!("Input size:  {file_size_mb:.2} MB");
     eprintln!("Output size: {output_size_mb:.2} MB");
