@@ -30,6 +30,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::scalar::Scalar;
@@ -321,10 +322,11 @@ fn merge_row_by_row(
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
     let builder_dtype = builder.dtype().clone();
-    let needs_cast = branches
+    let branch_arrays: Vec<ArrayRef> = branches
         .iter()
-        .any(|(_, arr)| arr.dtype() != &builder_dtype)
-        || else_value.dtype() != &builder_dtype;
+        .map(|(_, arr)| arr.cast(builder_dtype.clone()))
+        .collect::<VortexResult<_>>()?;
+    let else_value = else_value.cast(builder_dtype)?;
 
     let mut cursor = 0;
     for row in 0..row_count {
@@ -332,17 +334,11 @@ fn merge_row_by_row(
             cursor += 1;
         }
         let src = if cursor < spans.len() && spans[cursor].0 <= row {
-            &branches[spans[cursor].2].1
+            &branch_arrays[spans[cursor].2]
         } else {
-            else_value
+            &else_value
         };
-        let scalar = src.scalar_at(row)?;
-        let scalar = if needs_cast && scalar.dtype() != &builder_dtype {
-            scalar.cast(&builder_dtype)?
-        } else {
-            scalar
-        };
-        builder.append_scalar(&scalar)?;
+        builder.append_scalar(&src.scalar_at(row)?)?;
     }
 
     Ok(builder.finish())
