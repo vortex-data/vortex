@@ -15,7 +15,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 
 fn main() {
     divan::main();
