@@ -76,7 +76,6 @@ fn make_patches(array_len: usize, density: f64, dist: Distribution, rng: &mut St
     .unwrap()
 }
 
-/// Benchmark applying patches in-place (consuming the primitive array and mutating its buffer).
 #[divan::bench(args = BENCH_ARGS)]
 fn patch_inplace(bencher: Bencher, &(density, dist): &(f64, Distribution)) {
     let mut rng = StdRng::seed_from_u64(42);
@@ -92,7 +91,6 @@ fn patch_inplace(bencher: Bencher, &(density, dist): &(f64, Distribution)) {
         .bench_values(|(array, mut ctx)| array.patch(&patches, &mut ctx).unwrap());
 }
 
-/// Benchmark applying patches by copying into a fresh buffer.
 #[divan::bench(args = BENCH_ARGS)]
 fn patch_copy_to_buffer(bencher: Bencher, &(density, dist): &(f64, Distribution)) {
     let mut rng = StdRng::seed_from_u64(42);
