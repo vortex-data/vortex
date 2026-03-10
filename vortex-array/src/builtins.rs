@@ -35,6 +35,7 @@ use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
+use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::zip::Zip;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
@@ -66,7 +67,7 @@ pub trait ExprBuiltins: Sized {
     fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression>;
 
     /// Extract data by path and dtype from a variant expression.
-    fn variant_get(&self, path: impl Into<String>, dtype: DType) -> VortexResult<Expression>;
+    fn variant_get(&self, path: Option<VariantPath>, dtype: DType) -> VortexResult<Expression>;
 
     /// Apply a binary operator to this expression and another.
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
@@ -105,14 +106,8 @@ impl ExprBuiltins for Expression {
         Zip.try_new_expr(EmptyOptions, [if_true, if_false, self.clone()])
     }
 
-    fn variant_get(&self, path: impl Into<String>, dtype: DType) -> VortexResult<Expression> {
-        VariantGet.try_new_expr(
-            VariantGetOptions {
-                path: path.into(),
-                dtype,
-            },
-            [self.clone()],
-        )
+    fn variant_get(&self, path: Option<VariantPath>, dtype: DType) -> VortexResult<Expression> {
+        VariantGet.try_new_expr(VariantGetOptions::new(path, dtype), [self.clone()])
     }
 
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
@@ -148,7 +143,7 @@ pub trait ArrayBuiltins: Sized {
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Extract data by path and dtype from a variant array.
-    fn variant_get(&self, path: impl Into<String>, dtype: DType) -> VortexResult<ArrayRef>;
+    fn variant_get(&self, path: Option<VariantPath>, dtype: DType) -> VortexResult<ArrayRef>;
 
     /// Apply a binary operator to this array and another.
     fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef>;
@@ -220,14 +215,11 @@ impl ArrayBuiltins for ArrayRef {
             .optimize()
     }
 
-    fn variant_get(&self, path: impl Into<String>, dtype: DType) -> VortexResult<ArrayRef> {
+    fn variant_get(&self, path: Option<VariantPath>, dtype: DType) -> VortexResult<ArrayRef> {
         VariantGet
             .try_new_array(
                 self.len(),
-                VariantGetOptions {
-                    path: path.into(),
-                    dtype,
-                },
+                VariantGetOptions::new(path, dtype),
                 [self.clone()],
             )?
             .optimize()

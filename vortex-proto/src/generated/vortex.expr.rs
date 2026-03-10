@@ -166,8 +166,6 @@ pub struct CaseWhenOpts {
 /// Options for `vortex.variant_get`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VariantGetOpts {
-    #[prost(string, tag = "1")]
-    pub path: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag = "1")]
     pub dtype: ::core::option::Option<super::dtype::DType>,
 }

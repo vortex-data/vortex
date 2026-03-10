@@ -6481,6 +6481,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "parquet-variant"
+version = "57.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6c31f8f9bfefb9dbf67b0807e00fd918676954a7477c889be971ac904103184"
+dependencies = [
+ "arrow-schema",
+ "chrono",
+ "half",
+ "indexmap",
+ "simdutf8",
+ "uuid",
+]
+
+[[package]]
+name = "parquet-variant-compute"
+version = "57.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "196cd9f7178fed3ac8d5e6d2b51193818e896bbc3640aea3fde3440114a8f39c"
+dependencies = [
+ "arrow",
+ "arrow-schema",
+ "chrono",
+ "half",
+ "indexmap",
+ "parquet-variant",
+ "parquet-variant-json",
+ "uuid",
+]
+
+[[package]]
+name = "parquet-variant-json"
+version = "57.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed23d7acc90ef60f7fdbcc473fa2fdaefa33542ed15b84388959346d52c839be"
+dependencies = [
+ "arrow-schema",
+ "base64",
+ "chrono",
+ "parquet-variant",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10418,12 +10462,17 @@ dependencies = [
 name = "vortex-parquet-variant"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "parquet-variant",
+ "parquet-variant-compute",
  "prost 0.14.3",
  "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-proto",
  "vortex-session",
 ]
 

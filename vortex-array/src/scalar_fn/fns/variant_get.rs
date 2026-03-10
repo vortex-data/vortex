@@ -21,18 +21,41 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct VariantPath {}
+
+impl VariantPath {
+    pub fn is_empty(&self) -> bool {
+        true
+    }
+}
+
 /// Options for the `VariantGet` scalar function.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariantGetOptions {
     /// The variant field path to extract.
-    pub path: String,
+    path: Option<VariantPath>,
     /// The expected return type.
-    pub dtype: DType,
+    dtype: DType,
+}
+
+impl VariantGetOptions {
+    pub fn new(path: Option<VariantPath>, dtype: DType) -> Self {
+        Self { path, dtype }
+    }
+
+    pub fn path(&self) -> Option<&VariantPath> {
+        self.path.as_ref()
+    }
+
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
 }
 
 impl fmt::Display for VariantGetOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "variant_get({}, {:?})", self.path, self.dtype)
+        write!(f, "variant_get({})", self.dtype)
     }
 }
 
@@ -50,8 +73,7 @@ impl ScalarFnVTable for VariantGet {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::VariantGetOpts {
-                path: instance.path.clone(),
-                dtype: Some((&instance.dtype).try_into()?),
+                dtype: Some(instance.dtype().try_into()?),
             }
             .encode_to_vec(),
         ))
@@ -65,10 +87,7 @@ impl ScalarFnVTable for VariantGet {
                 .ok_or_else(|| vortex_err!("VariantGetOpts missing dtype"))?,
             session,
         )?;
-        Ok(VariantGetOptions {
-            path: opts.path,
-            dtype,
-        })
+        Ok(VariantGetOptions::new(None, dtype))
     }
 
     fn arity(&self, _options: &VariantGetOptions) -> Arity {
@@ -92,7 +111,8 @@ impl ScalarFnVTable for VariantGet {
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         expr.children()[0].fmt_sql(f)?;
-        write!(f, ".{}", options.path)
+        let _ = options;
+        Ok(())
     }
 
     fn return_dtype(
@@ -101,7 +121,7 @@ impl ScalarFnVTable for VariantGet {
         _arg_dtypes: &[DType],
     ) -> VortexResult<DType> {
         // Always return nullable since Variant data is always nullable
-        Ok(options.dtype.with_nullability(Nullability::Nullable))
+        Ok(options.dtype().with_nullability(Nullability::Nullable))
     }
 
     fn execute(

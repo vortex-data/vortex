@@ -17,14 +17,20 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+arrow-array = { workspace = true }
+parquet-variant-compute = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-proto = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+parquet-variant = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 

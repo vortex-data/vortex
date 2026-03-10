@@ -15,6 +15,7 @@ mod run_end;
 mod struct_;
 mod temporal;
 mod validity;
+mod variant;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
@@ -46,6 +47,7 @@ use crate::arrow::executor::primitive::to_arrow_primitive;
 use crate::arrow::executor::run_end::to_arrow_run_end;
 use crate::arrow::executor::struct_::to_arrow_struct;
 use crate::arrow::executor::temporal::to_arrow_temporal;
+use crate::arrow::executor::variant::to_arrow_variant;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
@@ -87,6 +89,22 @@ impl ArrowArrayExecutor for ArrayRef {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
         let len = self.len();
+
+        if self.dtype().is_variant() {
+            let target_fields = match data_type {
+                Some(DataType::Struct(fields)) => Some(fields),
+                Some(_) => {
+                    vortex_bail!("Variant can only be converted to Arrow Struct storage type");
+                }
+                None => None,
+            };
+            let arrow = to_arrow_variant(self, target_fields, ctx)?;
+            vortex_ensure!(
+                arrow.len() == len,
+                "Arrow array length does not match Vortex array length after conversion to Variant"
+            );
+            return Ok(arrow);
+        }
 
         // Resolve the DataType if it is a leaf type
         // we should likely make this extensible.

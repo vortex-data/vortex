@@ -98,6 +98,5 @@ message CaseWhenOpts {
 
 // Options for `vortex.variant_get`
 message VariantGetOpts {
-  string path = 1;
-  vortex.dtype.DType dtype = 2;
+  vortex.dtype.DType dtype = 1;
 }

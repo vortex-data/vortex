@@ -19,17 +19,18 @@
 
 use std::hash::Hasher;
 
+use arrow_array::Array as ArrowArray;
 use prost::Message;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
+use vortex_array::arrow::FromArrowArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -46,9 +47,13 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 
 vtable!(ParquetVariant);
@@ -64,14 +69,24 @@ impl ParquetVariantVTable {
 ///
 /// Tracks which optional children are present so the array can be correctly
 /// reconstructed during deserialization.
-#[derive(Clone, prost::Message)]
+#[derive(Clone, Debug)]
 pub struct ParquetVariantMetadata {
+    /// Whether the un-shredded `value` child is present.
+    pub has_value: bool,
+    /// DType of the shredded `typed_value`, if present.
+    ///
+    /// This is required to deserialize non-variant shredded children.
+    pub typed_value_dtype: Option<DType>,
+}
+
+#[derive(Clone, prost::Message)]
+struct ParquetVariantMetadataProto {
     /// Whether the un-shredded `value` child is present.
     #[prost(bool, tag = "1")]
     pub has_value: bool,
-    /// Whether the shredded `typed_value` child is present.
-    #[prost(bool, tag = "2")]
-    pub has_typed_value: bool,
+    /// DType of the shredded `typed_value`, if present.
+    #[prost(message, optional, tag = "2")]
+    pub typed_value_dtype: Option<pb::DType>,
 }
 
 /// An array encoding that stores variant data in the Parquet Variant binary format.
@@ -96,32 +111,31 @@ const VARIANT_DTYPE: DType = DType::Variant;
 
 impl ParquetVariantArray {
     /// Creates a new ParquetVariantArray.
-    ///
-    /// # Panics
-    /// Panics if neither `value` nor `typed_value` is provided, or if children have
-    /// mismatched lengths.
-    pub fn new(metadata: ArrayRef, value: Option<ArrayRef>, typed_value: Option<ArrayRef>) -> Self {
-        assert!(
+    pub fn try_new(
+        metadata: ArrayRef,
+        value: Option<ArrayRef>,
+        typed_value: Option<ArrayRef>,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
             value.is_some() || typed_value.is_some(),
             "at least one of value or typed_value must be present"
         );
         let len = metadata.len();
         if let Some(ref v) = value {
-            assert_eq!(v.len(), len, "value length must match metadata length");
+            vortex_ensure!(v.len() == len, "value length must match metadata length");
         }
         if let Some(ref tv) = typed_value {
-            assert_eq!(
-                tv.len(),
-                len,
+            vortex_ensure!(
+                tv.len() == len,
                 "typed_value length must match metadata length"
             );
         }
-        Self {
+        Ok(Self {
             metadata,
             value,
             typed_value,
             stats_set: ArrayStats::default(),
-        }
+        })
     }
 
     /// Returns a reference to the metadata child array.
@@ -139,6 +153,28 @@ impl ParquetVariantArray {
         self.typed_value.as_ref()
     }
 
+    /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
+    /// wrapping `VariantArray(ParquetVariantArray(...))`.
+    pub fn from_arrow_variant(
+        arrow_variant: &parquet_variant_compute::VariantArray,
+    ) -> VortexResult<ArrayRef> {
+        let metadata =
+            ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+
+        let value = arrow_variant
+            .value_field()
+            .map(|v| ArrayRef::from_arrow(v as &dyn ArrowArray, false))
+            .transpose()?;
+
+        let typed_value = arrow_variant
+            .typed_value_field()
+            .map(|tv| ArrayRef::from_arrow(tv.as_ref(), tv.is_nullable()))
+            .transpose()?;
+
+        let pv = ParquetVariantArray::try_new(metadata, value, typed_value)?;
+        Ok(VariantArray::new(pv.into_array()).into_array())
+    }
+
     fn nchildren(&self) -> usize {
         1 + self.value.is_some() as usize + self.typed_value.is_some() as usize
     }
@@ -146,7 +182,7 @@ impl ParquetVariantArray {
 
 impl VTable for ParquetVariantVTable {
     type Array = ParquetVariantArray;
-    type Metadata = ProstMetadata<ParquetVariantMetadata>;
+    type Metadata = ParquetVariantMetadata;
     type OperationsVTable = NotSupported;
     type ValidityVTable = Self;
 
@@ -219,9 +255,18 @@ impl VTable for ParquetVariantVTable {
     fn child(array: &ParquetVariantArray, idx: usize) -> ArrayRef {
         match idx {
             0 => array.metadata.clone(),
-            1 if array.value.is_some() => array.value.clone().unwrap(),
-            1 => array.typed_value.clone().unwrap(),
-            2 => array.typed_value.clone().unwrap(),
+            1 if array.value.is_some() => array
+                .value
+                .clone()
+                .vortex_expect("ParquetVariantArray missing value child"),
+            1 => array
+                .typed_value
+                .clone()
+                .vortex_expect("ParquetVariantArray missing typed_value child"),
+            2 => array
+                .typed_value
+                .clone()
+                .vortex_expect("ParquetVariantArray missing typed_value child"),
             _ => vortex_panic!("ParquetVariantArray child index {idx} out of bounds"),
         }
     }
@@ -237,14 +282,25 @@ impl VTable for ParquetVariantVTable {
     }
 
     fn metadata(array: &ParquetVariantArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ParquetVariantMetadata {
+        Ok(ParquetVariantMetadata {
             has_value: array.value.is_some(),
-            has_typed_value: array.typed_value.is_some(),
-        }))
+            typed_value_dtype: array.typed_value.as_ref().map(|tv| tv.dtype().clone()),
+        })
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.encode_to_vec()))
+        let typed_value_dtype = metadata
+            .typed_value_dtype
+            .as_ref()
+            .map(|dtype| dtype.try_into())
+            .transpose()?;
+        Ok(Some(
+            ParquetVariantMetadataProto {
+                has_value: metadata.has_value,
+                typed_value_dtype,
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(
@@ -254,9 +310,15 @@ impl VTable for ParquetVariantVTable {
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let inner =
-            <ProstMetadata<ParquetVariantMetadata> as DeserializeMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(inner))
+        let proto = ParquetVariantMetadataProto::decode(bytes)?;
+        let typed_value_dtype = match proto.typed_value_dtype.as_ref() {
+            Some(dtype) => Some(DType::from_proto(dtype, _session)?),
+            None => None,
+        };
+        Ok(ParquetVariantMetadata {
+            has_value: proto.has_value,
+            typed_value_dtype,
+        })
     }
 
     fn build(
@@ -267,12 +329,13 @@ impl VTable for ParquetVariantVTable {
         children: &dyn ArrayChildren,
     ) -> VortexResult<ParquetVariantArray> {
         vortex_ensure!(matches!(dtype, DType::Variant), "Expected Variant DType");
+        let has_typed_value = metadata.typed_value_dtype.is_some();
         vortex_ensure!(
-            metadata.has_value || metadata.has_typed_value,
+            metadata.has_value || has_typed_value,
             "At least one of value or typed_value must be present"
         );
 
-        let expected_children = 1 + metadata.has_value as usize + metadata.has_typed_value as usize;
+        let expected_children = 1 + metadata.has_value as usize + has_typed_value as usize;
         vortex_ensure!(
             children.len() == expected_children,
             "Expected {} children, got {}",
@@ -293,20 +356,19 @@ impl VTable for ParquetVariantVTable {
             None
         };
 
-        let typed_value = if metadata.has_typed_value {
+        let typed_value = if has_typed_value {
             // typed_value can be any type — primitive, list, struct, etc.
-            // We retrieve it without constraining its DType.
-            let tv = children.get(child_idx, &DType::Variant, len)?;
+            let dtype = metadata
+                .typed_value_dtype
+                .clone()
+                .ok_or_else(|| vortex_err!("typed_value_dtype missing for typed_value child"))?;
+            let tv = children.get(child_idx, &dtype, len)?;
             Some(tv)
         } else {
             None
         };
 
-        Ok(ParquetVariantArray::new(
-            variant_metadata,
-            value,
-            typed_value,
-        ))
+        ParquetVariantArray::try_new(variant_metadata, value, typed_value)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -317,12 +379,20 @@ impl VTable for ParquetVariantVTable {
             children.len()
         );
         let mut iter = children.into_iter();
-        array.metadata = iter.next().unwrap();
+        array.metadata = iter
+            .next()
+            .vortex_expect("ParquetVariantArray missing metadata child");
         if array.value.is_some() {
-            array.value = Some(iter.next().unwrap());
+            array.value = Some(
+                iter.next()
+                    .vortex_expect("ParquetVariantArray missing value child in with_children"),
+            );
         }
         if array.typed_value.is_some() {
-            array.typed_value = Some(iter.next().unwrap());
+            array.typed_value =
+                Some(iter.next().vortex_expect(
+                    "ParquetVariantArray missing typed_value child in with_children",
+                ));
         }
         Ok(())
     }
@@ -357,13 +427,20 @@ impl ArrayParentReduceRule<ParquetVariantVTable> for ParquetVariantGetRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let options = parent.options;
+        if options.path().is_some_and(|p| !p.is_empty()) {
+            vortex_bail!("ParquetVariant VariantGet only supports empty path");
+        }
+        let target_dtype = options.dtype().with_nullability(Nullability::Nullable);
         match array.typed_value_array() {
-            Some(typed_value) => {
-                // The shredded typed_value is available; cast it to the requested dtype.
-                Ok(Some(typed_value.cast(options.dtype.clone())?))
+            Some(typed_value)
+                if typed_value.dtype().with_nullability(Nullability::Nullable) == target_dtype =>
+            {
+                // The shredded typed_value matches the requested type.
+                // Cast to ensure nullability matches (VariantGet always returns nullable).
+                Ok(Some(typed_value.cast(target_dtype)?))
             }
-            None => {
-                // No shredded data available; cannot push down.
+            _ => {
+                // No shredded data or type mismatch; cannot push down.
                 Ok(None)
             }
         }
@@ -380,31 +457,109 @@ impl ValidityVTable<ParquetVariantVTable> for ParquetVariantVTable {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::Int32Array;
+    use arrow_array::StructArray;
+    use arrow_array::builder::BinaryViewBuilder;
+    use arrow_array::cast::AsArray;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Fields;
+    use parquet_variant::Variant;
+    use parquet_variant_compute::VariantArray as ArrowVariantArray;
+    use parquet_variant_compute::VariantArrayBuilder;
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::VariantArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::Precision;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::VariantVTable;
+    use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::serde::ArrayParts;
+    use vortex_array::serde::SerializeOptions;
+    use vortex_array::session::ArraySessionExt;
+    use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
+
+    #[test]
+    fn test_from_arrow_variant_basic() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(3);
+        builder.append_variant(Variant::from(42i32));
+        builder.append_variant(Variant::from("hello"));
+        builder.append_variant(Variant::from(true));
+        let arrow_variant = builder.build();
+
+        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+
+        assert_eq!(vortex_arr.len(), 3);
+        assert_eq!(vortex_arr.dtype(), &DType::Variant);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_arrow_variant_with_shredded_typed_value() -> VortexResult<()> {
+        // Build the underlying StructArray with metadata + typed_value fields
+        let mut metadata_builder = BinaryViewBuilder::new();
+        // Minimal variant metadata: version 1, no dictionary
+        let min_metadata = [1u8, 0];
+        for _ in 0..3 {
+            metadata_builder.append_value(min_metadata);
+        }
+        let metadata = metadata_builder.finish();
+
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+
+        let struct_fields: Fields = vec![
+            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+            Arc::new(Field::new("typed_value", DataType::Int32, false)),
+        ]
+        .into();
+        let struct_array =
+            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)
+                .unwrap();
+
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+
+        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        assert_eq!(vortex_arr.len(), 3);
+        assert_eq!(vortex_arr.dtype(), &DType::Variant);
+
+        // Verify typed_value is present by downcasting through the layers
+        let variant_arr = vortex_arr.as_opt::<VariantVTable>().unwrap();
+        let inner = variant_arr
+            .child()
+            .as_opt::<ParquetVariantVTable>()
+            .unwrap();
+        assert!(inner.typed_value_array().is_some());
+
+        Ok(())
+    }
 
     #[test]
     fn test_variant_get_pushdown_with_typed_value() -> VortexResult<()> {
         // Create a ParquetVariantArray with shredded typed_value (i32 data)
         let metadata = buffer![0u8, 1, 2].into_array();
         let typed_value = buffer![10i32, 20, 30].into_array();
-        let pv_array = ParquetVariantArray::new(metadata, None, Some(typed_value));
+        let pv_array = ParquetVariantArray::try_new(metadata, None, Some(typed_value))?;
 
         // Wrap it in a VariantArray
         let variant_array = VariantArray::new(pv_array.into_array());
 
         // Apply variant_get
         let target_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let result = variant_array
-            .into_array()
-            .variant_get("col", target_dtype)?;
+        let result = variant_array.into_array().variant_get(None, target_dtype)?;
 
         // The result should be the typed_value data, cast to nullable i32
         assert_eq!(
@@ -421,7 +576,7 @@ mod tests {
         // Create a ParquetVariantArray without typed_value (only value)
         let metadata = buffer![0u8, 1, 2].into_array();
         let value = buffer![0u8, 1, 2].into_array();
-        let pv_array = ParquetVariantArray::new(metadata, Some(value), None);
+        let pv_array = ParquetVariantArray::try_new(metadata, Some(value), None)?;
 
         // Wrap it in a VariantArray
         let variant_array = VariantArray::new(pv_array.into_array());
@@ -429,14 +584,116 @@ mod tests {
         // Apply variant_get - the rule returns None since there's no typed_value,
         // so the optimizer creates a lazy ScalarFnArray that will error on execute.
         let target_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let result = variant_array
-            .into_array()
-            .variant_get("col", target_dtype)?;
+        let result = variant_array.into_array().variant_get(None, target_dtype)?;
         // The result is a lazy expression wrapping the variant array
         assert_eq!(
             result.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
         );
+        Ok(())
+    }
+
+    fn roundtrip(array: ArrayRef) -> ArrayRef {
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let serialized = array.serialize(&ctx, &SerializeOptions::default()).unwrap();
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let concat = concat.freeze();
+
+        let session = VortexSession::empty().with::<vortex_array::session::ArraySession>();
+        session
+            .arrays()
+            .register(ParquetVariantVTable::ID, ParquetVariantVTable);
+        session.arrays().register(VariantVTable::ID, VariantVTable);
+
+        let parts = ArrayParts::try_from(concat).unwrap();
+        parts
+            .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
+            .unwrap()
+    }
+
+    #[test]
+    fn test_serde_roundtrip_typed_value_variant() {
+        let outer_metadata =
+            VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
+
+        let inner_metadata =
+            VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
+        let inner_value = VarBinViewArray::from_iter_bin([b"\x02", b"\x03", b"\x04"]).into_array();
+        let inner_pv =
+            ParquetVariantArray::try_new(inner_metadata, Some(inner_value), None).unwrap();
+        let typed_value = VariantArray::new(inner_pv.into_array()).into_array();
+
+        let outer_pv =
+            ParquetVariantArray::try_new(outer_metadata, None, Some(typed_value)).unwrap();
+        let array = outer_pv.into_array();
+        let decoded = roundtrip(array.clone());
+
+        assert!(array.array_eq(&decoded, Precision::Value));
+        let decoded_pv = decoded.as_opt::<ParquetVariantVTable>().unwrap();
+        let typed = decoded_pv.typed_value_array().unwrap();
+        assert_eq!(typed.dtype(), &DType::Variant);
+    }
+
+    #[test]
+    fn test_serde_roundtrip_typed_value_int32() {
+        let outer_metadata =
+            VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
+        let typed_value = buffer![10i32, 20, 30].into_array();
+
+        let outer_pv =
+            ParquetVariantArray::try_new(outer_metadata, None, Some(typed_value)).unwrap();
+        let array = outer_pv.into_array();
+        let decoded = roundtrip(array.clone());
+
+        assert!(array.array_eq(&decoded, Precision::Value));
+        let decoded_pv = decoded.as_opt::<ParquetVariantVTable>().unwrap();
+        let typed = decoded_pv.typed_value_array().unwrap();
+        assert_eq!(
+            typed.dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+    }
+
+    #[test]
+    fn test_arrow_variant_storage_basic() -> VortexResult<()> {
+        let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
+        let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
+        let pv_array = ParquetVariantArray::try_new(metadata, Some(value), None)?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arrow = pv_array.into_array().execute_arrow(None, &mut ctx)?;
+        let struct_arr = arrow.as_struct();
+
+        assert_eq!(struct_arr.num_columns(), 2);
+        assert_eq!(struct_arr.column_names(), &["metadata", "value"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_arrow_variant_storage_with_typed_value() -> VortexResult<()> {
+        let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
+        let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
+        let typed_value = buffer![1i32, 2].into_array();
+        let pv_array = ParquetVariantArray::try_new(metadata, Some(value), Some(typed_value))?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arrow = pv_array.into_array().execute_arrow(None, &mut ctx)?;
+        let struct_arr = arrow.as_struct();
+
+        assert_eq!(struct_arr.num_columns(), 3);
+        assert_eq!(
+            struct_arr.column_names(),
+            &["metadata", "value", "typed_value"]
+        );
+
         Ok(())
     }
 }

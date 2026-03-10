@@ -30,10 +30,9 @@ impl ArrayParentReduceRule<Variant> for VariantGetPushDownRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let options = parent.options;
-        Ok(Some(
-            array
-                .child()
-                .variant_get(&options.path, options.dtype.clone())?,
-        ))
+        Ok(Some(array.child().variant_get(
+            options.path().cloned(),
+            options.dtype().clone(),
+        )?))
     }
 }
