@@ -2,3 +2,4 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub(crate) mod rules;
+mod compare;

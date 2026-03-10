@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use vortex_array::ArrayRef;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::{PatchedArray, PrimitiveVTable};
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
+use vortex_array::{ArrayRef, ExecutionCtx, IntoArray, LEGACY_SESSION};
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -218,9 +219,18 @@ impl BitPackedArray {
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
     // FIXME(ngates): take a PrimitiveArray
-    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<Self> {
+    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<ArrayRef> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            bitpack_encode(parray, bit_width, None)
+            let (array, patches) = bitpack_encode(parray, bit_width, None)?;
+
+            match patches {
+                None => Ok(array.into_array()),
+                Some(patches) => {
+                    let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+                    PatchedArray::from_array_and_patches(array.into_array(), &patches, &mut ctx)
+                        .map(|a| a.into_array())
+                }
+            }
         } else {
             vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");
         }
