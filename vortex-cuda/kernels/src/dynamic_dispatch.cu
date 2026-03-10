@@ -277,17 +277,15 @@ __device__ void execute_stage(const struct Stage &stage,
     __syncthreads();
 }
 
-
 /// Computes the number of elements to process in an output tile.
 ///
 /// Each tile decodes exactly one FL block == SMEM_TILE_SIZE elements into
 /// shared memory. In case BITUNPACK is sliced, we need to account for the
 /// sub-byte element offset.
 __device__ inline uint32_t output_tile_len(const struct Stage &stage, uint32_t block_len, uint32_t tile_off) {
-    const uint32_t element_offset =
-        (tile_off == 0 && stage.source.op_code == SourceOp::BITUNPACK)
-            ? stage.source.params.bitunpack.element_offset
-            : 0;
+    const uint32_t element_offset = (tile_off == 0 && stage.source.op_code == SourceOp::BITUNPACK)
+                                        ? stage.source.params.bitunpack.element_offset
+                                        : 0;
     return min(SMEM_TILE_SIZE - element_offset, block_len - tile_off);
 }
 
@@ -304,8 +302,8 @@ __device__ inline uint32_t output_tile_len(const struct Stage &stage, uint32_t b
 /// @param plan      Device pointer to the dispatch plan
 template <typename T>
 __device__ void dynamic_dispatch(T *__restrict output,
-                                      uint64_t array_len,
-                                      const struct DynamicDispatchPlan *__restrict plan) {
+                                 uint64_t array_len,
+                                 const struct DynamicDispatchPlan *__restrict plan) {
 
     // Dynamically-sized shared memory: The host computes the exact byte count
     // needed to hold all stage outputs that must coexist simultaneously, and
@@ -333,7 +331,7 @@ __device__ void dynamic_dispatch(T *__restrict output,
     const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
     const uint32_t block_len = static_cast<uint32_t>(block_end - block_start);
 
-    for (uint32_t tile_off = 0; tile_off < block_len; ) {
+    for (uint32_t tile_off = 0; tile_off < block_len;) {
         const uint32_t tile_len = output_tile_len(output_stage, block_len, tile_off);
         execute_stage<T, StorePolicy::STREAMING>(output_stage,
                                                  smem_base,
