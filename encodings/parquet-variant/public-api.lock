@@ -1,0 +1,121 @@
+pub mod vortex_parquet_variant
+
+pub struct vortex_parquet_variant::ParquetVariantArray
+
+impl vortex_parquet_variant::ParquetVariantArray
+
+pub fn vortex_parquet_variant::ParquetVariantArray::from_arrow_variant(arrow_variant: &parquet_variant_compute::variant_array::VariantArray) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
+pub fn vortex_parquet_variant::ParquetVariantArray::metadata_array(&self) -> &vortex_array::array::ArrayRef
+
+pub fn vortex_parquet_variant::ParquetVariantArray::try_new(metadata: vortex_array::array::ArrayRef, value: core::option::Option<vortex_array::array::ArrayRef>, typed_value: core::option::Option<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_parquet_variant::ParquetVariantArray::typed_value_array(&self) -> core::option::Option<&vortex_array::array::ArrayRef>
+
+pub fn vortex_parquet_variant::ParquetVariantArray::value_array(&self) -> core::option::Option<&vortex_array::array::ArrayRef>
+
+impl vortex_parquet_variant::ParquetVariantArray
+
+pub fn vortex_parquet_variant::ParquetVariantArray::to_array(&self) -> vortex_array::array::ArrayRef
+
+impl core::clone::Clone for vortex_parquet_variant::ParquetVariantArray
+
+pub fn vortex_parquet_variant::ParquetVariantArray::clone(&self) -> vortex_parquet_variant::ParquetVariantArray
+
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_parquet_variant::ParquetVariantArray
+
+pub fn vortex_parquet_variant::ParquetVariantArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
+
+impl core::convert::From<vortex_parquet_variant::ParquetVariantArray> for vortex_array::array::ArrayRef
+
+pub fn vortex_array::array::ArrayRef::from(value: vortex_parquet_variant::ParquetVariantArray) -> vortex_array::array::ArrayRef
+
+impl core::fmt::Debug for vortex_parquet_variant::ParquetVariantArray
+
+pub fn vortex_parquet_variant::ParquetVariantArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::ops::deref::Deref for vortex_parquet_variant::ParquetVariantArray
+
+pub type vortex_parquet_variant::ParquetVariantArray::Target = dyn vortex_array::array::DynArray
+
+pub fn vortex_parquet_variant::ParquetVariantArray::deref(&self) -> &Self::Target
+
+impl vortex_array::array::IntoArray for vortex_parquet_variant::ParquetVariantArray
+
+pub fn vortex_parquet_variant::ParquetVariantArray::into_array(self) -> vortex_array::array::ArrayRef
+
+pub struct vortex_parquet_variant::ParquetVariantMetadata
+
+pub vortex_parquet_variant::ParquetVariantMetadata::has_value: bool
+
+pub vortex_parquet_variant::ParquetVariantMetadata::typed_value_dtype: core::option::Option<vortex_array::dtype::DType>
+
+impl core::clone::Clone for vortex_parquet_variant::ParquetVariantMetadata
+
+pub fn vortex_parquet_variant::ParquetVariantMetadata::clone(&self) -> vortex_parquet_variant::ParquetVariantMetadata
+
+impl core::fmt::Debug for vortex_parquet_variant::ParquetVariantMetadata
+
+pub fn vortex_parquet_variant::ParquetVariantMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_parquet_variant::ParquetVariantVTable
+
+impl vortex_parquet_variant::ParquetVariantVTable
+
+pub const vortex_parquet_variant::ParquetVariantVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::fmt::Debug for vortex_parquet_variant::ParquetVariantVTable
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::vtable::VTable for vortex_parquet_variant::ParquetVariantVTable
+
+pub type vortex_parquet_variant::ParquetVariantVTable::Array = vortex_parquet_variant::ParquetVariantArray
+
+pub type vortex_parquet_variant::ParquetVariantVTable::Metadata = vortex_parquet_variant::ParquetVariantMetadata
+
+pub type vortex_parquet_variant::ParquetVariantVTable::OperationsVTable = vortex_array::vtable::NotSupported
+
+pub type vortex_parquet_variant::ParquetVariantVTable::ValidityVTable = vortex_parquet_variant::ParquetVariantVTable
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::array_eq(array: &vortex_parquet_variant::ParquetVariantArray, other: &vortex_parquet_variant::ParquetVariantArray, precision: vortex_array::hash::Precision) -> bool
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::array_hash<H: core::hash::Hasher>(array: &vortex_parquet_variant::ParquetVariantArray, state: &mut H, precision: vortex_array::hash::Precision)
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::buffer(_array: &vortex_parquet_variant::ParquetVariantArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::buffer_name(_array: &vortex_parquet_variant::ParquetVariantArray, _idx: usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_parquet_variant::ParquetVariantArray>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::child(array: &vortex_parquet_variant::ParquetVariantArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::child_name(array: &vortex_parquet_variant::ParquetVariantArray, idx: usize) -> alloc::string::String
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::dtype(_array: &vortex_parquet_variant::ParquetVariantArray) -> &vortex_array::dtype::DType
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::len(array: &vortex_parquet_variant::ParquetVariantArray) -> usize
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::metadata(array: &vortex_parquet_variant::ParquetVariantArray) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::nbuffers(_array: &vortex_parquet_variant::ParquetVariantArray) -> usize
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::nchildren(array: &vortex_parquet_variant::ParquetVariantArray) -> usize
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::stats(array: &vortex_parquet_variant::ParquetVariantArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+impl vortex_array::vtable::validity::ValidityVTable<vortex_parquet_variant::ParquetVariantVTable> for vortex_parquet_variant::ParquetVariantVTable
+
+pub fn vortex_parquet_variant::ParquetVariantVTable::validity(_array: &vortex_parquet_variant::ParquetVariantArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
