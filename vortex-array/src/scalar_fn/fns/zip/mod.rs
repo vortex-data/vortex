@@ -8,8 +8,8 @@ use std::fmt::Formatter;
 pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -195,7 +195,8 @@ pub(crate) fn zip_impl(
     zip_impl_with_builder(
         if_true,
         if_false,
-        mask,
+        mask.values()
+            .expect("zip_impl_with_builder: mask is not all-true or all-false"),
         builder_with_capacity(&return_type, if_true.len()),
     )
 }
@@ -203,26 +204,17 @@ pub(crate) fn zip_impl(
 fn zip_impl_with_builder(
     if_true: &ArrayRef,
     if_false: &ArrayRef,
-    mask: &Mask,
+    mask: &MaskValues,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
-    match mask.slices() {
-        AllOr::All | AllOr::None => {
-            unreachable!(
-                "zip_impl_with_builder called with all-true or all-false mask; handle in zip_impl"
-            )
-        }
-        AllOr::Some(slices) => {
-            for (start, end) in slices {
-                builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
-                builder.extend_from_array(&if_true.slice(*start..*end)?);
-            }
-            if builder.len() < if_false.len() {
-                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
-            }
-            Ok(builder.finish())
-        }
+    for (start, end) in mask.slices() {
+        builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
+        builder.extend_from_array(&if_true.slice(*start..*end)?);
     }
+    if builder.len() < if_false.len() {
+        builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
+    }
+    Ok(builder.finish())
 }
 
 #[cfg(test)]
