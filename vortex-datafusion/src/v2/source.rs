@@ -546,7 +546,7 @@ impl DataSource for VortexDataSource {
         &self,
         _f: &mut dyn FnMut(&dyn PhysicalExpr) -> DFResult<TreeNodeRecursion>,
     ) -> DFResult<TreeNodeRecursion> {
-        return Ok(TreeNodeRecursion::Continue);
+        Ok(TreeNodeRecursion::Continue)
     }
 }
 

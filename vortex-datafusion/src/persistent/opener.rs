@@ -42,6 +42,7 @@ use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalType;
 use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
@@ -105,12 +106,14 @@ pub(crate) struct VortexOpener {
     pub scan_concurrency: Option<usize>,
 }
 
-/// Target byte budget per morsel (16 MB).
+/// Target byte budget per morsel (8 MB).
 const TARGET_MORSEL_BYTES: u64 = 8 * 1024 * 1024;
 /// Minimum rows per morsel to avoid excessive overhead.
 const MIN_MORSEL_ROWS: u64 = 2048;
 /// Maximum rows per morsel to bound memory usage.
 const MAX_MORSEL_ROWS: u64 = 128 * 1024;
+/// Minimum projected bytes per morsel. Small row ranges are coalesced until this threshold.
+const MIN_BYTES_PER_MORSEL: u64 = 1024 * 1024; // 1 MB
 
 /// Estimate the average byte width of a DType for morsel sizing fallback.
 fn estimate_dtype_byte_width(dtype: &DType) -> u64 {
@@ -127,8 +130,9 @@ fn estimate_dtype_byte_width(dtype: &DType) -> u64 {
     }
 }
 
-/// Compute the morsel row count using file statistics if available, falling back to DType estimation.
-fn compute_morsel_row_count(
+/// Estimate the average bytes per row for the touched columns, using statistics if available,
+/// falling back to DType estimation.
+fn estimate_bytes_per_row(
     statistics: Option<&Statistics>,
     file_dtype: &DType,
     row_count: u64,
@@ -149,10 +153,9 @@ fn compute_morsel_row_count(
                 .map(|&n| n as u64)
                 .unwrap_or(row_count);
             if num_rows > 0 {
-                let bytes_per_row = touched_bytes as u64 / num_rows;
-                if bytes_per_row > 0 {
-                    return (TARGET_MORSEL_BYTES / bytes_per_row)
-                        .clamp(MIN_MORSEL_ROWS, MAX_MORSEL_ROWS);
+                let bpr = touched_bytes as u64 / num_rows;
+                if bpr > 0 {
+                    return bpr;
                 }
             }
         }
@@ -161,7 +164,7 @@ fn compute_morsel_row_count(
     // Fallback: estimate from DType
     let struct_fields = match file_dtype.as_struct_fields_opt() {
         Some(fields) => fields,
-        None => return MIN_MORSEL_ROWS,
+        None => return 1,
     };
 
     let touched_bytes: u64 = if touched_col_indices.is_empty() {
@@ -178,17 +181,17 @@ fn compute_morsel_row_count(
             .sum()
     };
 
-    if touched_bytes == 0 {
-        return MAX_MORSEL_ROWS;
-    }
-
-    (TARGET_MORSEL_BYTES / touched_bytes).clamp(MIN_MORSEL_ROWS, MAX_MORSEL_ROWS)
+    touched_bytes.max(1)
 }
 
 struct VortexMorsel {
     row_range: Range<u64>,
     /// Cached layout reader, shared across all morsels from the same file.
     layout_reader: Arc<dyn LayoutReader>,
+    /// Estimated projected bytes per row for the touched columns.
+    bytes_per_row: u64,
+    /// Whether this morsel is a sub-morsel produced by split_morsel.
+    is_sub_morsel: bool,
 }
 
 impl FileOpener for VortexOpener {
@@ -261,30 +264,99 @@ impl FileOpener for VortexOpener {
                 .layout_reader()
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
-            let morsel_row_count = compute_morsel_row_count(
+            let bytes_per_row = estimate_bytes_per_row(
                 partitioned_file.statistics.as_deref(),
                 layout_reader.dtype(),
                 row_count,
                 &touched_col_indices,
             );
+            let morsel_row_count =
+                (TARGET_MORSEL_BYTES / bytes_per_row).clamp(MIN_MORSEL_ROWS, MAX_MORSEL_ROWS);
 
-            // Split into adaptive-size morsels
+            // Split into chunks, then coalesce small consecutive chunks so each
+            // morsel meets MIN_BYTES_PER_MORSEL projected bytes.
             let mut morsels = Vec::new();
+            let mut coalesce_start = 0u64;
             let mut start = 0u64;
             while start < row_count {
                 let end = (start + morsel_row_count).min(row_count);
-                let mut f = partitioned_file.clone();
-                f.extensions = Some(Arc::new(VortexMorsel {
-                    row_range: start..end,
-                    layout_reader: layout_reader.clone(),
-                }));
-                morsels.push(f);
+                let coalesced_rows = end - coalesce_start;
+                let projected_bytes = coalesced_rows * bytes_per_row;
+
+                if projected_bytes >= MIN_BYTES_PER_MORSEL || end == row_count {
+                    let mut f = partitioned_file.clone();
+                    f.extensions = Some(Arc::new(VortexMorsel {
+                        row_range: coalesce_start..end,
+                        layout_reader: layout_reader.clone(),
+                        bytes_per_row,
+                        is_sub_morsel: false,
+                    }));
+                    morsels.push(f);
+                    coalesce_start = end;
+                }
                 start = end;
             }
 
             Ok(morsels)
         })
     }
+
+    fn split_morsel(
+        &self,
+        file: PartitionedFile,
+        n: usize,
+        _min_rows_per_split: usize,
+    ) -> Vec<PartitionedFile> {
+        let morsel = match file
+            .extensions
+            .as_ref()
+            .and_then(|e| e.downcast_ref::<VortexMorsel>())
+        {
+            Some(m) => m,
+            None => return vec![file],
+        };
+
+        // Don't re-split sub-morsels to prevent cascading splits.
+        if morsel.is_sub_morsel {
+            return vec![file];
+        }
+
+        let row_count = morsel.row_range.end - morsel.row_range.start;
+        let projected_bytes = row_count * morsel.bytes_per_row;
+
+        // Compute number of splits: each sub-morsel should be at least MIN_BYTES_PER_MORSEL.
+        let n_splits =
+            usize::try_from((projected_bytes / MIN_BYTES_PER_MORSEL).clamp(1, n as u64))
+                .unwrap_or(n);
+        if n_splits <= 1 {
+            return vec![file];
+        }
+
+        let rows_per_split = row_count / n_splits as u64;
+        let remainder = row_count % n_splits as u64;
+        let layout_reader = morsel.layout_reader.clone();
+        let bytes_per_row = morsel.bytes_per_row;
+        let base_start = morsel.row_range.start;
+
+        let mut splits = Vec::with_capacity(n_splits);
+        let mut start = base_start;
+        for i in 0..n_splits {
+            let extra = if (i as u64) < remainder { 1 } else { 0 };
+            let end = start + rows_per_split + extra;
+            let mut f = file.clone();
+            f.extensions = Some(Arc::new(VortexMorsel {
+                row_range: start..end,
+                layout_reader: layout_reader.clone(),
+                bytes_per_row,
+                is_sub_morsel: true,
+            }));
+            splits.push(f);
+            start = end;
+        }
+
+        splits
+    }
+
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let session = self.session.clone();
         let metrics_registry = self.metrics_registry.clone();
@@ -406,7 +478,7 @@ impl FileOpener for VortexOpener {
                 }
 
                 let vxf = open_opts
-                    .open_read(reader.expect("reader must exist for non-morsel path"))
+                    .open_read(reader.vortex_expect("reader must exist for non-morsel path"))
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
 

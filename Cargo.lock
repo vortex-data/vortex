@@ -942,7 +942,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2085,7 +2085,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "arrow-schema 58.0.0",
@@ -2191,7 +2191,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -2239,7 +2239,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -2283,7 +2283,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "ahash 0.8.12",
  "apache-avro",
@@ -2319,7 +2319,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "futures",
  "log",
@@ -2358,7 +2358,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-compression",
@@ -2416,7 +2416,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-arrow"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "arrow-ipc 58.0.0",
@@ -2439,7 +2439,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-avro"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "apache-avro",
  "arrow 58.0.0",
@@ -2481,7 +2481,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -2525,7 +2525,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -2548,7 +2548,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-parquet"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -2583,7 +2583,7 @@ checksum = "2b99e13947667b36ad713549237362afb054b2d8f8cc447751e23ec61202db07"
 [[package]]
 name = "datafusion-doc"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 
 [[package]]
 name = "datafusion-execution"
@@ -2608,7 +2608,7 @@ dependencies = [
 [[package]]
 name = "datafusion-execution"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "arrow-buffer 58.0.0",
@@ -2652,7 +2652,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -2687,7 +2687,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "datafusion-common 52.2.0",
@@ -2729,7 +2729,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "arrow-buffer 58.0.0",
@@ -2781,7 +2781,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "ahash 0.8.12",
  "arrow 58.0.0",
@@ -2815,7 +2815,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "ahash 0.8.12",
  "arrow 58.0.0",
@@ -2850,7 +2850,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-nested"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "arrow-ord 58.0.0",
@@ -2890,7 +2890,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -2923,7 +2923,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "datafusion-common 52.2.0",
@@ -2950,7 +2950,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "datafusion-common 52.2.0",
  "datafusion-physical-expr-common 52.2.0",
@@ -2970,7 +2970,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "datafusion-doc 52.2.0",
  "quote",
@@ -2999,7 +2999,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "chrono",
@@ -3040,7 +3040,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "ahash 0.8.12",
  "arrow 58.0.0",
@@ -3078,7 +3078,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-adapter"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "datafusion-common 52.2.0",
@@ -3106,7 +3106,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "ahash 0.8.12",
  "arrow 58.0.0",
@@ -3140,7 +3140,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "datafusion-common 52.2.0",
@@ -3189,7 +3189,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "ahash 0.8.12",
  "arrow 58.0.0",
@@ -3237,7 +3237,7 @@ dependencies = [
 [[package]]
 name = "datafusion-pruning"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "datafusion-common 52.2.0",
@@ -3267,7 +3267,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "async-trait",
  "datafusion-common 52.2.0",
@@ -3280,7 +3280,7 @@ dependencies = [
 [[package]]
 name = "datafusion-spark"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "bigdecimal",
@@ -3323,7 +3323,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "bigdecimal",
@@ -3341,7 +3341,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sqllogictest"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "arrow 58.0.0",
  "async-trait",
@@ -3366,7 +3366,7 @@ dependencies = [
 [[package]]
 name = "datafusion-substrait"
 version = "52.2.0"
-source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=df6c035e68e9508029c9ba5b0979dad428573e63#df6c035e68e9508029c9ba5b0979dad428573e63"
+source = "git+https://github.com/Dandandan/arrow-datafusion.git?rev=c629ef9eeaad70b6836657163e6aa1f072090b58#c629ef9eeaad70b6836657163e6aa1f072090b58"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -7110,7 +7110,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
  "heck",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "log",
  "multimap",
  "petgraph",
@@ -7142,7 +7142,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",

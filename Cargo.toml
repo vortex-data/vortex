@@ -370,19 +370,19 @@ debug-assertions = true
 inherits = "bench"
 
 [patch.crates-io]
-datafusion = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-catalog = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-common = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-common-runtime = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-datasource = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-execution = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-expr = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-functions = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-physical-expr = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-physical-expr-adapter = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-physical-expr-common = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-physical-plan = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-pruning = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
-datafusion-sqllogictest = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "df6c035e68e9508029c9ba5b0979dad428573e63" }
+datafusion = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-catalog = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-common = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-common-runtime = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-datasource = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-execution = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-expr = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-functions = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-physical-expr = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-physical-expr-adapter = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-physical-expr-common = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-physical-plan = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-pruning = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
+datafusion-sqllogictest = { git = "https://github.com/Dandandan/arrow-datafusion.git", rev = "c629ef9eeaad70b6836657163e6aa1f072090b58" }
 tpchgen = { git = "https://github.com/AdamGS/tpchgen-rs.git", branch = "adamg/bump-arrow-match-df" }
 tpchgen-arrow = { git = "https://github.com/AdamGS/tpchgen-rs.git", branch = "adamg/bump-arrow-match-df" }
