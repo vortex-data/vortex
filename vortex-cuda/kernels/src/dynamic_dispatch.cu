@@ -35,7 +35,7 @@ __device__ inline uint64_t upper_bound(const T *data, uint64_t len, uint64_t val
 /// compressed or raw data from global memory and writes decoded elements into
 /// the stage's shared memory region.
 ///
-/// @param input      Global memory pointer to the stage's encoded input data
+/// @param input        Global memory pointer to the stage's encoded input data
 /// @param smem_output  Shared memory pointer where decoded elements are written
 /// @param chunk_start  Starting index of the chunk to process (block-relative for output stage)
 /// @param chunk_len    Number of elements to produce (may be < ELEMENTS_PER_BLOCK for tail blocks)
@@ -44,7 +44,7 @@ __device__ inline uint64_t upper_bound(const T *data, uint64_t len, uint64_t val
 ///                     to resolve offsets to ends/values decoded by earlier stages
 template <typename T>
 __device__ inline void dynamic_source_op(const T *__restrict input,
-                                         T *__restrict smem_output,
+                                         T *__restrict &smem_output,
                                          uint64_t chunk_start,
                                          uint32_t chunk_len,
                                          const struct SourceOp &source_op,
@@ -57,7 +57,10 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         constexpr uint32_t LANES_PER_FL_BLOCK = FL_CHUNK_SIZE / T_BITS;
         const uint32_t bit_width = source_op.params.bitunpack.bit_width;
         const uint32_t packed_words_per_fl_block = LANES_PER_FL_BLOCK * bit_width;
-        const uint64_t first_fl_block = chunk_start / FL_CHUNK_SIZE;
+
+        const uint32_t element_offset = source_op.params.bitunpack.element_offset;
+        const uint32_t smem_within_offset = (chunk_start + element_offset) % FL_CHUNK_SIZE;
+        const uint64_t first_fl_block = (chunk_start + element_offset) / FL_CHUNK_SIZE;
 
         // FL blocks must divide evenly. Otherwise, the last unpack would overflow smem.
         static_assert((ELEMENTS_PER_BLOCK % FL_CHUNK_SIZE) == 0);
@@ -65,7 +68,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         const auto div_ceil = [](auto a, auto b) {
             return (a + b - 1) / b;
         };
-        const uint32_t num_fl_chunks = div_ceil(chunk_len, FL_CHUNK_SIZE);
+        const uint32_t num_fl_chunks = div_ceil(chunk_len + smem_within_offset, FL_CHUNK_SIZE);
 
         for (uint32_t chunk_idx = 0; chunk_idx < num_fl_chunks; ++chunk_idx) {
             const T *packed_chunk = input + (first_fl_block + chunk_idx) * packed_words_per_fl_block;
@@ -75,7 +78,8 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
                 bit_unpack_lane<T>(packed_chunk, smem_lane, 0, lane, bit_width);
             }
         }
-        break;
+        smem_output += smem_within_offset;
+        return;
     }
 
     case SourceOp::LOAD: {
@@ -83,7 +87,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         for (uint32_t i = threadIdx.x; i < chunk_len; i += blockDim.x) {
             smem_output[i] = input[chunk_start + i];
         }
-        break;
+        return;
     }
 
     case SourceOp::RUNEND: {
@@ -107,7 +111,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
 
             smem_output[i] = values[min(current_run, num_runs - 1)];
         }
-        break;
+        return;
     }
 
     default:
@@ -273,6 +277,18 @@ __device__ void execute_stage(const struct Stage &stage,
     __syncthreads();
 }
 
+/// Computes the number of elements to process in an output tile.
+///
+/// Each tile decodes exactly one FL block == SMEM_TILE_SIZE elements into
+/// shared memory. In case BITUNPACK is sliced, we need to account for the
+/// sub-byte element offset.
+__device__ inline uint32_t output_tile_len(const struct Stage &stage, uint32_t block_len, uint32_t tile_off) {
+    const uint32_t element_offset = (tile_off == 0 && stage.source.op_code == SourceOp::BITUNPACK)
+                                        ? stage.source.params.bitunpack.element_offset
+                                        : 0;
+    return min(SMEM_TILE_SIZE - element_offset, block_len - tile_off);
+}
+
 /// Entry point of the dynamic dispatch kernel.
 ///
 /// Executes the plan's stages in order:
@@ -285,9 +301,9 @@ __device__ void execute_stage(const struct Stage &stage,
 /// @param array_len Total number of elements to produce
 /// @param plan      Device pointer to the dispatch plan
 template <typename T>
-__device__ void dynamic_dispatch_impl(T *__restrict output,
-                                      uint64_t array_len,
-                                      const struct DynamicDispatchPlan *__restrict plan) {
+__device__ void dynamic_dispatch(T *__restrict output,
+                                 uint64_t array_len,
+                                 const struct DynamicDispatchPlan *__restrict plan) {
 
     // Dynamically-sized shared memory: The host computes the exact byte count
     // needed to hold all stage outputs that must coexist simultaneously, and
@@ -310,21 +326,20 @@ __device__ void dynamic_dispatch_impl(T *__restrict output,
         execute_stage<T, StorePolicy::WRITEBACK>(stage, smem_base, 0, stage.len, smem_output, 0);
     }
 
-    // Output stage: process in SMEM_TILE_SIZE tiles to reduce smem footprint.
-    // Each tile decodes into the same smem region and writes to global memory.
     const struct Stage &output_stage = smem_plan.stages[last];
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
     const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
     const uint32_t block_len = static_cast<uint32_t>(block_end - block_start);
 
-    for (uint32_t tile_off = 0; tile_off < block_len; tile_off += SMEM_TILE_SIZE) {
-        const uint32_t tile_len = min(SMEM_TILE_SIZE, block_len - tile_off);
+    for (uint32_t tile_off = 0; tile_off < block_len;) {
+        const uint32_t tile_len = output_tile_len(output_stage, block_len, tile_off);
         execute_stage<T, StorePolicy::STREAMING>(output_stage,
                                                  smem_base,
                                                  block_start + tile_off,
                                                  tile_len,
                                                  output,
                                                  block_start + tile_off);
+        tile_off += tile_len;
     }
 }
 
@@ -334,7 +349,7 @@ __device__ void dynamic_dispatch_impl(T *__restrict output,
         Type *__restrict output,                                                                             \
         uint64_t array_len,                                                                                  \
         const struct DynamicDispatchPlan *__restrict plan) {                                                 \
-        dynamic_dispatch_impl<Type>(output, array_len, plan);                                                \
+        dynamic_dispatch<Type>(output, array_len, plan);                                                     \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_DYNAMIC_DISPATCH_KERNEL)
