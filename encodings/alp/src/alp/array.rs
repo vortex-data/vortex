@@ -10,7 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -235,10 +235,9 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        // TODO(joe): take by value
-        Ok(ExecutionStep::Done(
-            execute_decompress(array.clone(), ctx)?.into_array(),
+    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            execute_decompress(array, ctx)?.into_array(),
         ))
     }
 

@@ -402,6 +402,11 @@ impl<V: VTable> ArrayAdapter<V> {
     pub fn as_inner(&self) -> &V::Array {
         &self.0
     }
+
+    /// Consume the adapter and return the underlying array.
+    pub fn into_inner(self) -> V::Array {
+        self.0
+    }
 }
 
 impl<V: VTable> Debug for ArrayAdapter<V> {

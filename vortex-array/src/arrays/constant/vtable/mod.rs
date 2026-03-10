@@ -13,7 +13,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -178,9 +178,9 @@ impl VTable for ConstantVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            constant_canonicalize(array)?.into_array(),
+    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            constant_canonicalize(&array)?.into_array(),
         ))
     }
 

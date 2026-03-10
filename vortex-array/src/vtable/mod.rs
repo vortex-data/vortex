@@ -10,6 +10,7 @@ mod validity;
 use std::fmt::Debug;
 use std::hash::Hasher;
 use std::ops::Deref;
+use std::sync::Arc;
 
 pub use dyn_::*;
 pub use operations::*;
@@ -22,7 +23,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -181,13 +182,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
+    /// Execute this array by returning an [`ExecutionResult`] that tells the scheduler what to
     /// do next.
     ///
     /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionStep::ExecuteChild(i)`] to request that the scheduler execute a child first,
-    /// or [`ExecutionStep::Done(result)`] when the
-    /// encoding can produce a result directly.
+    /// [`ExecutionResult::execute_child`] to request that the scheduler execute a child first,
+    /// or [`ExecutionResult::done`] when the encoding can produce a result directly.
     ///
     /// Array execution is designed such that repeated execution of an array will eventually
     /// converge to a canonical representation. Implementations of this function should therefore
@@ -198,7 +198,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     ///

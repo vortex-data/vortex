@@ -12,7 +12,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::SharedArray;
 use crate::buffer::BufferHandle;
@@ -145,10 +145,10 @@ impl VTable for SharedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
 impl OperationsVTable<SharedVTable> for SharedVTable {

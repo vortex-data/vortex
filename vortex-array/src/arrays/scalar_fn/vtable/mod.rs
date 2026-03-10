@@ -30,7 +30,7 @@ use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::expr::Expression;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
@@ -195,10 +195,13 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = VecExecutionArgs::new(array.children.clone(), array.len);
-        array.scalar_fn.execute(&args, ctx).map(ExecutionStep::Done)
+        array
+            .scalar_fn
+            .execute(&args, ctx)
+            .map(ExecutionResult::done)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

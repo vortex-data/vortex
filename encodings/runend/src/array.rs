@@ -10,7 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -203,8 +203,8 @@ impl VTable for RunEndVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        run_end_canonicalize(array, ctx).map(ExecutionStep::Done)
+    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
     }
 }
 

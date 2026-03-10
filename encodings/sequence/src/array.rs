@@ -7,7 +7,7 @@ use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -381,8 +381,8 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        sequence_decompress(array).map(ExecutionStep::Done)
+    fn execute(array: Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        sequence_decompress(&array).map(ExecutionResult::done)
     }
 
     fn execute_parent(

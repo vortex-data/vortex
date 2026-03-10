@@ -6,6 +6,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_error::VortexExpect;
@@ -16,6 +17,7 @@ use vortex_session::VortexSession;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::ExecutionResult;
 use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::buffer::BufferHandle;
@@ -61,7 +63,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 
     /// See [`VTable::execute`]
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
+    fn execute(&self, array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// See [`VTable::execute_parent`]
     fn execute_parent(
@@ -146,31 +148,34 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(Some(reduced))
     }
 
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        let step = V::execute(downcast::<V>(array), ctx)?;
+    fn execute(&self, array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // Capture metadata before the move for post-validation and stats inheritance.
+        let len = array.len();
+        let dtype = array.dtype().clone();
+        let stats = array.statistics().to_owned();
 
-        if let ExecutionStep::Done(ref result) = step {
+        let owned = downcast_owned::<V>(array);
+        let result = V::execute(owned, ctx)?;
+
+        if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
                 vortex_ensure!(
-                    result.as_ref().len() == array.len(),
+                    result.array().len() == len,
                     "Result length mismatch for {:?}",
                     self
                 );
                 vortex_ensure!(
-                    result.as_ref().dtype() == array.dtype(),
+                    result.array().dtype() == &dtype,
                     "Executed canonical dtype mismatch for {:?}",
                     self
                 );
             }
 
             // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
-            result
-                .as_ref()
-                .statistics()
-                .inherit_from(array.statistics());
+            result.array().statistics().set_iter(stats.into_iter());
         }
 
-        Ok(step)
+        Ok(result)
     }
 
     fn execute_parent(
@@ -205,6 +210,22 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
         .downcast_ref::<ArrayAdapter<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
         .as_inner()
+}
+
+/// Downcast an `ArrayRef` into an owned `V::Array`, avoiding a clone when possible.
+///
+/// If the `Arc` refcount is 1, the inner array is moved out without cloning.
+/// Otherwise, falls back to cloning the inner array.
+fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
+    let adapter: Arc<ArrayAdapter<V>> = array
+        .as_any_arc()
+        .downcast::<ArrayAdapter<V>>()
+        .ok()
+        .vortex_expect("Failed to downcast array to expected encoding type");
+    match Arc::try_unwrap(adapter) {
+        Ok(adapter) => adapter.into_inner(),
+        Err(arc) => unsarc,
+    }
 }
 
 impl<V: VTable> Debug for ArrayVTableAdapter<V> {

@@ -11,7 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -296,7 +296,7 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
         let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -335,7 +335,7 @@ impl VTable for ALPRDVTable {
             )
         };
 
-        Ok(ExecutionStep::Done(decoded_array.into_array()))
+        Ok(ExecutionResult::done(decoded_array.into_array()))
     }
 
     fn reduce_parent(

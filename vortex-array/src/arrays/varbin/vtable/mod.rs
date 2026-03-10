@@ -10,7 +10,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -219,9 +219,9 @@ impl VTable for VarBinVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            varbin_to_canonical(array, ctx)?.into_array(),
+    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            varbin_to_canonical(&array, ctx)?.into_array(),
         ))
     }
 }

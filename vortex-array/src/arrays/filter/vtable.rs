@@ -27,7 +27,7 @@ use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
@@ -155,9 +155,9 @@ impl VTable for FilterVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
-            return Ok(ExecutionStep::Done(canonical));
+    fn execute(array: Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        if let Some(canonical) = execute_filter_fast_paths(&array, ctx)? {
+            return Ok(ExecutionResult::done(canonical));
         }
         let Mask::Values(mask_values) = &array.mask else {
             unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
@@ -165,7 +165,7 @@ impl VTable for FilterVTable {
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
-        Ok(ExecutionStep::Done(
+        Ok(ExecutionResult::done(
             execute_filter(array.child.clone().execute(ctx)?, mask_values).into_array(),
         ))
     }
