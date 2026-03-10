@@ -77,9 +77,13 @@ struct Cli {
     max_frames: usize,
 
     /// Path to a JSON file with per-frame detection booleans (from detect.py).
-    /// If provided, adds a `has_hot_dog` bool column to the output.
+    /// If provided, adds a bool column to the output with the name given by --detection-column.
     #[arg(long)]
     detections: Option<PathBuf>,
+
+    /// Name of the boolean detection column (default: "detected").
+    #[arg(long, default_value = "detected")]
+    detection_column: String,
 }
 
 #[tokio::main]
@@ -115,7 +119,7 @@ async fn main() -> VortexResult<()> {
 
     let (field_names, field_dtypes) = if detections.is_some() {
         (
-            FieldNames::from(["R", "G", "B", "has_hot_dog"]),
+            FieldNames::from(["R", "G", "B", cli.detection_column.as_str()]),
             vec![u8_dtype.clone(), u8_dtype.clone(), u8_dtype, bool_dtype],
         )
     } else {
@@ -200,10 +204,10 @@ async fn main() -> VortexResult<()> {
         let b_arr = PrimitiveArray::new(b_plane.clone(), Validity::NonNullable);
 
         let (names, fields) = if let Some(ref dets) = detections {
-            let has_hot_dog = dets.get(frame_count).copied().unwrap_or(false);
-            let bool_arr: BoolArray = std::iter::repeat_n(has_hot_dog, pixels_per_frame).collect();
+            let detected = dets.get(frame_count).copied().unwrap_or(false);
+            let bool_arr: BoolArray = std::iter::repeat_n(detected, pixels_per_frame).collect();
             (
-                FieldNames::from(["R", "G", "B", "has_hot_dog"]),
+                FieldNames::from(["R", "G", "B", cli.detection_column.as_str()]),
                 vec![
                     r_arr.into_array(),
                     g_arr.into_array(),
