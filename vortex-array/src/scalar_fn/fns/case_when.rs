@@ -274,6 +274,14 @@ fn merge_case_branches(
     }
 
     let row_count = else_value.len();
+
+    let output_nullability = branches
+        .iter()
+        .fold(else_value.dtype().nullability(), |acc, (_, arr)| {
+            acc | arr.dtype().nullability()
+        });
+    let output_dtype = else_value.dtype().with_nullability(output_nullability);
+
     let spans_cap: usize = branches
         .iter()
         .map(|(mask, _)| match mask.slices() {
@@ -285,7 +293,7 @@ fn merge_case_branches(
     let mut spans: Vec<(usize, usize, usize)> = Vec::with_capacity(spans_cap);
     for (branch_idx, (mask, _)) in branches.iter().enumerate() {
         match mask.slices() {
-            AllOr::All => spans.push((0, row_count, branch_idx)),
+            AllOr::All => return branches[branch_idx].1.cast(output_dtype),
             AllOr::None => {}
             AllOr::Some(slices) => {
                 for &(start, end) in slices {
@@ -295,13 +303,6 @@ fn merge_case_branches(
         }
     }
     spans.sort_unstable_by_key(|&(start, ..)| start);
-
-    let output_nullability = branches
-        .iter()
-        .fold(else_value.dtype().nullability(), |acc, (_, arr)| {
-            acc | arr.dtype().nullability()
-        });
-    let output_dtype = else_value.dtype().with_nullability(output_nullability);
     let builder = builder_with_capacity(&output_dtype, row_count);
 
     let fragmented = !spans.is_empty() && spans.len() > row_count / SLICE_CROSSOVER_RUN_LEN;
