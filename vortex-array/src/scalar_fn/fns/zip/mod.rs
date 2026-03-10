@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::VortexExpect as _;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
@@ -196,7 +197,7 @@ pub(crate) fn zip_impl(
         if_true,
         if_false,
         mask.values()
-            .expect("zip_impl_with_builder: mask is not all-true or all-false"),
+            .vortex_expect("zip_impl_with_builder: mask is not all-true or all-false"),
         builder_with_capacity(&return_type, if_true.len()),
     )
 }
