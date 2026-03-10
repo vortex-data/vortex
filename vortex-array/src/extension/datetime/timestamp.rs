@@ -184,9 +184,11 @@ impl ExtVTable for Timestamp {
     fn unpack_native<'a>(
         &self,
         metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
+        storage_dtype: &'a DType,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
+        self.validate_dtype(metadata, storage_dtype)?;
+
         let ts_value = storage_value.as_primitive().cast::<i64>()?;
         let tz = metadata.tz.as_ref();
 

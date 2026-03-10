@@ -66,9 +66,11 @@ impl ExtVTable for DivisibleInt {
     fn unpack_native(
         &self,
         metadata: &Self::Metadata,
-        _storage_dtype: &DType,
+        storage_dtype: &DType,
         storage_value: &ScalarValue,
     ) -> VortexResult<Self::NativeValue<'_>> {
+        self.validate_dtype(metadata, storage_dtype)?;
+
         let value = storage_value.as_primitive().cast::<u64>()?;
         if value % metadata.0 != 0 {
             vortex_bail!("{} is not divisible by {}", value, metadata.0);

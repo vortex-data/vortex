@@ -7,7 +7,7 @@ use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
@@ -96,11 +96,11 @@ impl ExtVTable for Time {
         let ptype = time_ptype(metadata)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
 
-        vortex_ensure!(
-            storage_dtype.as_ptype() == ptype,
-            "Time storage dtype for {} must be {}",
-            metadata,
-            ptype
+        vortex_ensure_eq!(
+            storage_dtype.as_ptype(),
+            ptype,
+            "Time storage dtype for {}[{metadata}] must be {ptype}",
+            self.id()
         );
 
         Ok(())
@@ -109,9 +109,11 @@ impl ExtVTable for Time {
     fn unpack_native(
         &self,
         metadata: &Self::Metadata,
-        _storage_dtype: &DType,
+        storage_dtype: &DType,
         storage_value: &ScalarValue,
     ) -> VortexResult<Self::NativeValue<'_>> {
+        self.validate_dtype(metadata, storage_dtype)?;
+
         let length_of_time = storage_value.as_primitive().cast::<i64>()?;
 
         let (span, value) = match *metadata {

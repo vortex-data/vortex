@@ -63,10 +63,12 @@ impl ExtVTable for FixedShapeTensor {
 
     fn unpack_native<'a>(
         &self,
-        _metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
+        metadata: &'a Self::Metadata,
+        storage_dtype: &'a DType,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
+        self.validate_dtype(metadata, storage_dtype)?;
+
         // TODO(connor): This is just a placeholder. However, even if we have a dedicated native
         // type for a singular tensor, we do not need to validate anything as any backing memory
         // should be valid for a given tensor.

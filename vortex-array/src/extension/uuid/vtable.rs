@@ -81,9 +81,11 @@ impl ExtVTable for Uuid {
     fn unpack_native<'a>(
         &self,
         metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
+        storage_dtype: &'a DType,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
+        self.validate_dtype(metadata, storage_dtype)?;
+
         let elements = storage_value.as_list();
         vortex_ensure_eq!(
             elements.len(),

@@ -42,7 +42,12 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Validate the given storage value is compatible with the extension type.
     ///
-    /// By default, this calls [`unpack_native()`](ExtVTable::unpack_native) and discards the result.
+    /// By default, this calls [`unpack_native()`](ExtVTable::unpack_native) and discards the
+    /// result.
+    ///
+    /// Implementors should first validate that the dtype is compatible (with
+    /// [`ExtVTable::validate_dtype`]), and then further validate that the [`ScalarValue`] is
+    /// compatible.
     ///
     /// # Errors
     ///
@@ -59,9 +64,9 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Validate and unpack a native value from the storage [`ScalarValue`].
     ///
-    /// Note that [`ExtVTable::validate_dtype()`] is always called first to validate the storage
-    /// [`DType`], and the [`Scalar`](crate::scalar::Scalar) implementation will verify that the
-    /// storage value is compatible with the storage dtype on construction.
+    /// Implementors should first validate that the dtype is compatible (with
+    /// [`ExtVTable::validate_dtype`]), and then further validate that the [`ScalarValue`] is
+    /// compatible in order to unpack into a `NativeValue`.
     ///
     /// # Errors
     ///
