@@ -6,9 +6,9 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::VortexExpect as _;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
