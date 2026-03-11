@@ -207,6 +207,13 @@ def build_group_summary(group_df):
     return ratio_summary, significant_improvements, significant_regressions
 
 
+def format_integer_value(value):
+    if pd.isna(value):
+        return ""
+
+    return str(int(value))
+
+
 # Output complete formatted markdown
 print("\n".join(summary_lines))
 print("")
@@ -218,8 +225,8 @@ for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_k
     display_df = pd.DataFrame(
         {
             "name": group_df["name"],
-            f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"],
-            f"base {base_commit_id[:8]} ({unit})": group_df["value_base"],
+            f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"].map(format_integer_value),
+            f"base {base_commit_id[:8]} ({unit})": group_df["value_base"].map(format_integer_value),
             "ratio (PR/base)": group_df["ratio"],
         }
     )
