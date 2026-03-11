@@ -25,6 +25,7 @@ use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
+use crate::trusted_len::TrustedLenExt;
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -100,7 +101,11 @@ impl BitBuffer {
         // Slice the buffer to ensure the offset is within the first byte
         let byte_offset = offset / 8;
         let offset = offset % 8;
-        let buffer = buffer.slice(byte_offset..);
+        let buffer = if byte_offset != 0 {
+            buffer.slice(byte_offset..)
+        } else {
+            buffer
+        };
 
         Self {
             buffer,
@@ -342,7 +347,12 @@ impl BitBuffer {
                 self.len,
             );
         }
-        bitwise_unary_op(self, |a| a)
+        // Use Chunk iterator here to reset offset to 0
+        let iter = self.chunks().iter_padded();
+        let iter = unsafe { iter.trusted_len() };
+        let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
+
+        BitBuffer::new(result, self.len())
     }
 }
 
