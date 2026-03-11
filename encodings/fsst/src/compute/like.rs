@@ -86,7 +86,11 @@ impl LikeKernel for FSSTVTable {
             }
         };
 
-        let validity = Validity::copy_from_array(&array.clone().into_array())?
+        // FSST delegates validity to its codes array, so we can read it
+        // directly without cloning the entire FSSTArray into an ArrayRef.
+        let validity = array
+            .codes()
+            .validity()?
             .union_nullability(pattern_scalar.dtype().nullability());
 
         Ok(Some(BoolArray::new(result, validity).into_array()))
@@ -137,39 +141,49 @@ impl<'a> LikeKind<'a> {
 // DFA for prefix matching (LIKE 'prefix%')
 // ---------------------------------------------------------------------------
 
-/// Precomputed DFA for prefix matching on FSST codes.
+/// Precomputed shift-based DFA for prefix matching on FSST codes.
 ///
 /// States 0..prefix_len track match progress, plus ACCEPT and FAIL.
-/// One table lookup per FSST code — no per-byte inner loop.
+/// Uses the same shift-based approach as the contains DFA: all state
+/// transitions packed into a `u64` per code byte. For prefixes longer
+/// than 13 characters, falls back to a fused u8 table.
 struct FsstPrefixDfa {
-    symbol_transitions: Vec<u16>,
-    escape_transitions: Vec<u16>,
-    n_symbols: usize,
-    accept_state: u16,
-    fail_state: u16,
+    /// Packed transitions: `(table[code] >> (state * 4)) & 0xF` gives next state.
+    transitions: [u64; 256],
+    /// Packed escape transitions for literal bytes.
+    escape_transitions: [u64; 256],
+    accept_state: u8,
+    fail_state: u8,
 }
 
 impl FsstPrefixDfa {
+    const BITS: u32 = 4;
+    const MASK: u64 = (1 << Self::BITS) - 1;
+
     fn new(symbols: &[Symbol], symbol_lengths: &[u8], prefix: &[u8]) -> Self {
+        // prefix.len() + 2 states (0..prefix_len, accept, fail) must fit in 4 bits.
+        debug_assert!(prefix.len() + 2 <= (1 << Self::BITS));
+
         let n_symbols = symbols.len();
-        let accept_state = prefix.len() as u16;
-        let fail_state = prefix.len() as u16 + 1;
+        let accept_state = prefix.len() as u8;
+        let fail_state = prefix.len() as u8 + 1;
         let n_states = prefix.len() + 2;
 
-        let mut symbol_transitions = vec![fail_state; n_states * n_symbols];
-        let mut escape_transitions = vec![fail_state; n_states * 256];
+        // Build per-symbol and per-escape-byte transitions into flat tables.
+        let mut sym_trans = vec![fail_state; n_states * n_symbols];
+        let mut esc_trans = vec![fail_state; n_states * 256];
 
         for state in 0..n_states {
-            if state as u16 == accept_state {
+            if state as u8 == accept_state {
                 for code in 0..n_symbols {
-                    symbol_transitions[state * n_symbols + code] = accept_state;
+                    sym_trans[state * n_symbols + code] = accept_state;
                 }
                 for b in 0..256 {
-                    escape_transitions[state * 256 + b] = accept_state;
+                    esc_trans[state * 256 + b] = accept_state;
                 }
                 continue;
             }
-            if state as u16 == fail_state {
+            if state as u8 == fail_state {
                 continue;
             }
 
@@ -181,10 +195,10 @@ impl FsstPrefixDfa {
 
                 if sym[..cmp] == prefix[state..state + cmp] {
                     let next = state + cmp;
-                    symbol_transitions[state * n_symbols + code] = if next >= prefix.len() {
+                    sym_trans[state * n_symbols + code] = if next >= prefix.len() {
                         accept_state
                     } else {
-                        next as u16
+                        next as u8
                     };
                 }
             }
@@ -192,40 +206,72 @@ impl FsstPrefixDfa {
             for b in 0..256usize {
                 if b as u8 == prefix[state] {
                     let next = state + 1;
-                    escape_transitions[state * 256 + b] = if next >= prefix.len() {
+                    esc_trans[state * 256 + b] = if next >= prefix.len() {
                         accept_state
                     } else {
-                        next as u16
+                        next as u8
                     };
                 }
             }
         }
 
+        // Fuse symbol transitions into a 256-wide table.
+        let escape_sentinel = fail_state + 1;
+        let mut fused = vec![fail_state; n_states * 256];
+        for state in 0..n_states {
+            for code in 0..n_symbols {
+                fused[state * 256 + code] = sym_trans[state * n_symbols + code];
+            }
+            fused[state * 256 + ESCAPE_CODE as usize] = escape_sentinel;
+        }
+
+        // Pack into u64 shift tables.
+        let mut transitions = [0u64; 256];
+        for code_byte in 0..256usize {
+            let mut packed = 0u64;
+            for state in 0..n_states {
+                packed |= (fused[state * 256 + code_byte] as u64) << (state as u32 * Self::BITS);
+            }
+            transitions[code_byte] = packed;
+        }
+
+        let mut escape_transitions = [0u64; 256];
+        for byte_val in 0..256usize {
+            let mut packed = 0u64;
+            for state in 0..n_states {
+                packed |= (esc_trans[state * 256 + byte_val] as u64) << (state as u32 * Self::BITS);
+            }
+            escape_transitions[byte_val] = packed;
+        }
+
         Self {
-            symbol_transitions,
+            transitions,
             escape_transitions,
-            n_symbols,
             accept_state,
             fail_state,
         }
     }
 
+    #[inline]
     fn matches(&self, codes: &[u8]) -> bool {
-        let mut state = 0u16;
+        let mut state = 0u8;
         let mut pos = 0;
         while pos < codes.len() {
             let code = codes[pos];
             pos += 1;
-            if code == ESCAPE_CODE {
+            let packed = self.transitions[code as usize];
+            let next = ((packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+            if next == self.fail_state + 1 {
+                // Escape sentinel: read literal byte.
                 if pos >= codes.len() {
                     return false;
                 }
                 let b = codes[pos];
                 pos += 1;
-                state = self.escape_transitions[state as usize * 256 + b as usize];
+                let esc_packed = self.escape_transitions[b as usize];
+                state = ((esc_packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
             } else {
-                debug_assert!((code as usize) < self.n_symbols);
-                state = self.symbol_transitions[state as usize * self.n_symbols + code as usize];
+                state = next;
             }
             if state == self.accept_state {
                 return true;
@@ -367,14 +413,14 @@ impl ShiftDfa {
         }
     }
 
+    /// Match without per-iteration early-exit. The accept state is sticky
+    /// (transitions to itself), so final state == accept means we matched.
+    /// Removing the branch from the hot loop improves throughput.
     #[inline]
     fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
         let mut pos = 0;
         while pos < codes.len() {
-            if state == self.accept_state {
-                return true;
-            }
             let code = codes[pos];
             pos += 1;
             let packed = self.transitions[code as usize];
