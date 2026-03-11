@@ -19,12 +19,31 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-Z_SCORE_95 = 1.959963984540054
+# Analysis overview:
+# - Join base and PR benchmark rows on benchmark identity.
+# - Use log-ratios because benchmark slowdowns/speedups are multiplicative.
+# - Treat parquet rows as controls to estimate systemic drift beta(q).
+# - Attribute the remaining change to the PR as alpha(q, c).
+# - Call a row significant only when alpha clears a conservative noise floor.
+# - Collapse those row-level results into a short verdict for the PR comment.
+#
+# Concretely:
+# - raw ratio = median_runtime_pr / median_runtime_base
+# - log_ratio = log(raw ratio)
+# - beta(q) = mean(log_ratio) across parquet control rows for query q
+# - alpha(q, c) = log_ratio(q, c) - beta(q)
+# - attributed impact = geometric mean of alpha ratios across non-control rows
+
+# Benchmarks are noisier than textbook measurement data, so use a conservative
+# cutoff that is closer to a 99% two-sided interval before calling a change real.
+Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
 
 
 @dataclass
 class MedianPolishResult:
+    """Robust additive decomposition for the query x config log-ratio matrix."""
+
     overall: float
     row_effects: pd.Series
     column_effects: pd.Series
@@ -33,6 +52,8 @@ class MedianPolishResult:
 
 
 def extract_dataset_key(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize dataset metadata into a stable join key."""
+
     if "dataset" not in df.columns:
         df["dataset_key"] = pd.NA
     else:
@@ -43,6 +64,8 @@ def extract_dataset_key(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def extract_target_fields(name: str) -> pd.Series:
+    """Parse query, engine, and format from the benchmark name."""
+
     if not isinstance(name, str):
         return pd.Series({"engine": "unknown", "file_format": "unknown", "query": pd.NA})
 
@@ -60,6 +83,8 @@ def extract_target_fields(name: str) -> pd.Series:
 
 
 def positive_samples(values: Any) -> np.ndarray:
+    """Keep only finite, strictly positive runtime samples."""
+
     if not isinstance(values, (list, tuple, np.ndarray, pd.Series)):
         return np.array([], dtype=float)
     samples = np.asarray(values, dtype=float)
@@ -67,6 +92,8 @@ def positive_samples(values: Any) -> np.ndarray:
 
 
 def log_runtime_stats(values: Any) -> dict[str, float]:
+    """Summarize repeated runtimes on the log scale."""
+
     samples = positive_samples(values)
     if samples.size == 0:
         return {
@@ -92,6 +119,8 @@ def ratio_stats(
     base_median: float,
     pr_median: float,
 ) -> dict[str, float]:
+    """Compute the PR/base effect and its sampling error for one matched row."""
+
     base_stats = log_runtime_stats(base_values)
     pr_stats = log_runtime_stats(pr_values)
 
@@ -115,6 +144,8 @@ def ratio_stats(
 
 
 def robust_scale(values: pd.Series | np.ndarray) -> float:
+    """Estimate spread with MAD so outliers do not dominate the noise estimate."""
+
     array = np.asarray(values, dtype=float)
     array = array[np.isfinite(array)]
     if array.size == 0:
@@ -126,6 +157,8 @@ def robust_scale(values: pd.Series | np.ndarray) -> float:
 
 
 def median_polish(table: pd.DataFrame, max_iterations: int = 10, tolerance: float = 1e-8) -> MedianPolishResult | None:
+    """Estimate row and column effects for the log-ratio matrix."""
+
     working = table.copy().astype(float)
     working = working.dropna(axis=0, how="any").dropna(axis=1, how="any")
     if working.shape[0] < 2 or working.shape[1] < 2:
@@ -169,6 +202,8 @@ def median_polish(table: pd.DataFrame, max_iterations: int = 10, tolerance: floa
 
 
 def mean_with_standard_error(group: pd.DataFrame, value_column: str, se_column: str) -> float:
+    """Approximate the standard error of a group mean from row-level errors."""
+
     valid = group[[value_column, se_column]].dropna()
     if valid.empty:
         return float("nan")
@@ -176,12 +211,14 @@ def mean_with_standard_error(group: pd.DataFrame, value_column: str, se_column: 
 
 
 def classify_signal(alpha_log_ratio: float, alpha_log_se: float, control_noise_log_std: float, threshold: float) -> str:
+    """Label an attributed change as real or noise using a conservative floor."""
+
     if np.isnan(alpha_log_ratio):
         return "N/A"
 
     effect_floor = np.log1p(threshold)
-    sample_noise = Z_SCORE_95 * alpha_log_se if np.isfinite(alpha_log_se) else 0.0
-    systemic_noise = Z_SCORE_95 * control_noise_log_std if np.isfinite(control_noise_log_std) else 0.0
+    sample_noise = Z_SCORE_99 * alpha_log_se if np.isfinite(alpha_log_se) else 0.0
+    systemic_noise = Z_SCORE_99 * control_noise_log_std if np.isfinite(control_noise_log_std) else 0.0
     noise_floor = max(effect_floor, sample_noise, systemic_noise)
 
     if abs(alpha_log_ratio) < noise_floor:
@@ -190,6 +227,8 @@ def classify_signal(alpha_log_ratio: float, alpha_log_se: float, control_noise_l
 
 
 def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str, Any] | None:
+    """Build the full alpha/beta attribution model for the markdown report."""
+
     matched = df[
         df["query"].notna()
         & df["engine"].notna()
@@ -201,6 +240,7 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
     if matched.empty:
         return None
 
+    # One row here is one query/config benchmark matched between base and PR.
     rows: list[dict[str, Any]] = []
     for _, row in matched.iterrows():
         stats = ratio_stats(
@@ -226,6 +266,7 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
     if controls.empty:
         return None
 
+    # beta(q): systemic drift inferred from parquet controls for query q.
     query_rows: list[dict[str, Any]] = []
     for query, group in controls.groupby("query", sort=True):
         beta_log_ratio = float(group["log_ratio"].mean())
@@ -245,14 +286,16 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
 
     systemic_shift_log_ratio = float(query_stats["beta_log_ratio"].mean())
     systemic_shift_std = float(query_stats["beta_log_ratio"].std(ddof=1)) if len(query_stats) > 1 else 0.0
+    # alpha(q, c): PR-attributable effect after subtracting the control drift.
     detail_df["alpha_log_ratio"] = detail_df["log_ratio"] - detail_df["beta_log_ratio"]
     detail_df["alpha_ratio"] = np.exp(detail_df["alpha_log_ratio"])
     detail_df["alpha_log_se"] = np.hypot(detail_df["log_ratio_se"], detail_df["beta_log_se"])
+    # Noise floor = max(user threshold, sampling error, control drift variability).
     detail_df["noise_floor_log"] = np.maximum.reduce(
         [
             np.full(len(detail_df), np.log1p(threshold_pct / 100.0)),
-            Z_SCORE_95 * np.nan_to_num(detail_df["alpha_log_se"], nan=0.0),
-            np.full(len(detail_df), Z_SCORE_95 * systemic_shift_std),
+            Z_SCORE_99 * np.nan_to_num(detail_df["alpha_log_se"], nan=0.0),
+            np.full(len(detail_df), Z_SCORE_99 * systemic_shift_std),
         ]
     )
     detail_df["noise_floor_ratio"] = np.exp(detail_df["noise_floor_log"])
@@ -266,6 +309,7 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
         axis=1,
     )
 
+    # Median polish gives a robust overall shift plus residual-noise estimate.
     log_ratio_table = detail_df.pivot(index="query", columns="combo", values="log_ratio")
     polish = median_polish(log_ratio_table)
     residual_noise_log_scale = robust_scale(polish.residuals.to_numpy().ravel()) if polish is not None else float("nan")
@@ -283,6 +327,8 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
 
 
 def calculate_geo_mean(df: pd.DataFrame) -> float:
+    """Geometric mean of positive ratios from a DataFrame ratio column."""
+
     valid_ratios = [r for r in df["ratio"] if r > 0 and not pd.isna(r)]
     if len(valid_ratios) > 0:
         return math.exp(sum(math.log(r) for r in valid_ratios) / len(valid_ratios))
@@ -290,6 +336,8 @@ def calculate_geo_mean(df: pd.DataFrame) -> float:
 
 
 def geometric_mean_from_values(values: pd.Series) -> float:
+    """Geometric mean of a ratio series."""
+
     valid_values = values[(values > 0) & values.notna()]
     if len(valid_values) == 0:
         return float("nan")
@@ -297,6 +345,8 @@ def geometric_mean_from_values(values: pd.Series) -> float:
 
 
 def format_ratio_change(ratio: float) -> str:
+    """Render a ratio as a signed percent delta."""
+
     if pd.isna(ratio) or ratio <= 0:
         return "N/A"
     return f"{(ratio - 1.0) * 100:+.1f}%"
@@ -305,6 +355,8 @@ def format_ratio_change(ratio: float) -> str:
 def format_performance(
     ratio: float, improvement_threshold: float, regression_threshold: float, target_name: str
 ) -> str:
+    """Render a geomean ratio with a coarse emoji summary."""
+
     if pd.isna(ratio):
         return f"no {target_name.lower()} data"
 
@@ -318,6 +370,8 @@ def format_performance(
 
 
 def format_integer_value(value: float) -> str:
+    """Render numeric timing values for markdown tables."""
+
     if pd.isna(value):
         return ""
     return str(int(value))
@@ -326,16 +380,20 @@ def format_integer_value(value: float) -> str:
 def format_name_with_highlight(
     name: str, ratio: float, improvement_threshold: float, regression_threshold: float
 ) -> str:
+    """Highlight clearly large raw changes in the detailed per-config tables."""
+
     if pd.isna(ratio):
         return name
     if ratio <= improvement_threshold:
-        return f"🚀 {name}"
+        return f"{name} 🚀"
     if ratio >= regression_threshold:
-        return f"🚨 {name}"
+        return f"{name} 🚨"
     return name
 
 
 def format_signal(signal: str) -> str:
+    """Render the attributed-change label for markdown output."""
+
     if signal == "improvement":
         return "✅ faster"
     if signal == "regression":
@@ -346,14 +404,19 @@ def format_signal(signal: str) -> str:
 
 
 def build_verdict(statistical_analysis: dict[str, Any]) -> dict[str, str] | None:
+    """Collapse row-level attribution into a short PR-comment headline."""
+
     alpha_rows = statistical_analysis["detail_df"][~statistical_analysis["detail_df"]["is_control"]].copy()
     if alpha_rows.empty:
         return None
 
+    # Attributed impact is the geometric mean of non-control alpha ratios.
     attributed_impact_ratio = geometric_mean_from_values(alpha_rows["alpha_ratio"])
     if pd.isna(attributed_impact_ratio):
         return None
 
+    # Confidence depends on directional consistency, share above the noise floor,
+    # and whether the controls themselves look unusually noisy.
     signs = alpha_rows["alpha_log_ratio"].dropna()
     consistent_sign_share = 0.0
     if not signs.empty:
@@ -418,6 +481,8 @@ FILE_FORMAT_ORDER = {
 
 
 def group_sort_key(group_key: tuple[str, str]) -> tuple[int, int, str, str]:
+    """Keep output ordering stable and grouped by likely reader interest."""
+
     engine, file_format = group_key
     return (
         ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
@@ -428,6 +493,8 @@ def group_sort_key(group_key: tuple[str, str]) -> tuple[int, int, str, str]:
 
 
 def main() -> None:
+    """Render the benchmark comparison markdown used in CI PR comments."""
+
     benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
 
     base = pd.read_json(sys.argv[1], lines=True)
@@ -499,7 +566,7 @@ def main() -> None:
                 "",
                 "## Verdict",
                 "",
-                f"- **Headline**: {verdict['status']}",
+                f"**{verdict['status']}**",
                 f"- **Attributed Vortex impact**: {verdict['impact']}",
                 f"- **Confidence**: {verdict['confidence']}",
                 f"- **Environment shift**: {verdict['environment_shift']}",
