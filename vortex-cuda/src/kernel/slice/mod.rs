@@ -45,7 +45,7 @@ fn slice_bool_device_safe(bool_array: BoolArray, range: Range<usize>) -> VortexR
     // Slice the buffer to absorb full bytes, keep sub-byte remainder as offset
     let byte_start = abs_start / 8;
     let new_offset = abs_start % 8;
-    let byte_end = (abs_start + new_len + 7) / 8; // ceiling division
+    let byte_end = (abs_start + new_len).div_ceil(8);
 
     let sliced_bits = bits.slice(byte_start..byte_end);
     let sliced_validity = slice_validity_device_safe(validity, range)?;
