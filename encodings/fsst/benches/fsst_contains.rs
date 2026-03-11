@@ -7,9 +7,11 @@
     clippy::missing_safety_doc
 )]
 
+use aho_corasick::AhoCorasick;
 use divan::Bencher;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
+use memchr::memmem;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -577,7 +579,566 @@ impl BranchlessEscapeDfa {
 }
 
 // ---------------------------------------------------------------------------
-// Approach 5: Speculative/Enumerated DFA — run from ALL start states at once.
+// Approach 5: u8 state table — halve table size (u16→u8) since states fit in
+// a byte. Smaller tables = better cache utilization.
+// ---------------------------------------------------------------------------
+
+struct CompactDfa {
+    /// u8 transitions, 256 entries per state.
+    transitions: Vec<u8>,
+    escape_transitions: Vec<u8>,
+    accept_state: u8,
+    escape_sentinel: u8,
+}
+
+impl CompactDfa {
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        let fused = FusedTableDfa::new(symbols, symbol_lengths, needle);
+        Self {
+            transitions: fused.transitions.iter().map(|&v| v as u8).collect(),
+            escape_transitions: fused.escape_transitions.iter().map(|&v| v as u8).collect(),
+            accept_state: fused.accept_state as u8,
+            escape_sentinel: fused.escape_sentinel as u8,
+        }
+    }
+
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        while pos < codes.len() {
+            if state == self.accept_state {
+                return true;
+            }
+            let code = codes[pos];
+            pos += 1;
+            let next = self.transitions[state as usize * 256 + code as usize];
+            if next == self.escape_sentinel {
+                if pos >= codes.len() {
+                    return false;
+                }
+                let b = codes[pos];
+                pos += 1;
+                state = self.escape_transitions[state as usize * 256 + b as usize];
+            } else {
+                state = next;
+            }
+        }
+        state == self.accept_state
+    }
+
+    #[inline]
+    fn matches_no_early_exit(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        while pos < codes.len() {
+            let code = codes[pos];
+            pos += 1;
+            let next = self.transitions[state as usize * 256 + code as usize];
+            if next == self.escape_sentinel {
+                if pos >= codes.len() {
+                    return false;
+                }
+                let b = codes[pos];
+                pos += 1;
+                state = self.escape_transitions[state as usize * 256 + b as usize];
+            } else {
+                state = next;
+            }
+        }
+        state == self.accept_state
+    }
+
+    /// Unsafe no-exit variant.
+    #[inline]
+    unsafe fn matches_no_exit_unchecked(&self, codes: &[u8]) -> bool {
+        unsafe {
+            let mut state = 0u8;
+            let mut pos = 0;
+            let transitions = self.transitions.as_ptr();
+            let escape_transitions = self.escape_transitions.as_ptr();
+            let len = codes.len();
+            let codes_ptr = codes.as_ptr();
+
+            while pos < len {
+                let code = *codes_ptr.add(pos);
+                pos += 1;
+                let next = *transitions.add(state as usize * 256 + code as usize);
+                if next == self.escape_sentinel {
+                    if pos >= len {
+                        return false;
+                    }
+                    let b = *codes_ptr.add(pos);
+                    pos += 1;
+                    state = *escape_transitions.add(state as usize * 256 + b as usize);
+                } else {
+                    state = next;
+                }
+            }
+            state == self.accept_state
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Approach 6: Streaming scan — process the ENTIRE codes buffer in one pass,
+// resetting state at string boundaries. Avoids per-string slice overhead
+// and is friendlier to the hardware prefetcher.
+// ---------------------------------------------------------------------------
+
+#[inline(never)]
+#[allow(dead_code)]
+fn streaming_scan_fused(
+    dfa: &FusedTableDfa,
+    all_bytes: &[u8],
+    offsets: &[usize],
+    n: usize,
+) -> BitBufferMut {
+    BitBufferMut::collect_bool(n, |i| {
+        // The collect_bool closure is called sequentially for i=0..n.
+        // We rely on the sequential access pattern being prefetch-friendly.
+        let start = offsets[i];
+        let end = offsets[i + 1];
+        dfa.matches(&all_bytes[start..end])
+    })
+}
+
+/// True streaming: single pass through all_bytes with offset-based reset.
+#[inline(never)]
+fn streaming_scan_continuous(
+    dfa: &CompactDfa,
+    all_bytes: &[u8],
+    offsets: &[usize],
+    n: usize,
+    out: &mut BitBufferMut,
+) {
+    let mut string_idx = 0;
+    let mut state = 0u8;
+    let mut next_boundary = offsets[1];
+    let mut matched = false;
+
+    let mut pos = offsets[0];
+    let total_end = offsets[n];
+
+    while pos < total_end {
+        // Check if we've crossed into a new string.
+        while pos >= next_boundary {
+            // Record result for the just-finished string.
+            if matched || state == dfa.accept_state {
+                out.set(string_idx);
+            }
+            string_idx += 1;
+            if string_idx >= n {
+                return;
+            }
+            state = 0;
+            matched = false;
+            next_boundary = offsets[string_idx + 1];
+        }
+
+        let code = all_bytes[pos];
+        pos += 1;
+        let next = dfa.transitions[state as usize * 256 + code as usize];
+        if next == dfa.escape_sentinel {
+            if pos < next_boundary {
+                let b = all_bytes[pos];
+                pos += 1;
+                state = dfa.escape_transitions[state as usize * 256 + b as usize];
+            }
+        } else {
+            state = next;
+        }
+        if state == dfa.accept_state {
+            matched = true;
+        }
+    }
+
+    // Handle the last string.
+    if string_idx < n && (matched || state == dfa.accept_state) {
+        out.set(string_idx);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Approach 7: Prefilter — build a bitmask of codes that could possibly
+// contribute to matching the needle. Skip DFA for strings where no code
+// belongs to that set.
+// ---------------------------------------------------------------------------
+
+struct PrefilterDfa {
+    inner: CompactDfa,
+    /// For each code byte (0..255), true if that code could produce any byte
+    /// present in the needle (i.e., the symbol's bytes intersect needle's bytes).
+    relevant_codes: [bool; 256],
+}
+
+impl PrefilterDfa {
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        let inner = CompactDfa::new(symbols, symbol_lengths, needle);
+
+        // Build set of bytes that appear in the needle.
+        let mut needle_bytes = [false; 256];
+        for &b in needle {
+            needle_bytes[b as usize] = true;
+        }
+
+        // For each symbol code, check if any of its bytes appear in the needle.
+        let mut relevant_codes = [false; 256];
+        for (code, (sym, &sym_len)) in symbols.iter().zip(symbol_lengths.iter()).enumerate() {
+            let sym_bytes = sym.to_u64().to_le_bytes();
+            for &b in &sym_bytes[..sym_len as usize] {
+                if needle_bytes[b as usize] {
+                    relevant_codes[code] = true;
+                    break;
+                }
+            }
+        }
+        // Escape code is always relevant (literal bytes could be anything).
+        relevant_codes[ESCAPE_CODE as usize] = true;
+
+        Self {
+            inner,
+            relevant_codes,
+        }
+    }
+
+    /// Quick check: does this code sequence contain any code that could
+    /// contribute to the needle match?
+    #[inline]
+    fn could_match(&self, codes: &[u8]) -> bool {
+        codes.iter().any(|&c| self.relevant_codes[c as usize])
+    }
+
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        if !self.could_match(codes) {
+            return false;
+        }
+        self.inner.matches(codes)
+    }
+
+    #[inline]
+    fn matches_no_early_exit(&self, codes: &[u8]) -> bool {
+        if !self.could_match(codes) {
+            return false;
+        }
+        self.inner.matches_no_early_exit(codes)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Approach 8: Shift-based DFA — pack all state transitions into a u64.
+//
+// For a DFA with S ≤ 21 states (3 bits each fit in 63 bits of a u64),
+// we store the transitions for ALL states for a given input byte in one u64.
+// Transition: next_state = (table[code_byte] >> (state * BITS)) & MASK
+//
+// The key advantage: the table load depends only on code_byte (known from
+// the input stream), NOT on the current state. This breaks the load-use
+// dependency chain that makes traditional table-lookup DFAs slow (~4 cycle
+// L1 latency per transition). With the shift-based approach, the table
+// value can be loaded while the previous transition's shift is executing.
+// ---------------------------------------------------------------------------
+
+struct ShiftDfa {
+    /// For each code byte (0..255): a u64 packing all state transitions.
+    /// Bits [state*3 .. state*3+3) encode the next state for that input.
+    transitions: [u64; 256],
+    /// Same layout for escape byte transitions.
+    escape_transitions: [u64; 256],
+    accept_state: u8,
+    escape_sentinel: u8,
+}
+
+impl ShiftDfa {
+    const BITS: u32 = 4; // bits per state (supports up to 16 states = 2^4)
+    const MASK: u64 = (1 << Self::BITS) - 1;
+
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        assert!(
+            needle.len() + 2 <= (1 << Self::BITS),
+            "needle too long for 4-bit states (max 14 chars)"
+        );
+
+        let fused = FusedTableDfa::new(symbols, symbol_lengths, needle);
+
+        // Pack the fused u16 transitions into u64 shift tables.
+        let n_states = needle.len() + 1;
+        let escape_sentinel_u8 = fused.escape_sentinel as u8;
+
+        let mut transitions = [0u64; 256];
+        let mut escape_transitions = [0u64; 256];
+
+        for code_byte in 0..256usize {
+            let mut packed = 0u64;
+            for state in 0..n_states {
+                let next = fused.transitions[state * 256 + code_byte];
+                // Map the escape sentinel to a value that fits in 3 bits.
+                let next_u8 = if next == fused.escape_sentinel {
+                    escape_sentinel_u8
+                } else {
+                    next as u8
+                };
+                packed |= (next_u8 as u64) << (state as u32 * Self::BITS);
+            }
+            transitions[code_byte] = packed;
+        }
+
+        for byte_val in 0..256usize {
+            let mut packed = 0u64;
+            for state in 0..n_states {
+                let next = fused.escape_transitions[state * 256 + byte_val] as u8;
+                packed |= (next as u64) << (state as u32 * Self::BITS);
+            }
+            escape_transitions[byte_val] = packed;
+        }
+
+        Self {
+            transitions,
+            escape_transitions,
+            accept_state: fused.accept_state as u8,
+            escape_sentinel: escape_sentinel_u8,
+        }
+    }
+
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        while pos < codes.len() {
+            if state == self.accept_state {
+                return true;
+            }
+            let code = codes[pos];
+            pos += 1;
+            // The table load depends only on `code`, not on `state`.
+            // The shift depends on `state` but is a fast register op.
+            let packed = self.transitions[code as usize];
+            let next = ((packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+            if next == self.escape_sentinel {
+                if pos >= codes.len() {
+                    return false;
+                }
+                let b = codes[pos];
+                pos += 1;
+                let esc_packed = self.escape_transitions[b as usize];
+                state = ((esc_packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+            } else {
+                state = next;
+            }
+        }
+        state == self.accept_state
+    }
+
+    #[inline]
+    fn matches_no_early_exit(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        while pos < codes.len() {
+            let code = codes[pos];
+            pos += 1;
+            let packed = self.transitions[code as usize];
+            let next = ((packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+            if next == self.escape_sentinel {
+                if pos >= codes.len() {
+                    return false;
+                }
+                let b = codes[pos];
+                pos += 1;
+                let esc_packed = self.escape_transitions[b as usize];
+                state = ((esc_packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+            } else {
+                state = next;
+            }
+        }
+        state == self.accept_state
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Approach 9: Sheng DFA — use SSSE3 PSHUFB for transitions.
+//
+// The state is a byte position in an XMM register. For each input byte,
+// we load a 16-byte shuffle mask and do PSHUFB(mask, state_vec).
+// PSHUFB uses the low 4 bits of each byte lane as an index into the mask,
+// producing the next state. With ≤16 states this is a single instruction.
+//
+// The shuffle mask load depends only on the input byte (not on state),
+// so it can be loaded in parallel with the previous PSHUFB's execution.
+// Throughput: ~1 byte/cycle (limited by PSHUFB throughput of 1/cycle on
+// most microarchitectures).
+// ---------------------------------------------------------------------------
+
+#[cfg(target_arch = "x86_64")]
+struct ShengDfa {
+    /// 256 shuffle masks, one per possible input byte.
+    /// Each mask is 16 bytes: mask[i] = next_state when current state == i.
+    masks: Vec<std::arch::x86_64::__m128i>,
+    /// 256 escape masks for escaped byte values.
+    escape_masks: Vec<std::arch::x86_64::__m128i>,
+    accept_state: u8,
+    escape_sentinel: u8,
+}
+
+#[cfg(target_arch = "x86_64")]
+impl ShengDfa {
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        use std::arch::x86_64::_mm_set_epi8;
+
+        let fused = FusedTableDfa::new(symbols, symbol_lengths, needle);
+        let escape_sentinel = fused.escape_sentinel as u8;
+
+        let mut masks = Vec::with_capacity(256);
+        let mut escape_masks = Vec::with_capacity(256);
+
+        for code_byte in 0..256usize {
+            let mut mask_bytes = [0u8; 16];
+            for state in 0..16 {
+                if state < needle.len() + 1 {
+                    let next = fused.transitions[state * 256 + code_byte];
+                    mask_bytes[state] = if next == fused.escape_sentinel {
+                        escape_sentinel
+                    } else {
+                        next as u8
+                    };
+                }
+            }
+            masks.push(unsafe {
+                _mm_set_epi8(
+                    mask_bytes[15] as i8,
+                    mask_bytes[14] as i8,
+                    mask_bytes[13] as i8,
+                    mask_bytes[12] as i8,
+                    mask_bytes[11] as i8,
+                    mask_bytes[10] as i8,
+                    mask_bytes[9] as i8,
+                    mask_bytes[8] as i8,
+                    mask_bytes[7] as i8,
+                    mask_bytes[6] as i8,
+                    mask_bytes[5] as i8,
+                    mask_bytes[4] as i8,
+                    mask_bytes[3] as i8,
+                    mask_bytes[2] as i8,
+                    mask_bytes[1] as i8,
+                    mask_bytes[0] as i8,
+                )
+            });
+        }
+
+        for byte_val in 0..256usize {
+            let mut mask_bytes = [0u8; 16];
+            for state in 0..16 {
+                if state < needle.len() + 1 {
+                    mask_bytes[state] = fused.escape_transitions[state * 256 + byte_val] as u8;
+                }
+            }
+            escape_masks.push(unsafe {
+                _mm_set_epi8(
+                    mask_bytes[15] as i8,
+                    mask_bytes[14] as i8,
+                    mask_bytes[13] as i8,
+                    mask_bytes[12] as i8,
+                    mask_bytes[11] as i8,
+                    mask_bytes[10] as i8,
+                    mask_bytes[9] as i8,
+                    mask_bytes[8] as i8,
+                    mask_bytes[7] as i8,
+                    mask_bytes[6] as i8,
+                    mask_bytes[5] as i8,
+                    mask_bytes[4] as i8,
+                    mask_bytes[3] as i8,
+                    mask_bytes[2] as i8,
+                    mask_bytes[1] as i8,
+                    mask_bytes[0] as i8,
+                )
+            });
+        }
+
+        Self {
+            masks,
+            escape_masks,
+            accept_state: fused.accept_state as u8,
+            escape_sentinel,
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "ssse3")]
+    unsafe fn matches(&self, codes: &[u8]) -> bool {
+        use std::arch::x86_64::_mm_extract_epi8;
+        use std::arch::x86_64::_mm_set1_epi8;
+        use std::arch::x86_64::_mm_shuffle_epi8;
+
+        unsafe {
+            let mut state_vec = _mm_set1_epi8(0);
+            let mut pos = 0;
+
+            while pos < codes.len() {
+                let cur_state = _mm_extract_epi8::<0>(state_vec) as u8;
+                if cur_state == self.accept_state {
+                    return true;
+                }
+
+                let code = codes[pos];
+                pos += 1;
+
+                // One PSHUFB: the mask load depends only on `code`, not state.
+                let next_vec = _mm_shuffle_epi8(self.masks[code as usize], state_vec);
+                let next_state = _mm_extract_epi8::<0>(next_vec) as u8;
+
+                if next_state == self.escape_sentinel {
+                    if pos >= codes.len() {
+                        return false;
+                    }
+                    let b = codes[pos];
+                    pos += 1;
+                    state_vec = _mm_shuffle_epi8(self.escape_masks[b as usize], state_vec);
+                } else {
+                    state_vec = next_vec;
+                }
+            }
+
+            _mm_extract_epi8::<0>(state_vec) as u8 == self.accept_state
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "ssse3")]
+    unsafe fn matches_no_early_exit(&self, codes: &[u8]) -> bool {
+        use std::arch::x86_64::_mm_extract_epi8;
+        use std::arch::x86_64::_mm_set1_epi8;
+        use std::arch::x86_64::_mm_shuffle_epi8;
+
+        unsafe {
+            let mut state_vec = _mm_set1_epi8(0);
+            let mut pos = 0;
+
+            while pos < codes.len() {
+                let code = codes[pos];
+                pos += 1;
+
+                let next_vec = _mm_shuffle_epi8(self.masks[code as usize], state_vec);
+                let next_state = _mm_extract_epi8::<0>(next_vec) as u8;
+
+                if next_state == self.escape_sentinel {
+                    if pos >= codes.len() {
+                        return false;
+                    }
+                    let b = codes[pos];
+                    pos += 1;
+                    state_vec = _mm_shuffle_epi8(self.escape_masks[b as usize], state_vec);
+                } else {
+                    state_vec = next_vec;
+                }
+            }
+
+            _mm_extract_epi8::<0>(state_vec) as u8 == self.accept_state
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Approach 10: Speculative/Enumerated DFA — run from ALL start states at once.
 //
 // For a DFA with S states and a code sequence of length L, we process codes
 // sequentially but track S states simultaneously. Each "state" in our vector
@@ -931,6 +1492,28 @@ fn run_simd_gather_8(dfa: &SimdGatherDfa, prep: &PreparedArray, out: &mut BitBuf
     }
 }
 
+#[inline(never)]
+fn run_compact(dfa: &CompactDfa, prep: &PreparedArray, out: &mut BitBufferMut) {
+    for i in 0..prep.n {
+        let start = prep.offsets[i];
+        let end = prep.offsets[i + 1];
+        if dfa.matches(&prep.all_bytes[start..end]) {
+            out.set(i);
+        }
+    }
+}
+
+#[inline(never)]
+fn run_prefilter(dfa: &PrefilterDfa, prep: &PreparedArray, out: &mut BitBufferMut) {
+    for i in 0..prep.n {
+        let start = prep.offsets[i];
+        let end = prep.offsets[i + 1];
+        if dfa.matches(&prep.all_bytes[start..end]) {
+            out.set(i);
+        }
+    }
+}
+
 fn bench_decompress(array: &FSSTArray, needle: &[u8], out: &mut Vec<bool>) {
     out.clear();
     let decompressor = array.decompressor();
@@ -1049,6 +1632,262 @@ fn make_fsst_clickbench_urls(n: usize) -> FSSTArray {
 
 const CB_NEEDLE: &[u8] = b"yandex";
 
+// ---------------------------------------------------------------------------
+// Log lines generator (Apache/nginx-style access logs)
+// ---------------------------------------------------------------------------
+
+const LOG_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"];
+const LOG_PATHS: &[&str] = &[
+    "/api/v1/users",
+    "/api/v2/products/search",
+    "/healthcheck",
+    "/static/js/app.bundle.min.js",
+    "/favicon.ico",
+    "/login",
+    "/dashboard/analytics",
+    "/api/v1/orders/12345/status",
+    "/graphql",
+    "/metrics",
+];
+const LOG_STATUS: &[u16] = &[
+    200, 200, 200, 200, 200, 201, 301, 302, 400, 403, 404, 500, 502,
+];
+const LOG_IPS: &[&str] = &[
+    "192.168.1.1",
+    "10.0.0.42",
+    "172.16.0.100",
+    "203.0.113.50",
+    "198.51.100.23",
+    "8.8.8.8",
+    "1.1.1.1",
+    "74.125.200.100",
+    "151.101.1.69",
+    "93.184.216.34",
+];
+const LOG_UAS: &[&str] = &[
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "curl/7.81.0",
+    "python-requests/2.28.1",
+    "Go-http-client/1.1",
+    "Googlebot/2.1 (+http://www.google.com/bot.html)",
+];
+
+fn generate_log_lines(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(456);
+    (0..n)
+        .map(|_| {
+            let ip = LOG_IPS[rng.random_range(0..LOG_IPS.len())];
+            let method = LOG_METHODS[rng.random_range(0..LOG_METHODS.len())];
+            let path = LOG_PATHS[rng.random_range(0..LOG_PATHS.len())];
+            let status = LOG_STATUS[rng.random_range(0..LOG_STATUS.len())];
+            let size = rng.random_range(100..50000);
+            let ua = LOG_UAS[rng.random_range(0..LOG_UAS.len())];
+            format!(
+                r#"{ip} - - [15/Mar/2024:10:{:02}:{:02} +0000] "{method} {path} HTTP/1.1" {status} {size} "-" "{ua}""#,
+                rng.random_range(0..60u32),
+                rng.random_range(0..60u32),
+            )
+        })
+        .collect()
+}
+
+fn make_fsst_log_lines(n: usize) -> FSSTArray {
+    let lines = generate_log_lines(n);
+    let varbin = VarBinArray::from_iter(
+        lines.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let compressor = fsst_train_compressor(&varbin);
+    fsst_compress(varbin, &compressor)
+}
+
+const LOG_NEEDLE: &[u8] = b"Googlebot";
+
+// ---------------------------------------------------------------------------
+// JSON strings generator (typical API response payloads)
+// ---------------------------------------------------------------------------
+
+const JSON_NAMES: &[&str] = &[
+    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Hank", "Ivy", "Jack",
+];
+const JSON_CITIES: &[&str] = &[
+    "New York",
+    "London",
+    "Tokyo",
+    "Berlin",
+    "Sydney",
+    "Toronto",
+    "Paris",
+    "Mumbai",
+    "São Paulo",
+    "Seoul",
+];
+const JSON_TAGS: &[&str] = &[
+    "premium",
+    "verified",
+    "admin",
+    "moderator",
+    "subscriber",
+    "trial",
+    "enterprise",
+    "developer",
+];
+
+fn generate_json_strings(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(789);
+    (0..n)
+        .map(|_| {
+            let name = JSON_NAMES[rng.random_range(0..JSON_NAMES.len())];
+            let city = JSON_CITIES[rng.random_range(0..JSON_CITIES.len())];
+            let age = rng.random_range(18..80u32);
+            let tag1 = JSON_TAGS[rng.random_range(0..JSON_TAGS.len())];
+            let tag2 = JSON_TAGS[rng.random_range(0..JSON_TAGS.len())];
+            let id = rng.random_range(10000..99999u32);
+            format!(
+                r#"{{"id":{id},"name":"{name}","age":{age},"city":"{city}","tags":["{tag1}","{tag2}"],"active":true}}"#
+            )
+        })
+        .collect()
+}
+
+fn make_fsst_json_strings(n: usize) -> FSSTArray {
+    let jsons = generate_json_strings(n);
+    let varbin = VarBinArray::from_iter(
+        jsons.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let compressor = fsst_train_compressor(&varbin);
+    fsst_compress(varbin, &compressor)
+}
+
+const JSON_NEEDLE: &[u8] = b"enterprise";
+
+// ---------------------------------------------------------------------------
+// File paths generator (Unix-style paths with various depths)
+// ---------------------------------------------------------------------------
+
+const PATH_ROOTS: &[&str] = &[
+    "/home/user",
+    "/var/log",
+    "/etc",
+    "/usr/local/bin",
+    "/opt/app",
+    "/tmp",
+    "/srv/www",
+    "/data/warehouse",
+];
+const PATH_DIRS: &[&str] = &[
+    "src",
+    "build",
+    "dist",
+    "node_modules",
+    "target/release",
+    "config",
+    ".cache",
+    "logs/2024",
+    "backups/daily",
+    "migrations",
+];
+const PATH_FILES: &[&str] = &[
+    "main.rs",
+    "index.ts",
+    "config.yaml",
+    "Dockerfile",
+    "schema.sql",
+    "app.log",
+    "data.parquet",
+    "model.onnx",
+    "README.md",
+    "package.json",
+];
+
+fn generate_file_paths(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(321);
+    (0..n)
+        .map(|_| {
+            let root = PATH_ROOTS[rng.random_range(0..PATH_ROOTS.len())];
+            let dir = PATH_DIRS[rng.random_range(0..PATH_DIRS.len())];
+            let file = PATH_FILES[rng.random_range(0..PATH_FILES.len())];
+            let depth = rng.random_range(0..3u32);
+            let mut path = format!("{root}/{dir}");
+            for _ in 0..depth {
+                let subdir = PATH_DIRS[rng.random_range(0..PATH_DIRS.len())];
+                path.push('/');
+                path.push_str(subdir);
+            }
+            path.push('/');
+            path.push_str(file);
+            path
+        })
+        .collect()
+}
+
+fn make_fsst_file_paths(n: usize) -> FSSTArray {
+    let paths = generate_file_paths(n);
+    let varbin = VarBinArray::from_iter(
+        paths.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let compressor = fsst_train_compressor(&varbin);
+    fsst_compress(varbin, &compressor)
+}
+
+const PATH_NEEDLE: &[u8] = b"target/release";
+
+// ---------------------------------------------------------------------------
+// Email addresses generator
+// ---------------------------------------------------------------------------
+
+const EMAIL_USERS: &[&str] = &[
+    "john.doe",
+    "jane.smith",
+    "admin",
+    "support",
+    "no-reply",
+    "sales.team",
+    "dev+test",
+    "marketing",
+    "info",
+    "contact.us",
+];
+const EMAIL_DOMAINS: &[&str] = &[
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "company.io",
+    "example.org",
+    "mail.ru",
+    "protonmail.com",
+    "fastmail.com",
+    "icloud.com",
+    "hey.com",
+];
+
+fn generate_emails(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(654);
+    (0..n)
+        .map(|_| {
+            let user = EMAIL_USERS[rng.random_range(0..EMAIL_USERS.len())];
+            let domain = EMAIL_DOMAINS[rng.random_range(0..EMAIL_DOMAINS.len())];
+            let suffix = rng.random_range(0..1000u32);
+            format!("{user}{suffix}@{domain}")
+        })
+        .collect()
+}
+
+fn make_fsst_emails(n: usize) -> FSSTArray {
+    let emails = generate_emails(n);
+    let varbin = VarBinArray::from_iter(
+        emails.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let compressor = fsst_train_compressor(&varbin);
+    fsst_compress(varbin, &compressor)
+}
+
+const EMAIL_NEEDLE: &[u8] = b"gmail";
+
 /// Macro to reduce boilerplate for DFA benchmarks with pre-allocated output.
 macro_rules! dfa_bench {
     ($name:ident, $dfa_ty:ident, $run_fn:ident) => {
@@ -1159,7 +1998,165 @@ fn fused_chunk_64_unsafe(bencher: Bencher) {
     });
 }
 
-// 11. Enumerated DFA (track all start states)
+// 11. Compact u8 table (halved table size)
+dfa_bench!(compact_table, CompactDfa, run_compact);
+
+// 12. Compact u8 + collect_bool
+#[divan::bench]
+fn compact_chunk_64(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = CompactDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches_no_early_exit(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+// 13. Compact u8 + collect_bool + unsafe
+#[divan::bench]
+fn compact_chunk_64_unsafe(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = CompactDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            unsafe { dfa.matches_no_exit_unchecked(&prep.all_bytes[start..end]) }
+        })
+    });
+}
+
+// 14. Prefilter (skip strings with no relevant codes)
+dfa_bench!(prefilter, PrefilterDfa, run_prefilter);
+
+// 15. Prefilter + collect_bool
+#[divan::bench]
+fn prefilter_chunk_64(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = PrefilterDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches_no_early_exit(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+// 16. Streaming continuous scan (single pass through all codes)
+#[divan::bench]
+fn streaming_continuous(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = CompactDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    let mut out = BitBufferMut::new_unset(N);
+    bencher.bench_local(|| {
+        out.fill_range(0, N, false);
+        streaming_scan_continuous(&dfa, &prep.all_bytes, &prep.offsets, prep.n, &mut out);
+    });
+}
+
+// 17. Shift-based DFA (u64 packed transitions)
+#[divan::bench]
+fn shift_dfa(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = ShiftDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+// 18. Shift-based DFA, no early exit
+#[divan::bench]
+fn shift_dfa_no_exit(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = ShiftDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches_no_early_exit(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+// 19. Sheng DFA (PSHUFB transitions)
+#[cfg(target_arch = "x86_64")]
+#[divan::bench]
+fn sheng_dfa(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = ShengDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            unsafe { dfa.matches(&prep.all_bytes[start..end]) }
+        })
+    });
+}
+
+// 20. Sheng DFA, no early exit
+#[cfg(target_arch = "x86_64")]
+#[divan::bench]
+fn sheng_dfa_no_exit(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = ShengDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            unsafe { dfa.matches_no_early_exit(&prep.all_bytes[start..end]) }
+        })
+    });
+}
+
+// 21. Enumerated DFA (track all start states)
 #[divan::bench]
 fn enumerated_dfa(bencher: Bencher) {
     let fsst = make_fsst_urls(N);
@@ -1211,6 +2208,46 @@ fn fused_multi_early_exit_8(bencher: Bencher) {
             }
             i += 1;
         }
+    });
+}
+
+// Aho-Corasick on decompressed data: decompress each string then search with aho-corasick
+#[divan::bench]
+fn aho_corasick_decompress(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let ac = AhoCorasick::new([NEEDLE]).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    ac.is_match(&decompressed)
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+// Aho-Corasick on raw (canonicalized) bytes: decompress the whole array up front,
+// then search each string using aho-corasick's SIMD-accelerated search
+#[divan::bench]
+fn aho_corasick_on_raw_bytes(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let ac = AhoCorasick::new([NEEDLE]).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => ac.is_match(bytes),
+                None => false,
+            }));
+        });
+        out
     });
 }
 
@@ -1310,10 +2347,397 @@ fn cb_fused_chunk_64_unsafe(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn cb_shift_dfa(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = ShiftDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches_no_early_exit(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+#[cfg(target_arch = "x86_64")]
+#[divan::bench]
+fn cb_sheng_dfa(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = ShengDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            unsafe { dfa.matches_no_early_exit(&prep.all_bytes[start..end]) }
+        })
+    });
+}
+
+#[divan::bench]
+fn cb_compact_chunk_64_unsafe(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = CompactDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            unsafe { dfa.matches_no_exit_unchecked(&prep.all_bytes[start..end]) }
+        })
+    });
+}
+
+#[divan::bench]
+fn cb_prefilter_chunk_64(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = PrefilterDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches_no_early_exit(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+#[divan::bench]
+fn cb_streaming_continuous(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = CompactDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    let mut out = BitBufferMut::new_unset(N);
+    bencher.bench_local(|| {
+        out.fill_range(0, N, false);
+        streaming_scan_continuous(&dfa, &prep.all_bytes, &prep.offsets, prep.n, &mut out);
+    });
+}
+
+#[divan::bench]
 fn cb_decompress_then_search(bencher: Bencher) {
     let fsst = make_fsst_clickbench_urls(N);
     let mut out = Vec::with_capacity(N);
     bencher.bench_local(|| {
         bench_decompress(&fsst, CB_NEEDLE, &mut out);
+    });
+}
+
+#[divan::bench]
+fn cb_aho_corasick_decompress(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let ac = AhoCorasick::new([CB_NEEDLE]).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    ac.is_match(&decompressed)
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn cb_aho_corasick_on_raw_bytes(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let ac = AhoCorasick::new([CB_NEEDLE]).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => ac.is_match(bytes),
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks for additional data types (log lines, JSON, file paths, emails)
+// ---------------------------------------------------------------------------
+
+/// Macro for benchmarks on a specific data generator + needle combo.
+macro_rules! data_bench {
+    ($name:ident, $make_fn:ident, $needle:expr, $dfa_ty:ident, $match_method:ident) => {
+        #[divan::bench]
+        fn $name(bencher: Bencher) {
+            let fsst = $make_fn(N);
+            let prep = PreparedArray::from_fsst(&fsst);
+            let dfa = $dfa_ty::new(
+                fsst.symbols().as_slice(),
+                fsst.symbol_lengths().as_slice(),
+                $needle,
+            );
+            bencher.bench_local(|| {
+                BitBufferMut::collect_bool(prep.n, |i| {
+                    let start = prep.offsets[i];
+                    let end = prep.offsets[i + 1];
+                    dfa.$match_method(&prep.all_bytes[start..end])
+                })
+            });
+        }
+    };
+}
+
+// Log lines: long strings (~150 chars), low match rate for "Googlebot"
+data_bench!(
+    log_split_table,
+    make_fsst_log_lines,
+    LOG_NEEDLE,
+    SplitTableDfa,
+    matches
+);
+data_bench!(
+    log_shift_dfa,
+    make_fsst_log_lines,
+    LOG_NEEDLE,
+    ShiftDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    log_compact_no_exit,
+    make_fsst_log_lines,
+    LOG_NEEDLE,
+    CompactDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    log_fused_no_exit,
+    make_fsst_log_lines,
+    LOG_NEEDLE,
+    FusedTableDfa,
+    matches_no_early_exit
+);
+
+#[divan::bench]
+fn log_decompress(bencher: Bencher) {
+    let fsst = make_fsst_log_lines(N);
+    let mut out = Vec::with_capacity(N);
+    bencher.bench_local(|| {
+        bench_decompress(&fsst, LOG_NEEDLE, &mut out);
+    });
+}
+
+// JSON strings: structured data (~80-100 chars), searching for "enterprise"
+data_bench!(
+    json_split_table,
+    make_fsst_json_strings,
+    JSON_NEEDLE,
+    SplitTableDfa,
+    matches
+);
+data_bench!(
+    json_shift_dfa,
+    make_fsst_json_strings,
+    JSON_NEEDLE,
+    ShiftDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    json_compact_no_exit,
+    make_fsst_json_strings,
+    JSON_NEEDLE,
+    CompactDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    json_fused_no_exit,
+    make_fsst_json_strings,
+    JSON_NEEDLE,
+    FusedTableDfa,
+    matches_no_early_exit
+);
+
+#[divan::bench]
+fn json_decompress(bencher: Bencher) {
+    let fsst = make_fsst_json_strings(N);
+    let mut out = Vec::with_capacity(N);
+    bencher.bench_local(|| {
+        bench_decompress(&fsst, JSON_NEEDLE, &mut out);
+    });
+}
+
+// File paths: medium-length (~40-80 chars), searching for "target/release"
+data_bench!(
+    path_split_table,
+    make_fsst_file_paths,
+    PATH_NEEDLE,
+    SplitTableDfa,
+    matches
+);
+data_bench!(
+    path_shift_dfa,
+    make_fsst_file_paths,
+    PATH_NEEDLE,
+    ShiftDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    path_compact_no_exit,
+    make_fsst_file_paths,
+    PATH_NEEDLE,
+    CompactDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    path_fused_no_exit,
+    make_fsst_file_paths,
+    PATH_NEEDLE,
+    FusedTableDfa,
+    matches_no_early_exit
+);
+
+#[divan::bench]
+fn path_decompress(bencher: Bencher) {
+    let fsst = make_fsst_file_paths(N);
+    let mut out = Vec::with_capacity(N);
+    bencher.bench_local(|| {
+        bench_decompress(&fsst, PATH_NEEDLE, &mut out);
+    });
+}
+
+// Email addresses: short strings (~20-30 chars), searching for "gmail"
+data_bench!(
+    email_split_table,
+    make_fsst_emails,
+    EMAIL_NEEDLE,
+    SplitTableDfa,
+    matches
+);
+data_bench!(
+    email_shift_dfa,
+    make_fsst_emails,
+    EMAIL_NEEDLE,
+    ShiftDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    email_compact_no_exit,
+    make_fsst_emails,
+    EMAIL_NEEDLE,
+    CompactDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    email_fused_no_exit,
+    make_fsst_emails,
+    EMAIL_NEEDLE,
+    FusedTableDfa,
+    matches_no_early_exit
+);
+
+#[divan::bench]
+fn email_decompress(bencher: Bencher) {
+    let fsst = make_fsst_emails(N);
+    let mut out = Vec::with_capacity(N);
+    bencher.bench_local(|| {
+        bench_decompress(&fsst, EMAIL_NEEDLE, &mut out);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// memchr::memmem benchmarks — SIMD-accelerated substring search on decompressed data
+// ---------------------------------------------------------------------------
+
+#[divan::bench]
+fn memmem_decompress_urls(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let finder = memmem::Finder::new(NEEDLE);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    finder.find(&decompressed).is_some()
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn memmem_on_raw_bytes_urls(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let finder = memmem::Finder::new(NEEDLE);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => finder.find(bytes).is_some(),
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn cb_memmem_decompress(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let finder = memmem::Finder::new(CB_NEEDLE);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    finder.find(&decompressed).is_some()
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn cb_memmem_on_raw_bytes(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let finder = memmem::Finder::new(CB_NEEDLE);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => finder.find(bytes).is_some(),
+                None => false,
+            }));
+        });
+        out
     });
 }
