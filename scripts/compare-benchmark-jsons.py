@@ -289,6 +289,13 @@ def calculate_geo_mean(df: pd.DataFrame) -> float:
     return float("nan")
 
 
+def geometric_mean_from_values(values: pd.Series) -> float:
+    valid_values = values[(values > 0) & values.notna()]
+    if len(valid_values) == 0:
+        return float("nan")
+    return float(np.exp(np.log(valid_values).mean()))
+
+
 def format_ratio_change(ratio: float) -> str:
     if pd.isna(ratio) or ratio <= 0:
         return "N/A"
@@ -336,6 +343,60 @@ def format_signal(signal: str) -> str:
     if signal == "noise":
         return "➖ noise"
     return "N/A"
+
+
+def build_verdict(statistical_analysis: dict[str, Any]) -> dict[str, str] | None:
+    alpha_rows = statistical_analysis["detail_df"][~statistical_analysis["detail_df"]["is_control"]].copy()
+    if alpha_rows.empty:
+        return None
+
+    attributed_impact_ratio = geometric_mean_from_values(alpha_rows["alpha_ratio"])
+    if pd.isna(attributed_impact_ratio):
+        return None
+
+    signs = alpha_rows["alpha_log_ratio"].dropna()
+    consistent_sign_share = 0.0
+    if not signs.empty:
+        positive_share = float((signs > 0).mean())
+        negative_share = float((signs < 0).mean())
+        consistent_sign_share = max(positive_share, negative_share)
+
+    significant_share = float((alpha_rows["signal"] != "noise").mean())
+    evidence_share = min(consistent_sign_share, significant_share)
+
+    control_sigma = float(np.exp(statistical_analysis["systemic_shift_std"]))
+    aggregate_noise_floor = max(
+        1.0 + 1e-9,
+        control_sigma,
+        geometric_mean_from_values(alpha_rows["noise_floor_ratio"]),
+    )
+
+    if (
+        not np.isfinite(aggregate_noise_floor)
+        or attributed_impact_ratio < aggregate_noise_floor
+        and (1.0 / attributed_impact_ratio if attributed_impact_ratio > 0 else float("inf")) < aggregate_noise_floor
+    ):
+        status = "No clear signal"
+    elif attributed_impact_ratio > 1.0:
+        status = "Likely regression"
+    else:
+        status = "Likely improvement"
+
+    if control_sigma > 1.05:
+        confidence = "environment too noisy"
+    elif evidence_share >= 0.7:
+        confidence = "high"
+    elif evidence_share >= 0.4:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    return {
+        "status": status,
+        "impact": format_ratio_change(attributed_impact_ratio),
+        "confidence": confidence,
+        "environment_shift": format_ratio_change(statistical_analysis["systemic_shift_ratio"]),
+    }
 
 
 ENGINE_ORDER = {
@@ -420,9 +481,7 @@ def main() -> None:
             regression_threshold,
             "vortex",
         )
-        summary_lines.append(
-            f"- **Vortex**: {vortex_performance}"
-        )
+        summary_lines.append(f"- **Vortex**: {vortex_performance}")
     if len(parquet_df) > 0:
         parquet_performance = format_performance(
             parquet_geo_mean_ratio,
@@ -430,11 +489,23 @@ def main() -> None:
             regression_threshold,
             "parquet",
         )
-        summary_lines.append(
-            f"- **Parquet**: {parquet_performance}"
-        )
+        summary_lines.append(f"- **Parquet**: {parquet_performance}")
 
     statistical_analysis = build_statistical_analysis(df3, threshold_pct)
+    verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
+    if verdict is not None:
+        summary_lines.extend(
+            [
+                "",
+                "## Verdict",
+                "",
+                f"- **Headline**: {verdict['status']}",
+                f"- **Attributed Vortex impact**: {verdict['impact']}",
+                f"- **Confidence**: {verdict['confidence']}",
+                f"- **Environment shift**: {verdict['environment_shift']}",
+            ]
+        )
+
     if statistical_analysis is not None:
         systemic_shift = format_ratio_change(statistical_analysis["systemic_shift_ratio"])
         control_sigma = format_ratio_change(float(np.exp(statistical_analysis["systemic_shift_std"])))
@@ -472,15 +543,6 @@ def main() -> None:
                     "Significant?": alpha_rows["signal"].map(format_signal),
                 }
             )
-            print("## Attributed Change")
-            print("")
-            print(
-                alpha_table.to_markdown(
-                    index=False,
-                    tablefmt="github",
-                )
-            )
-            print("")
 
     grouped_tables = df3.groupby(["engine", "file_format"], dropna=False, sort=False)
     for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
@@ -518,6 +580,21 @@ def main() -> None:
                 index=False,
                 tablefmt="github",
                 floatfmt=".2f",
+            )
+        )
+        print("")
+        print("</details>")
+
+    if statistical_analysis is not None and not alpha_rows.empty:
+        print("<details>")
+        print("<summary>Full attributed analysis</summary>")
+        print("")
+        print("<br>")
+        print("")
+        print(
+            alpha_table.to_markdown(
+                index=False,
+                tablefmt="github",
             )
         )
         print("")
