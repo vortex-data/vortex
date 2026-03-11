@@ -1,0 +1,69 @@
+name: Compat Fixture Upload
+
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to generate fixtures for (e.g. 0.62.0)"
+        required: true
+
+env:
+  S3_BUCKET: vortex-compat-fixtures
+
+jobs:
+  upload-fixtures:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vortex-test/compat-gen
+
+      - name: Generate fixtures
+        run: |
+          VERSION=${{ github.event.inputs.tag || github.ref_name }}
+          cargo run --manifest-path vortex-test/compat-gen/Cargo.toml \
+            --release --bin compat-gen -- \
+            --version "$VERSION" --output /tmp/fixtures/
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.COMPAT_FIXTURES_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Upload to S3
+        run: |
+          VERSION=${{ github.event.inputs.tag || github.ref_name }}
+          aws s3 cp /tmp/fixtures/ \
+            "s3://${S3_BUCKET}/v${VERSION}/" --recursive
+
+      - name: Update versions.json
+        run: |
+          VERSION=${{ github.event.inputs.tag || github.ref_name }}
+          # Fetch existing versions.json or start with empty array
+          aws s3 cp "s3://${S3_BUCKET}/versions.json" /tmp/versions.json 2>/dev/null \
+            || echo '[]' > /tmp/versions.json
+          # Append new version if not already present, sort
+          python3 -c "
+          import json, sys
+          with open('/tmp/versions.json') as f:
+              versions = json.load(f)
+          v = sys.argv[1]
+          if v not in versions:
+              versions.append(v)
+              versions.sort(key=lambda x: list(map(int, x.split('.'))))
+          with open('/tmp/versions.json', 'w') as f:
+              json.dump(versions, f, indent=2)
+          " "$VERSION"
+          aws s3 cp /tmp/versions.json "s3://${S3_BUCKET}/versions.json"

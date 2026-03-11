@@ -7,6 +7,10 @@ edition = "2021"
 name = "compat-gen"
 path = "src/main.rs"
 
+[[bin]]
+name = "compat-test"
+path = "src/test_main.rs"
+
 [dependencies]
 # Vortex crates (path deps — resolve to whatever version is checked out)
 vortex = { path = "../../vortex", features = ["files", "tokio"] }
@@ -19,9 +23,15 @@ tpchgen = "2"
 tpchgen-arrow = "2"
 arrow-array = "57"
 
+# ClickBench parquet reading
+parquet = "57"
+
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
+
+# HTTP fetching (for ClickBench fixture + compat-test S3 downloads)
+reqwest = { version = "0.12", features = ["blocking"] }
 
 # CLI + serialization
 clap = { version = "4", features = ["derive"] }

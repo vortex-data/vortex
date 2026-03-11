@@ -1,0 +1,27 @@
+name: Compat Test
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Monday 6am UTC
+  workflow_dispatch: {}
+
+env:
+  FIXTURES_URL: https://vortex-compat-fixtures.s3.amazonaws.com
+
+jobs:
+  compat-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vortex-test/compat-gen
+
+      - name: Run compat tests
+        run: |
+          cargo run --manifest-path vortex-test/compat-gen/Cargo.toml \
+            --release --bin compat-test -- \
+            --fixtures-url "$FIXTURES_URL"

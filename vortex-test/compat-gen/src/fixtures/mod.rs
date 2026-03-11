@@ -1,3 +1,5 @@
+mod clickbench;
+pub mod encodings;
 mod synthetic;
 mod tpch;
 
@@ -26,5 +28,14 @@ pub fn all_fixtures() -> Vec<Box<dyn Fixture>> {
         Box::new(synthetic::ChunkedFixture),
         Box::new(tpch::TpchLineitemFixture),
         Box::new(tpch::TpchOrdersFixture),
+        Box::new(clickbench::ClickBenchHits1kFixture),
+        // Encoding stubs — uncomment as stable-encodings RFC lands:
+        // Box::new(encodings::DictEncodingFixture),
+        // Box::new(encodings::RunEndEncodingFixture),
+        // Box::new(encodings::ConstantEncodingFixture),
+        // Box::new(encodings::SparseEncodingFixture),
+        // Box::new(encodings::AlpEncodingFixture),
+        // Box::new(encodings::BitPackedEncodingFixture),
+        // Box::new(encodings::FsstEncodingFixture),
     ]
 }
