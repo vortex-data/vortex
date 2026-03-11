@@ -14,6 +14,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
+use vortex::array::stream::ArrayStream;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
