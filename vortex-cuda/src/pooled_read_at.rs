@@ -5,6 +5,8 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::StreamExt;
@@ -28,6 +30,28 @@ use vortex::io::std_file::read_exact_at;
 use crate::pinned::PinnedByteBufferPool;
 use crate::stream::VortexCudaStream;
 
+/// Round-robin selector over multiple CUDA streams for concurrent H2D DMA transfers.
+#[derive(Clone)]
+struct StreamRoundRobin {
+    streams: Arc<[VortexCudaStream]>,
+    next: Arc<AtomicUsize>,
+}
+
+impl StreamRoundRobin {
+    fn new(streams: Vec<VortexCudaStream>) -> Self {
+        assert!(!streams.is_empty(), "must have at least one CUDA stream");
+        Self {
+            streams: streams.into(),
+            next: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn next_stream(&self) -> VortexCudaStream {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.streams.len();
+        self.streams[idx].clone()
+    }
+}
+
 /// Default number of concurrent requests to allow for local file I/O.
 pub const DEFAULT_FILE_CONCURRENCY: usize = 32;
 /// Default number of concurrent requests to allow for object store I/O.
@@ -44,16 +68,26 @@ pub struct PooledFileReadAt {
     file: Arc<File>,
     handle: Handle,
     pool: Arc<PinnedByteBufferPool>,
-    stream: VortexCudaStream,
+    streams: StreamRoundRobin,
 }
 
 impl PooledFileReadAt {
-    /// Open a file for pooled reading with direct device transfer.
+    /// Open a file for pooled reading with direct device transfer using a single CUDA stream.
     pub fn open(
         path: impl AsRef<Path>,
         handle: Handle,
         pool: Arc<PinnedByteBufferPool>,
         stream: VortexCudaStream,
+    ) -> VortexResult<Self> {
+        Self::open_with_streams(path, handle, pool, vec![stream])
+    }
+
+    /// Open a file for pooled reading with multiple CUDA streams for concurrent H2D transfers.
+    pub fn open_with_streams(
+        path: impl AsRef<Path>,
+        handle: Handle,
+        pool: Arc<PinnedByteBufferPool>,
+        streams: Vec<VortexCudaStream>,
     ) -> VortexResult<Self> {
         let path = path.as_ref();
         let uri = Arc::from(path.to_string_lossy().to_string());
@@ -63,7 +97,7 @@ impl PooledFileReadAt {
             file,
             handle,
             pool,
-            stream,
+            streams: StreamRoundRobin::new(streams),
         })
     }
 }
@@ -98,7 +132,7 @@ impl VortexReadAt for PooledFileReadAt {
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
-        let stream = self.stream.clone();
+        let stream = self.streams.next_stream();
         let pool = Arc::clone(&self.pool);
 
         async move {
@@ -130,19 +164,31 @@ pub struct PooledObjectStoreReadAt {
     uri: Arc<str>,
     handle: Handle,
     pool: Arc<PinnedByteBufferPool>,
-    stream: VortexCudaStream,
+    streams: StreamRoundRobin,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
 }
 
 impl PooledObjectStoreReadAt {
-    /// Create a new object-store source with pinned host-buffer allocations and direct device transfer.
+    /// Create a new object-store source with pinned host-buffer allocations and direct device
+    /// transfer using a single CUDA stream.
     pub fn new(
         store: Arc<dyn ObjectStore>,
         path: ObjectPath,
         handle: Handle,
         pool: Arc<PinnedByteBufferPool>,
         stream: VortexCudaStream,
+    ) -> Self {
+        Self::new_with_streams(store, path, handle, pool, vec![stream])
+    }
+
+    /// Create a new object-store source with multiple CUDA streams for concurrent H2D transfers.
+    pub fn new_with_streams(
+        store: Arc<dyn ObjectStore>,
+        path: ObjectPath,
+        handle: Handle,
+        pool: Arc<PinnedByteBufferPool>,
+        streams: Vec<VortexCudaStream>,
     ) -> Self {
         let uri = Arc::from(path.to_string());
         Self {
@@ -151,7 +197,7 @@ impl PooledObjectStoreReadAt {
             uri,
             handle,
             pool,
-            stream,
+            streams: StreamRoundRobin::new(streams),
             concurrency: DEFAULT_OBJECT_STORE_CONCURRENCY,
             coalesce_config: Some(CoalesceConfig::object_storage()),
         }
@@ -211,7 +257,7 @@ impl VortexReadAt for PooledObjectStoreReadAt {
         let store = Arc::clone(&self.store);
         let path = self.path.clone();
         let handle = self.handle.clone();
-        let stream = self.stream.clone();
+        let stream = self.streams.next_stream();
         let pool = Arc::clone(&self.pool);
 
         async move {

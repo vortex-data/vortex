@@ -70,6 +70,10 @@ struct Cli {
     /// Scan concurrency (splits per worker thread).
     #[arg(long, default_value_t = 4)]
     scan_concurrency: usize,
+
+    /// Number of CUDA streams for H2D transfers (round-robin).
+    #[arg(long, default_value_t = 1)]
+    cuda_streams: usize,
 }
 
 #[cuda_not_available]
@@ -125,7 +129,11 @@ async fn main() -> VortexResult<()> {
     let cuda_context = session.cuda_session().context().clone();
 
     let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&cuda_context)));
-    let cuda_stream = VortexCudaStreamPool::new(Arc::clone(&cuda_context), 1).get_stream()?;
+    let cuda_stream_pool =
+        VortexCudaStreamPool::new(Arc::clone(&cuda_context), cli.cuda_streams);
+    let cuda_streams: Vec<_> = (0..cli.cuda_streams.max(1))
+        .map(|_| cuda_stream_pool.get_stream())
+        .collect::<VortexResult<_>>()?;
     let handle = session.handle();
 
     // Parse source and create reader
@@ -141,20 +149,20 @@ async fn main() -> VortexResult<()> {
                 .with_bucket_name(bucket)
                 .build()?,
         );
-        Arc::new(PooledObjectStoreReadAt::new(
+        Arc::new(PooledObjectStoreReadAt::new_with_streams(
             store,
             path,
             handle,
             Arc::clone(&pool),
-            cuda_stream,
+            cuda_streams,
         ))
     } else {
         let path = PathBuf::from(&cli.source);
-        Arc::new(PooledFileReadAt::open(
+        Arc::new(PooledFileReadAt::open_with_streams(
             &path,
             handle,
             Arc::clone(&pool),
-            cuda_stream,
+            cuda_streams,
         )?)
     };
 
@@ -254,6 +262,7 @@ async fn main() -> VortexResult<()> {
     eprintln!("Source:           {}", cli.source);
     eprintln!("Iterations:       {}", cli.iterations);
     eprintln!("Scan concurrency: {} per thread", cli.scan_concurrency);
+    eprintln!("CUDA streams:     {}", cli.cuda_streams);
     eprintln!("Avg time:    {:.3}s", avg.as_secs_f64());
     eprintln!("Input size:  {file_size_mb:.2} MB");
     eprintln!("Output size: {output_size_mb:.2} MB");
