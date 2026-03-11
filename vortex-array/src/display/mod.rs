@@ -330,6 +330,7 @@ impl Display for dyn DynArray + '_ {
     }
 }
 
+const DISPLAY_LIMIT: usize = 16;
 impl dyn DynArray + '_ {
     /// Display logical values of the array
     ///
@@ -479,10 +480,11 @@ impl dyn DynArray + '_ {
                 write!(f, "{}", if f.alternate() { "[\n" } else { "[" })?;
                 let sep = if *omit_comma_after_space { "," } else { ", " };
                 let sep = if f.alternate() { ",\n" } else { sep };
+                let limit = std::cmp::min(self.len(), f.precision().unwrap_or(DISPLAY_LIMIT));
                 write!(
                     f,
                     "{}",
-                    (0..self.len())
+                    (0..limit)
                         .map(|i| self
                             .scalar_at(i)
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string()))
