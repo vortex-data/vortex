@@ -59,10 +59,7 @@ fn slice_bool_device_safe(bool_array: BoolArray, range: Range<usize>) -> VortexR
 }
 
 /// Slice validity in a device-buffer-safe way.
-fn slice_validity_device_safe(
-    validity: Validity,
-    range: Range<usize>,
-) -> VortexResult<Validity> {
+fn slice_validity_device_safe(validity: Validity, range: Range<usize>) -> VortexResult<Validity> {
     match &validity {
         Validity::NonNullable | Validity::AllValid | Validity::AllInvalid => Ok(validity),
         Validity::Array(a) => {

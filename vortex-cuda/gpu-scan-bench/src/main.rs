@@ -25,6 +25,7 @@ use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::io::CoalesceConfig;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
@@ -74,6 +75,23 @@ struct Cli {
     /// Number of CUDA streams for H2D transfers (round-robin).
     #[arg(long, default_value_t = 1)]
     cuda_streams: usize,
+
+    /// Override IO driver concurrency (max concurrent read_at calls).
+    /// Defaults to 192 for S3, 32 for local files.
+    #[arg(long)]
+    io_concurrency: Option<usize>,
+
+    /// Override coalesce max request size in MB. Default: 16 for S3, 4 for files.
+    #[arg(long)]
+    coalesce_max_mb: Option<u64>,
+
+    /// Override coalesce distance in KB. Default: 1024 (1MB).
+    #[arg(long)]
+    coalesce_distance_kb: Option<u64>,
+
+    /// Disable IO request coalescing entirely.
+    #[arg(long)]
+    no_coalesce: bool,
 }
 
 #[cuda_not_available]
@@ -129,12 +147,23 @@ async fn main() -> VortexResult<()> {
     let cuda_context = session.cuda_session().context().clone();
 
     let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&cuda_context)));
-    let cuda_stream_pool =
-        VortexCudaStreamPool::new(Arc::clone(&cuda_context), cli.cuda_streams);
+    let cuda_stream_pool = VortexCudaStreamPool::new(Arc::clone(&cuda_context), cli.cuda_streams);
     let cuda_streams: Vec<_> = (0..cli.cuda_streams.max(1))
         .map(|_| cuda_stream_pool.get_stream())
         .collect::<VortexResult<_>>()?;
     let handle = session.handle();
+
+    // Build coalesce config override
+    let coalesce_override: Option<Option<CoalesceConfig>> = if cli.no_coalesce {
+        Some(None)
+    } else if cli.coalesce_max_mb.is_some() || cli.coalesce_distance_kb.is_some() {
+        Some(Some(CoalesceConfig::new(
+            cli.coalesce_distance_kb.unwrap_or(1024) * 1024,
+            cli.coalesce_max_mb.unwrap_or(16) * 1024 * 1024,
+        )))
+    } else {
+        None
+    };
 
     // Parse source and create reader
     let reader: Arc<dyn vortex::io::VortexReadAt> = if cli.source.starts_with("s3://") {
@@ -149,13 +178,20 @@ async fn main() -> VortexResult<()> {
                 .with_bucket_name(bucket)
                 .build()?,
         );
-        Arc::new(PooledObjectStoreReadAt::new_with_streams(
+        let mut s3_reader = PooledObjectStoreReadAt::new_with_streams(
             store,
             path,
             handle,
             Arc::clone(&pool),
             cuda_streams,
-        ))
+        );
+        if let Some(io_concurrency) = cli.io_concurrency {
+            s3_reader = s3_reader.with_concurrency(io_concurrency);
+        }
+        if let Some(coalesce) = coalesce_override {
+            s3_reader = s3_reader.with_some_coalesce_config(coalesce);
+        }
+        Arc::new(s3_reader)
     } else {
         let path = PathBuf::from(&cli.source);
         Arc::new(PooledFileReadAt::open_with_streams(
@@ -263,6 +299,20 @@ async fn main() -> VortexResult<()> {
     eprintln!("Iterations:       {}", cli.iterations);
     eprintln!("Scan concurrency: {} per thread", cli.scan_concurrency);
     eprintln!("CUDA streams:     {}", cli.cuda_streams);
+    if let Some(io_c) = cli.io_concurrency {
+        eprintln!("IO concurrency:   {io_c} (override)");
+    }
+    if cli.no_coalesce {
+        eprintln!("Coalescing:       disabled");
+    } else if let Some(ref cc) = coalesce_override {
+        if let Some(cc) = cc {
+            eprintln!(
+                "Coalesce config:  distance={}KB, max={}MB (override)",
+                cc.distance / 1024,
+                cc.max_size / (1024 * 1024)
+            );
+        }
+    }
     eprintln!("Avg time:    {:.3}s", avg.as_secs_f64());
     eprintln!("Input size:  {file_size_mb:.2} MB");
     eprintln!("Output size: {output_size_mb:.2} MB");
