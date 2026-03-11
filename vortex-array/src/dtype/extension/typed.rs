@@ -101,9 +101,9 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     /// Returns `self` as a trait object for downcasting.
     fn as_any(&self) -> &dyn Any;
     /// Returns the [`ExtId`] identifying this extension type.
-    fn id(&self) -> ExtId;
+    fn ext_id(&self) -> ExtId;
     /// Returns a reference to the storage [`DType`].
-    fn storage_dtype(&self) -> &DType;
+    fn ext_storage_dtype(&self) -> &DType;
     /// Returns the metadata as a trait object for downcasting.
     fn metadata_any(&self) -> &dyn Any;
     /// Formats the metadata using [`Debug`].
@@ -130,11 +130,11 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
         self
     }
 
-    fn id(&self) -> ExtId {
+    fn ext_id(&self) -> ExtId {
         self.vtable.id()
     }
 
-    fn storage_dtype(&self) -> &DType {
+    fn ext_storage_dtype(&self) -> &DType {
         &self.storage_dtype
     }
 

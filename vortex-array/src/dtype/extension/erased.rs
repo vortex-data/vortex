@@ -39,12 +39,12 @@ pub struct ExtDTypeRef(pub(super) Arc<dyn DynExtDType>);
 impl ExtDTypeRef {
     /// Returns the [`ExtId`] identifying this extension type.
     pub fn id(&self) -> ExtId {
-        self.0.id()
+        self.0.ext_id()
     }
 
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
-        self.0.storage_dtype()
+        self.0.ext_storage_dtype()
     }
 
     /// Returns the nullability of the storage dtype.
@@ -145,7 +145,7 @@ impl ExtDTypeRef {
             .map_err(|this| {
                 vortex_err!(
                     "Failed to downcast ExtDTypeRef {} to {}",
-                    this.0.id(),
+                    this.0.ext_id(),
                     type_name::<V>(),
                 )
             })
