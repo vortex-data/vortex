@@ -1,9 +1,10 @@
-// Epoch A adapter — for Vortex v0.36.0
+// Epoch B adapter — for Vortex v0.45.0 through v0.52.0
 //
-// API at this version:
-//   - VortexWriteOptions::default() (no session)
-//   - .write(sink, stream).await returns VortexResult<W> (the sink back)
-//   - ArrayStream must be Unpin
+// API changes from Epoch A:
+//   - VortexWriteOptions::default() still works (no session)
+//   - .write(sink, stream).await still returns VortexResult<W>
+//   - Stream now requires Send + 'static (not just Unpin)
+//   - Also has .write_blocking(sink, stream) -> VortexResult<W>
 
 use std::path::Path;
 
@@ -24,7 +25,8 @@ pub fn write_file(path: &Path, chunks: Vec<ArrayRef>) -> VortexResult<()> {
         let file = tokio::fs::File::create(path).await.map_err(|e| {
             vortex_error::vortex_err!("failed to create {}: {e}", path.display())
         })?;
-        // At 0.36.0, write() returns VortexResult<W> — we discard the sink.
+        // At 0.45.0–0.52.0: same as Epoch A, write() returns VortexResult<W>.
+        // Stream bound changed to `S: ArrayStream + Unpin + Send + 'static`.
         let _sink = VortexWriteOptions::default().write(file, stream).await?;
         Ok(())
     })
