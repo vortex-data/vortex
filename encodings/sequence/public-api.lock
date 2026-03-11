@@ -146,19 +146,15 @@ pub fn vortex_sequence::SequenceVTable::nbuffers(_array: &vortex_sequence::Seque
 
 pub fn vortex_sequence::SequenceVTable::nchildren(_array: &vortex_sequence::SequenceArray) -> usize
 
-pub fn vortex_sequence::SequenceVTable::nslots(_array: &vortex_sequence::SequenceArray) -> usize
-
 pub fn vortex_sequence::SequenceVTable::reduce_parent(array: &vortex_sequence::SequenceArray, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_sequence::SequenceVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_sequence::SequenceVTable::slot(_array: &vortex_sequence::SequenceArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
-
 pub fn vortex_sequence::SequenceVTable::slot_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> &str
 
-pub fn vortex_sequence::SequenceVTable::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_sequence::SequenceVTable::slots(array: &vortex_sequence::SequenceArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
-pub fn vortex_sequence::SequenceVTable::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_sequence::SequenceVTable::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_sequence::SequenceVTable::with_slots(array: &mut vortex_sequence::SequenceArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 

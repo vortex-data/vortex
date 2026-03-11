@@ -196,10 +196,6 @@ pub fn vortex_alp::ALPRDVTable::buffer_name(_array: &vortex_alp::ALPRDArray, _id
 
 pub fn vortex_alp::ALPRDVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
 
-pub fn vortex_alp::ALPRDVTable::child(array: &vortex_alp::ALPRDArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_alp::ALPRDVTable::child_name(array: &vortex_alp::ALPRDArray, idx: usize) -> alloc::string::String
-
 pub fn vortex_alp::ALPRDVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_alp::ALPRDVTable::dtype(array: &vortex_alp::ALPRDArray) -> &vortex_array::dtype::DType
@@ -216,21 +212,15 @@ pub fn vortex_alp::ALPRDVTable::metadata(array: &vortex_alp::ALPRDArray) -> vort
 
 pub fn vortex_alp::ALPRDVTable::nbuffers(_array: &vortex_alp::ALPRDArray) -> usize
 
-pub fn vortex_alp::ALPRDVTable::nchildren(array: &vortex_alp::ALPRDArray) -> usize
-
-pub fn vortex_alp::ALPRDVTable::nslots(_array: &vortex_alp::ALPRDArray) -> usize
-
 pub fn vortex_alp::ALPRDVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_alp::ALPRDVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_alp::ALPRDVTable::slot(array: &vortex_alp::ALPRDArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
-
 pub fn vortex_alp::ALPRDVTable::slot_name(_array: &vortex_alp::ALPRDArray, idx: usize) -> &str
 
-pub fn vortex_alp::ALPRDVTable::stats(array: &vortex_alp::ALPRDArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_alp::ALPRDVTable::slots(array: &vortex_alp::ALPRDArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
-pub fn vortex_alp::ALPRDVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_alp::ALPRDVTable::stats(array: &vortex_alp::ALPRDArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_alp::ALPRDVTable::with_slots(array: &mut vortex_alp::ALPRDArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
@@ -308,10 +298,6 @@ pub fn vortex_alp::ALPVTable::buffer_name(_array: &vortex_alp::ALPArray, _idx: u
 
 pub fn vortex_alp::ALPVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPArray>
 
-pub fn vortex_alp::ALPVTable::child(array: &vortex_alp::ALPArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_alp::ALPVTable::child_name(array: &vortex_alp::ALPArray, idx: usize) -> alloc::string::String
-
 pub fn vortex_alp::ALPVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_alp::ALPVTable::dtype(array: &vortex_alp::ALPArray) -> &vortex_array::dtype::DType
@@ -328,21 +314,15 @@ pub fn vortex_alp::ALPVTable::metadata(array: &vortex_alp::ALPArray) -> vortex_e
 
 pub fn vortex_alp::ALPVTable::nbuffers(_array: &vortex_alp::ALPArray) -> usize
 
-pub fn vortex_alp::ALPVTable::nchildren(array: &vortex_alp::ALPArray) -> usize
-
-pub fn vortex_alp::ALPVTable::nslots(_array: &vortex_alp::ALPArray) -> usize
-
 pub fn vortex_alp::ALPVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_alp::ALPVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_alp::ALPVTable::slot(array: &vortex_alp::ALPArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
-
 pub fn vortex_alp::ALPVTable::slot_name(_array: &vortex_alp::ALPArray, idx: usize) -> &str
 
-pub fn vortex_alp::ALPVTable::stats(array: &vortex_alp::ALPArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_alp::ALPVTable::slots(array: &vortex_alp::ALPArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
-pub fn vortex_alp::ALPVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_alp::ALPVTable::stats(array: &vortex_alp::ALPArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_alp::ALPVTable::with_slots(array: &mut vortex_alp::ALPArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 

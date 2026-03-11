@@ -114,19 +114,15 @@ pub fn vortex_zigzag::ZigZagVTable::nbuffers(_array: &vortex_zigzag::ZigZagArray
 
 pub fn vortex_zigzag::ZigZagVTable::nchildren(_array: &vortex_zigzag::ZigZagArray) -> usize
 
-pub fn vortex_zigzag::ZigZagVTable::nslots(_array: &vortex_zigzag::ZigZagArray) -> usize
-
 pub fn vortex_zigzag::ZigZagVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_zigzag::ZigZagVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_zigzag::ZigZagVTable::slot(array: &vortex_zigzag::ZigZagArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
-
 pub fn vortex_zigzag::ZigZagVTable::slot_name(_array: &vortex_zigzag::ZigZagArray, idx: usize) -> &str
 
-pub fn vortex_zigzag::ZigZagVTable::stats(array: &vortex_zigzag::ZigZagArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_zigzag::ZigZagVTable::slots(array: &vortex_zigzag::ZigZagArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
-pub fn vortex_zigzag::ZigZagVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_zigzag::ZigZagVTable::stats(array: &vortex_zigzag::ZigZagArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_zigzag::ZigZagVTable::with_slots(array: &mut vortex_zigzag::ZigZagArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 

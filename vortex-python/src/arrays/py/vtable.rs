@@ -147,6 +147,23 @@ impl VTable for PythonVTable {
         todo!()
     }
 
+    fn slots(_array: &PythonArray) -> &[Option<ArrayRef>] {
+        &[]
+    }
+
+    fn slot_name(_array: &PythonArray, idx: usize) -> &str {
+        vortex_panic!("PythonArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(_array: &mut PythonArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.is_empty(),
+            "PythonArray has no slots, got {}",
+            slots.len()
+        );
+        Ok(())
+    }
+
     fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         todo!()
     }

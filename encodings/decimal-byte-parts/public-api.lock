@@ -126,19 +126,15 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nbuffers(_array: &vort
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nchildren(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nslots(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
-
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::slot(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
-
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::slot_name(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> &str
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::stats(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::slots(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::stats(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::with_slots(array: &mut vortex_decimal_byte_parts::DecimalBytePartsArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 

@@ -198,19 +198,15 @@ pub fn vortex_runend::RunEndVTable::nbuffers(_array: &vortex_runend::RunEndArray
 
 pub fn vortex_runend::RunEndVTable::nchildren(_array: &vortex_runend::RunEndArray) -> usize
 
-pub fn vortex_runend::RunEndVTable::nslots(_array: &vortex_runend::RunEndArray) -> usize
-
 pub fn vortex_runend::RunEndVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_runend::RunEndVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_runend::RunEndVTable::slot(array: &vortex_runend::RunEndArray, idx: usize) -> &core::option::Option<vortex_array::array::ArrayRef>
-
 pub fn vortex_runend::RunEndVTable::slot_name(_array: &vortex_runend::RunEndArray, idx: usize) -> &str
 
-pub fn vortex_runend::RunEndVTable::stats(array: &vortex_runend::RunEndArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_runend::RunEndVTable::slots(array: &vortex_runend::RunEndArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
-pub fn vortex_runend::RunEndVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_runend::RunEndVTable::stats(array: &vortex_runend::RunEndArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_runend::RunEndVTable::with_slots(array: &mut vortex_runend::RunEndArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
