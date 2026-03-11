@@ -827,7 +827,53 @@ impl PrefilterDfa {
 }
 
 // ---------------------------------------------------------------------------
-// Approach 8: Shift-based DFA — pack all state transitions into a u64.
+// Approach 8: State-zero skip DFA — skip runs of codes that keep state=0.
+//
+// Precompute a 256-byte lookup: for each code byte, does transitioning from
+// state 0 stay in state 0? If so, that code is "trivial" and can be skipped.
+// Process codes in chunks: scan for the first non-trivial code, then run
+// the scalar DFA from there. This is most effective when the needle is rare
+// (most codes are trivial), which is the common case for selective predicates.
+// ---------------------------------------------------------------------------
+
+struct StateZeroSkipDfa {
+    inner: CompactDfa,
+    /// For each code byte (0..255), true if it keeps state 0 → state 0.
+    trivial: [bool; 256],
+}
+
+impl StateZeroSkipDfa {
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        let inner = CompactDfa::new(symbols, symbol_lengths, needle);
+
+        let mut trivial = [false; 256];
+        for code in 0..256 {
+            // A code is trivial if from state 0 it goes back to state 0
+            // and it's not the escape sentinel.
+            let next = inner.transitions[code]; // state 0 * 256 + code
+            trivial[code] = next == 0 && code as u8 != ESCAPE_CODE;
+        }
+
+        Self { inner, trivial }
+    }
+
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        // Skip leading trivial codes.
+        let mut start = 0;
+        while start < codes.len() && self.trivial[codes[start] as usize] {
+            start += 1;
+        }
+        if start == codes.len() {
+            return self.inner.accept_state == 0;
+        }
+        // Run the DFA from the first non-trivial code.
+        self.inner.matches_no_early_exit(&codes[start..])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Approach 9: Shift-based DFA — pack all state transitions into a u64.
 //
 // For a DFA with S ≤ 21 states (3 bits each fit in 63 bits of a u64),
 // we store the transitions for ALL states for a given input byte in one u64.
@@ -2856,6 +2902,42 @@ fn rare_prefilter(bencher: Bencher) {
             let start = prep.offsets[i];
             let end = prep.offsets[i + 1];
             dfa.matches_no_early_exit(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+data_bench!(
+    rare_state_zero_skip,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    StateZeroSkipDfa,
+    matches
+);
+
+// State-zero skip on URLs (moderate match rate)
+data_bench!(
+    state_zero_skip_urls,
+    make_fsst_urls,
+    NEEDLE,
+    StateZeroSkipDfa,
+    matches
+);
+
+// State-zero skip on ClickBench URLs
+#[divan::bench]
+fn cb_state_zero_skip(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = StateZeroSkipDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches(&prep.all_bytes[start..end])
         })
     });
 }
