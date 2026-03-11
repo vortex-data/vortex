@@ -279,11 +279,12 @@ fn merge_case_branches(
             acc | arr.dtype().nullability()
         });
     let output_dtype = else_value.dtype().with_nullability(output_nullability);
+    let branch_arrays: Vec<&ArrayRef> = branches.iter().map(|(_, arr)| arr).collect();
 
     let mut spans: Vec<(usize, usize, usize)> = Vec::new();
     for (branch_idx, (mask, _)) in branches.iter().enumerate() {
         match mask.slices() {
-            AllOr::All => return branches[branch_idx].1.cast(output_dtype),
+            AllOr::All => return branch_arrays[branch_idx].cast(output_dtype),
             AllOr::None => {}
             AllOr::Some(slices) => {
                 for &(start, end) in slices {
@@ -300,40 +301,38 @@ fn merge_case_branches(
 
     let builder = builder_with_capacity(&output_dtype, else_value.len());
 
-    let branch_arrays: Vec<ArrayRef> = branches
-        .iter()
-        .map(|(_, arr)| arr.cast(output_dtype.clone()))
-        .collect::<VortexResult<_>>()?;
-    let else_value = else_value.cast(output_dtype)?;
-
     let fragmented = spans.len() > else_value.len() / SLICE_CROSSOVER_RUN_LEN;
     if fragmented {
-        merge_row_by_row(&branch_arrays, &else_value, &spans, builder)
+        merge_row_by_row(&branch_arrays, &else_value, &spans, &output_dtype, builder)
     } else {
-        merge_run_by_run(&branch_arrays, &else_value, &spans, builder)
+        merge_run_by_run(&branch_arrays, &else_value, &spans, &output_dtype, builder)
     }
 }
 
 /// Iterates spans directly, emitting one `scalar_at` per row.
 /// Zero per-run allocations; preferred for fragmented masks (avg run < [`SLICE_CROSSOVER_RUN_LEN`]).
 fn merge_row_by_row(
-    branch_arrays: &[ArrayRef],
+    branch_arrays: &[&ArrayRef],
     else_value: &ArrayRef,
     spans: &[(usize, usize, usize)],
+    output_dtype: &DType,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
     let mut pos = 0;
     for &(start, end, branch_idx) in spans {
         for row in pos..start {
-            builder.append_scalar(&else_value.scalar_at(row)?)?;
+            let scalar = else_value.scalar_at(row)?;
+            builder.append_scalar(&scalar.cast(output_dtype)?)?;
         }
         for row in start..end {
-            builder.append_scalar(&branch_arrays[branch_idx].scalar_at(row)?)?;
+            let scalar = branch_arrays[branch_idx].scalar_at(row)?;
+            builder.append_scalar(&scalar.cast(output_dtype)?)?;
         }
         pos = end;
     }
     for row in pos..else_value.len() {
-        builder.append_scalar(&else_value.scalar_at(row)?)?;
+        let scalar = else_value.scalar_at(row)?;
+        builder.append_scalar(&scalar.cast(output_dtype)?)?;
     }
 
     Ok(builder.finish())
@@ -341,19 +340,26 @@ fn merge_row_by_row(
 
 /// Bulk-copies each span via `slice()` + `extend_from_array`.
 /// Preferred when runs are long enough that memcpy dominates over per-slice allocation cost.
+/// Lazy cast via `arr.cast(output_dtype)` is executed once per span as a block.
 fn merge_run_by_run(
-    branch_arrays: &[ArrayRef],
+    branch_arrays: &[&ArrayRef],
     else_value: &ArrayRef,
     spans: &[(usize, usize, usize)],
+    output_dtype: &DType,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
+    let else_value = else_value.cast(output_dtype.clone())?;
+    let len = else_value.len();
     for (start, end, branch_idx) in spans {
         if builder.len() < *start {
             builder.extend_from_array(&else_value.slice(builder.len()..*start)?);
         }
-        builder.extend_from_array(&branch_arrays[*branch_idx].slice(*start..*end)?);
+        builder.extend_from_array(
+            &branch_arrays[*branch_idx]
+                .cast(output_dtype.clone())?
+                .slice(*start..*end)?,
+        );
     }
-    let len = else_value.len();
     if builder.len() < len {
         builder.extend_from_array(&else_value.slice(builder.len()..len)?);
     }
