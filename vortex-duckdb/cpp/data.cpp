@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
+DUCKDB_INCLUDES_END
 
 #include "duckdb_vx/data.hpp"
 

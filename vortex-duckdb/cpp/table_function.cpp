@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/common/insertion_order_preserving_map.hpp"
+#include "duckdb/function/table_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
-#include "duckdb/function/table_function.hpp"
-#include "duckdb/common/insertion_order_preserving_map.hpp"
+#include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+DUCKDB_INCLUDES_END
 
 #include "duckdb_vx.h"
-#include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "duckdb_vx/data.hpp"
 #include "duckdb_vx/error.hpp"
 

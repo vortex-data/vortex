@@ -504,9 +504,6 @@ fn main() {
         .flag("-Wall")
         .flag("-Wextra")
         .flag("-Wpedantic")
-        // Unused parameter warnings are disabled as we include DuckDB
-        // headers with implementations that have unused parameters.
-        .flag("-Wno-unused-parameter")
         .cpp(true)
         .include(&duckdb_include_path)
         .include("cpp/include")

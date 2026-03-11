@@ -3,12 +3,16 @@
 
 #include "duckdb_vx.h"
 #include "duckdb_vx/data.hpp"
+#include "duckdb_vx/error.hpp"
+
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/parser/parsed_data/create_copy_function_info.hpp"
-#include "duckdb_vx/error.hpp"
+DUCKDB_INCLUDES_END
 
 using namespace duckdb;
 
