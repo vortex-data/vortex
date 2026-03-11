@@ -1,15 +1,16 @@
-// Epoch C adapter — for Vortex v0.58.0 through HEAD
+// Epoch B adapter — for Vortex v0.45.0 through v0.52.0
 //
-// Write: session.write_options(), returns WriteSummary, takes &mut sink
-// Read:  session.open_options().open_buffer(buf) (sync), into_array_stream() (async)
+// Write: VortexWriteOptions::default(), returns sink W (same as Epoch A)
+// Read:  VortexOpenOptions::in_memory().open(buf) (NOW SYNC)
+// Scan:  into_array_iter() (sync iterator)
 
 use std::path::Path;
 
 use futures::stream;
 use tokio::runtime::Runtime;
-use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
-use vortex::VortexSession;
-use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex_array::iter::ArrayIteratorExt;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -23,29 +24,24 @@ pub fn write_file(path: &Path, chunks: Vec<ArrayRef>) -> VortexResult<()> {
     let dtype = chunks[0].dtype().clone();
     let stream = ArrayStreamAdapter::new(dtype, stream::iter(chunks.into_iter().map(Ok)));
 
-    let session = VortexSession::default();
     runtime().block_on(async {
-        let mut file = tokio::fs::File::create(path).await.map_err(|e| {
+        let file = tokio::fs::File::create(path).await.map_err(|e| {
             vortex_error::vortex_err!("failed to create {}: {e}", path.display())
         })?;
-        let _summary = session
-            .write_options()
-            .write(&mut file, stream)
-            .await?;
+        // At 0.45.0–0.52.0: same write API as Epoch A.
+        let _sink = VortexWriteOptions::default().write(file, stream).await?;
         Ok(())
     })
 }
 
 /// Read a `.vortex` file from bytes, returning the arrays.
 pub fn read_file(bytes: ByteBuffer) -> VortexResult<Vec<ArrayRef>> {
-    let session = VortexSession::default();
-    let file = session.open_options().open_buffer(bytes)?;
-    runtime().block_on(async {
-        let arr = file
-            .scan()?
-            .into_array_stream()?
-            .read_all()
-            .await?;
-        Ok(vec![arr])
-    })
+    // No async runtime needed — both open and scan are sync at this epoch.
+    let file = VortexOpenOptions::in_memory()
+        .open(bytes)?; // sync at 0.45.0+
+    let arr = file
+        .scan()?
+        .into_array_iter()? // sync iterator (replaced into_array_stream)
+        .read_all()?; // sync read_all
+    Ok(vec![arr])
 }
