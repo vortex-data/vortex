@@ -17,9 +17,11 @@ impl MinMaxKernel for ExtensionVTable {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
         let non_nullable_ext_dtype = array.ext_dtype().with_nullability(Nullability::NonNullable);
         Ok(
-            compute::min_max(array.storage())?.map(|MinMaxResult { min, max }| MinMaxResult {
-                min: Scalar::extension_ref(non_nullable_ext_dtype.clone(), min),
-                max: Scalar::extension_ref(non_nullable_ext_dtype, max),
+            compute::min_max(array.storage_array())?.map(|MinMaxResult { min, max }| {
+                MinMaxResult {
+                    min: Scalar::extension_ref(non_nullable_ext_dtype.clone(), min),
+                    max: Scalar::extension_ref(non_nullable_ext_dtype, max),
+                }
             }),
         )
     }

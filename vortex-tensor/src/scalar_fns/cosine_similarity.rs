@@ -199,7 +199,7 @@ fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
     let ext = array
         .as_opt::<ExtensionVTable>()
         .ok_or_else(|| vortex_err!("cosine_similarity input must be an extension array"))?;
-    Ok(ext.storage().clone())
+    Ok(ext.storage_array().clone())
 }
 
 /// Extracts the flat primitive elements from a tensor storage array (FixedSizeList).

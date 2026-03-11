@@ -6,15 +6,17 @@ use crate::BitBufferMut;
 use crate::Buffer;
 use crate::trusted_len::TrustedLenExt;
 
+#[inline]
 pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
-    let iter = buffer.chunks().iter_padded().map(op);
+    let iter = buffer.unaligned_chunks().iter().map(op);
     let iter = unsafe { iter.trusted_len() };
 
     let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
 
-    BitBuffer::new(result, buffer.len())
+    BitBuffer::new_with_offset(result, buffer.len(), buffer.offset())
 }
 
+#[inline]
 pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, mut op: F) {
     let slice_mut = buffer.as_mut_slice();
 
@@ -53,6 +55,25 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     mut op: F,
 ) -> BitBuffer {
     assert_eq!(left.len(), right.len());
+
+    // If the buffers are aligned, we can use the fast path.
+    if left.offset().is_multiple_of(8) && right.offset().is_multiple_of(8) {
+        let left_chunks = left.unaligned_chunks();
+        let right_chunks = right.unaligned_chunks();
+        if left_chunks.lead_padding() == 0
+            && left_chunks.trailing_padding() == 0
+            && right_chunks.lead_padding() == 0
+            && right_chunks.trailing_padding() == 0
+        {
+            let iter = left_chunks
+                .iter()
+                .zip(right_chunks.iter())
+                .map(|(l, r)| op(l, r));
+            let iter = unsafe { iter.trusted_len() };
+            let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
+            return BitBuffer::new(result, left.len());
+        }
+    }
 
     let iter = left
         .chunks()

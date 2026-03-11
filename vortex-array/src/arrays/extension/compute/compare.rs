@@ -26,7 +26,7 @@ impl CompareKernel for ExtensionVTable {
         if let Some(const_ext) = rhs.as_constant() {
             let storage_scalar = const_ext.as_extension().to_storage_scalar();
             return lhs
-                .storage()
+                .storage_array()
                 .to_array()
                 .binary(
                     ConstantArray::new(storage_scalar, lhs.len()).into_array(),
@@ -38,9 +38,9 @@ impl CompareKernel for ExtensionVTable {
         // If the RHS is an extension array matching ours, we can extract the storage.
         if let Some(rhs_ext) = rhs.as_opt::<ExtensionVTable>() {
             return lhs
-                .storage()
+                .storage_array()
                 .to_array()
-                .binary(rhs_ext.storage().to_array(), Operator::from(operator))
+                .binary(rhs_ext.storage_array().to_array(), Operator::from(operator))
                 .map(Some);
         }
 

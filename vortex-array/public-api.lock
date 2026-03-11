@@ -1686,11 +1686,13 @@ impl vortex_array::arrays::ExtensionArray
 
 pub fn vortex_array::arrays::ExtensionArray::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::arrays::ExtensionArray::id(&self) -> vortex_array::dtype::extension::ExtId
+pub fn vortex_array::arrays::ExtensionArray::new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_array: vortex_array::ArrayRef) -> Self
 
-pub fn vortex_array::arrays::ExtensionArray::new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage: vortex_array::ArrayRef) -> Self
+pub unsafe fn vortex_array::arrays::ExtensionArray::new_unchecked(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_array: vortex_array::ArrayRef) -> Self
 
-pub fn vortex_array::arrays::ExtensionArray::storage(&self) -> &vortex_array::ArrayRef
+pub fn vortex_array::arrays::ExtensionArray::storage_array(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::ExtensionArray::try_new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::ExtensionArray
 
@@ -5498,11 +5500,13 @@ impl vortex_array::arrays::ExtensionArray
 
 pub fn vortex_array::arrays::ExtensionArray::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::arrays::ExtensionArray::id(&self) -> vortex_array::dtype::extension::ExtId
+pub fn vortex_array::arrays::ExtensionArray::new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_array: vortex_array::ArrayRef) -> Self
 
-pub fn vortex_array::arrays::ExtensionArray::new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage: vortex_array::ArrayRef) -> Self
+pub unsafe fn vortex_array::arrays::ExtensionArray::new_unchecked(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_array: vortex_array::ArrayRef) -> Self
 
-pub fn vortex_array::arrays::ExtensionArray::storage(&self) -> &vortex_array::ArrayRef
+pub fn vortex_array::arrays::ExtensionArray::storage_array(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::ExtensionArray::try_new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::ExtensionArray
 
