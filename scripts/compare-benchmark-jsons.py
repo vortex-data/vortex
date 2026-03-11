@@ -188,20 +188,6 @@ if len(vortex_df) > 0:
         ]
     )
 
-# Build table
-table_df = pd.DataFrame(
-    {
-        "name": df3["name"],
-        "engine": df3["engine"],
-        "file format": df3["file_format"],
-        f"PR {pr_commit_id[:8]}": df3["value_pr"],
-        f"base {base_commit_id[:8]}": df3["value_base"],
-        "ratio (PR/base)": df3["ratio"],
-        "unit": df3["unit_base"],
-    }
-)
-
-
 ENGINE_ORDER = {
     "vortex": 0,
     "datafusion": 1,
@@ -247,28 +233,48 @@ def build_group_summary(group_df):
         best_change = "No valid comparisons"
         worst_change = "No valid comparisons"
 
-    return [
-        f"- **Performance**: {ratio_summary}",
-        f"- **Significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
-        f"- **Best**: {best_change}",
-        f"- **Worst**: {worst_change}",
-    ]
+    summary_lines = []
+
+    if significant_improvements > 0 or significant_regressions > 0:
+        summary_lines.append(f"Significant (>{threshold_pct}%): {significant_improvements}↑ {significant_regressions}↓")
+
+    if len(valid_ratios) > 0:
+        summary_lines.append(f"Best/Worst: {best_change} / {worst_change}")
+
+    return ratio_summary, significant_improvements, significant_regressions, summary_lines
 
 
 # Output complete formatted markdown
 print("\n".join(summary_lines))
 print("")
-grouped_tables = table_df.groupby(["engine", "file format"], dropna=False, sort=False)
+grouped_tables = df3.groupby(["engine", "file_format"], dropna=False, sort=False)
 for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
     group_df = grouped_tables.get_group((engine, file_format)).sort_values("name")
-    group_performance = format_performance(calculate_geo_mean(group_df), "group")
+    group_performance, significant_improvements, significant_regressions, group_summary_lines = build_group_summary(
+        group_df
+    )
+    display_df = pd.DataFrame(
+        {
+            "name": group_df["name"],
+            f"PR {pr_commit_id[:8]}": group_df["value_pr"],
+            f"base {base_commit_id[:8]}": group_df["value_base"],
+            "ratio (PR/base)": group_df["ratio"],
+            "unit": group_df["unit_base"],
+        }
+    )
     print("<details>")
-    print(f"<summary>{engine} / {file_format} ({len(group_df)} rows, {group_performance})</summary>")
+    summary_text = (
+        f"{engine} / {file_format} "
+        f"({len(group_df)} rows, {group_performance}, "
+        f"{significant_improvements}↑ {significant_regressions}↓)"
+    )
+    print(f"<summary>{summary_text}</summary>")
     print("")
-    print("\n".join(build_group_summary(group_df)))
-    print("")
+    if len(group_summary_lines) > 0:
+        print(" ".join(group_summary_lines))
+        print("")
     print(
-        group_df.drop(columns=["engine", "file format"]).to_markdown(
+        display_df.to_markdown(
             index=False,
             tablefmt="github",
             floatfmt=".2f",
