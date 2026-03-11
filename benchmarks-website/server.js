@@ -27,7 +27,9 @@ const USE_LOCAL_DATA = process.env.USE_LOCAL_DATA === "true";
 const GROUPS = [
   "Random Access",
   "Compression",
+  "Compression Memory",
   "Compression Size",
+  "TPC-H Memory",
   ...QUERY_SUITES.filter((s) => !s.skip && !s.fanOut).map((s) => s.displayName),
   ...FAN_OUT_GROUPS,
 ];
@@ -103,6 +105,21 @@ function getGroup(benchmark) {
     lower.startsWith("vortex:raw ratio")
   ) {
     return "Compression";
+  }
+
+  if (
+    lower.startsWith("compress peak memory/") ||
+    lower.startsWith("decompress peak memory/") ||
+    lower.startsWith("parquet_rs-zstd compress peak memory/") ||
+    lower.startsWith("parquet_rs-zstd decompress peak memory/") ||
+    lower.startsWith("lance compress peak memory/") ||
+    lower.startsWith("lance decompress peak memory/")
+  ) {
+    return "Compression Memory";
+  }
+
+  if (lower.startsWith("tpch peak memory/")) {
+    return "TPC-H Memory";
   }
 
   // SQL query suites: match "{prefix}_q..." or "{prefix}/..."

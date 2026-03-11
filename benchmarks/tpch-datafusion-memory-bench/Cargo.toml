@@ -1,0 +1,31 @@
+[package]
+name = "tpch-datafusion-memory-bench"
+description = "TPC-H DataFusion/Vortex memory benchmark"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+datafusion = { workspace = true }
+datafusion-bench = { path = "../datafusion-bench" }
+indicatif = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+vortex-bench = { workspace = true }
+
+[features]
+dhat = ["vortex-bench/dhat-heap"]
+
+[lints]
+workspace = true

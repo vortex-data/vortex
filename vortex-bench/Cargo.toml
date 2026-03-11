@@ -16,6 +16,9 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+dhat-heap = ["dep:dhat"]
+
 [dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
@@ -25,6 +28,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+dhat = { workspace = true, optional = true }
 futures = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }

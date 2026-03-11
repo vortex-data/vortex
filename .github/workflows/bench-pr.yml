@@ -46,8 +46,19 @@ jobs:
           - id: random-access-bench
             name: Random Access
             build_args: "--features lance"
+            run_args: "--formats parquet,lance,vortex"
           - id: compress-bench
             name: Compression
+            build_args: ""
+            run_args: "--formats parquet,lance,vortex"
+          - id: compress-memory-bench
+            name: Compression Memory
+            build_args: "--features dhat,lance"
+            run_args: "--formats parquet,lance,vortex"
+          - id: tpch-datafusion-memory-bench
+            name: TPC-H DataFusion Memory
+            build_args: "--features dhat"
+            run_args: ""
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: runs-on/action@v2
@@ -93,7 +104,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
+          target/release_debug/${{ matrix.benchmark.id }} ${{ matrix.benchmark.run_args }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false

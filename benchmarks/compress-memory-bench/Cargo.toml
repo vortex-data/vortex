@@ -1,0 +1,32 @@
+[package]
+name = "compress-memory-bench"
+description = "Compression memory benchmarks for Vortex and other formats"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+compress-bench = { path = "../compress-bench" }
+indicatif = { workspace = true }
+regex = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+vortex-bench = { workspace = true }
+
+[features]
+dhat = ["vortex-bench/dhat-heap"]
+lance = ["compress-bench/lance"]
+
+[lints]
+workspace = true

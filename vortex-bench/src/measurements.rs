@@ -382,6 +382,50 @@ impl ToTable for CompressionTimingMeasurement {
 }
 
 #[derive(Clone, Debug)]
+pub struct CompressionMemoryMeasurement {
+    pub name: String,
+    pub format: Format,
+    pub value_mib: f64,
+}
+
+impl ToJson for CompressionMemoryMeasurement {
+    fn to_json(&self) -> serde_json::Value {
+        let (name, engine) = match self.format {
+            Format::OnDiskVortex => (self.name.to_string(), Engine::Vortex),
+            Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Arrow),
+            Format::Lance => (format!("lance {}", self.name), Engine::Arrow),
+            _ => vortex_panic!(
+                "CompressionMemoryMeasurement only supports vortex, lance, and parquet formats"
+            ),
+        };
+
+        serde_json::to_value(JsonValue {
+            name,
+            storage: None,
+            unit: Some(Cow::from("MiB")),
+            value: MeasurementValue::Float(self.value_mib),
+            time: None,
+            bytes: None,
+            commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: Target::new(engine, self.format),
+        })
+        .expect("value is valid JSON")
+    }
+}
+
+impl ToTable for CompressionMemoryMeasurement {
+    fn to_table(&self) -> TableValue {
+        TableValue {
+            id: None,
+            name: self.name.clone(),
+            target: Target::new(Engine::default(), self.format),
+            unit: Cow::from("MiB"),
+            value: MeasurementValue::Float(self.value_mib),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct CustomUnitMeasurement {
     pub name: String,
     pub format: Format,
@@ -419,6 +463,43 @@ impl ToTable for CustomUnitMeasurement {
             id: None,
             name: self.name.clone(),
             target: Target::new(Engine::default(), self.format),
+            unit: self.unit.clone(),
+            value: MeasurementValue::Float(self.value),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NamedMeasurement {
+    pub name: String,
+    pub target: Target,
+    pub unit: Cow<'static, str>,
+    pub value: f64,
+    pub storage: Option<String>,
+}
+
+impl ToJson for NamedMeasurement {
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::to_value(JsonValue {
+            name: self.name.clone(),
+            storage: self.storage.clone(),
+            unit: Some(self.unit.clone()),
+            value: MeasurementValue::Float(self.value),
+            time: None,
+            bytes: None,
+            commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            target: self.target,
+        })
+        .expect("value is valid JSON")
+    }
+}
+
+impl ToTable for NamedMeasurement {
+    fn to_table(&self) -> TableValue {
+        TableValue {
+            id: None,
+            name: self.name.clone(),
+            target: self.target,
             unit: self.unit.clone(),
             value: MeasurementValue::Float(self.value),
         }

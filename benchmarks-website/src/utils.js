@@ -95,7 +95,9 @@ export function getBenchmarkDescription(categoryName) {
   const descriptions = {
     'Random Access': 'Tests performance of selecting arbitrary row indices from a file on NVMe storage',
     'Compression': 'Measures encoding and decoding throughput (MB/s) for Vortex and Parquet files',
+    'Compression Memory': 'Measures peak heap usage during compression and decompression workloads using dhat',
     'Compression Size': 'Compares compressed file sizes across different encoding strategies',
+    'TPC-H Memory': 'Measures peak heap usage for the full TPC-H workload on DataFusion over Parquet and Vortex files using dhat',
     'Clickbench': "ClickHouse's analytical benchmark suite on web analytics data",
     'Statistical and Population Genetics': 'Statistical and population genetics queries on gnomAD dataset',
   };

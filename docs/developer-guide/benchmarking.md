@@ -46,6 +46,24 @@ cargo run --release --bin datafusion-bench -- <benchmark>
 cargo run --release --bin duckdb-bench -- <benchmark>
 ```
 
+## Memory Benchmarks
+
+Peak-memory workload benchmarks use `dhat` and run as separate binaries so they do not affect
+timing benchmarks.
+
+Run compression memory benchmarks with:
+
+```bash
+cargo run --profile release_debug -p compress-memory-bench --features dhat,lance -- \
+  --formats parquet,lance,vortex
+```
+
+Run the fixed TPC-H memory workload (DataFusion on Parquet and Vortex) with:
+
+```bash
+cargo run --profile release_debug -p tpch-datafusion-memory-bench --features dhat --
+```
+
 ## Orchestrator
 
 The `bench-orchestrator` is a Python CLI tool (`vx-bench`) that coordinates running benchmarks
@@ -100,6 +118,9 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 
 - **Post-commit** -- compression, random access, and SQL benchmarks run on every commit to
   `develop`, with results uploaded for historical tracking.
+- **Memory workloads** -- compression and a fixed TPC-H DataFusion workload (Parquet + Vortex)
+  run with
+  `dhat` on every commit to `develop`, with results published to the benchmarks website.
 - **PR benchmarks** -- triggered by the `action/benchmark` label. Results are compared against
   the latest `develop` run and posted as a PR comment.
 - **SQL benchmarks** -- triggered by the `action/benchmark-sql` label. Runs a parametric matrix

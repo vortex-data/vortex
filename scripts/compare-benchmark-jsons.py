@@ -10,6 +10,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import math
+from numbers import Integral
 import sys
 
 import pandas as pd
@@ -207,11 +208,17 @@ def build_group_summary(group_df):
     return ratio_summary, significant_improvements, significant_regressions
 
 
-def format_integer_value(value):
+def format_value(value):
     if pd.isna(value):
         return ""
 
-    return str(int(value))
+    if isinstance(value, Integral):
+        return str(int(value))
+
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+
+    return f"{value:.2f}"
 
 
 def format_name_with_highlight(name, ratio):
@@ -240,8 +247,8 @@ for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_k
             "name": [
                 format_name_with_highlight(name, ratio) for name, ratio in zip(group_df["name"], group_df["ratio"])
             ],
-            f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"].map(format_integer_value),
-            f"base {base_commit_id[:8]} ({unit})": group_df["value_base"].map(format_integer_value),
+            f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"].map(format_value),
+            f"base {base_commit_id[:8]} ({unit})": group_df["value_base"].map(format_value),
             "ratio (PR/base)": group_df["ratio"],
         }
     )

@@ -124,6 +124,30 @@ const BESPOKE_CONFIGS = [
     renamedDatasets: { lance: "lance", Lance: "lance", LANCE: "lance" },
   },
   {
+    name: "Compression Memory",
+    keptCharts: [
+      "COMPRESS PEAK MEMORY",
+      "DECOMPRESS PEAK MEMORY",
+      "PARQUET RS ZSTD COMPRESS PEAK MEMORY",
+      "PARQUET RS ZSTD DECOMPRESS PEAK MEMORY",
+      "LANCE COMPRESS PEAK MEMORY",
+      "LANCE DECOMPRESS PEAK MEMORY",
+    ],
+    hiddenDatasets: new Set([
+      "wide table cols=1000 chunks=1 rows=1000",
+      "wide table cols=1000 chunks=50 rows=1000",
+    ]),
+    removedDatasets: new Set([
+      "TPC-H l_comment canonical",
+      "TPC-H l_comment chunked without fsst",
+      "wide table cols=10 chunks=1 rows=1000",
+      "wide table cols=100 chunks=1 rows=1000",
+      "wide table cols=10 chunks=50 rows=1000",
+      "wide table cols=100 chunks=50 rows=1000",
+    ]),
+    renamedDatasets: { lance: "lance", Lance: "lance", LANCE: "lance" },
+  },
+  {
     name: "Compression Size",
     keptCharts: [
       "VORTEX SIZE",
@@ -140,6 +164,10 @@ const BESPOKE_CONFIGS = [
       "wide table cols=100 chunks=50 rows=1000",
     ]),
     renamedDatasets: { lance: "lance", Lance: "lance", LANCE: "lance" },
+  },
+  {
+    name: "TPC-H Memory",
+    renamedDatasets: { ...ENGINE_RENAMES },
   },
 ];
 
@@ -180,6 +208,12 @@ export const CHART_NAME_MAP = {
   "PARQUET RS ZSTD DECOMPRESS TIME": "PARQUET SCAN TIME (DECOMPRESSION)",
   "LANCE COMPRESS TIME": "LANCE WRITE TIME (COMPRESSION)",
   "LANCE DECOMPRESS TIME": "LANCE SCAN TIME (DECOMPRESSION)",
+  "COMPRESS PEAK MEMORY": "VORTEX WRITE PEAK MEMORY",
+  "DECOMPRESS PEAK MEMORY": "VORTEX SCAN PEAK MEMORY",
+  "PARQUET RS ZSTD COMPRESS PEAK MEMORY": "PARQUET WRITE PEAK MEMORY",
+  "PARQUET RS ZSTD DECOMPRESS PEAK MEMORY": "PARQUET SCAN PEAK MEMORY",
+  "LANCE COMPRESS PEAK MEMORY": "LANCE WRITE PEAK MEMORY",
+  "LANCE DECOMPRESS PEAK MEMORY": "LANCE SCAN PEAK MEMORY",
   "VORTEX SIZE": "VORTEX SIZE",
   "PARQUET ZSTD SIZE": "PARQUET SIZE",
   "LANCE SIZE": "LANCE SIZE",
@@ -198,7 +232,9 @@ export const CHART_NAME_MAP = {
 export const CATEGORY_TAGS = {
   "Random Access": ["Read/Write"],
   Compression: ["Read/Write"],
+  "Compression Memory": ["Memory"],
   "Compression Size": ["Read/Write"],
+  "TPC-H Memory": ["Memory"],
 };
 for (const s of QUERY_SUITES) {
   if (!s.skip && !s.fanOut && s.tags) CATEGORY_TAGS[s.displayName] = s.tags;
@@ -217,8 +253,12 @@ export const BENCHMARK_DESCRIPTIONS = {
     "Tests performance of selecting arbitrary row indices from a file on NVMe storage",
   Compression:
     "Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet files (with zstd page compression)",
+  "Compression Memory":
+    "Measures peak heap usage during compression and decompression workloads using dhat",
   "Compression Size":
     "Compares compressed file sizes and compression ratios across different encoding strategies",
+  "TPC-H Memory":
+    "Measures peak heap usage for the full TPC-H workload on DataFusion over Parquet and Vortex files using dhat",
 };
 for (const s of QUERY_SUITES) {
   if (s.description) BENCHMARK_DESCRIPTIONS[s.displayName] = s.description;

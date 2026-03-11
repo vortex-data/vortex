@@ -37,6 +37,7 @@ pub mod clickbench;
 pub mod compress;
 pub mod conversions;
 pub mod datasets;
+pub mod dhat;
 pub mod display;
 pub mod downloadable_dataset;
 pub mod fineweb;
@@ -63,7 +64,13 @@ pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-// All benchmarks run with mimalloc for consistency.
+// Memory benchmarks opt into dhat so peak allocation tracking can be collected in-process.
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static GLOBAL: ::dhat::Alloc = ::dhat::Alloc;
+
+// All non-memory benchmarks run with mimalloc for consistency.
+#[cfg(not(feature = "dhat-heap"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
