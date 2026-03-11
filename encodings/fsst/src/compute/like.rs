@@ -109,11 +109,15 @@ where
 
     for chunk in 0..n_words {
         let base = chunk * 64;
+        // Copy 65 offsets to a stack array for spatial locality.
+        let mut local_off = [0usize; 65];
+        for j in 0..65 {
+            local_off[j] = offsets[base + j].as_();
+        }
         let mut word = 0u64;
         for bit in 0..64 {
-            let i = base + bit;
-            let start: usize = offsets[i].as_();
-            let end: usize = offsets[i + 1].as_();
+            let start = local_off[bit];
+            let end = local_off[bit + 1];
             word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
         }
         // SAFETY: we allocated capacity for n.div_ceil(64) words.
@@ -122,11 +126,15 @@ where
 
     if remainder != 0 {
         let base = n_words * 64;
+        // Copy remainder+1 offsets to a stack array for spatial locality.
+        let mut local_off = [0usize; 65];
+        for j in 0..=remainder {
+            local_off[j] = offsets[base + j].as_();
+        }
         let mut word = 0u64;
         for bit in 0..remainder {
-            let i = base + bit;
-            let start: usize = offsets[i].as_();
-            let end: usize = offsets[i + 1].as_();
+            let start = local_off[bit];
+            let end = local_off[bit + 1];
             word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
         }
         unsafe { words.push_unchecked(word) };
@@ -451,31 +459,33 @@ impl ShiftDfa {
         }
     }
 
-    /// Match without per-iteration early-exit. The accept state is sticky
-    /// (transitions to itself), so final state == accept means we matched.
-    /// Removing the branch from the hot loop improves throughput.
+    /// Match with iterator-based traversal and early-exit on accept.
+    ///
+    /// Using `iter.next()` instead of manual index + bounds check helps the
+    /// compiler eliminate redundant bounds checks. Early-exit on the accept
+    /// state (which is sticky) lets us skip the tail of the string once the
+    /// pattern has matched, which is a significant win for "contains" patterns.
     #[inline]
     fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
-        let mut pos = 0;
-        while pos < codes.len() {
-            let code = codes[pos];
-            pos += 1;
+        let mut iter = codes.iter();
+        while let Some(&code) = iter.next() {
             let packed = self.transitions[code as usize];
             let next = ((packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
             if next == self.escape_sentinel {
-                if pos >= codes.len() {
+                let Some(&b) = iter.next() else {
                     return false;
-                }
-                let b = codes[pos];
-                pos += 1;
+                };
                 let esc_packed = self.escape_transitions[b as usize];
                 state = ((esc_packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
             } else {
                 state = next;
             }
+            if state == self.accept_state {
+                return true;
+            }
         }
-        state == self.accept_state
+        false
     }
 }
 
