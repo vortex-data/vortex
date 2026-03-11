@@ -101,11 +101,7 @@ impl BitBuffer {
         // Slice the buffer to ensure the offset is within the first byte
         let byte_offset = offset / 8;
         let offset = offset % 8;
-        let buffer = if byte_offset != 0 {
-            buffer.slice(byte_offset..)
-        } else {
-            buffer
-        };
+        let buffer = buffer.slice(byte_offset..);
 
         Self {
             buffer,
