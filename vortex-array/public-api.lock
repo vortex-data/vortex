@@ -10118,7 +10118,7 @@ pub fn vortex_array::dtype::PType::try_from_arrow(value: &arrow_schema::datatype
 
 pub mod vortex_array::dtype::extension
 
-pub struct vortex_array::dtype::extension::ExtDType<V: vortex_array::dtype::extension::ExtVTable>(_)
+pub struct vortex_array::dtype::extension::ExtDType<V: vortex_array::dtype::extension::ExtVTable>
 
 impl<V: vortex_array::dtype::extension::ExtVTable + core::default::Default> vortex_array::dtype::extension::ExtDType<V>
 
@@ -10138,21 +10138,21 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, m
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
 
-impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V> where <V as vortex_array::dtype::extension::ExtVTable>::Metadata: core::clone::Clone
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::clone(&self) -> vortex_array::dtype::extension::ExtDType<V>
 
-impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V> where <V as vortex_array::dtype::extension::ExtVTable>::Metadata: core::cmp::Eq
 
-impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V> where <V as vortex_array::dtype::extension::ExtVTable>::Metadata: core::cmp::PartialEq
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::eq(&self, other: &vortex_array::dtype::extension::ExtDType<V>) -> bool
 
-impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V> where <V as vortex_array::dtype::extension::ExtVTable>::Metadata: core::fmt::Debug
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V> where <V as vortex_array::dtype::extension::ExtVTable>::Metadata: core::hash::Hash
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
@@ -10180,7 +10180,7 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::with_nullability(&self, null
 
 impl vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> vortex_array::dtype::extension::ExtDType<V>
+pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> alloc::sync::Arc<vortex_array::dtype::extension::ExtDType<V>>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::is<M: vortex_array::dtype::extension::Matcher>(&self) -> bool
 
@@ -10188,7 +10188,7 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata<M: vortex_array::dt
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_opt<M: vortex_array::dtype::extension::Matcher>(&self) -> core::option::Option<<M as vortex_array::dtype::extension::Matcher>::Match>
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<vortex_array::dtype::extension::ExtDType<V>, vortex_array::dtype::extension::ExtDTypeRef>
+pub fn vortex_array::dtype::extension::ExtDTypeRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<alloc::sync::Arc<vortex_array::dtype::extension::ExtDType<V>>, vortex_array::dtype::extension::ExtDTypeRef>
 
 impl core::clone::Clone for vortex_array::dtype::extension::ExtDTypeRef
 
@@ -10236,11 +10236,11 @@ pub fn vortex_array::dtype::extension::ExtVTable::id(&self) -> vortex_array::dty
 
 pub fn vortex_array::dtype::extension::ExtVTable::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::dtype::extension::ExtVTable::unpack_native<'a>(&self, metadata: &'a Self::Metadata, storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::dtype::extension::ExtVTable::unpack_native<'a>(&self, ext_dtype: &'a vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::dtype::extension::ExtVTable::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::dtype::extension::ExtVTable::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::dtype::extension::ExtVTable::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::dtype::extension::ExtVTable::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Date
 
@@ -10254,11 +10254,11 @@ pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::datetime::Date::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::datetime::Date::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::datetime::Date::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Date::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::datetime::Date::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Date::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Time
 
@@ -10272,11 +10272,11 @@ pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::datetime::Time::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::datetime::Time::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::datetime::Time::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Time::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::datetime::Time::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Time::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Timestamp
 
@@ -10290,11 +10290,11 @@ pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, ext_dtype: &'a vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::datetime::Timestamp::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Timestamp::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::uuid::Uuid
 
@@ -10308,11 +10308,11 @@ pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::ex
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::uuid::Uuid::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::uuid::Uuid::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::uuid::Uuid::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::uuid::Uuid::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub trait vortex_array::dtype::extension::Matcher
 
@@ -14140,11 +14140,11 @@ pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::datetime::Date::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::datetime::Date::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::datetime::Date::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Date::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::datetime::Date::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Date::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub struct vortex_array::extension::datetime::Time
 
@@ -14190,11 +14190,11 @@ pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::datetime::Time::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::datetime::Time::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::datetime::Time::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Time::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::datetime::Time::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Time::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub struct vortex_array::extension::datetime::Timestamp
 
@@ -14242,11 +14242,11 @@ pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, ext_dtype: &'a vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::datetime::Timestamp::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Timestamp::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub struct vortex_array::extension::datetime::TimestampOptions
 
@@ -14318,11 +14318,11 @@ pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::ex
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_array::extension::uuid::Uuid::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::uuid::Uuid::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::extension::uuid::Uuid::validate_scalar_value(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::uuid::Uuid::validate_scalar_value(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub struct vortex_array::extension::uuid::UuidMetadata
 

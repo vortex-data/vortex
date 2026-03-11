@@ -16,7 +16,7 @@ use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
 
 /// The divisor stored as extension metadata.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Divisor(pub u64);
 
 impl fmt::Display for Divisor {
@@ -112,21 +112,18 @@ mod tests {
         let divisor = Divisor(10);
 
         assert!(
-            ExtDType::try_new(
-                divisor.clone(),
+            ExtDType::<DivisibleInt>::try_new(
+                divisor,
                 DType::Primitive(PType::I32, Nullability::NonNullable)
             )
             .is_err()
         );
         assert!(
-            ExtDType::<DivisibleInt>::try_new(
-                divisor.clone(),
-                DType::Utf8(Nullability::NonNullable)
-            )
-            .is_err()
+            ExtDType::<DivisibleInt>::try_new(divisor, DType::Utf8(Nullability::NonNullable))
+                .is_err()
         );
         assert!(
-            ExtDType::try_new(
+            ExtDType::<DivisibleInt>::try_new(
                 divisor,
                 DType::Primitive(PType::U64, Nullability::NonNullable)
             )

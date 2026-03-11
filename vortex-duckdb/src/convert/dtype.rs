@@ -591,10 +591,7 @@ mod tests {
                 Ok(EmptyMetadata)
             }
 
-            fn validate_dtype(
-                &self,
-                _ext_dtype: &ExtDType<Self>,
-            ) -> VortexResult<()> {
+            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 

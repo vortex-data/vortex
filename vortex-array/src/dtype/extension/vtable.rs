@@ -58,8 +58,8 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Validate and unpack a native value from the storage [`ScalarValue`].
     ///
     /// Note that [`ExtVTable::validate_dtype()`] is always called first to validate the storage
-    /// [`DType`], and the [`Scalar`](crate::scalar::Scalar) implementation will verify that the
-    /// storage value is compatible with the storage dtype on construction.
+    /// [`crate::dtype::DType`], and the [`Scalar`](crate::scalar::Scalar) implementation will
+    /// verify that the storage value is compatible with the storage dtype on construction.
     ///
     /// # Errors
     ///

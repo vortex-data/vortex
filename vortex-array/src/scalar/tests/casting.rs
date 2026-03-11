@@ -43,10 +43,7 @@ mod tests {
             Ok(0)
         }
 
-        fn validate_dtype(
-            &self,
-            _ext_dtype: &ExtDType<Self>,
-        ) -> VortexResult<()> {
+        fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
             Ok(())
         }
 
@@ -262,10 +259,7 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(
-                &self,
-                _ext_dtype: &ExtDType<Self>,
-            ) -> VortexResult<()> {
+            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
@@ -323,10 +317,7 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(
-                &self,
-                _ext_dtype: &ExtDType<Self>,
-            ) -> VortexResult<()> {
+            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
