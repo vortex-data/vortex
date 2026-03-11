@@ -9,8 +9,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
@@ -20,7 +20,7 @@ use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
 use crate::vtable::ValidityHelper;
 
-impl BetweenKernel for DecimalVTable {
+impl BetweenKernel for Decimal {
     fn between(
         arr: &DecimalArray,
         lower: &ArrayRef,

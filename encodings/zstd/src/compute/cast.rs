@@ -8,10 +8,10 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::Zstd;
 use crate::ZstdArray;
-use crate::ZstdVTable;
 
-impl CastReduce for ZstdVTable {
+impl CastReduce for Zstd {
     fn cast(array: &ZstdArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.eq_ignore_nullability(array.dtype()) {
             // Type changes can't be handled in ZSTD, need to decode and tweak.

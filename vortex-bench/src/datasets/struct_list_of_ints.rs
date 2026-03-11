@@ -115,7 +115,7 @@ impl Dataset for StructListOfInts {
             let array = self.to_vortex_array().await?;
 
             // Convert to Arrow RecordBatches and write to parquet
-            let chunked = array.as_::<vortex::array::arrays::ChunkedVTable>();
+            let chunked = array.as_::<vortex::array::arrays::Chunked>();
             let chunks = chunked.chunks();
 
             let file = File::create(&temp_path)?;

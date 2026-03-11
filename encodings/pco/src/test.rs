@@ -31,12 +31,12 @@ use vortex_session::registry::ReadContext;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty().with::<ArraySession>();
-    session.arrays().register(PcoVTable::ID, PcoVTable);
+    session.arrays().register(Pco::ID, Pco);
     session
 });
 
+use crate::Pco;
 use crate::PcoArray;
-use crate::PcoVTable;
 
 #[test]
 fn test_compress_decompress() {

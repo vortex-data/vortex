@@ -5,11 +5,11 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
 use crate::bitpack_decompress;
 
-impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
+impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
@@ -49,8 +49,8 @@ mod test {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
 
+    use crate::BitPacked;
     use crate::BitPackedArray;
-    use crate::BitPackedVTable;
 
     static SESSION: LazyLock<vortex_session::VortexSession> =
         LazyLock::new(|| vortex_session::VortexSession::empty().with::<ArraySession>());
@@ -58,15 +58,11 @@ mod test {
     fn slice_via_kernel(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
         let slice_array = SliceArray::new(array.clone().into_array(), range);
         let mut ctx = SESSION.create_execution_ctx();
-        let sliced = <BitPackedVTable as VTable>::execute_parent(
-            array,
-            &slice_array.into_array(),
-            0,
-            &mut ctx,
-        )
-        .expect("execute_parent failed")
-        .expect("expected slice kernel to execute");
-        sliced.as_::<BitPackedVTable>().clone()
+        let sliced =
+            <BitPacked as VTable>::execute_parent(array, &slice_array.into_array(), 0, &mut ctx)
+                .expect("execute_parent failed")
+                .expect("expected slice kernel to execute");
+        sliced.as_::<BitPacked>().clone()
     }
 
     #[test]

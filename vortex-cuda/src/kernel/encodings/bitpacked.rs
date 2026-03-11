@@ -16,10 +16,10 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::NativePType;
+use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayParts;
-use vortex::encodings::fastlanes::BitPackedVTable;
-use vortex::encodings::fastlanes::unpack_iter::BitPacked;
+use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -37,7 +37,7 @@ pub(crate) struct BitPackedExecutor;
 
 impl BitPackedExecutor {
     fn try_specialize(array: ArrayRef) -> Option<BitPackedArray> {
-        array.try_into::<BitPackedVTable>().ok()
+        array.try_into::<BitPacked>().ok()
     }
 }
 
@@ -93,7 +93,7 @@ pub(crate) async fn decode_bitpacked<A>(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
-    A: BitPacked + NativePType + DeviceRepr + Send + Sync + 'static,
+    A: BitPackedUnpack + NativePType + DeviceRepr + Send + Sync + 'static,
     A::Physical: DeviceRepr + Send + Sync + 'static,
 {
     let BitPackedArrayParts {
@@ -522,13 +522,9 @@ mod tests {
             .vortex_expect("operation should succeed in test");
         let slice_ref = bitpacked_array.clone().into_array().slice(67..3969)?;
         let mut exec_ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
-        let sliced_array = <BitPackedVTable as VTable>::execute_parent(
-            &bitpacked_array,
-            &slice_ref,
-            0,
-            &mut exec_ctx,
-        )?
-        .expect("expected slice kernel to execute");
+        let sliced_array =
+            <BitPacked as VTable>::execute_parent(&bitpacked_array, &slice_ref, 0, &mut exec_ctx)?
+                .expect("expected slice kernel to execute");
         let cpu_result = sliced_array.to_canonical()?;
         let gpu_result = block_on(async {
             BitPackedExecutor

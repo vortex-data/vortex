@@ -18,9 +18,9 @@ use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
+use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayParts;
-use vortex::encodings::runend::RunEndVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -39,7 +39,7 @@ pub(crate) struct RunEndExecutor;
 
 impl RunEndExecutor {
     fn try_specialize(array: ArrayRef) -> Option<RunEndArray> {
-        array.try_into::<RunEndVTable>().ok()
+        array.try_into::<RunEnd>().ok()
     }
 }
 

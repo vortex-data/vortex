@@ -5,10 +5,10 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl OperationsVTable<SparseVTable> for SparseVTable {
+impl OperationsVTable<Sparse> for Sparse {
     fn scalar_at(array: &SparseArray, index: usize) -> VortexResult<Scalar> {
         Ok(array
             .patches()

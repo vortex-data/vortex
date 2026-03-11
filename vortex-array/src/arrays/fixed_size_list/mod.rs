@@ -7,7 +7,7 @@ pub use array::FixedSizeListArray;
 pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::FixedSizeListVTable;
+pub use vtable::FixedSizeList;
 
 #[cfg(test)]
 mod tests;

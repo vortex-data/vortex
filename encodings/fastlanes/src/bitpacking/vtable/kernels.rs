@@ -6,10 +6,10 @@ use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 
-use crate::BitPackedVTable;
+use crate::BitPacked;
 
-pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&FilterExecuteAdaptor(BitPackedVTable)),
-    ParentKernelSet::lift(&SliceExecuteAdaptor(BitPackedVTable)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(BitPackedVTable)),
+pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPacked> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&FilterExecuteAdaptor(BitPacked)),
+    ParentKernelSet::lift(&SliceExecuteAdaptor(BitPacked)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(BitPacked)),
 ]);

@@ -40,7 +40,7 @@ mod validity;
 
 vtable!(FoR);
 
-impl VTable for FoRVTable {
+impl VTable for FoR {
     type Array = FoRArray;
 
     type Metadata = Scalar;
@@ -181,8 +181,8 @@ impl VTable for FoRVTable {
 }
 
 #[derive(Debug)]
-pub struct FoRVTable;
+pub struct FoR;
 
-impl FoRVTable {
+impl FoR {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
 }

@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
@@ -12,7 +12,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
-impl CastReduce for DictVTable {
+impl CastReduce for Dict {
     fn cast(array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
@@ -52,7 +52,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::DictVTable;
+    use crate::arrays::Dict;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
@@ -121,7 +121,7 @@ mod tests {
         );
 
         // Check that codes and values are still NonNullable
-        let non_nullable_dict = non_nullable.as_::<DictVTable>();
+        let non_nullable_dict = non_nullable.as_::<Dict>();
         assert_eq!(
             non_nullable_dict.codes().dtype().nullability(),
             Nullability::NonNullable
@@ -141,7 +141,7 @@ mod tests {
         );
 
         // Check that both codes and values are now Nullable
-        let nullable_dict = nullable.as_::<DictVTable>();
+        let nullable_dict = nullable.as_::<Dict>();
         assert_eq!(
             nullable_dict.codes().dtype().nullability(),
             Nullability::NonNullable
@@ -161,7 +161,7 @@ mod tests {
         );
 
         // Check that both codes and values are NonNullable again
-        let back_dict = back_to_non_nullable.as_::<DictVTable>();
+        let back_dict = back_to_non_nullable.as_::<Dict>();
         assert_eq!(
             back_dict.codes().dtype().nullability(),
             Nullability::NonNullable

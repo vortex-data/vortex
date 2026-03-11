@@ -5,10 +5,10 @@ use vortex_array::ArrayRef;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityChildSliceHelper;
 
-use super::RLEVTable;
+use super::RLE;
 use crate::RLEArray;
 
-impl ValidityChild<RLEVTable> for RLEVTable {
+impl ValidityChild<RLE> for RLE {
     fn validity_child(array: &RLEArray) -> &ArrayRef {
         array.indices()
     }

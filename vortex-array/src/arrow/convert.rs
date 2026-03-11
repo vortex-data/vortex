@@ -680,14 +680,14 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::arrays::DecimalVTable;
-    use crate::arrays::FixedSizeListVTable;
-    use crate::arrays::ListVTable;
-    use crate::arrays::ListViewVTable;
-    use crate::arrays::PrimitiveVTable;
-    use crate::arrays::StructVTable;
-    use crate::arrays::VarBinVTable;
-    use crate::arrays::VarBinViewVTable;
+    use crate::arrays::Decimal;
+    use crate::arrays::FixedSizeList;
+    use crate::arrays::List;
+    use crate::arrays::ListView;
+    use crate::arrays::Primitive;
+    use crate::arrays::Struct;
+    use crate::arrays::VarBin;
+    use crate::arrays::VarBinView;
     use crate::arrow::FromArrowArray as _;
     use crate::arrow::convert::TemporalArray;
     use crate::dtype::DType;
@@ -709,10 +709,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with I8 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::I8);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::I8);
     }
 
@@ -728,10 +728,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with I16 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::I16);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::I16);
     }
 
@@ -747,10 +747,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with I32 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::I32);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::I32);
     }
 
@@ -766,10 +766,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with I64 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::I64);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::I64);
     }
 
@@ -785,10 +785,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with U8 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::U8);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::U8);
     }
 
@@ -804,10 +804,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with U16 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::U16);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::U16);
     }
 
@@ -823,10 +823,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with U32 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::U32);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::U32);
     }
 
@@ -842,10 +842,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with U64 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::U64);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::U64);
     }
 
@@ -871,10 +871,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 2);
 
         // Verify metadata - should be PrimitiveArray with F16 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::F16);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::F16);
     }
 
@@ -890,10 +890,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with F32 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::F32);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::F32);
     }
 
@@ -909,10 +909,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be PrimitiveArray with F64 ptype
-        let primitive_array = vortex_array.as_::<PrimitiveVTable>();
+        let primitive_array = vortex_array.as_::<Primitive>();
         assert_eq!(primitive_array.ptype(), PType::F64);
 
-        let primitive_array_non_null = vortex_array_non_null.as_::<PrimitiveVTable>();
+        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::F64);
     }
 
@@ -942,11 +942,11 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 3);
 
         // Verify metadata - should be DecimalArray with correct precision and scale
-        let decimal_vortex_array = vortex_array.as_::<DecimalVTable>();
+        let decimal_vortex_array = vortex_array.as_::<Decimal>();
         assert_eq!(decimal_vortex_array.decimal_dtype().precision(), 10);
         assert_eq!(decimal_vortex_array.decimal_dtype().scale(), 2);
 
-        let decimal_vortex_array_non_null = vortex_array_non_null.as_::<DecimalVTable>();
+        let decimal_vortex_array_non_null = vortex_array_non_null.as_::<Decimal>();
         assert_eq!(
             decimal_vortex_array_non_null.decimal_dtype().precision(),
             10
@@ -979,11 +979,11 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 3);
 
         // Verify metadata - should be DecimalArray with correct precision and scale
-        let decimal_vortex_array = vortex_array.as_::<DecimalVTable>();
+        let decimal_vortex_array = vortex_array.as_::<Decimal>();
         assert_eq!(decimal_vortex_array.decimal_dtype().precision(), 38);
         assert_eq!(decimal_vortex_array.decimal_dtype().scale(), 10);
 
-        let decimal_vortex_array_non_null = vortex_array_non_null.as_::<DecimalVTable>();
+        let decimal_vortex_array_non_null = vortex_array_non_null.as_::<Decimal>();
         assert_eq!(
             decimal_vortex_array_non_null.decimal_dtype().precision(),
             38
@@ -1209,10 +1209,10 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be VarBinArray with Utf8 dtype
-        let varbin_array = vortex_array.as_::<VarBinVTable>();
+        let varbin_array = vortex_array.as_::<VarBin>();
         assert_eq!(varbin_array.dtype(), &DType::Utf8(true.into()));
 
-        let varbin_array_non_null = vortex_array_non_null.as_::<VarBinVTable>();
+        let varbin_array_non_null = vortex_array_non_null.as_::<VarBin>();
         assert_eq!(varbin_array_non_null.dtype(), &DType::Utf8(false.into()));
     }
 
@@ -1295,14 +1295,14 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be VarBinViewArray with correct buffer count and dtype
-        let varbin_view_array = vortex_array.as_::<VarBinViewVTable>();
+        let varbin_view_array = vortex_array.as_::<VarBinView>();
         assert_eq!(
             varbin_view_array.buffers().len(),
             arrow_array.data_buffers().len()
         );
         assert_eq!(varbin_view_array.dtype(), &DType::Utf8(true.into()));
 
-        let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinViewVTable>();
+        let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinView>();
         assert_eq!(
             varbin_view_array_non_null.buffers().len(),
             arrow_array_non_null.data_buffers().len()
@@ -1335,14 +1335,14 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be VarBinViewArray with correct buffer count and dtype
-        let varbin_view_array = vortex_array.as_::<VarBinViewVTable>();
+        let varbin_view_array = vortex_array.as_::<VarBinView>();
         assert_eq!(
             varbin_view_array.buffers().len(),
             arrow_array.data_buffers().len()
         );
         assert_eq!(varbin_view_array.dtype(), &DType::Binary(true.into()));
 
-        let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinViewVTable>();
+        let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinView>();
         assert_eq!(
             varbin_view_array_non_null.buffers().len(),
             arrow_array_non_null.data_buffers().len()
@@ -1388,7 +1388,7 @@ mod tests {
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be StructArray with correct field names
-        let struct_vortex_array = vortex_array.as_::<StructVTable>();
+        let struct_vortex_array = vortex_array.as_::<Struct>();
         assert_eq!(struct_vortex_array.names().len(), 2);
         assert_eq!(struct_vortex_array.names()[0], "field1");
         assert_eq!(struct_vortex_array.names()[1], "field2");
@@ -1409,7 +1409,7 @@ mod tests {
         assert_eq!(vortex_nullable_array.len(), 3);
 
         // Verify metadata for nullable struct
-        let struct_vortex_nullable_array = vortex_nullable_array.as_::<StructVTable>();
+        let struct_vortex_nullable_array = vortex_nullable_array.as_::<Struct>();
         assert_eq!(struct_vortex_nullable_array.names().len(), 2);
         assert_eq!(struct_vortex_nullable_array.names()[0], "field1");
         assert_eq!(struct_vortex_nullable_array.names()[1], "field2");
@@ -1428,8 +1428,8 @@ mod tests {
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be ListArray with correct offsets
-        let list_vortex_array = vortex_array.as_::<ListVTable>();
-        let offsets_array = list_vortex_array.offsets().as_::<PrimitiveVTable>();
+        let list_vortex_array = vortex_array.as_::<List>();
+        let offsets_array = list_vortex_array.offsets().as_::<Primitive>();
         assert_eq!(offsets_array.len(), 4); // n+1 offsets for n lists
         assert_eq!(offsets_array.ptype(), PType::I32);
 
@@ -1443,10 +1443,8 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 2);
 
         // Verify metadata for non-nullable list
-        let list_vortex_array_non_null = vortex_array_non_null.as_::<ListVTable>();
-        let offsets_array_non_null = list_vortex_array_non_null
-            .offsets()
-            .as_::<PrimitiveVTable>();
+        let list_vortex_array_non_null = vortex_array_non_null.as_::<List>();
+        let offsets_array_non_null = list_vortex_array_non_null.offsets().as_::<Primitive>();
         assert_eq!(offsets_array_non_null.len(), 3); // n+1 offsets for n lists
         assert_eq!(offsets_array_non_null.ptype(), PType::I32);
     }
@@ -1463,8 +1461,8 @@ mod tests {
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be ListArray with correct offsets (I64 for large lists)
-        let list_vortex_array = vortex_array.as_::<ListVTable>();
-        let offsets_array = list_vortex_array.offsets().as_::<PrimitiveVTable>();
+        let list_vortex_array = vortex_array.as_::<List>();
+        let offsets_array = list_vortex_array.offsets().as_::<Primitive>();
         assert_eq!(offsets_array.len(), 4); // n+1 offsets for n lists
         assert_eq!(offsets_array.ptype(), PType::I64); // Large lists use I64 offsets
 
@@ -1478,10 +1476,8 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 2);
 
         // Verify metadata for non-nullable large list
-        let list_vortex_array_non_null = vortex_array_non_null.as_::<ListVTable>();
-        let offsets_array_non_null = list_vortex_array_non_null
-            .offsets()
-            .as_::<PrimitiveVTable>();
+        let list_vortex_array_non_null = vortex_array_non_null.as_::<List>();
+        let offsets_array_non_null = list_vortex_array_non_null.offsets().as_::<Primitive>();
         assert_eq!(offsets_array_non_null.len(), 3); // n+1 offsets for n lists
         assert_eq!(offsets_array_non_null.ptype(), PType::I64); // Large lists use I64 offsets
     }
@@ -1513,7 +1509,7 @@ mod tests {
         assert_eq!(vortex_array.len(), 4);
 
         // Verify metadata - should be FixedSizeListArray with correct list size
-        let fsl_vortex_array = vortex_array.as_::<FixedSizeListVTable>();
+        let fsl_vortex_array = vortex_array.as_::<FixedSizeList>();
         assert_eq!(fsl_vortex_array.list_size(), 3);
         assert_eq!(fsl_vortex_array.elements().len(), 12); // 4 lists * 3 elements
 
@@ -1546,7 +1542,7 @@ mod tests {
         assert_eq!(vortex_array_nullable.len(), 3);
 
         // Verify metadata for nullable array
-        let fsl_vortex_array_nullable = vortex_array_nullable.as_::<FixedSizeListVTable>();
+        let fsl_vortex_array_nullable = vortex_array_nullable.as_::<FixedSizeList>();
         assert_eq!(fsl_vortex_array_nullable.list_size(), 3);
         assert_eq!(fsl_vortex_array_nullable.elements().len(), 9); // 3 lists * 3 elements
     }
@@ -1585,9 +1581,9 @@ mod tests {
         assert_eq!(vortex_array.len(), 4);
 
         // Verify metadata - should be ListViewArray with correct offsets and sizes
-        let list_view_vortex_array = vortex_array.as_::<ListViewVTable>();
-        let offsets_array = list_view_vortex_array.offsets().as_::<PrimitiveVTable>();
-        let sizes_array = list_view_vortex_array.sizes().as_::<PrimitiveVTable>();
+        let list_view_vortex_array = vortex_array.as_::<ListView>();
+        let offsets_array = list_view_vortex_array.offsets().as_::<Primitive>();
+        let sizes_array = list_view_vortex_array.sizes().as_::<Primitive>();
 
         assert_eq!(offsets_array.len(), 4);
         assert_eq!(offsets_array.ptype(), PType::I32);
@@ -1627,13 +1623,9 @@ mod tests {
         assert_eq!(large_vortex_array.len(), 4);
 
         // Verify metadata for large ListView
-        let large_list_view_vortex_array = large_vortex_array.as_::<ListViewVTable>();
-        let large_offsets_array = large_list_view_vortex_array
-            .offsets()
-            .as_::<PrimitiveVTable>();
-        let large_sizes_array = large_list_view_vortex_array
-            .sizes()
-            .as_::<PrimitiveVTable>();
+        let large_list_view_vortex_array = large_vortex_array.as_::<ListView>();
+        let large_offsets_array = large_list_view_vortex_array.offsets().as_::<Primitive>();
+        let large_sizes_array = large_list_view_vortex_array.sizes().as_::<Primitive>();
 
         assert_eq!(large_offsets_array.len(), 4);
         assert_eq!(large_offsets_array.ptype(), PType::I64); // Large ListView uses I64 offsets

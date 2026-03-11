@@ -3,12 +3,11 @@
 
 use pyo3::Bound;
 use pyo3::PyResult;
-use pyo3::Python;
 use pyo3::prelude::*;
 use vortex::array::session::ArraySessionExt;
 
 use crate::SESSION;
-use crate::arrays::py::PythonVTable;
+use crate::arrays::py::Python as PythonVTable;
 use crate::arrays::py::id_from_obj;
 use crate::error::PyVortexResult;
 use crate::install_module;

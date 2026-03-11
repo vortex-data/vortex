@@ -12,8 +12,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::arrays::varbinview::BinaryView;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
@@ -21,14 +21,14 @@ use crate::scalar_fn::fns::zip::ZipKernel;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
 // instead of routing through the generic builder (which would redo buffer lookups per mask slice).
-impl ZipKernel for VarBinViewVTable {
+impl ZipKernel for VarBinView {
     fn zip(
         if_true: &VarBinViewArray,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<VarBinViewVTable>() else {
+        let Some(if_false) = if_false.as_opt::<VarBinView>() else {
             return Ok(None);
         };
 

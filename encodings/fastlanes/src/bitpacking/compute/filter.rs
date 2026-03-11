@@ -23,8 +23,8 @@ use vortex_mask::MaskValues;
 
 use super::chunked_indices;
 use super::take::UNPACK_CHUNK_THRESHOLD;
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -42,7 +42,7 @@ pub const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
 }
 
 /// Kernel to execute filtering directly on a bit-packed array.
-impl FilterKernel for BitPackedVTable {
+impl FilterKernel for BitPacked {
     fn filter(
         array: &BitPackedArray,
         mask: &Mask,

@@ -9,7 +9,7 @@ use app::Tab;
 use input::InputEvent;
 use input::InputKeyCode;
 use vortex::error::VortexExpect;
-use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::layouts::flat::Flat;
 
 pub mod app;
 pub(crate) mod input;
@@ -36,7 +36,7 @@ pub(crate) enum HandleResult {
 /// Navigate the layout list up by the given amount.
 fn navigate_layout_up(app: &mut AppState, amount: usize) {
     let amount_u16 = amount.try_into().unwrap_or(u16::MAX);
-    if app.cursor.layout().is::<FlatVTable>() {
+    if app.cursor.layout().is::<Flat>() {
         app.tree_scroll_offset = app.tree_scroll_offset.saturating_sub(amount_u16);
     } else {
         app.layouts_list_state.scroll_up_by(amount_u16);
@@ -46,7 +46,7 @@ fn navigate_layout_up(app: &mut AppState, amount: usize) {
 /// Navigate the layout list down by the given amount.
 fn navigate_layout_down(app: &mut AppState, amount: usize) {
     let amount_u16 = amount.try_into().unwrap_or(u16::MAX);
-    if app.cursor.layout().is::<FlatVTable>() {
+    if app.cursor.layout().is::<Flat>() {
         app.tree_scroll_offset = app.tree_scroll_offset.saturating_add(amount_u16);
     } else {
         app.layouts_list_state.scroll_down_by(amount_u16);
@@ -361,7 +361,7 @@ mod native {
 
     async fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
         // Eagerly load data if the initial layout is flat.
-        if app.cursor.layout().is::<FlatVTable>() {
+        if app.cursor.layout().is::<Flat>() {
             app.load_flat_data().await;
         }
 
@@ -413,7 +413,7 @@ mod native {
                 }
 
                 // After handling, load flat data if we navigated to a FlatLayout.
-                if app.cursor.layout().is::<FlatVTable>() && app.cached_flat_array.is_none() {
+                if app.cursor.layout().is::<Flat>() && app.cached_flat_array.is_none() {
                     app.load_flat_data().await;
                 }
 

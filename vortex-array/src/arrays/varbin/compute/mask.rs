@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for VarBinVTable {
+impl MaskReduce for VarBin {
     fn mask(array: &VarBinArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             VarBinArray::try_new(

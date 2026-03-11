@@ -11,15 +11,15 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for PrimitiveVTable {
+impl CastKernel for Primitive {
     fn cast(
         array: &PrimitiveArray,
         dtype: &DType,

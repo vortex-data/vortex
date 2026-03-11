@@ -15,8 +15,8 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
@@ -43,7 +43,7 @@ fn test_slice_comprehensive() {
 
     // Test basic slice [1..3] - middle portion.
     let sliced = listview.slice(1..3).unwrap();
-    let sliced_list = sliced.as_::<ListViewVTable>();
+    let sliced_list = sliced.as_::<ListView>();
     assert_eq!(sliced_list.len(), 2, "Wrong slice length");
     assert_eq!(sliced_list.offset_at(0), 3, "Wrong offset for list[1]");
     assert_eq!(sliced_list.size_at(0), 2, "Wrong size for list[1]");
@@ -52,7 +52,7 @@ fn test_slice_comprehensive() {
 
     // Test full array slice [0..4].
     let full = listview.slice(0..4).unwrap();
-    let full_list = full.as_::<ListViewVTable>();
+    let full_list = full.as_::<ListView>();
     assert_eq!(full_list.len(), 4, "Full slice should preserve length");
     for i in 0..4 {
         // Compare the sliced elements
@@ -66,7 +66,7 @@ fn test_slice_comprehensive() {
 
     // Test single element slice [2..3].
     let single = listview.slice(2..3).unwrap();
-    let single_list = single.as_::<ListViewVTable>();
+    let single_list = single.as_::<ListView>();
     assert_eq!(single_list.len(), 1, "Single element slice failed");
     assert_eq!(single_list.offset_at(0), 5, "Wrong offset for single slice");
     assert_eq!(single_list.size_at(0), 3, "Wrong size for single slice");
@@ -84,7 +84,7 @@ fn test_slice_out_of_order() {
 
     // Slice [1..4] should maintain the out-of-order offsets.
     let sliced = listview.slice(1..4).unwrap();
-    let sliced_list = sliced.as_::<ListViewVTable>();
+    let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(
         sliced_list.len(),
@@ -143,7 +143,7 @@ fn test_slice_with_nulls() {
 
     // Slice [1..3] should preserve nulls.
     let sliced = listview.slice(1..3).unwrap();
-    let sliced_list = sliced.as_::<ListViewVTable>();
+    let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(sliced_list.len(), 2);
     assert!(sliced_list.is_invalid(0).unwrap()); // Original index 1 was null.

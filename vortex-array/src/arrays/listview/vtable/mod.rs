@@ -40,9 +40,9 @@ mod validity;
 vtable!(ListView);
 
 #[derive(Debug)]
-pub struct ListViewVTable;
+pub struct ListView;
 
-impl ListViewVTable {
+impl ListView {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
 }
 
@@ -56,7 +56,7 @@ pub struct ListViewMetadata {
     size_ptype: i32,
 }
 
-impl VTable for ListViewVTable {
+impl VTable for ListView {
     type Array = ListViewArray;
 
     type Metadata = ProstMetadata<ListViewMetadata>;

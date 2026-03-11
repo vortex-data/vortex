@@ -18,14 +18,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::ALP;
 use crate::ALPArray;
 use crate::ALPFloat;
-use crate::ALPVTable;
 use crate::match_each_alp_float_ptype;
 
 // TODO(joe): add fuzzing.
 
-impl CompareKernel for ALPVTable {
+impl CompareKernel for ALP {
     fn compare(
         lhs: &ALPArray,
         rhs: &ArrayRef,

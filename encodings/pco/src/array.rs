@@ -25,8 +25,8 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -83,7 +83,7 @@ const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 
 vtable!(Pco);
 
-impl VTable for PcoVTable {
+impl VTable for Pco {
     type Array = PcoArray;
 
     type Metadata = ProstMetadata<PcoMetadata>;
@@ -307,9 +307,9 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 }
 
 #[derive(Debug)]
-pub struct PcoVTable;
+pub struct Pco;
 
-impl PcoVTable {
+impl Pco {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
 }
 
@@ -430,7 +430,7 @@ impl PcoArray {
     }
 
     pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+        if let Some(parray) = array.as_opt::<Primitive>() {
             Self::from_primitive(parray, level, nums_per_page)
         } else {
             Err(vortex_err!("Pco can only encode primitive arrays"))
@@ -562,7 +562,7 @@ impl ValiditySliceHelper for PcoArray {
     }
 }
 
-impl OperationsVTable<PcoVTable> for PcoVTable {
+impl OperationsVTable<Pco> for Pco {
     fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress()?.scalar_at(0)
     }

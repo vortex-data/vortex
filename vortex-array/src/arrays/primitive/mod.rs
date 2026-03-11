@@ -13,7 +13,7 @@ pub use compute::compute_is_constant;
 
 mod vtable;
 pub use compute::rules::PrimitiveMaskedValidityRule;
-pub use vtable::PrimitiveVTable;
+pub use vtable::Primitive;
 
 mod native_value;
 pub use native_value::NativeValue;

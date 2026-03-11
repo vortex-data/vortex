@@ -20,10 +20,10 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-impl TakeExecute for RunEndVTable {
+impl TakeExecute for RunEnd {
     #[expect(
         clippy::cast_possible_truncation,
         reason = "index cast to usize inside macro"

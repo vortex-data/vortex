@@ -12,10 +12,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
-use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructArray;
@@ -73,7 +73,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 struct ScalarFnConstantRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
     fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if !array.children.iter().all(|c| c.is::<ConstantVTable>()) {
+        if !array.children.iter().all(|c| c.is::<Constant>()) {
             return Ok(None);
         }
         if array.is_empty() {
@@ -183,7 +183,7 @@ impl ReduceCtx for ArrayReduceCtx {
 struct ScalarFnUnaryFilterPushDownRule;
 
 impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
-    type Parent = FilterVTable;
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,
@@ -196,14 +196,14 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
         if child
             .children
             .iter()
-            .filter(|c| !c.is::<ConstantVTable>())
+            .filter(|c| !c.is::<Constant>())
             .count()
             == 1
         {
             let new_children: Vec<_> = child
                 .children
                 .iter()
-                .map(|c| match c.as_opt::<ConstantVTable>() {
+                .map(|c| match c.as_opt::<Constant>() {
                     Some(array) => {
                         Ok(ConstantArray::new(array.scalar().clone(), parent.len()).into_array())
                     }

@@ -20,8 +20,8 @@ use vortex::array::Canonical;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructVTable;
 use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
@@ -337,14 +337,14 @@ pub trait CudaArrayExt: DynArray {
 impl CudaArrayExt for ArrayRef {
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.encoding_id() == StructVTable::ID {
+        if self.encoding_id() == Struct::ID {
             let len = self.len();
             let StructArrayParts {
                 fields,
                 struct_fields,
                 validity,
                 ..
-            } = self.try_into::<StructVTable>().unwrap().into_parts();
+            } = self.try_into::<Struct>().unwrap().into_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {

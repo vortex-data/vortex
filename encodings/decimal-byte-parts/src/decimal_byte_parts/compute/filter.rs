@@ -7,10 +7,10 @@ use vortex_array::arrays::filter::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
-use crate::DecimalBytePartsVTable;
 
-impl FilterReduce for DecimalBytePartsVTable {
+impl FilterReduce for DecimalByteParts {
     fn filter(array: &DecimalBytePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         DecimalBytePartsArray::try_new(array.msp.filter(mask.clone())?, *array.decimal_dtype())
             .map(|d| Some(d.into_array()))

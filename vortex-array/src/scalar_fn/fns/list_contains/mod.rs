@@ -22,8 +22,8 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -278,7 +278,7 @@ fn list_contains_scalar(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
-    if array.len() > 1 && array.is::<ConstantVTable>() {
+    if array.len() > 1 && array.is::<Constant>() {
         let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability, ctx)?;
         return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
@@ -455,8 +455,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::DynArray;
     use crate::IntoArray;
+    use crate::arrays::List;
     use crate::arrays::ListArray;
-    use crate::arrays::ListVTable;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
@@ -480,8 +480,8 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
+    use crate::scalar_fn::fns::list_contains::Constant;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
-    use crate::scalar_fn::fns::list_contains::ConstantVTable;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
     use crate::validity::Validity;
@@ -694,7 +694,7 @@ mod tests {
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
-            .as_::<ListVTable>()
+            .as_::<List>()
             .to_listview()
             .into_array()
     }
@@ -800,7 +800,7 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<ConstantVTable>(), "Expected constant result");
+        assert!(contains.is::<Constant>(), "Expected constant result");
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected);
     }
@@ -818,7 +818,7 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<ConstantVTable>(), "Expected constant result");
+        assert!(contains.is::<Constant>(), "Expected constant result");
 
         let expected = BoolArray::new(
             [false, false, false, false, false].into_iter().collect(),

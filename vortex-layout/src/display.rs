@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::LayoutRef;
+use crate::layouts::flat::Flat;
 use crate::layouts::flat::FlatLayout;
-use crate::layouts::flat::FlatVTable;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
@@ -55,7 +55,7 @@ fn collect_segments_to_fetch(
     segment_ids: &mut Vec<SegmentId>,
 ) -> VortexResult<()> {
     // For FlatLayout, only add if there's no inline array_tree
-    if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
+    if let Some(flat_layout) = layout.as_opt::<Flat>() {
         if flat_layout.array_tree().is_none() {
             segment_ids.push(flat_layout.segment_id());
         }
@@ -147,7 +147,7 @@ impl DisplayLayoutTree {
         }
 
         // For FlatLayout, show buffer info
-        if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
+        if let Some(flat_layout) = layout.as_opt::<Flat>() {
             node_parts.push(format_flat_layout_buffers(
                 flat_layout,
                 self.segment_buffer_sizes.as_ref(),
@@ -235,7 +235,7 @@ mod tests {
     use crate::IntoLayout;
     use crate::OwnedLayoutChildren;
     use crate::layouts::chunked::ChunkedLayout;
-    use crate::layouts::flat::FlatVTable;
+    use crate::layouts::flat::Flat;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::StructLayout;
     use crate::segments::TestSegments;
@@ -415,7 +415,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
                 .unwrap()
         });
 
-        let flat_layout = layout.as_::<FlatVTable>();
+        let flat_layout = layout.as_::<Flat>();
 
         let array_tree = flat_layout
             .array_tree()

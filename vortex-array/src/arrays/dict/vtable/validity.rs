@@ -3,7 +3,7 @@
 
 use vortex_error::VortexResult;
 
-use super::DictVTable;
+use super::Dict;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::DictArray;
@@ -13,7 +13,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
-impl ValidityVTable<DictVTable> for DictVTable {
+impl ValidityVTable<Dict> for Dict {
     fn validity(array: &DictArray) -> VortexResult<Validity> {
         Ok(
             match (array.codes().validity()?, array.values().validity()?) {

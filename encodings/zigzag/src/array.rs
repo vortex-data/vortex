@@ -41,7 +41,7 @@ use crate::zigzag_decode;
 
 vtable!(ZigZag);
 
-impl VTable for ZigZagVTable {
+impl VTable for ZigZag {
     type Array = ZigZagArray;
 
     type Metadata = EmptyMetadata;
@@ -181,9 +181,9 @@ pub struct ZigZagArray {
 }
 
 #[derive(Debug)]
-pub struct ZigZagVTable;
+pub struct ZigZag;
 
-impl ZigZagVTable {
+impl ZigZag {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
 }
 
@@ -217,7 +217,7 @@ impl ZigZagArray {
     }
 }
 
-impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
+impl OperationsVTable<ZigZag> for ZigZag {
     fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
         let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
@@ -238,7 +238,7 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
     }
 }
 
-impl ValidityChild<ZigZagVTable> for ZigZagVTable {
+impl ValidityChild<ZigZag> for ZigZag {
     fn validity_child(array: &ZigZagArray) -> &ArrayRef {
         array.encoded()
     }
@@ -275,7 +275,7 @@ mod test {
         );
 
         let sliced = zigzag.slice(0..2).unwrap();
-        let sliced = sliced.as_::<ZigZagVTable>();
+        let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
             sliced.scalar_at(sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)

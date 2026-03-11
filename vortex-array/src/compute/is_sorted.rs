@@ -13,8 +13,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray as _;
-use crate::arrays::ConstantVTable;
-use crate::arrays::NullVTable;
+use crate::arrays::Constant;
+use crate::arrays::Null;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -257,7 +257,7 @@ fn is_sorted_impl(
     }
 
     // Constant and null arrays are always sorted, but not strict sorted.
-    if array.is::<ConstantVTable>() || array.is::<NullVTable>() {
+    if array.is::<Constant>() || array.is::<Null>() {
         return Ok(Some(!strict));
     }
 

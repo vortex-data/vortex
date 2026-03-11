@@ -19,7 +19,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use vortex::VortexSessionDefault;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::DictVTable;
+use vortex::array::arrays::Dict;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
@@ -184,7 +184,7 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
             .zip(record.struct_fields().names().iter())
         {
             let field_name = field_name.to_string();
-            if field.is::<DictVTable>() {
+            if field.is::<Dict>() {
                 continue;
             }
 
