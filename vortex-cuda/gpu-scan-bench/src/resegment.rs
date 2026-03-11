@@ -9,9 +9,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
+use futures::TryStreamExt;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayRef;
+use vortex::array::stream::ArrayStreamAdapter;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
@@ -37,6 +40,10 @@ struct Cli {
     /// Target segment size in megabytes.
     #[arg(long)]
     segment_size_mb: u64,
+
+    /// Repeat the input data this many times in the output file.
+    #[arg(long, default_value_t = 1)]
+    repeat: usize,
 }
 
 #[cuda_not_available]
@@ -54,9 +61,26 @@ async fn main() -> vortex::error::VortexResult<()> {
 
     let segment_size_bytes = cli.segment_size_mb * 1024 * 1024;
 
-    // Read the input file
+    // Read the input file and collect all batches
     let input_reader = session.open_options().open_path(&cli.input).await?;
     let stream = input_reader.scan()?.into_array_stream()?;
+    let dtype = stream.dtype().clone();
+    let batches: Vec<ArrayRef> = stream.try_collect().await?;
+
+    eprintln!(
+        "Read {} batches from {}",
+        batches.len(),
+        cli.input.display()
+    );
+
+    // Build a stream that repeats the batches `repeat` times
+    let repeated: Vec<vortex::error::VortexResult<ArrayRef>> = batches
+        .iter()
+        .cycle()
+        .take(batches.len() * cli.repeat)
+        .map(|b| Ok(b.clone()))
+        .collect();
+    let output_stream = ArrayStreamAdapter::new(dtype, futures::stream::iter(repeated));
 
     // Write with the new segment size
     let mut output_file = File::create(&cli.output).await?;
@@ -68,13 +92,15 @@ async fn main() -> vortex::error::VortexResult<()> {
             .build(),
     );
 
-    write_options.write(&mut output_file, stream).await?;
+    write_options.write(&mut output_file, output_stream).await?;
     output_file.flush().await?;
 
     eprintln!(
-        "Wrote {} with {}MB segments",
+        "Wrote {} with {}MB segments ({}x repeat, {} total batches)",
         cli.output.display(),
-        cli.segment_size_mb
+        cli.segment_size_mb,
+        cli.repeat,
+        batches.len() * cli.repeat,
     );
 
     Ok(())
