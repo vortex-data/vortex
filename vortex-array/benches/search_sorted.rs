@@ -33,8 +33,8 @@ fn binary_search_vortex(bencher: Bencher) {
 
 fn fixture() -> (Vec<i32>, i32) {
     let mut rng = StdRng::seed_from_u64(0);
-    let range = Uniform::new(0, 1_000_000).unwrap();
-    let mut data: Vec<i32> = (0..1_000_000).map(|_| rng.sample(range)).collect();
+    let range = Uniform::new(0, 65_536).unwrap();
+    let mut data: Vec<i32> = (0..65_536).map(|_| rng.sample(range)).collect();
     data.sort();
 
     (data, rng.sample(range))

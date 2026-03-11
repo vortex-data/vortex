@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
 #![allow(unexpected_cfgs)]
 
 use divan::Bencher;
@@ -41,7 +42,7 @@ fn main() {
     divan::main();
 }
 
-const NUM_VALUES: u64 = 1_000_000;
+const NUM_VALUES: u64 = 100_000;
 
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
@@ -326,7 +327,8 @@ fn bench_zstd_decompress_u32(bencher: Bencher) {
 // String compression benchmarks
 #[divan::bench(name = "dict_compress_string")]
 fn bench_dict_compress_string(bencher: Bencher) {
-    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+    let varbinview_arr =
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
@@ -336,7 +338,8 @@ fn bench_dict_compress_string(bencher: Bencher) {
 
 #[divan::bench(name = "dict_decompress_string")]
 fn bench_dict_decompress_string(bencher: Bencher) {
-    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+    let varbinview_arr =
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let dict = dict_encode(&varbinview_arr.clone().into_array()).unwrap();
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
@@ -347,7 +350,8 @@ fn bench_dict_decompress_string(bencher: Bencher) {
 
 #[divan::bench(name = "fsst_compress_string")]
 fn bench_fsst_compress_string(bencher: Bencher) {
-    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+    let varbinview_arr =
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let fsst_compressor = fsst_train_compressor(&varbinview_arr);
     let nbytes = varbinview_arr.nbytes() as u64;
 
@@ -358,7 +362,8 @@ fn bench_fsst_compress_string(bencher: Bencher) {
 
 #[divan::bench(name = "fsst_decompress_string")]
 fn bench_fsst_decompress_string(bencher: Bencher) {
-    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+    let varbinview_arr =
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let fsst_compressor = fsst_train_compressor(&varbinview_arr);
     let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor);
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
@@ -371,7 +376,8 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
 #[cfg(feature = "zstd")]
 #[divan::bench(name = "zstd_compress_string")]
 fn bench_zstd_compress_string(bencher: Bencher) {
-    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+    let varbinview_arr =
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let nbytes = varbinview_arr.nbytes() as u64;
     let array = varbinview_arr.into_array();
 
@@ -383,7 +389,8 @@ fn bench_zstd_compress_string(bencher: Bencher) {
 #[cfg(feature = "zstd")]
 #[divan::bench(name = "zstd_decompress_string")]
 fn bench_zstd_decompress_string(bencher: Bencher) {
-    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+    let varbinview_arr =
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let compressed = ZstdArray::from_array(varbinview_arr.clone().into_array(), 3, 8192).unwrap();
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 

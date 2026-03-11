@@ -21,7 +21,7 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 10_000_000;
+const ARRAY_SIZE: usize = 65_536;
 
 #[divan::bench]
 fn compare_bool(bencher: Bencher) {
