@@ -499,15 +499,11 @@ fn main() {
 
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
-        .std("c++17")
+        .std("c++20")
         // Enable compiler warnings.
         .flag("-Wall")
         .flag("-Wextra")
         .flag("-Wpedantic")
-        // Allow C++20 designator syntax even with C++17 std
-        .flag("-Wno-c++20-designator")
-        // Enable C++20 extensions
-        .flag("-Wno-c++20-extensions")
         // Unused parameter warnings are disabled as we include DuckDB
         // headers with implementations that have unused parameters.
         .flag("-Wno-unused-parameter")
