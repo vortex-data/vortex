@@ -13,6 +13,7 @@ mod array;
 mod arrow;
 pub mod compress;
 mod compute;
+pub mod decompress_bool;
 mod iter;
 mod kernel;
 mod ops;
