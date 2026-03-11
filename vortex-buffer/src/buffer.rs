@@ -309,10 +309,6 @@ impl<T> Buffer<T> {
             vortex_panic!("range end out of bounds: {:?} > {:?}", end, len);
         }
 
-        if begin == 0 && end == len {
-            return self.clone().aligned(alignment);
-        }
-
         if end == begin {
             // We prefer to return a new empty buffer instead of sharing this one and creating a
             // strong reference just to hold an empty slice.
