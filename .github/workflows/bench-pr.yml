@@ -93,7 +93,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false

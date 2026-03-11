@@ -198,7 +198,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -212,7 +212,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
             --remote-storage "${{ matrix.remote_storage }}" \
             --benchmark-id "${{ matrix.id }}" \
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
