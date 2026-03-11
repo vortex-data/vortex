@@ -109,16 +109,12 @@ where
 
     for chunk in 0..n_words {
         let base = chunk * 64;
-        // Copy 65 offsets to a stack array for spatial locality.
-        let mut local_off = [0usize; 65];
-        for j in 0..65 {
-            local_off[j] = offsets[base + j].as_();
-        }
         let mut word = 0u64;
+        let mut start: usize = offsets[base].as_();
         for bit in 0..64 {
-            let start = local_off[bit];
-            let end = local_off[bit + 1];
+            let end: usize = offsets[base + bit + 1].as_();
             word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
+            start = end;
         }
         // SAFETY: we allocated capacity for n.div_ceil(64) words.
         unsafe { words.push_unchecked(word) };
@@ -126,16 +122,12 @@ where
 
     if remainder != 0 {
         let base = n_words * 64;
-        // Copy remainder+1 offsets to a stack array for spatial locality.
-        let mut local_off = [0usize; 65];
-        for j in 0..=remainder {
-            local_off[j] = offsets[base + j].as_();
-        }
         let mut word = 0u64;
+        let mut start: usize = offsets[base].as_();
         for bit in 0..remainder {
-            let start = local_off[bit];
-            let end = local_off[bit + 1];
+            let end: usize = offsets[base + bit + 1].as_();
             word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
+            start = end;
         }
         unsafe { words.push_unchecked(word) };
     }
@@ -346,13 +338,23 @@ impl FsstPrefixDfa {
 /// For needles longer than [`ShiftDfa::MAX_NEEDLE_LEN`], falls back to a
 /// fused 256-entry u8 table.
 enum FsstContainsDfa {
+    /// Branchless escape-folded DFA for short needles (len <= 7).
+    Branchless(Box<BranchlessShiftDfa>),
+    /// Shift-based DFA for medium needles (len 8-14).
     Shift(Box<ShiftDfa>),
+    /// Fused u8 table DFA for long needles (len > 14).
     Fused(FusedDfa),
 }
 
 impl FsstContainsDfa {
     fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
-        if needle.len() <= ShiftDfa::MAX_NEEDLE_LEN {
+        if needle.len() <= BranchlessShiftDfa::MAX_NEEDLE_LEN {
+            FsstContainsDfa::Branchless(Box::new(BranchlessShiftDfa::new(
+                symbols,
+                symbol_lengths,
+                needle,
+            )))
+        } else if needle.len() <= ShiftDfa::MAX_NEEDLE_LEN {
             FsstContainsDfa::Shift(Box::new(ShiftDfa::new(symbols, symbol_lengths, needle)))
         } else {
             FsstContainsDfa::Fused(FusedDfa::new(symbols, symbol_lengths, needle))
@@ -362,9 +364,123 @@ impl FsstContainsDfa {
     #[inline]
     fn matches(&self, codes: &[u8]) -> bool {
         match self {
+            FsstContainsDfa::Branchless(dfa) => dfa.matches(codes),
             FsstContainsDfa::Shift(dfa) => dfa.matches(codes),
             FsstContainsDfa::Fused(dfa) => dfa.matches(codes),
         }
+    }
+}
+
+/// Branchless escape-folded DFA for short needles (len <= 7).
+///
+/// Folds escape handling into the state space so that `matches()` is
+/// completely branchless (except for loop control). The state layout is:
+/// - States 0..N-1: normal match-progress states
+/// - State N: accept (sticky for all inputs)
+/// - States N+1..2N: escape states (state `s+N+1` means "was in state `s`,
+///   just consumed ESCAPE_CODE")
+///
+/// Total states: 2N+1. With 4-bit packing, max N=7.
+struct BranchlessShiftDfa {
+    /// For each code byte (0..255): a `u64` packing all state transitions.
+    /// Bits `[state*4 .. state*4+4)` encode the next state for that input.
+    transitions: [u64; 256],
+    accept_state: u8,
+}
+
+impl BranchlessShiftDfa {
+    const BITS: u32 = 4;
+    const MASK: u64 = (1 << Self::BITS) - 1;
+    /// Maximum needle length: need 2N+1 states to fit in 16 slots (4 bits).
+    /// 2*7+1 = 15 <= 16, so max N = 7.
+    const MAX_NEEDLE_LEN: usize = 7;
+
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        let n = needle.len();
+        debug_assert!(n <= Self::MAX_NEEDLE_LEN);
+
+        let n_symbols = symbols.len();
+        let accept_state = n as u8;
+        let n_normal_states = n + 1; // states 0..n (inclusive, n = accept)
+        let total_states = 2 * n + 1;
+        debug_assert!(total_states <= (1 << Self::BITS));
+
+        let byte_table = kmp_byte_transitions(needle);
+
+        // Build per-symbol transitions for normal states (0..n, where n=accept).
+        let mut sym_trans = vec![0u8; n_normal_states * n_symbols];
+        for state in 0..n_normal_states {
+            for code in 0..n_symbols {
+                if state as u8 == accept_state {
+                    sym_trans[state * n_symbols + code] = accept_state;
+                    continue;
+                }
+                let sym = symbols[code].to_u64().to_le_bytes();
+                let sym_len = symbol_lengths[code] as usize;
+                let mut s = state as u16;
+                for &b in &sym[..sym_len] {
+                    if s == accept_state as u16 {
+                        break;
+                    }
+                    s = byte_table[s as usize * 256 + b as usize];
+                }
+                sym_trans[state * n_symbols + code] = s as u8;
+            }
+        }
+
+        // Build the fused transition table with 2N+1 states.
+        let mut fused = vec![0u8; total_states * 256];
+
+        for code_byte in 0..256usize {
+            // Normal states 0..n-1 (not yet accepted)
+            for s in 0..n {
+                if code_byte == ESCAPE_CODE as usize {
+                    // Transition to escape state s+n+1
+                    fused[s * 256 + code_byte] = (s + n + 1) as u8;
+                } else if code_byte < n_symbols {
+                    fused[s * 256 + code_byte] = sym_trans[s * n_symbols + code_byte];
+                }
+                // else: invalid symbol code, stays 0 (reset)
+            }
+
+            // Accept state n: sticky
+            fused[n * 256 + code_byte] = accept_state;
+
+            // Escape states n+1..2n: byte-level KMP transition
+            for s in 0..n {
+                let esc_state = s + n + 1;
+                // After escape, use byte-level transition from state s.
+                // Result is always a normal state (0..n).
+                let next = byte_table[s * 256 + code_byte] as u8;
+                fused[esc_state * 256 + code_byte] = next;
+            }
+        }
+
+        // Pack into u64 shift table.
+        let mut transitions = [0u64; 256];
+        for code_byte in 0..256usize {
+            let mut packed = 0u64;
+            for state in 0..total_states {
+                packed |= (fused[state * 256 + code_byte] as u64) << (state as u32 * Self::BITS);
+            }
+            transitions[code_byte] = packed;
+        }
+
+        Self {
+            transitions,
+            accept_state,
+        }
+    }
+
+    /// Completely branchless matching (except loop control).
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        for &code in codes {
+            let packed = self.transitions[code as usize];
+            state = ((packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+        }
+        state == self.accept_state
     }
 }
 
@@ -459,12 +575,10 @@ impl ShiftDfa {
         }
     }
 
-    /// Match with iterator-based traversal and early-exit on accept.
+    /// Match with iterator-based traversal.
     ///
     /// Using `iter.next()` instead of manual index + bounds check helps the
-    /// compiler eliminate redundant bounds checks. Early-exit on the accept
-    /// state (which is sticky) lets us skip the tail of the string once the
-    /// pattern has matched, which is a significant win for "contains" patterns.
+    /// compiler eliminate redundant bounds checks.
     #[inline]
     fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
@@ -481,11 +595,8 @@ impl ShiftDfa {
             } else {
                 state = next;
             }
-            if state == self.accept_state {
-                return true;
-            }
         }
-        false
+        state == self.accept_state
     }
 }
 
