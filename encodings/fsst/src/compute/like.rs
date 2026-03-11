@@ -13,8 +13,8 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
-use vortex_array::validity::Validity;
-use vortex_buffer::BitBufferMut;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -62,12 +62,7 @@ impl LikeKernel for FSSTVTable {
                 let dfa = FsstPrefixDfa::new(symbols.as_slice(), symbol_lengths.as_slice(), prefix);
                 match_each_integer_ptype!(offsets.ptype(), |T| {
                     let off = offsets.as_slice::<T>();
-                    BitBufferMut::collect_bool(n, |i| {
-                        let start = off[i] as usize;
-                        let end = off[i + 1] as usize;
-                        dfa.matches(&all_bytes[start..end]) != negated
-                    })
-                    .freeze()
+                    dfa_scan_to_bitbuf(n, off, all_bytes, negated, |codes| dfa.matches(codes))
                 })
             }
             LikeKind::Contains(needle) => {
@@ -76,12 +71,7 @@ impl LikeKernel for FSSTVTable {
                     FsstContainsDfa::new(symbols.as_slice(), symbol_lengths.as_slice(), needle);
                 match_each_integer_ptype!(offsets.ptype(), |T| {
                     let off = offsets.as_slice::<T>();
-                    BitBufferMut::collect_bool(n, |i| {
-                        let start = off[i] as usize;
-                        let end = off[i + 1] as usize;
-                        dfa.matches(&all_bytes[start..end]) != negated
-                    })
-                    .freeze()
+                    dfa_scan_to_bitbuf(n, off, all_bytes, negated, |codes| dfa.matches(codes))
                 })
             }
         };
@@ -95,6 +85,54 @@ impl LikeKernel for FSSTVTable {
 
         Ok(Some(BoolArray::new(result, validity).into_array()))
     }
+}
+
+/// Scan all strings through a DFA matcher, packing results directly into a
+/// `BitBuffer` one u64 word (64 strings) at a time. This avoids the overhead
+/// of `BitBufferMut::collect_bool`'s cross-crate closure indirection and
+/// guarantees the compiler can see the full loop body for optimization.
+#[inline]
+fn dfa_scan_to_bitbuf<T, F>(
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    matcher: F,
+) -> BitBuffer
+where
+    T: vortex_array::dtype::IntegerPType,
+    F: Fn(&[u8]) -> bool,
+{
+    let n_words = n / 64;
+    let remainder = n % 64;
+    let mut words: BufferMut<u64> = BufferMut::with_capacity(n.div_ceil(64));
+
+    for chunk in 0..n_words {
+        let base = chunk * 64;
+        let mut word = 0u64;
+        for bit in 0..64 {
+            let i = base + bit;
+            let start: usize = offsets[i].as_();
+            let end: usize = offsets[i + 1].as_();
+            word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
+        }
+        // SAFETY: we allocated capacity for n.div_ceil(64) words.
+        unsafe { words.push_unchecked(word) };
+    }
+
+    if remainder != 0 {
+        let base = n_words * 64;
+        let mut word = 0u64;
+        for bit in 0..remainder {
+            let i = base + bit;
+            let start: usize = offsets[i].as_();
+            let end: usize = offsets[i + 1].as_();
+            word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
+        }
+        unsafe { words.push_unchecked(word) };
+    }
+
+    BitBuffer::new(words.into_byte_buffer().freeze(), n)
 }
 
 /// The subset of LIKE patterns we can handle without decompression.
