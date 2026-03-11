@@ -8,6 +8,7 @@
 )]
 
 use aho_corasick::AhoCorasick;
+use daachorse::DoubleArrayAhoCorasick;
 use divan::Bencher;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
@@ -15,6 +16,7 @@ use memchr::memmem;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use regex_automata::dfa::regex::Regex as DfaRegex;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::VarBinArray;
@@ -998,6 +1000,89 @@ impl ShiftDfa {
             }
         }
         state == self.accept_state
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid 1: Prefilter + ShiftDfa — skip strings with no relevant codes,
+// then use the fastest DFA (ShiftDfa) for survivors.
+// ---------------------------------------------------------------------------
+
+struct PrefilterShiftDfa {
+    inner: ShiftDfa,
+    relevant_codes: [bool; 256],
+}
+
+impl PrefilterShiftDfa {
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        let inner = ShiftDfa::new(symbols, symbol_lengths, needle);
+
+        let mut needle_bytes = [false; 256];
+        for &b in needle {
+            needle_bytes[b as usize] = true;
+        }
+
+        let mut relevant_codes = [false; 256];
+        for (code, (sym, &sym_len)) in symbols.iter().zip(symbol_lengths.iter()).enumerate() {
+            let sym_bytes = sym.to_u64().to_le_bytes();
+            for &b in &sym_bytes[..sym_len as usize] {
+                if needle_bytes[b as usize] {
+                    relevant_codes[code] = true;
+                    break;
+                }
+            }
+        }
+        relevant_codes[ESCAPE_CODE as usize] = true;
+
+        Self {
+            inner,
+            relevant_codes,
+        }
+    }
+
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        if !codes.iter().any(|&c| self.relevant_codes[c as usize]) {
+            return false;
+        }
+        self.inner.matches_no_early_exit(codes)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid 2: StateZero skip + ShiftDfa — skip leading trivial codes,
+// then use ShiftDfa for the remainder.
+// ---------------------------------------------------------------------------
+
+struct StateZeroShiftDfa {
+    inner: ShiftDfa,
+    trivial: [bool; 256],
+}
+
+impl StateZeroShiftDfa {
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        let inner = ShiftDfa::new(symbols, symbol_lengths, needle);
+
+        let mut trivial = [false; 256];
+        for code in 0..256 {
+            let packed = inner.transitions[code];
+            let next = (packed & ShiftDfa::MASK) as u8;
+            trivial[code] = next == 0 && code as u8 != ESCAPE_CODE;
+        }
+
+        Self { inner, trivial }
+    }
+
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        let mut start = 0;
+        while start < codes.len() && self.trivial[codes[start] as usize] {
+            start += 1;
+        }
+        if start == codes.len() {
+            return self.inner.accept_state == 0;
+        }
+        self.inner.matches_no_early_exit(&codes[start..])
     }
 }
 
@@ -3156,3 +3241,242 @@ decompress_no_alloc_bench!(
     RARE_NEEDLE,
     128
 );
+
+// ---------------------------------------------------------------------------
+// regex-automata DFA benchmarks
+// ---------------------------------------------------------------------------
+
+#[divan::bench]
+fn regex_automata_dense_decompress(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let re = DfaRegex::new(std::str::from_utf8(NEEDLE).unwrap()).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    re.is_match(&decompressed)
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn regex_automata_dense_on_raw_bytes(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let re = DfaRegex::new(std::str::from_utf8(NEEDLE).unwrap()).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => re.is_match(bytes),
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn regex_automata_sparse_decompress(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let dense = DfaRegex::new(std::str::from_utf8(NEEDLE).unwrap()).unwrap();
+    let (fwd, rev) = (
+        dense.forward().to_sparse().unwrap(),
+        dense.reverse().to_sparse().unwrap(),
+    );
+    let re = regex_automata::dfa::regex::Regex::builder().build_from_dfas(fwd, rev);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    re.is_match(&decompressed)
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn regex_automata_sparse_on_raw_bytes(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let dense = DfaRegex::new(std::str::from_utf8(NEEDLE).unwrap()).unwrap();
+    let (fwd, rev) = (
+        dense.forward().to_sparse().unwrap(),
+        dense.reverse().to_sparse().unwrap(),
+    );
+    let re = regex_automata::dfa::regex::Regex::builder().build_from_dfas(fwd, rev);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => re.is_match(bytes),
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+// ---------------------------------------------------------------------------
+// jetscii benchmarks — PCMPESTRI-based substring search
+// ---------------------------------------------------------------------------
+
+#[divan::bench]
+fn jetscii_decompress(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let finder = jetscii::ByteSubstring::new(NEEDLE);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    finder.find(&decompressed).is_some()
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn jetscii_on_raw_bytes(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let finder = jetscii::ByteSubstring::new(NEEDLE);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => finder.find(bytes).is_some(),
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+// ---------------------------------------------------------------------------
+// daachorse benchmarks — double-array Aho-Corasick
+// ---------------------------------------------------------------------------
+
+#[divan::bench]
+fn daachorse_decompress(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let ac = DoubleArrayAhoCorasick::<u32>::new([NEEDLE]).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    ac.find_iter(&decompressed).next().is_some()
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn daachorse_on_raw_bytes(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let canonical = fsst.to_canonical().unwrap().into_varbinview();
+    let ac = DoubleArrayAhoCorasick::<u32>::new([NEEDLE]).unwrap();
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        canonical.with_iterator(|iter| {
+            out.extend(iter.map(|s| match s {
+                Some(bytes) => ac.find_iter(bytes).next().is_some(),
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid DFA benchmarks
+// ---------------------------------------------------------------------------
+
+data_bench!(
+    prefilter_shift_urls,
+    make_fsst_urls,
+    NEEDLE,
+    PrefilterShiftDfa,
+    matches
+);
+data_bench!(
+    prefilter_shift_rare,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    PrefilterShiftDfa,
+    matches
+);
+data_bench!(
+    state_zero_shift_urls,
+    make_fsst_urls,
+    NEEDLE,
+    StateZeroShiftDfa,
+    matches
+);
+data_bench!(
+    state_zero_shift_rare,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    StateZeroShiftDfa,
+    matches
+);
+
+#[divan::bench]
+fn cb_prefilter_shift(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = PrefilterShiftDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches(&prep.all_bytes[start..end])
+        })
+    });
+}
+
+#[divan::bench]
+fn cb_state_zero_shift(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = StateZeroShiftDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        CB_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches(&prep.all_bytes[start..end])
+        })
+    });
+}

@@ -31,8 +31,11 @@ _test-harness = ["dep:rand", "vortex-array/_test-harness"]
 
 [dev-dependencies]
 aho-corasick = { workspace = true }
+daachorse = { workspace = true }
 divan = { workspace = true }
+jetscii = { workspace = true }
 memchr = { workspace = true }
+regex-automata = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
