@@ -18,7 +18,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::array::NUM_SLOTS;
-use crate::arrays::constant::array::SLOT_NAMES;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -121,13 +120,8 @@ impl VTable for ConstantVTable {
         vortex_panic!("ConstantArray child_name index {idx} out of bounds")
     }
 
-    fn nslots(_array: &ConstantArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &ConstantArray, idx: usize) -> &Option<ArrayRef> {
-        let _ = SLOT_NAMES;
-        vortex_panic!("ConstantArray slot index {idx} out of bounds")
+    fn slots(array: &ConstantArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ConstantArray, idx: usize) -> &str {

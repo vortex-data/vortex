@@ -72,7 +72,6 @@ pub struct SequenceArrayParts {
     pub nullability: Nullability,
 }
 
-pub(super) const NUM_SLOTS: usize = 0;
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 #[derive(Clone, Debug)]
@@ -386,12 +385,8 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn nslots(_array: &SequenceArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &SequenceArray, idx: usize) -> &Option<ArrayRef> {
-        vortex_panic!("SequenceArray has no slots, requested index {idx}")
+    fn slots(array: &SequenceArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &SequenceArray, idx: usize) -> &str {

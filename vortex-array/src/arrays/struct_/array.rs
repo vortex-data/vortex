@@ -20,8 +20,11 @@ use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
+use crate::vtable::validity_to_child;
 
-// StructArray has a variable number of slots (one per field)
+// StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const FIELDS_OFFSET: usize = 1;
 
 /// A struct array that stores multiple named fields as columns, similar to a database row.
 ///
@@ -159,7 +162,7 @@ pub struct StructArrayParts {
 impl StructArray {
     /// Return the struct fields without the validity of the struct applied.
     pub fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
-        self.slots
+        self.slots[FIELDS_OFFSET..]
             .iter()
             .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
             .collect()
@@ -180,7 +183,7 @@ impl StructArray {
     pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
         self.struct_fields().find(name).map(|idx| {
-            self.slots[idx]
+            self.slots[FIELDS_OFFSET + idx]
                 .as_ref()
                 .vortex_expect("StructArray field slot")
         })
@@ -287,7 +290,10 @@ impl StructArray {
         Self::validate(&fields, &dtype, length, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `StructArray` parameters");
 
-        let slots = fields.iter().map(|f| Some(f.clone())).collect();
+        let validity_slot = validity_to_child(&validity, length);
+        let slots = once(validity_slot)
+            .chain(fields.iter().map(|f| Some(f.clone())))
+            .collect();
 
         Self {
             len: length,
@@ -369,6 +375,7 @@ impl StructArray {
         let fields: Arc<[ArrayRef]> = self
             .slots
             .into_iter()
+            .skip(FIELDS_OFFSET)
             .map(|s| s.vortex_expect("StructArray field slot"))
             .collect();
         StructArrayParts {
@@ -432,7 +439,7 @@ impl StructArray {
 
             names.push(self.names()[idx].clone());
             children.push(
-                self.slots[idx]
+                self.slots[FIELDS_OFFSET + idx]
                     .as_ref()
                     .vortex_expect("StructArray field slot")
                     .clone(),
@@ -459,7 +466,8 @@ impl StructArray {
             .iter()
             .position(|field_name| field_name.as_ref() == name.as_ref())?;
 
-        let field = self.slots[position]
+        let slot_position = FIELDS_OFFSET + position;
+        let field = self.slots[slot_position]
             .as_ref()
             .vortex_expect("StructArray field slot")
             .clone();
@@ -467,7 +475,7 @@ impl StructArray {
             .slots
             .iter()
             .enumerate()
-            .filter(|(i, _)| *i != position)
+            .filter(|(i, _)| *i != slot_position)
             .map(|(_, s)| s.clone())
             .collect();
 
@@ -488,8 +496,7 @@ impl StructArray {
         let types = struct_dtype.fields().chain(once(array.dtype().clone()));
         let new_fields = StructFields::new(names.collect(), types.collect());
 
-        let children: Arc<[ArrayRef]> = self
-            .slots
+        let children: Arc<[ArrayRef]> = self.slots[FIELDS_OFFSET..]
             .iter()
             .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
             .chain(once(array))

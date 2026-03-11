@@ -6,7 +6,6 @@ use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 
 pub(super) const NUM_SLOTS: usize = 0;
-pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 #[derive(Clone, Debug)]
 pub struct ConstantArray {

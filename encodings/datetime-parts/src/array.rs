@@ -207,12 +207,8 @@ impl VTable for DateTimePartsVTable {
         DateTimePartsArray::try_new(dtype.clone(), days, seconds, subseconds)
     }
 
-    fn nslots(_array: &DateTimePartsArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &DateTimePartsArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &DateTimePartsArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &DateTimePartsArray, idx: usize) -> &str {

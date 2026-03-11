@@ -43,18 +43,15 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
-use vortex_array::vtable::validity_nchildren;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::PcoChunkInfo;
@@ -168,22 +165,6 @@ impl VTable for PcoVTable {
         }
     }
 
-    fn nchildren(array: &PcoArray) -> usize {
-        validity_nchildren(&array.unsliced_validity)
-    }
-
-    fn child(array: &PcoArray, idx: usize) -> ArrayRef {
-        validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
-            .unwrap_or_else(|| vortex_panic!("PcoArray child index {idx} out of bounds"))
-    }
-
-    fn child_name(_array: &PcoArray, idx: usize) -> String {
-        match idx {
-            0 => "validity".to_string(),
-            _ => vortex_panic!("PcoArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(array.metadata.clone()))
     }
@@ -246,42 +227,25 @@ impl VTable for PcoVTable {
         ))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() <= 1,
-            "PcoArray expects 0 or 1 children, got {}",
-            children.len()
-        );
-
-        if children.is_empty() {
-            array.unsliced_validity = Validity::from(array.dtype.nullability());
-        } else {
-            array.unsliced_validity =
-                Validity::Array(children.into_iter().next().vortex_expect("validity child"));
-        }
-
-        Ok(())
-    }
-
-    fn nslots(_array: &PcoArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &PcoArray, idx: usize) -> &Option<ArrayRef> {
-        vortex_panic!("PcoArray has no slots, requested index {idx}")
+    fn slots(array: &PcoArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &PcoArray, idx: usize) -> &str {
-        let _ = SLOT_NAMES;
-        vortex_panic!("PcoArray has no slots, requested index {idx}")
+        SLOT_NAMES[idx]
     }
 
     fn with_slots(array: &mut PcoArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            slots.is_empty(),
-            "PcoArray expects 0 slots, got {}",
+            slots.len() == NUM_SLOTS,
+            "PcoArray expects {} slots, got {}",
+            NUM_SLOTS,
             slots.len()
         );
+        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
+        };
         array.slots = slots;
         Ok(())
     }
@@ -336,8 +300,9 @@ impl PcoVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
 }
 
-pub(super) const NUM_SLOTS: usize = 0;
-pub(super) const SLOT_NAMES: [&str; 0] = [];
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 #[derive(Clone, Debug)]
 pub struct PcoArray {
@@ -362,6 +327,8 @@ impl PcoArray {
         len: usize,
         validity: Validity,
     ) -> Self {
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             chunk_metas,
             pages,
@@ -369,7 +336,7 @@ impl PcoArray {
             dtype,
             unsliced_validity: validity,
             unsliced_n_rows: len,
-            slots: vec![],
+            slots: vec![validity_slot],
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: len,

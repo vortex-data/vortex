@@ -21,12 +21,14 @@ use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
 
 pub(super) const ELEMENTS_SLOT: usize = 0;
 pub(super) const OFFSETS_SLOT: usize = 1;
 pub(super) const SIZES_SLOT: usize = 2;
-pub(super) const NUM_SLOTS: usize = 3;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes"];
+pub(super) const VALIDITY_SLOT: usize = 3;
+pub(super) const NUM_SLOTS: usize = 4;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes", "validity"];
 
 /// The canonical encoding for variable-length list arrays.
 ///
@@ -162,9 +164,12 @@ impl ListViewArray {
     ) -> VortexResult<Self> {
         Self::validate(&elements, &offsets, &sizes, &validity)?;
 
+        let len = offsets.len();
+        let validity_slot = validity_to_child(&validity, len);
+
         Ok(Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
-            slots: vec![Some(elements), Some(offsets), Some(sizes)],
+            slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
             validity,
             is_zero_copy_to_list: false,
             stats_set: Default::default(),
@@ -201,9 +206,12 @@ impl ListViewArray {
                 .vortex_expect("Failed to crate `ListViewArray`");
         }
 
+        let len = offsets.len();
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
-            slots: vec![Some(elements), Some(offsets), Some(sizes)],
+            slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
             validity,
             is_zero_copy_to_list: false,
             stats_set: Default::default(),

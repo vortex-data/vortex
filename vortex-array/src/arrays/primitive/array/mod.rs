@@ -34,7 +34,6 @@ pub use patch::patch_chunk;
 use crate::ArrayRef;
 use crate::buffer::BufferHandle;
 
-pub(super) const NUM_SLOTS: usize = 0;
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer

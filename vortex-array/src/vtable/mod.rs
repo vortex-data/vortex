@@ -89,9 +89,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// The default counts non-None slots.
     fn nchildren(array: &Self::Array) -> usize {
-        (0..Self::nslots(array))
-            .filter(|i| Self::slot(array, *i).is_some())
-            .count()
+        Self::slots(array).iter().filter(|s| s.is_some()).count()
     }
 
     /// Returns the child at the given index.
@@ -101,8 +99,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
     fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        (0..Self::nslots(array))
-            .filter_map(|i| Self::slot(array, i).clone())
+        Self::slots(array)
+            .iter()
+            .filter_map(|s| s.clone())
             .nth(idx)
             .vortex_expect("child index out of bounds")
     }
@@ -114,10 +113,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
     fn child_name(array: &Self::Array, idx: usize) -> String {
-        (0..Self::nslots(array))
-            .filter(|i| Self::slot(array, *i).is_some())
+        Self::slots(array)
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.is_some())
             .nth(idx)
-            .map(|slot_idx| Self::slot_name(array, slot_idx).to_string())
+            .map(|(slot_idx, _)| Self::slot_name(array, slot_idx).to_string())
             .vortex_expect("child_name index out of bounds")
     }
 
@@ -198,23 +199,17 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
-    /// Returns the number of slots in the array.
+    /// Returns the slots of the array as a slice.
     ///
     /// Slots provide fixed-position storage for child arrays, enabling direct access
     /// by slot index without the overhead of dynamic child lookups. Optional children
     /// (like validity) are represented as `None` slots rather than shifting dense indices.
-    fn nslots(array: &Self::Array) -> usize;
-
-    /// Returns a reference to the slot at the given index.
-    ///
-    /// # Panics
-    /// Panics if `idx >= nslots(array)`.
-    fn slot(array: &Self::Array, idx: usize) -> &Option<ArrayRef>;
+    fn slots(array: &Self::Array) -> &[Option<ArrayRef>];
 
     /// Returns the name of the slot at the given index.
     ///
     /// # Panics
-    /// Panics if `idx >= nslots(array)`.
+    /// Panics if `idx >= slots(array).len()`.
     fn slot_name(array: &Self::Array, idx: usize) -> &str;
 
     /// Replaces the slots in `array` with `slots`.
@@ -226,9 +221,10 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// The default maps children back onto the current slot structure and calls `with_slots`.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         let mut child_iter = children.into_iter();
-        let slots: Vec<Option<ArrayRef>> = (0..Self::nslots(array))
-            .map(|i| {
-                Self::slot(array, i).is_some().then(|| {
+        let slots: Vec<Option<ArrayRef>> = Self::slots(array)
+            .iter()
+            .map(|slot| {
+                slot.is_some().then(|| {
                     child_iter
                         .next()
                         .vortex_expect("too few children for with_children")

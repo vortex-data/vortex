@@ -187,12 +187,8 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn nslots(array: &ScalarFnArray) -> usize {
-        array.slots.len()
-    }
-
-    fn slot(array: &ScalarFnArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &ScalarFnArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ScalarFnArray, _idx: usize) -> &str {

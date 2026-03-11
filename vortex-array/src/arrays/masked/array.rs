@@ -9,10 +9,12 @@ use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
 
 pub(super) const CHILD_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
+pub(super) const VALIDITY_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct MaskedArray {
@@ -41,9 +43,11 @@ impl MaskedArray {
         // MaskedArray's nullability is determined solely by its validity, not the child's dtype.
         // The child can have nullable dtype but must not have any actual null values.
         let dtype = child.dtype().as_nullable();
+        let len = child.len();
+        let validity_slot = validity_to_child(&validity, len);
 
         Ok(Self {
-            slots: vec![Some(child)],
+            slots: vec![Some(child), validity_slot],
             validity,
             dtype,
             stats: ArrayStats::default(),

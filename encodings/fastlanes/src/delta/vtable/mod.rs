@@ -131,12 +131,8 @@ impl VTable for DeltaVTable {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn nslots(_array: &DeltaArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &DeltaArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &DeltaArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &DeltaArray, idx: usize) -> &str {

@@ -107,12 +107,8 @@ impl VTable for FoRVTable {
         }
     }
 
-    fn nslots(_array: &FoRArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &FoRArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &FoRArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &FoRArray, idx: usize) -> &str {

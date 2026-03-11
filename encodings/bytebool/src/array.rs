@@ -175,12 +175,8 @@ impl VTable for ByteBoolVTable {
         Ok(())
     }
 
-    fn nslots(_array: &ByteBoolArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &ByteBoolArray, idx: usize) -> &Option<ArrayRef> {
-        vortex_panic!("ByteBoolArray has no slots, requested index {idx}")
+    fn slots(array: &ByteBoolArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ByteBoolArray, idx: usize) -> &str {
@@ -224,7 +220,6 @@ impl VTable for ByteBoolVTable {
     }
 }
 
-pub(super) const NUM_SLOTS: usize = 0;
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 #[derive(Clone, Debug)]

@@ -16,7 +16,6 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
-pub(super) const NUM_SLOTS: usize = 0;
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A boolean array that stores true/false values in a compact bit-packed format.

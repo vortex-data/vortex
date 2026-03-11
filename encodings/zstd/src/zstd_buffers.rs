@@ -416,12 +416,8 @@ impl VTable for ZstdBuffersVTable {
         format!("child_{idx}")
     }
 
-    fn nslots(array: &ZstdBuffersArray) -> usize {
-        array.slots.len()
-    }
-
-    fn slot(array: &ZstdBuffersArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &ZstdBuffersArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ZstdBuffersArray, idx: usize) -> &str {

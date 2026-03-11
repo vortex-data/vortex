@@ -102,12 +102,8 @@ impl VTable for SliceVTable {
         }
     }
 
-    fn nslots(_array: &Self::Array) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &Self::Array, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &Self::Array) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &Self::Array, idx: usize) -> &str {

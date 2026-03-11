@@ -12,10 +12,12 @@ use crate::DynArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
 
 pub(super) const ELEMENTS_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements"];
+pub(super) const VALIDITY_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];
 
 /// The canonical encoding for fixed-size list arrays.
 ///
@@ -158,10 +160,11 @@ impl FixedSizeListArray {
             .vortex_expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
 
         let nullability = validity.nullability();
+        let validity_slot = validity_to_child(&validity, len);
 
         Self {
             dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
-            slots: vec![Some(elements)],
+            slots: vec![Some(elements), validity_slot],
             list_size,
             validity,
             len,

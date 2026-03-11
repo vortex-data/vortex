@@ -29,7 +29,6 @@ use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-pub(super) const NUM_SLOTS: usize = 0;
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A decimal array that stores fixed-precision decimal numbers with configurable scale.

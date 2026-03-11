@@ -6,7 +6,6 @@ use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -16,6 +15,8 @@ use crate::ExecutionCtx;
 use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::array::FIELDS_OFFSET;
+use crate::arrays::struct_::array::VALIDITY_SLOT;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -24,8 +25,6 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
@@ -94,32 +93,6 @@ impl VTable for StructVTable {
         vortex_panic!("StructArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &StructArray) -> usize {
-        validity_nchildren(&array.validity) + array.slots.len()
-    }
-
-    fn child(array: &StructArray, idx: usize) -> ArrayRef {
-        let vc = validity_nchildren(&array.validity);
-        if idx < vc {
-            validity_to_child(&array.validity, array.len())
-                .vortex_expect("StructArray validity child out of bounds")
-        } else {
-            array.slots[idx - vc]
-                .as_ref()
-                .vortex_expect("StructArray field slot")
-                .clone()
-        }
-    }
-
-    fn child_name(array: &StructArray, idx: usize) -> String {
-        let vc = validity_nchildren(&array.validity);
-        if idx < vc {
-            "validity".to_string()
-        } else {
-            array.names()[idx - vc].as_ref().to_string()
-        }
-    }
-
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
@@ -152,7 +125,6 @@ impl VTable for StructVTable {
         let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
             (Validity::from(*nullability), 0_usize)
         } else if children.len() == struct_dtype.nfields() + 1 {
-            // Validity is the first child if it exists.
             let validity = children.get(0, &Validity::DTYPE, len)?;
             (Validity::Array(validity), 1_usize)
         } else {
@@ -164,7 +136,7 @@ impl VTable for StructVTable {
             );
         };
 
-        let children: Vec<_> = (0..struct_dtype.nfields())
+        let field_children: Vec<_> = (0..struct_dtype.nfields())
             .map(|i| {
                 let child_dtype = struct_dtype
                     .field_by_index(i)
@@ -173,59 +145,27 @@ impl VTable for StructVTable {
             })
             .try_collect()?;
 
-        StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+        StructArray::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)
     }
 
-    fn nslots(array: &StructArray) -> usize {
-        array.slots.len()
-    }
-
-    fn slot(array: &StructArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &StructArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(array: &StructArray, idx: usize) -> &str {
-        array.names()[idx].as_ref()
+        if idx == VALIDITY_SLOT {
+            "validity"
+        } else {
+            array.names()[idx - FIELDS_OFFSET].as_ref()
+        }
     }
 
     fn with_slots(array: &mut StructArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.slots = slots;
-        Ok(())
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        let DType::Struct(struct_dtype, _nullability) = &array.dtype else {
-            vortex_bail!("Expected struct dtype, found {:?}", array.dtype)
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
         };
-
-        // First child is validity (if present), followed by fields
-        let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
-            (array.validity.clone(), 0_usize)
-        } else if children.len() == struct_dtype.nfields() + 1 {
-            (Validity::Array(children[0].clone()), 1_usize)
-        } else {
-            vortex_bail!(
-                "Expected {} or {} children, found {}",
-                struct_dtype.nfields(),
-                struct_dtype.nfields() + 1,
-                children.len()
-            );
-        };
-
-        let slots: Vec<Option<ArrayRef>> = children
-            .into_iter()
-            .skip(non_data_children)
-            .map(Some)
-            .collect();
-        vortex_ensure!(
-            slots.len() == struct_dtype.nfields(),
-            "Expected {} field children, found {}",
-            struct_dtype.nfields(),
-            slots.len()
-        );
-
         array.slots = slots;
-        array.validity = validity;
         Ok(())
     }
 

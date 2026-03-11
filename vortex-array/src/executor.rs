@@ -144,7 +144,9 @@ impl dyn DynArray + '_ {
             // Execute the array itself
             match current.vtable().execute(&current, ctx)? {
                 ExecutionStep::ExecuteSlot(i, done) => {
-                    let child = current.slot(i).vortex_expect("ExecuteSlot index in bounds");
+                    let child = current.slots()[i]
+                        .clone()
+                        .vortex_expect("ExecuteSlot index in bounds");
                     ctx.log(format_args!(
                         "ExecuteSlot({i}): pushing {}, focusing on {}",
                         current, child
@@ -267,11 +269,11 @@ impl Executable for ArrayRef {
         }
 
         // 2. reduce_parent (child-driven metadata-only rewrites)
-        for slot_idx in 0..array.nslots() {
-            let Some(child) = array.slot(slot_idx) else {
+        for (slot_idx, slot) in array.slots().iter().enumerate() {
+            let Some(child) = slot else {
                 continue;
             };
-            if let Some(reduced_parent) = child.vtable().reduce_parent(&child, &array, slot_idx)? {
+            if let Some(reduced_parent) = child.vtable().reduce_parent(child, &array, slot_idx)? {
                 ctx.log(format_args!(
                     "reduce_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -285,13 +287,13 @@ impl Executable for ArrayRef {
         }
 
         // 3. execute_parent (child-driven optimized execution)
-        for slot_idx in 0..array.nslots() {
-            let Some(child) = array.slot(slot_idx) else {
+        for (slot_idx, slot) in array.slots().iter().enumerate() {
+            let Some(child) = slot else {
                 continue;
             };
             if let Some(executed_parent) = child
                 .vtable()
-                .execute_parent(&child, &array, slot_idx, ctx)?
+                .execute_parent(child, &array, slot_idx, ctx)?
             {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
@@ -317,7 +319,7 @@ impl Executable for ArrayRef {
             ExecutionStep::ExecuteSlot(i, _) => {
                 // For single-step execution, handle ExecuteSlot by executing the slot,
                 // replacing it, and returning the updated array.
-                let child = array.slot(i).vortex_expect("valid slot index");
+                let child = array.slots()[i].clone().vortex_expect("valid slot index");
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
                 array.with_slot(i, executed_child)
             }
@@ -327,14 +329,11 @@ impl Executable for ArrayRef {
 
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
-    for slot_idx in 0..array.nslots() {
-        let Some(child) = array.slot(slot_idx) else {
+    for (slot_idx, slot) in array.slots().iter().enumerate() {
+        let Some(child) = slot else {
             continue;
         };
-        if let Some(result) = child
-            .vtable()
-            .execute_parent(&child, array, slot_idx, ctx)?
-        {
+        if let Some(result) = child.vtable().execute_parent(child, array, slot_idx, ctx)? {
             result.statistics().inherit_from(array.statistics());
             return Ok(Some(result));
         }

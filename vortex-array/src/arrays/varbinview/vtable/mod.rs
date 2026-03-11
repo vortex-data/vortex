@@ -23,7 +23,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
-use crate::arrays::varbinview::array::NUM_SLOTS;
 use crate::arrays::varbinview::array::SLOT_NAMES;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -212,12 +211,8 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
     }
 
-    fn nslots(_array: &VarBinViewArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &VarBinViewArray, idx: usize) -> &Option<ArrayRef> {
-        vortex_panic!("VarBinViewArray has no slots, requested index {idx}")
+    fn slots(array: &VarBinViewArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &VarBinViewArray, idx: usize) -> &str {

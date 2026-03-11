@@ -139,12 +139,8 @@ impl VTable for ZigZagVTable {
         ZigZagArray::try_new(encoded)
     }
 
-    fn nslots(_array: &ZigZagArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &ZigZagArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &ZigZagArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ZigZagArray, idx: usize) -> &str {

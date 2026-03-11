@@ -23,7 +23,6 @@ use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
-pub(super) const NUM_SLOTS: usize = 0;
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 /// A variable-length binary view array that stores strings and binary data efficiently.

@@ -19,10 +19,12 @@ use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
 
 pub(super) const OFFSETS_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets"];
+pub(super) const VALIDITY_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
@@ -158,10 +160,13 @@ impl VarBinArray {
         Self::validate(&offsets, &bytes, &dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
 
+        let len = offsets.len().saturating_sub(1);
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             dtype,
             bytes,
-            slots: vec![Some(offsets)],
+            slots: vec![Some(offsets), validity_slot],
             validity,
             stats_set: Default::default(),
         }

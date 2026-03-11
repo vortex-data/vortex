@@ -172,12 +172,8 @@ impl VTable for RunEndVTable {
         )
     }
 
-    fn nslots(_array: &RunEndArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &RunEndArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &RunEndArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &RunEndArray, idx: usize) -> &str {

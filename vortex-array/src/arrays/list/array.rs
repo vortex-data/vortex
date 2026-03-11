@@ -25,11 +25,13 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
 
 pub(super) const ELEMENTS_SLOT: usize = 0;
 pub(super) const OFFSETS_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets"];
+pub(super) const VALIDITY_SLOT: usize = 2;
+pub(super) const NUM_SLOTS: usize = 3;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validity"];
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
 ///
@@ -149,9 +151,12 @@ impl ListArray {
         Self::validate(&elements, &offsets, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
 
+        let len = offsets.len().saturating_sub(1);
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
-            slots: vec![Some(elements), Some(offsets)],
+            slots: vec![Some(elements), Some(offsets), validity_slot],
             validity,
             stats_set: Default::default(),
         }

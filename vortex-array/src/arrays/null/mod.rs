@@ -29,7 +29,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
 const NUM_SLOTS: usize = 0;
-const SLOT_NAMES: [&str; 0] = [];
 
 pub(crate) mod compute;
 
@@ -90,13 +89,8 @@ impl VTable for NullVTable {
         vortex_panic!("NullArray child_name index {idx} out of bounds")
     }
 
-    fn nslots(_array: &NullArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &NullArray, idx: usize) -> &Option<ArrayRef> {
-        let _ = SLOT_NAMES;
-        vortex_panic!("NullArray slot index {idx} out of bounds")
+    fn slots(array: &NullArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &NullArray, idx: usize) -> &str {

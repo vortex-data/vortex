@@ -14,7 +14,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::array::NUM_SLOTS;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -185,12 +184,8 @@ impl VTable for PrimitiveVTable {
         }
     }
 
-    fn nslots(_array: &PrimitiveArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &PrimitiveArray, idx: usize) -> &Option<ArrayRef> {
-        vortex_panic!("PrimitiveArray has no slots, requested index {idx}")
+    fn slots(array: &PrimitiveArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &PrimitiveArray, idx: usize) -> &str {

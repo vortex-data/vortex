@@ -152,12 +152,8 @@ impl VTable for RLEVTable {
         Ok(())
     }
 
-    fn nslots(array: &RLEArray) -> usize {
-        array.slots.len()
-    }
-
-    fn slot(array: &RLEArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &RLEArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &RLEArray, idx: usize) -> &str {

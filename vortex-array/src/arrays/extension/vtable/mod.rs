@@ -104,12 +104,8 @@ impl VTable for ExtensionVTable {
         }
     }
 
-    fn nslots(_array: &ExtensionArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &ExtensionArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &ExtensionArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ExtensionArray, idx: usize) -> &str {

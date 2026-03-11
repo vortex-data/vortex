@@ -105,12 +105,8 @@ impl VTable for SharedVTable {
         }
     }
 
-    fn nslots(_array: &SharedArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &SharedArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &SharedArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &SharedArray, idx: usize) -> &str {

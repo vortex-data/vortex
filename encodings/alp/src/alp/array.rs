@@ -28,14 +28,10 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::patches_child;
-use vortex_array::vtable::patches_child_name;
-use vortex_array::vtable::patches_nchildren;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -96,12 +92,8 @@ impl VTable for ALPVTable {
         None
     }
 
-    fn nslots(_array: &ALPArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &ALPArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &ALPArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ALPArray, idx: usize) -> &str {
@@ -115,36 +107,26 @@ impl VTable for ALPVTable {
             NUM_SLOTS,
             slots.len()
         );
+
+        // Reconstruct patches from slots + existing metadata
+        array.patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
+            (Some(indices), Some(values)) => {
+                let old = array
+                    .patches
+                    .as_ref()
+                    .vortex_expect("ALPArray had patch slots but no patches metadata");
+                Some(Patches::new(
+                    old.array_len(),
+                    old.offset(),
+                    indices.clone(),
+                    values.clone(),
+                    slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                )?)
+            }
+            _ => None,
+        };
         array.slots = slots;
         Ok(())
-    }
-
-    fn nchildren(array: &ALPArray) -> usize {
-        1 + array.patches().map_or(0, patches_nchildren)
-    }
-
-    fn child(array: &ALPArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.encoded().clone(),
-            _ => {
-                let patches = array
-                    .patches()
-                    .unwrap_or_else(|| vortex_panic!("ALPArray child index {idx} out of bounds"));
-                patches_child(patches, idx - 1)
-            }
-        }
-    }
-
-    fn child_name(array: &ALPArray, idx: usize) -> String {
-        match idx {
-            0 => "encoded".to_string(),
-            _ => {
-                if array.patches().is_none() {
-                    vortex_panic!("ALPArray child_name index {idx} out of bounds");
-                }
-                patches_child_name(idx - 1).to_string()
-            }
-        }
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -213,53 +195,6 @@ impl VTable for ALPVTable {
         )
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: encoded, patches (if present): indices, values, chunk_offsets (optional)
-        let patches_info = array
-            .patches
-            .as_ref()
-            .map(|p| (p.array_len(), p.offset(), p.chunk_offsets().is_some()));
-
-        let expected_children = match &patches_info {
-            Some((_, _, has_chunk_offsets)) => 1 + 2 + if *has_chunk_offsets { 1 } else { 0 },
-            None => 1,
-        };
-
-        vortex_ensure!(
-            children.len() == expected_children,
-            "ALPArray expects {} children, got {}",
-            expected_children,
-            children.len()
-        );
-
-        let mut children_iter = children.into_iter();
-        array.slots[ENCODED_SLOT] = Some(
-            children_iter
-                .next()
-                .ok_or_else(|| vortex_err!("Expected encoded child"))?,
-        );
-
-        if let Some((array_len, offset, _has_chunk_offsets)) = patches_info {
-            let indices = children_iter
-                .next()
-                .ok_or_else(|| vortex_err!("Expected patch indices child"))?;
-            let values = children_iter
-                .next()
-                .ok_or_else(|| vortex_err!("Expected patch values child"))?;
-            let chunk_offsets = children_iter.next();
-
-            array.patches = Some(Patches::new(
-                array_len,
-                offset,
-                indices,
-                values,
-                chunk_offsets,
-            )?);
-        }
-
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         // TODO(joe): take by value
         Ok(ExecutionStep::Done(
@@ -286,8 +221,16 @@ impl VTable for ALPVTable {
 }
 
 pub(super) const ENCODED_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
+pub(super) const PATCH_INDICES_SLOT: usize = 1;
+pub(super) const PATCH_VALUES_SLOT: usize = 2;
+pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 3;
+pub(super) const NUM_SLOTS: usize = 4;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
+    "encoded",
+    "patch_indices",
+    "patch_values",
+    "patch_chunk_offsets",
+];
 
 #[derive(Clone, Debug)]
 pub struct ALPArray {
@@ -460,9 +403,11 @@ impl ALPArray {
             _ => unreachable!(),
         };
 
+        let slots = Self::make_slots(&encoded, &patches);
+
         Ok(Self {
             dtype,
-            slots: vec![Some(encoded)],
+            slots,
             exponents,
             patches,
             stats_set: Default::default(),
@@ -479,13 +424,32 @@ impl ALPArray {
         patches: Option<Patches>,
         dtype: DType,
     ) -> Self {
+        let slots = Self::make_slots(&encoded, &patches);
+
         Self {
             dtype,
-            slots: vec![Some(encoded)],
+            slots,
             exponents,
             patches,
             stats_set: Default::default(),
         }
+    }
+
+    fn make_slots(encoded: &ArrayRef, patches: &Option<Patches>) -> Vec<Option<ArrayRef>> {
+        let (patch_indices, patch_values, patch_chunk_offsets) = match patches {
+            Some(p) => (
+                Some(p.indices().clone()),
+                Some(p.values().clone()),
+                p.chunk_offsets().clone(),
+            ),
+            None => (None, None, None),
+        };
+        vec![
+            Some(encoded.clone()),
+            patch_indices,
+            patch_values,
+            patch_chunk_offsets,
+        ]
     }
 
     pub fn ptype(&self) -> PType {
@@ -510,11 +474,8 @@ impl ALPArray {
     /// Consumes the array and returns its parts.
     #[inline]
     pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
-        let encoded = self
-            .slots
-            .into_iter()
-            .next()
-            .flatten()
+        let encoded = self.slots[ENCODED_SLOT]
+            .clone()
             .vortex_expect("ALPArray encoded slot");
         (encoded, self.exponents, self.patches, self.dtype)
     }

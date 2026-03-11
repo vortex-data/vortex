@@ -172,12 +172,8 @@ impl VTable for DecimalBytePartsVTable {
         DecimalBytePartsArray::try_new(msp, *decimal_dtype)
     }
 
-    fn nslots(_array: &DecimalBytePartsArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &DecimalBytePartsArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &DecimalBytePartsArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &DecimalBytePartsArray, idx: usize) -> &str {

@@ -13,8 +13,10 @@ use vortex_session::VortexSession;
 
 use super::DictArray;
 use super::DictMetadata;
+use super::array::CODES_SLOT;
 use super::array::NUM_SLOTS;
 use super::array::SLOT_NAMES;
+use super::array::VALUES_SLOT;
 use super::take_canonical;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -114,8 +116,8 @@ impl VTable for DictVTable {
 
     fn child_name(_array: &DictArray, idx: usize) -> String {
         match idx {
-            0 => "codes".to_string(),
-            1 => "values".to_string(),
+            0 => SLOT_NAMES[CODES_SLOT].to_string(),
+            1 => SLOT_NAMES[VALUES_SLOT].to_string(),
             _ => vortex_panic!("DictArray child_name index {idx} out of bounds"),
         }
     }
@@ -179,12 +181,8 @@ impl VTable for DictVTable {
         })
     }
 
-    fn nslots(_array: &DictArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(array: &DictArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &DictArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &DictArray, idx: usize) -> &str {

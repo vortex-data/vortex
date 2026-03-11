@@ -17,7 +17,6 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
-use crate::arrays::bool::array::NUM_SLOTS;
 use crate::arrays::bool::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -171,12 +170,8 @@ impl VTable for BoolVTable {
         BoolArray::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn nslots(_array: &BoolArray) -> usize {
-        NUM_SLOTS
-    }
-
-    fn slot(_array: &BoolArray, idx: usize) -> &Option<ArrayRef> {
-        vortex_panic!("BoolArray has no slots, requested index {idx}")
+    fn slots(array: &BoolArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &BoolArray, idx: usize) -> &str {

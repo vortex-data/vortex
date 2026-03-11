@@ -252,12 +252,8 @@ impl VTable for ChunkedVTable {
         Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
     }
 
-    fn nslots(array: &ChunkedArray) -> usize {
-        array.slots.len()
-    }
-
-    fn slot(array: &ChunkedArray, idx: usize) -> &Option<ArrayRef> {
-        &array.slots[idx]
+    fn slots(array: &ChunkedArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
     fn slot_name(_array: &ChunkedArray, idx: usize) -> &str {
