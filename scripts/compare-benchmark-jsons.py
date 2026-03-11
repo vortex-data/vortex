@@ -261,10 +261,9 @@ print("")
 grouped_tables = table_df.groupby(["engine", "file format"], dropna=False, sort=False)
 for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
     group_df = grouped_tables.get_group((engine, file_format)).sort_values("name")
+    group_performance = format_performance(calculate_geo_mean(group_df), "group")
     print("<details>")
-    print(
-        f"<summary>{engine} / {file_format} ({len(group_df)} rows, {format_performance(calculate_geo_mean(group_df), 'group')})</summary>"
-    )
+    print(f"<summary>{engine} / {file_format} ({len(group_df)} rows, {group_performance})</summary>")
     print("")
     print("\n".join(build_group_summary(group_df)))
     print("")
