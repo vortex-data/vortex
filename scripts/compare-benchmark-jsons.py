@@ -214,6 +214,19 @@ def format_integer_value(value):
     return str(int(value))
 
 
+def format_name_with_highlight(name, ratio):
+    if pd.isna(ratio):
+        return name
+
+    if ratio <= improvement_threshold:
+        return f"🚀 {name}"
+
+    if ratio >= regression_threshold:
+        return f"🚨 {name}"
+
+    return name
+
+
 # Output complete formatted markdown
 print("\n".join(summary_lines))
 print("")
@@ -224,7 +237,9 @@ for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_k
     unit = group_df["unit_base"].dropna().iloc[0] if group_df["unit_base"].notna().any() else "unit"
     display_df = pd.DataFrame(
         {
-            "name": group_df["name"],
+            "name": [
+                format_name_with_highlight(name, ratio) for name, ratio in zip(group_df["name"], group_df["ratio"])
+            ],
             f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"].map(format_integer_value),
             f"base {base_commit_id[:8]} ({unit})": group_df["value_base"].map(format_integer_value),
             "ratio (PR/base)": group_df["ratio"],
