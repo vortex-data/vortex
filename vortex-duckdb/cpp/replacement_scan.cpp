@@ -17,7 +17,7 @@ namespace vortex {
 static duckdb::unique_ptr<duckdb::TableRef>
 VortexScanReplacement(duckdb::ClientContext &context,
                       duckdb::ReplacementScanInput &input,
-                      duckdb::optional_ptr<duckdb::ReplacementScanData> data) {
+                      duckdb::optional_ptr<duckdb::ReplacementScanData> /*data*/) {
     auto table_name = duckdb::ReplacementScan::GetFullPath(input);
     if (!duckdb::ReplacementScan::CanReplace(table_name, {"vortex"})) {
         return nullptr;

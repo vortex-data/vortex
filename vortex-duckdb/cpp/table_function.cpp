@@ -184,8 +184,8 @@ void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &ou
     }
 }
 
-void c_pushdown_complex_filter(ClientContext &context,
-                               LogicalGet &get,
+void c_pushdown_complex_filter(ClientContext & /*context*/,
+                               LogicalGet & /*get*/,
                                FunctionData *bind_data,
                                vector<unique_ptr<Expression>> &filters) {
     if (filters.empty()) {
@@ -213,7 +213,7 @@ void c_pushdown_complex_filter(ClientContext &context,
     }
 }
 
-unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionData *bind_data) {
+unique_ptr<NodeStatistics> c_cardinality(ClientContext & /*context*/, const FunctionData *bind_data) {
     auto &bind = bind_data->Cast<CTableBindData>();
 
     duckdb_vx_node_statistics node_stats_out = {
@@ -279,7 +279,8 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     result->return_types.emplace_back(*logical_type);
 }
 
-virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
+virtual_column_map_t c_get_virtual_columns(ClientContext & /*context*/,
+                                           optional_ptr<FunctionData> bind_data) {
     auto &bind = bind_data->Cast<CTableBindData>();
 
     auto result = virtual_column_map_t();
@@ -305,7 +306,8 @@ extern "C" void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_col
     result->emplace(column_idx, std::move(table_col));
 }
 
-OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunctionGetPartitionInput &input) {
+OperatorPartitionData c_get_partition_data(ClientContext & /*context*/,
+                                           TableFunctionGetPartitionInput &input) {
     if (input.partition_info.RequiresPartitionColumns()) {
         throw InternalException("TableScan::GetPartitionData: partition columns not supported");
     }
