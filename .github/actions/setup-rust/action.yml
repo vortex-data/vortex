@@ -52,6 +52,16 @@ runs:
         targets: "${{ inputs.targets }}"
         components: "${{ inputs.components }}"
 
+    - name: Install additional targets
+      if: steps.check-rustup.outputs.exists == 'true' && inputs.targets != ''
+      shell: bash
+      run: rustup target add ${{ inputs.targets }}
+
+    - name: Install additional components
+      if: steps.check-rustup.outputs.exists == 'true' && inputs.components != ''
+      shell: bash
+      run: rustup component add ${{ inputs.components }}
+
     - name: Configure sccache timeout
       if: inputs.enable-sccache == 'true'
       shell: bash
