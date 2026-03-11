@@ -20,6 +20,7 @@
 use std::hash::Hasher;
 
 use arrow_array::Array as ArrowArray;
+use parquet_variant::Variant as ParquetVariant;
 use prost::Message;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -38,6 +39,9 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar::VariantValue;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -45,7 +49,7 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::validity_nchildren;
@@ -237,7 +241,7 @@ impl ParquetVariantArray {
 impl VTable for ParquetVariantVTable {
     type Array = ParquetVariantArray;
     type Metadata = ParquetVariantMetadata;
-    type OperationsVTable = NotSupported;
+    type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
@@ -485,6 +489,149 @@ impl VTable for ParquetVariantVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+fn scalar_to_variant_value(scalar: Scalar) -> VortexResult<VariantValue> {
+    if scalar.is_null() {
+        return Ok(VariantValue::Null);
+    }
+
+    Ok(match scalar.dtype() {
+        DType::Null => VariantValue::Null,
+        DType::Bool(_) => VariantValue::Bool(scalar.as_bool().value().unwrap_or(false)),
+        DType::Primitive(..) => VariantValue::Primitive(
+            *scalar
+                .value()
+                .vortex_expect("non-null primitive scalar must have a value")
+                .as_primitive(),
+        ),
+        DType::Decimal(..) => VariantValue::Decimal(
+            *scalar
+                .value()
+                .vortex_expect("non-null decimal scalar must have a value")
+                .as_decimal(),
+        ),
+        DType::Utf8(_) => VariantValue::Utf8(
+            scalar
+                .value()
+                .vortex_expect("non-null utf8 scalar must have a value")
+                .as_utf8()
+                .clone(),
+        ),
+        DType::Binary(_) => VariantValue::Binary(
+            scalar
+                .value()
+                .vortex_expect("non-null binary scalar must have a value")
+                .as_binary()
+                .clone(),
+        ),
+        DType::List(..) | DType::FixedSizeList(..) => VariantValue::List(
+            scalar
+                .as_list()
+                .elements()
+                .unwrap_or_default()
+                .into_iter()
+                .map(scalar_to_variant_value)
+                .collect::<VortexResult<Vec<_>>>()?,
+        ),
+        DType::Struct(fields, _) => VariantValue::Object(
+            fields
+                .names()
+                .iter()
+                .cloned()
+                .zip(
+                    scalar
+                        .as_struct()
+                        .fields_iter()
+                        .vortex_expect("non-null struct scalar must have field values"),
+                )
+                .map(|(name, field)| Ok((name.as_ref().into(), scalar_to_variant_value(field)?)))
+                .collect::<VortexResult<Vec<_>>>()?,
+        ),
+        DType::Extension(_) => VariantValue::Utf8(scalar.to_string().into()),
+        DType::Variant => scalar
+            .value()
+            .vortex_expect("non-null variant scalar must have a value")
+            .as_variant()
+            .clone(),
+    })
+}
+
+fn parquet_variant_to_variant_value(variant: ParquetVariant<'_, '_>) -> VortexResult<VariantValue> {
+    Ok(match variant {
+        ParquetVariant::Null => VariantValue::Null,
+        ParquetVariant::Int8(v) => VariantValue::Primitive(v.into()),
+        ParquetVariant::Int16(v) => VariantValue::Primitive(v.into()),
+        ParquetVariant::Int32(v) => VariantValue::Primitive(v.into()),
+        ParquetVariant::Int64(v) => VariantValue::Primitive(v.into()),
+        ParquetVariant::Float(v) => VariantValue::Primitive(v.into()),
+        ParquetVariant::Double(v) => VariantValue::Primitive(v.into()),
+        ParquetVariant::BooleanTrue => VariantValue::Bool(true),
+        ParquetVariant::BooleanFalse => VariantValue::Bool(false),
+        ParquetVariant::Decimal4(v) => VariantValue::Decimal(v.integer().into()),
+        ParquetVariant::Decimal8(v) => VariantValue::Decimal(v.integer().into()),
+        ParquetVariant::Decimal16(v) => VariantValue::Decimal(v.integer().into()),
+        ParquetVariant::Binary(v) => VariantValue::Binary(v.to_vec().into()),
+        ParquetVariant::String(v) => VariantValue::Utf8(v.into()),
+        ParquetVariant::ShortString(v) => VariantValue::Utf8(v.as_str().into()),
+        ParquetVariant::Date(v) => VariantValue::Utf8(v.to_string().into()),
+        ParquetVariant::TimestampMicros(v) => VariantValue::Utf8(v.to_rfc3339().into()),
+        ParquetVariant::TimestampNtzMicros(v) => VariantValue::Utf8(v.to_string().into()),
+        ParquetVariant::TimestampNanos(v) => VariantValue::Utf8(v.to_rfc3339().into()),
+        ParquetVariant::TimestampNtzNanos(v) => VariantValue::Utf8(v.to_string().into()),
+        ParquetVariant::Time(v) => VariantValue::Utf8(v.to_string().into()),
+        ParquetVariant::Uuid(v) => VariantValue::Utf8(v.to_string().into()),
+        ParquetVariant::List(values) => VariantValue::List(
+            values
+                .iter()
+                .map(parquet_variant_to_variant_value)
+                .collect::<VortexResult<Vec<_>>>()?,
+        ),
+        ParquetVariant::Object(values) => VariantValue::Object(
+            values
+                .iter()
+                .map(|(name, value)| Ok((name.into(), parquet_variant_to_variant_value(value)?)))
+                .collect::<VortexResult<Vec<_>>>()?,
+        ),
+    })
+}
+
+impl OperationsVTable<ParquetVariantVTable> for ParquetVariantVTable {
+    fn scalar_at(array: &ParquetVariantArray, index: usize) -> VortexResult<Scalar> {
+        if array.validity.is_null(index)? {
+            return Ok(Scalar::null(DType::Variant));
+        }
+
+        let value = if let Some(typed_value) = array.typed_value_array()
+            && typed_value.is_valid(index)?
+        {
+            scalar_to_variant_value(typed_value.scalar_at(index)?)?
+        } else if let Some(value) = array.value_array()
+            && value.is_valid(index)?
+        {
+            let metadata = array
+                .metadata_array()
+                .scalar_at(index)?
+                .as_binary()
+                .value()
+                .cloned()
+                .vortex_expect("non-null metadata row must have binary value");
+            let value = value
+                .scalar_at(index)?
+                .as_binary()
+                .value()
+                .cloned()
+                .vortex_expect("non-null value row must have binary value");
+            parquet_variant_to_variant_value(ParquetVariant::try_new(
+                metadata.as_ref(),
+                value.as_ref(),
+            )?)?
+        } else {
+            VariantValue::Null
+        };
+
+        Scalar::try_new(DType::Variant, Some(ScalarValue::Variant(value)))
     }
 }
 

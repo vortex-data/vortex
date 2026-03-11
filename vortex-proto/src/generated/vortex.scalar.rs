@@ -46,3 +46,106 @@ pub struct ListValue {
     #[prost(message, repeated, tag = "1")]
     pub values: ::prost::alloc::vec::Vec<ScalarValue>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VariantValue {
+    #[prost(oneof = "variant_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
+    pub kind: ::core::option::Option<variant_value::Kind>,
+}
+/// Nested message and enum types in `VariantValue`.
+pub mod variant_value {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(enumeration = "::prost_types::NullValue", tag = "1")]
+        NullValue(i32),
+        #[prost(bool, tag = "2")]
+        BoolValue(bool),
+        #[prost(message, tag = "3")]
+        PrimitiveValue(super::VariantPrimitive),
+        #[prost(message, tag = "4")]
+        DecimalValue(super::VariantDecimal),
+        #[prost(string, tag = "5")]
+        StringValue(::prost::alloc::string::String),
+        #[prost(bytes, tag = "6")]
+        BytesValue(::prost::alloc::vec::Vec<u8>),
+        #[prost(message, tag = "7")]
+        ListValue(super::VariantListValue),
+        #[prost(message, tag = "8")]
+        ObjectValue(super::VariantObjectValue),
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct VariantPrimitive {
+    #[prost(
+        oneof = "variant_primitive::Kind",
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11"
+    )]
+    pub kind: ::core::option::Option<variant_primitive::Kind>,
+}
+/// Nested message and enum types in `VariantPrimitive`.
+pub mod variant_primitive {
+    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(sint64, tag = "1")]
+        Int8Value(i64),
+        #[prost(sint64, tag = "2")]
+        Int16Value(i64),
+        #[prost(sint64, tag = "3")]
+        Int32Value(i64),
+        #[prost(sint64, tag = "4")]
+        Int64Value(i64),
+        #[prost(uint64, tag = "5")]
+        Uint8Value(u64),
+        #[prost(uint64, tag = "6")]
+        Uint16Value(u64),
+        #[prost(uint64, tag = "7")]
+        Uint32Value(u64),
+        #[prost(uint64, tag = "8")]
+        Uint64Value(u64),
+        #[prost(uint32, tag = "9")]
+        F16Value(u32),
+        #[prost(float, tag = "10")]
+        F32Value(f32),
+        #[prost(double, tag = "11")]
+        F64Value(f64),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VariantDecimal {
+    #[prost(oneof = "variant_decimal::Kind", tags = "1, 2, 3, 4, 5, 6")]
+    pub kind: ::core::option::Option<variant_decimal::Kind>,
+}
+/// Nested message and enum types in `VariantDecimal`.
+pub mod variant_decimal {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(sint64, tag = "1")]
+        Int8Value(i64),
+        #[prost(sint64, tag = "2")]
+        Int16Value(i64),
+        #[prost(sint64, tag = "3")]
+        Int32Value(i64),
+        #[prost(sint64, tag = "4")]
+        Int64Value(i64),
+        #[prost(bytes, tag = "5")]
+        Int128Value(::prost::alloc::vec::Vec<u8>),
+        #[prost(bytes, tag = "6")]
+        Int256Value(::prost::alloc::vec::Vec<u8>),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VariantListValue {
+    #[prost(message, repeated, tag = "1")]
+    pub values: ::prost::alloc::vec::Vec<VariantValue>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VariantObjectField {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub value: ::core::option::Option<VariantValue>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VariantObjectValue {
+    #[prost(message, repeated, tag = "1")]
+    pub fields: ::prost::alloc::vec::Vec<VariantObjectField>,
+}

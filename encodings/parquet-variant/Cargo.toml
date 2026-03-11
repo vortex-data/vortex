@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 arrow-array = { workspace = true }
+parquet-variant = { workspace = true }
 parquet-variant-compute = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
