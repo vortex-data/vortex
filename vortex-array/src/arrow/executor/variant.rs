@@ -16,12 +16,15 @@ use crate::ExecutionCtx;
 use crate::array::ArrayVisitor;
 use crate::arrays::VariantVTable;
 use crate::arrow::ArrowArrayExecutor;
+use crate::arrow::executor::validity::to_arrow_null_buffer;
 
 pub(super) fn to_arrow_variant(
     array: ArrayRef,
     target_fields: Option<&Fields>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    let len = array.len();
+    let nulls = to_arrow_null_buffer(array.validity()?, len, ctx)?;
     let inner = match array.try_into::<VariantVTable>() {
         Ok(variant) => variant.child().clone(),
         Err(array) => array,
@@ -38,6 +41,7 @@ pub(super) fn to_arrow_variant(
 
     for (name, child) in named_children {
         match name.as_str() {
+            "validity" => {}
             "metadata" => metadata = Some(child),
             "value" => value = Some(child),
             "typed_value" => typed_value = Some(child),
@@ -105,5 +109,5 @@ pub(super) fn to_arrow_variant(
         (Fields::from(fields), arrays)
     };
 
-    Ok(Arc::new(ArrowStructArray::try_new(fields, arrays, None)?))
+    Ok(Arc::new(ArrowStructArray::try_new(fields, arrays, nulls)?))
 }

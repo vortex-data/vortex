@@ -48,6 +48,9 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::validity_nchildren;
+use vortex_array::vtable::validity_to_child;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -102,6 +105,7 @@ struct ParquetVariantMetadataProto {
 /// where nested struct/list elements themselves contain value/typed_value children.
 #[derive(Clone, Debug)]
 pub struct ParquetVariantArray {
+    validity: Validity,
     metadata: ArrayRef,
     value: Option<ArrayRef>,
     typed_value: Option<ArrayRef>,
@@ -117,11 +121,27 @@ impl ParquetVariantArray {
         value: Option<ArrayRef>,
         typed_value: Option<ArrayRef>,
     ) -> VortexResult<Self> {
+        Self::try_new_with_validity(Validity::AllValid, metadata, value, typed_value)
+    }
+
+    /// Creates a new ParquetVariantArray with explicit parent validity.
+    pub fn try_new_with_validity(
+        validity: Validity,
+        metadata: ArrayRef,
+        value: Option<ArrayRef>,
+        typed_value: Option<ArrayRef>,
+    ) -> VortexResult<Self> {
         vortex_ensure!(
             value.is_some() || typed_value.is_some(),
             "at least one of value or typed_value must be present"
         );
         let len = metadata.len();
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "validity length must match metadata length"
+            );
+        }
         if let Some(ref v) = value {
             vortex_ensure!(v.len() == len, "value length must match metadata length");
         }
@@ -132,6 +152,7 @@ impl ParquetVariantArray {
             );
         }
         Ok(Self {
+            validity,
             metadata,
             value,
             typed_value,
@@ -154,30 +175,62 @@ impl ParquetVariantArray {
         self.typed_value.as_ref()
     }
 
+    /// Returns the parent row validity for the variant storage struct.
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
     /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
     /// wrapping `VariantArray(ParquetVariantArray(...))`.
     pub fn from_arrow_variant(
         arrow_variant: &parquet_variant_compute::VariantArray,
     ) -> VortexResult<ArrayRef> {
+        let storage = arrow_variant.inner();
+        let value_nullable = storage
+            .fields()
+            .iter()
+            .find(|field| field.name() == "value")
+            .map(|field| field.is_nullable())
+            .unwrap_or(false);
+        let typed_value_nullable = storage
+            .fields()
+            .iter()
+            .find(|field| field.name() == "typed_value")
+            .map(|field| field.is_nullable())
+            .unwrap_or(false);
+        let validity = arrow_variant
+            .nulls()
+            .map(|nulls| {
+                if nulls.null_count() == nulls.len() {
+                    Validity::AllInvalid
+                } else {
+                    Validity::from(BitBuffer::from(nulls.inner().clone()))
+                }
+            })
+            .unwrap_or(Validity::AllValid);
         let metadata =
             ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
 
         let value = arrow_variant
             .value_field()
-            .map(|v| ArrayRef::from_arrow(v as &dyn ArrowArray, false))
+            .map(|v| ArrayRef::from_arrow(v as &dyn ArrowArray, value_nullable))
             .transpose()?;
 
         let typed_value = arrow_variant
             .typed_value_field()
-            .map(|tv| ArrayRef::from_arrow(tv.as_ref(), tv.is_nullable()))
+            .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
 
-        let pv = ParquetVariantArray::try_new(metadata, value, typed_value)?;
+        let pv =
+            ParquetVariantArray::try_new_with_validity(validity, metadata, value, typed_value)?;
         Ok(VariantArray::new(pv.into_array()).into_array())
     }
 
     fn nchildren(&self) -> usize {
-        1 + self.value.is_some() as usize + self.typed_value.is_some() as usize
+        validity_nchildren(&self.validity)
+            + 1
+            + self.value.is_some() as usize
+            + self.typed_value.is_some() as usize
     }
 }
 
@@ -204,6 +257,7 @@ impl VTable for ParquetVariantVTable {
     }
 
     fn array_hash<H: Hasher>(array: &ParquetVariantArray, state: &mut H, precision: Precision) {
+        array.validity.array_hash(state, precision);
         array.metadata.array_hash(state, precision);
         if let Some(ref value) = array.value {
             value.array_hash(state, precision);
@@ -218,7 +272,9 @@ impl VTable for ParquetVariantVTable {
         other: &ParquetVariantArray,
         precision: Precision,
     ) -> bool {
-        if !array.metadata.array_eq(&other.metadata, precision) {
+        if !array.validity.array_eq(&other.validity, precision)
+            || !array.metadata.array_eq(&other.metadata, precision)
+        {
             return false;
         }
         match (&array.value, &other.value) {
@@ -254,31 +310,41 @@ impl VTable for ParquetVariantVTable {
     }
 
     fn child(array: &ParquetVariantArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.metadata.clone(),
-            1 if array.value.is_some() => array
-                .value
-                .clone()
-                .vortex_expect("ParquetVariantArray missing value child"),
-            1 => array
-                .typed_value
-                .clone()
-                .vortex_expect("ParquetVariantArray missing typed_value child"),
-            2 => array
-                .typed_value
-                .clone()
-                .vortex_expect("ParquetVariantArray missing typed_value child"),
-            _ => vortex_panic!("ParquetVariantArray child index {idx} out of bounds"),
+        let vc = validity_nchildren(&array.validity);
+        if idx < vc {
+            validity_to_child(&array.validity, array.metadata.len())
+                .vortex_expect("ParquetVariantArray validity child out of bounds")
+        } else {
+            match idx - vc {
+                0 => array.metadata.clone(),
+                1 if array.value.is_some() => array
+                    .value
+                    .clone()
+                    .vortex_expect("ParquetVariantArray missing value child"),
+                1 => array
+                    .typed_value
+                    .clone()
+                    .vortex_expect("ParquetVariantArray missing typed_value child"),
+                2 => array
+                    .typed_value
+                    .clone()
+                    .vortex_expect("ParquetVariantArray missing typed_value child"),
+                _ => vortex_panic!("ParquetVariantArray child index {idx} out of bounds"),
+            }
         }
     }
 
     fn child_name(array: &ParquetVariantArray, idx: usize) -> String {
+        let vc = validity_nchildren(&array.validity);
         match idx {
-            0 => "metadata".to_string(),
-            1 if array.value.is_some() => "value".to_string(),
-            1 => "typed_value".to_string(),
-            2 => "typed_value".to_string(),
-            _ => vortex_panic!("ParquetVariantArray child_name index {idx} out of bounds"),
+            idx if idx < vc => "validity".to_string(),
+            idx => match idx - vc {
+                0 => "metadata".to_string(),
+                1 if array.value.is_some() => "value".to_string(),
+                1 => "typed_value".to_string(),
+                2 => "typed_value".to_string(),
+                _ => vortex_panic!("ParquetVariantArray child_name index {idx} out of bounds"),
+            },
         }
     }
 
@@ -338,13 +404,18 @@ impl VTable for ParquetVariantVTable {
 
         let expected_children = 1 + metadata.has_value as usize + has_typed_value as usize;
         vortex_ensure!(
-            children.len() == expected_children,
-            "Expected {} children, got {}",
+            children.len() == expected_children || children.len() == expected_children + 1,
+            "Expected {} or {} children, got {}",
             expected_children,
+            expected_children + 1,
             children.len()
         );
 
-        let mut child_idx = 0;
+        let (validity, mut child_idx) = if children.len() == expected_children {
+            (Validity::AllValid, 0)
+        } else {
+            (Validity::Array(children.get(0, &Validity::DTYPE, len)?), 1)
+        };
         let variant_metadata =
             children.get(child_idx, &DType::Binary(Nullability::NonNullable), len)?;
         child_idx += 1;
@@ -369,7 +440,7 @@ impl VTable for ParquetVariantVTable {
             None
         };
 
-        ParquetVariantArray::try_new(variant_metadata, value, typed_value)
+        ParquetVariantArray::try_new_with_validity(validity, variant_metadata, value, typed_value)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -380,6 +451,12 @@ impl VTable for ParquetVariantVTable {
             children.len()
         );
         let mut iter = children.into_iter();
+        if validity_nchildren(&array.validity) == 1 {
+            array.validity = Validity::Array(
+                iter.next()
+                    .vortex_expect("ParquetVariantArray missing validity child"),
+            );
+        }
         array.metadata = iter
             .next()
             .vortex_expect("ParquetVariantArray missing metadata child");
@@ -449,10 +526,8 @@ impl ArrayParentReduceRule<ParquetVariantVTable> for ParquetVariantGetRule {
 }
 
 impl ValidityVTable<ParquetVariantVTable> for ParquetVariantVTable {
-    fn validity(_array: &ParquetVariantArray) -> VortexResult<Validity> {
-        // Variant is always nullable. Null-ness of individual values is encoded
-        // within the Parquet Variant binary format itself, not via a separate validity bitmap.
-        Ok(Validity::AllValid)
+    fn validity(array: &ParquetVariantArray) -> VortexResult<Validity> {
+        Ok(array.validity.clone())
     }
 }
 
@@ -627,8 +702,31 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = vortex_arr.execute_arrow(None, &mut ctx)?;
+        let roundtripped = roundtripped.as_struct();
 
-        assert_eq!(struct_array.to_data(), roundtripped.as_struct().to_data());
+        assert_eq!(struct_array.len(), roundtripped.len());
+        assert_eq!(struct_array.column_names(), roundtripped.column_names());
+        assert_eq!(struct_array.nulls(), roundtripped.nulls());
+        assert_eq!(struct_array.fields().len(), roundtripped.fields().len());
+
+        for (expected, actual) in struct_array
+            .fields()
+            .iter()
+            .zip(roundtripped.fields().iter())
+        {
+            assert_eq!(expected.name(), actual.name());
+            assert_eq!(expected.data_type(), actual.data_type());
+            assert_eq!(expected.is_nullable(), actual.is_nullable());
+        }
+
+        for (expected, actual) in struct_array
+            .columns()
+            .iter()
+            .zip(roundtripped.columns().iter())
+        {
+            assert_eq!(expected.to_data(), actual.to_data());
+        }
+
         Ok(())
     }
 
@@ -726,7 +824,7 @@ mod tests {
         builder.append_variant(Variant::from("hello"));
         builder.append_variant(Variant::from(true));
 
-        assert_arrow_variant_storage_roundtrip(builder.build().into_inner().clone())
+        assert_arrow_variant_storage_roundtrip(builder.build().into_inner())
     }
 
     #[test]
