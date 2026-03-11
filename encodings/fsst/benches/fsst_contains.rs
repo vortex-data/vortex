@@ -1575,6 +1575,75 @@ fn bench_decompress(array: &FSSTArray, needle: &[u8], out: &mut Vec<bool>) {
 }
 
 // ---------------------------------------------------------------------------
+// Alloc-free decompress + match: reuse a buffer, inline the decompress logic.
+// This measures pure decompress+search cost without per-string allocation.
+// ---------------------------------------------------------------------------
+
+/// Decompress FSST codes into `buf`, returning the number of bytes written.
+/// This avoids all allocation by writing into a caller-provided buffer.
+#[inline]
+fn decompress_into(codes: &[u8], symbols: &[Symbol], symbol_lengths: &[u8], buf: &mut Vec<u8>) {
+    buf.clear();
+    let mut pos = 0;
+    while pos < codes.len() {
+        let code = codes[pos];
+        pos += 1;
+        if code == ESCAPE_CODE {
+            if pos < codes.len() {
+                buf.push(codes[pos]);
+                pos += 1;
+            }
+        } else {
+            let sym = symbols[code as usize].to_u64().to_le_bytes();
+            let len = symbol_lengths[code as usize] as usize;
+            buf.extend_from_slice(&sym[..len]);
+        }
+    }
+}
+
+/// Alloc-free decompress + sliding window match using PreparedArray.
+/// Pre-allocates the decompression buffer once outside the benchmark loop.
+#[inline(never)]
+fn run_decompress_match(
+    prep: &PreparedArray,
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    needle: &[u8],
+    buf: &mut Vec<u8>,
+    out: &mut BitBufferMut,
+) {
+    for i in 0..prep.n {
+        let start = prep.offsets[i];
+        let end = prep.offsets[i + 1];
+        decompress_into(&prep.all_bytes[start..end], symbols, symbol_lengths, buf);
+        if buf.windows(needle.len()).any(|w| w == needle) {
+            out.set(i);
+        }
+    }
+}
+
+/// Alloc-free decompress + memmem match using PreparedArray.
+#[inline(never)]
+fn run_decompress_memmem(
+    prep: &PreparedArray,
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    needle: &[u8],
+    buf: &mut Vec<u8>,
+    out: &mut BitBufferMut,
+) {
+    let finder = memmem::Finder::new(needle);
+    for i in 0..prep.n {
+        let start = prep.offsets[i];
+        let end = prep.offsets[i + 1];
+        decompress_into(&prep.all_bytes[start..end], symbols, symbol_lengths, buf);
+        if finder.find(buf).is_some() {
+            out.set(i);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Benchmarks
 // ---------------------------------------------------------------------------
 
@@ -1995,13 +2064,57 @@ fn simd_gather_8(bencher: Bencher) {
     });
 }
 
-// 8. Decompress then search (worst-case baseline)
+// 8. Decompress then search (worst-case baseline, allocates per string)
 #[divan::bench]
 fn decompress_then_search(bencher: Bencher) {
     let fsst = make_fsst_urls(N);
     let mut out = Vec::with_capacity(N);
     bencher.bench_local(|| {
         bench_decompress(&fsst, NEEDLE, &mut out);
+    });
+}
+
+// 8b. Alloc-free decompress + sliding window match
+#[divan::bench]
+fn decompress_no_alloc(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let mut buf = Vec::with_capacity(256);
+    let mut out = BitBufferMut::new_unset(N);
+    bencher.bench_local(|| {
+        out.fill_range(0, N, false);
+        run_decompress_match(
+            &prep,
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            NEEDLE,
+            &mut buf,
+            &mut out,
+        );
+    });
+}
+
+// 8c. Alloc-free decompress + memmem (SIMD substring search)
+#[divan::bench]
+fn decompress_no_alloc_memmem(bencher: Bencher) {
+    let fsst = make_fsst_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let mut buf = Vec::with_capacity(256);
+    let mut out = BitBufferMut::new_unset(N);
+    bencher.bench_local(|| {
+        out.fill_range(0, N, false);
+        run_decompress_memmem(
+            &prep,
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            NEEDLE,
+            &mut buf,
+            &mut out,
+        );
     });
 }
 
@@ -2491,6 +2604,48 @@ fn cb_decompress_then_search(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn cb_decompress_no_alloc(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let mut buf = Vec::with_capacity(512);
+    let mut out = BitBufferMut::new_unset(N);
+    bencher.bench_local(|| {
+        out.fill_range(0, N, false);
+        run_decompress_match(
+            &prep,
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            CB_NEEDLE,
+            &mut buf,
+            &mut out,
+        );
+    });
+}
+
+#[divan::bench]
+fn cb_decompress_no_alloc_memmem(bencher: Bencher) {
+    let fsst = make_fsst_clickbench_urls(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let mut buf = Vec::with_capacity(512);
+    let mut out = BitBufferMut::new_unset(N);
+    bencher.bench_local(|| {
+        out.fill_range(0, N, false);
+        run_decompress_memmem(
+            &prep,
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            CB_NEEDLE,
+            &mut buf,
+            &mut out,
+        );
+    });
+}
+
+#[divan::bench]
 fn cb_aho_corasick_decompress(bencher: Bencher) {
     let fsst = make_fsst_clickbench_urls(N);
     let ac = AhoCorasick::new([CB_NEEDLE]).unwrap();
@@ -2941,3 +3096,63 @@ fn cb_state_zero_skip(bencher: Bencher) {
         })
     });
 }
+
+// ---------------------------------------------------------------------------
+// Alloc-free decompress benchmarks for all data types
+// ---------------------------------------------------------------------------
+
+macro_rules! decompress_no_alloc_bench {
+    ($name:ident, $make_fn:ident, $needle:expr, $bufsz:expr) => {
+        #[divan::bench]
+        fn $name(bencher: Bencher) {
+            let fsst = $make_fn(N);
+            let prep = PreparedArray::from_fsst(&fsst);
+            let symbols = fsst.symbols();
+            let symbol_lengths = fsst.symbol_lengths();
+            let mut buf = Vec::with_capacity($bufsz);
+            let mut out = BitBufferMut::new_unset(N);
+            bencher.bench_local(|| {
+                out.fill_range(0, N, false);
+                run_decompress_memmem(
+                    &prep,
+                    symbols.as_slice(),
+                    symbol_lengths.as_slice(),
+                    $needle,
+                    &mut buf,
+                    &mut out,
+                );
+            });
+        }
+    };
+}
+
+decompress_no_alloc_bench!(
+    log_decompress_no_alloc,
+    make_fsst_log_lines,
+    LOG_NEEDLE,
+    256
+);
+decompress_no_alloc_bench!(
+    json_decompress_no_alloc,
+    make_fsst_json_strings,
+    JSON_NEEDLE,
+    256
+);
+decompress_no_alloc_bench!(
+    path_decompress_no_alloc,
+    make_fsst_file_paths,
+    PATH_NEEDLE,
+    256
+);
+decompress_no_alloc_bench!(
+    email_decompress_no_alloc,
+    make_fsst_emails,
+    EMAIL_NEEDLE,
+    64
+);
+decompress_no_alloc_bench!(
+    rare_decompress_no_alloc,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    128
+);
