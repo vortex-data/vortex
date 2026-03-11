@@ -73,6 +73,19 @@ df3["remark"] = df3["remark"].case_when(
     ]
 )
 
+
+def extract_engine_and_file_format(name):
+    if not isinstance(name, str) or "/" not in name or ":" not in name:
+        return pd.Series({"engine": "unknown", "file_format": "unknown"})
+
+    target = name.rsplit("/", 1)[-1]
+    engine, file_format = target.split(":", 1)
+    return pd.Series({"engine": engine, "file_format": file_format})
+
+
+df3[["engine", "file_format"]] = df3["name"].apply(extract_engine_and_file_format)
+
+
 # Filter for different target combinations for summary statistics
 vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
 duckdb_vortex_df = df3[df3["name"].str.contains("duckdb.*vortex", case=False, na=False, regex=True)]
@@ -186,6 +199,8 @@ if len(vortex_df) > 0:
 table_df = pd.DataFrame(
     {
         "name": df3["name"],
+        "engine": df3["engine"],
+        "file format": df3["file_format"],
         f"PR {pr_commit_id[:8]}": df3["value_pr"],
         f"base {base_commit_id[:8]}": df3["value_base"],
         "ratio (PR/base)": df3["ratio"],
@@ -194,11 +209,54 @@ table_df = pd.DataFrame(
     }
 )
 
+
+ENGINE_ORDER = {
+    "vortex": 0,
+    "datafusion": 1,
+    "duckdb": 2,
+    "lance": 3,
+    "arrow": 4,
+}
+
+FILE_FORMAT_ORDER = {
+    "vortex-file-compressed": 0,
+    "vortex-compact": 1,
+    "parquet": 2,
+    "lance": 3,
+    "duckdb": 4,
+    "arrow": 5,
+}
+
+
+def group_sort_key(group_key):
+    engine, file_format = group_key
+    return (
+        ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
+        FILE_FORMAT_ORDER.get(file_format, len(FILE_FORMAT_ORDER)),
+        engine,
+        file_format,
+    )
+
+
 # Output complete formatted markdown
 print("\n".join(summary_lines))
 print("")
 print("<details>")
 print("<summary>Detailed Results Table</summary>")
 print("")
-print(table_df.to_markdown(index=False, tablefmt="github", floatfmt=".2f"))
+
+grouped_tables = table_df.groupby(["engine", "file format"], dropna=False, sort=False)
+for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
+    print(f"### {engine} / {file_format}")
+    print("")
+    group_df = grouped_tables.get_group((engine, file_format)).sort_values("name")
+    print(
+        group_df.drop(columns=["engine", "file format"]).to_markdown(
+            index=False,
+            tablefmt="github",
+            floatfmt=".2f",
+        )
+    )
+    print("")
+
 print("</details>")
