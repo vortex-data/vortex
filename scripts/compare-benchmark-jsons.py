@@ -65,13 +65,6 @@ regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 f
 
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
-df3["remark"] = pd.Series([""] * len(df3))
-df3["remark"] = df3["remark"].case_when(
-    [
-        (df3["ratio"] >= regression_threshold, "🚨"),
-        (df3["ratio"] <= improvement_threshold, "🚀"),
-    ]
-)
 
 
 def extract_engine_and_file_format(name):
@@ -205,7 +198,6 @@ table_df = pd.DataFrame(
         f"base {base_commit_id[:8]}": df3["value_base"],
         "ratio (PR/base)": df3["ratio"],
         "unit": df3["unit_base"],
-        "remark": df3["remark"],
     }
 )
 
@@ -238,18 +230,44 @@ def group_sort_key(group_key):
     )
 
 
+def build_group_summary(group_df):
+    geo_mean_ratio = calculate_geo_mean(group_df)
+    ratio_summary = format_performance(geo_mean_ratio, "group")
+
+    significant_improvements = (group_df["ratio"] < improvement_threshold).sum()
+    significant_regressions = (group_df["ratio"] > regression_threshold).sum()
+
+    valid_ratios = group_df["ratio"].dropna()
+    if len(valid_ratios) > 0:
+        best_idx = valid_ratios.idxmin()
+        worst_idx = valid_ratios.idxmax()
+        best_change = f"{group_df.loc[best_idx, 'name']} ({group_df.loc[best_idx, 'ratio']:.3f}x)"
+        worst_change = f"{group_df.loc[worst_idx, 'name']} ({group_df.loc[worst_idx, 'ratio']:.3f}x)"
+    else:
+        best_change = "No valid comparisons"
+        worst_change = "No valid comparisons"
+
+    return [
+        f"- **Performance**: {ratio_summary}",
+        f"- **Significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
+        f"- **Best**: {best_change}",
+        f"- **Worst**: {worst_change}",
+    ]
+
+
 # Output complete formatted markdown
 print("\n".join(summary_lines))
 print("")
-print("<details>")
-print("<summary>Detailed Results Table</summary>")
-print("")
-
 grouped_tables = table_df.groupby(["engine", "file format"], dropna=False, sort=False)
 for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
-    print(f"### {engine} / {file_format}")
-    print("")
     group_df = grouped_tables.get_group((engine, file_format)).sort_values("name")
+    print("<details>")
+    print(
+        f"<summary>{engine} / {file_format} ({len(group_df)} rows, {format_performance(calculate_geo_mean(group_df), 'group')})</summary>"
+    )
+    print("")
+    print("\n".join(build_group_summary(group_df)))
+    print("")
     print(
         group_df.drop(columns=["engine", "file format"]).to_markdown(
             index=False,
@@ -258,5 +276,4 @@ for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_k
         )
     )
     print("")
-
-print("</details>")
+    print("</details>")
