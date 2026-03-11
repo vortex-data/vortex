@@ -3532,3 +3532,51 @@ decompress_only_bench!(json_decompress_only, make_fsst_json_strings, 256);
 decompress_only_bench!(path_decompress_only, make_fsst_file_paths, 256);
 decompress_only_bench!(email_decompress_only, make_fsst_emails, 64);
 decompress_only_bench!(rare_decompress_only, make_fsst_rare_match, 128);
+
+// ---------------------------------------------------------------------------
+// Vortex array LIKE kernel benchmarks — end-to-end through the full vortex
+// execution framework. This measures the production code path including
+// array construction, kernel dispatch, and result materialization.
+// ---------------------------------------------------------------------------
+
+use std::sync::LazyLock;
+
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+macro_rules! vortex_like_bench {
+    ($name:ident, $make_fn:ident, $pattern:expr) => {
+        #[divan::bench]
+        fn $name(bencher: Bencher) {
+            let fsst = $make_fn(N);
+            let len = fsst.len();
+            let arr = fsst.into_array();
+            let pattern = ConstantArray::new($pattern, len).into_array();
+            bencher.bench_local(|| {
+                Like.try_new_array(len, LikeOptions::default(), [arr.clone(), pattern.clone()])
+                    .unwrap()
+                    .into_array()
+                    .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+                    .unwrap()
+            });
+        }
+    };
+}
+
+vortex_like_bench!(vortex_like_urls, make_fsst_urls, "%google%");
+vortex_like_bench!(vortex_like_cb, make_fsst_clickbench_urls, "%yandex%");
+vortex_like_bench!(vortex_like_log, make_fsst_log_lines, "%Googlebot%");
+vortex_like_bench!(vortex_like_json, make_fsst_json_strings, "%enterprise%");
+vortex_like_bench!(vortex_like_path, make_fsst_file_paths, "%target/release%");
+vortex_like_bench!(vortex_like_email, make_fsst_emails, "%gmail%");
+vortex_like_bench!(vortex_like_rare, make_fsst_rare_match, "%xyzzy%");
