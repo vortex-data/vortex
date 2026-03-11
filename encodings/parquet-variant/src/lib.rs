@@ -460,11 +460,13 @@ impl ValidityVTable<ParquetVariantVTable> for ParquetVariantVTable {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::Array;
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::Int32Array;
     use arrow_array::StructArray;
     use arrow_array::builder::BinaryViewBuilder;
     use arrow_array::cast::AsArray;
+    use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Fields;
@@ -619,6 +621,25 @@ mod tests {
             .unwrap()
     }
 
+    fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let roundtripped = vortex_arr.execute_arrow(None, &mut ctx)?;
+
+        assert_eq!(struct_array.to_data(), roundtripped.as_struct().to_data());
+        Ok(())
+    }
+
+    fn binary_view_array<const N: usize>(values: [&[u8]; N]) -> ArrowArrayRef {
+        let mut builder = BinaryViewBuilder::new();
+        for value in values {
+            builder.append_value(value);
+        }
+        Arc::new(builder.finish())
+    }
+
     #[test]
     fn test_serde_roundtrip_typed_value_variant() {
         let outer_metadata =
@@ -696,5 +717,73 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_unshredded_storage() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(3);
+        builder.append_variant(Variant::from(42i32));
+        builder.append_variant(Variant::from("hello"));
+        builder.append_variant(Variant::from(true));
+
+        assert_arrow_variant_storage_roundtrip(builder.build().into_inner().clone())
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_typed_value_only_storage() -> VortexResult<()> {
+        let metadata = binary_view_array([b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+
+        let struct_array = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            ]
+            .into(),
+            vec![metadata, typed_value],
+            None,
+        )
+        .unwrap();
+
+        assert_arrow_variant_storage_roundtrip(struct_array)
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_value_and_typed_value_storage() -> VortexResult<()> {
+        let metadata = binary_view_array([b"\x01\x00", b"\x01\x00"]);
+        let value = binary_view_array([b"\x10", b"\x11"]);
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![1, 2]));
+
+        let struct_array = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("value", DataType::BinaryView, true)),
+                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            ]
+            .into(),
+            vec![metadata, value, typed_value],
+            None,
+        )
+        .unwrap();
+
+        assert_arrow_variant_storage_roundtrip(struct_array)
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_with_outer_nulls() -> VortexResult<()> {
+        let metadata = binary_view_array([b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
+        let value = binary_view_array([b"\x10", b"\x00", b"\x11"]);
+        let struct_array = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("value", DataType::BinaryView, true)),
+            ]
+            .into(),
+            vec![metadata, value],
+            Some(NullBuffer::from(vec![true, false, true])),
+        )
+        .unwrap();
+
+        assert_arrow_variant_storage_roundtrip(struct_array)
     }
 }

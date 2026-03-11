@@ -10463,6 +10463,7 @@ name = "vortex-parquet-variant"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "arrow-buffer",
  "arrow-schema",
  "parquet-variant",
  "parquet-variant-compute",

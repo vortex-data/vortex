@@ -29,6 +29,7 @@ vortex-session = { workspace = true }
 
 [dev-dependencies]
 arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 parquet-variant = { workspace = true }
 rstest = { workspace = true }
