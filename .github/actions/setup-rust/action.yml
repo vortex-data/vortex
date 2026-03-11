@@ -47,9 +47,21 @@ runs:
         targets: "${{ inputs.targets }}"
         components: "${{ inputs.components }}"
 
+    - name: Configure sccache timeout
+      if: inputs.enable-sccache == 'true'
+      shell: bash
+      run: |
+        mkdir -p ~/.config/sccache
+        echo 'server_startup_timeout_ms = 15000' > ~/.config/sccache/config
+
     - name: Rust Compile Cache
       if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
+
+    - name: Pre-start sccache server
+      if: inputs.enable-sccache == 'true'
+      shell: bash
+      run: sccache --start-server &
 
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'

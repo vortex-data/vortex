@@ -23,28 +23,31 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-/// Set to false any entries for which the mask is true.
-///
+/// Apply a logical AND of a validity and a mask.
+/// This needs to be coherent with applications of Mask.
 /// The result is always nullable. The result has the same length as self.
 #[inline]
 pub fn mask_validity(validity: &Validity, mask: &Mask) -> Validity {
-    match mask.bit_buffer() {
-        AllOr::All => Validity::AllInvalid,
-        AllOr::None => validity.clone().into_nullable(),
-        AllOr::Some(make_invalid) => match validity {
-            Validity::NonNullable | Validity::AllValid => {
-                Validity::from_bit_buffer(!make_invalid, Nullability::Nullable)
-            }
+    let out = match mask.bit_buffer() {
+        AllOr::All => validity.clone().into_nullable(),
+        AllOr::None => Validity::AllInvalid,
+        AllOr::Some(make_valid) => match validity {
             Validity::AllInvalid => Validity::AllInvalid,
+            Validity::NonNullable | Validity::AllValid => {
+                Validity::from_bit_buffer(make_valid.clone(), Nullability::Nullable)
+            }
             Validity::Array(is_valid) => {
                 let is_valid = is_valid.to_bool();
                 Validity::from_bit_buffer(
-                    is_valid.to_bit_buffer() & !make_invalid,
+                    is_valid.to_bit_buffer() & make_valid,
                     Nullability::Nullable,
                 )
             }
         },
-    }
+    };
+
+    tracing::debug!(validity = ?validity, mask = ?mask, out = ?out, "generated fuzzer mask");
+    out
 }
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
@@ -173,7 +176,7 @@ mod tests {
     #[test]
     fn test_mask_bool_array() {
         let array = BoolArray::from_iter([true, false, true, false, true]);
-        let mask = Mask::from_iter([true, false, false, true, false]);
+        let mask = Mask::from_iter([false, true, true, false, true]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -184,7 +187,7 @@ mod tests {
     #[test]
     fn test_mask_primitive_array() {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-        let mask = Mask::from_iter([false, true, false, true, false]);
+        let mask = Mask::from_iter([true, false, true, false, true]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -195,7 +198,7 @@ mod tests {
     #[test]
     fn test_mask_primitive_array_with_nulls() {
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
-        let mask = Mask::from_iter([true, false, false, true, false]);
+        let mask = Mask::from_iter([false, true, true, false, true]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -210,7 +213,7 @@ mod tests {
             [Some(1i128), Some(2), Some(3), Some(4), Some(5)],
             dtype,
         );
-        let mask = Mask::from_iter([false, false, true, false, false]);
+        let mask = Mask::from_iter([true, true, false, true, true]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -222,7 +225,7 @@ mod tests {
     #[test]
     fn test_mask_varbinview_array() {
         let array = VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]);
-        let mask = Mask::from_iter([true, false, true, false, true]);
+        let mask = Mask::from_iter([false, true, false, true, false]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -241,7 +244,7 @@ mod tests {
                 .with_zero_copy_to_list(true)
         };
 
-        let mask = Mask::from_iter([false, true, false]);
+        let mask = Mask::from_iter([true, false, true]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -257,7 +260,7 @@ mod tests {
         let array =
             FixedSizeListArray::try_new(elements, 2, Nullability::NonNullable.into(), 3).unwrap();
 
-        let mask = Mask::from_iter([true, false, true]);
+        let mask = Mask::from_iter([false, true, false]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -281,7 +284,7 @@ mod tests {
         )
         .unwrap();
 
-        let mask = Mask::from_iter([false, true, false]);
+        let mask = Mask::from_iter([true, false, true]);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -292,9 +295,9 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_all_true() {
+    fn test_mask_all_false() {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-        let mask = Mask::AllTrue(5);
+        let mask = Mask::AllFalse(5);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -303,9 +306,9 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_all_false() {
+    fn test_mask_all_true() {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-        let mask = Mask::AllFalse(5);
+        let mask = Mask::AllTrue(5);
 
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
@@ -317,10 +320,9 @@ mod tests {
     #[test]
     fn test_mask_empty_array() {
         let array = PrimitiveArray::from_iter(Vec::<i32>::new());
-        let mask = Mask::AllFalse(0);
-
-        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
-
-        assert_eq!(result.len(), 0);
+        for mask in [Mask::AllFalse(0), Mask::AllTrue(0)] {
+            let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
+            assert_eq!(result.len(), 0);
+        }
     }
 }
