@@ -169,13 +169,9 @@ impl ExtVTable for Timestamp {
         })
     }
 
-    fn validate_dtype(
-        &self,
-        _metadata: &Self::Metadata,
-        storage_dtype: &DType,
-    ) -> VortexResult<()> {
+    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(storage_dtype, DType::Primitive(PType::I64, _)),
+            matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"
         );
         Ok(())
@@ -183,10 +179,10 @@ impl ExtVTable for Timestamp {
 
     fn unpack_native<'a>(
         &self,
-        metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
+        ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
+        let metadata = ext_dtype.metadata();
         let ts_value = storage_value.as_primitive().cast::<i64>()?;
         let tz = metadata.tz.as_ref();
 
