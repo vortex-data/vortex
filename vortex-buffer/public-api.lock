@@ -708,7 +708,9 @@ pub type vortex_buffer::Buffer<T>::Target = [T]
 
 pub fn vortex_buffer::Buffer<T>::deref(&self) -> &Self::Target
 
-pub struct vortex_buffer::BufferIterator<T>
+pub struct vortex_buffer::BufferIterator<T: core::marker::Copy>
+
+impl<T: core::marker::Copy> core::iter::traits::exact_size::ExactSizeIterator for vortex_buffer::BufferIterator<T>
 
 impl<T: core::marker::Copy> core::iter::traits::iterator::Iterator for vortex_buffer::BufferIterator<T>
 
