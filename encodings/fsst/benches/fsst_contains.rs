@@ -3480,3 +3480,55 @@ fn cb_state_zero_shift(bencher: Bencher) {
         })
     });
 }
+
+// ---------------------------------------------------------------------------
+// Decompress-only benchmarks (no search) — measures the raw cost of FSST
+// decompression for each dataset. Compare against DFA search on compressed
+// codes to see the speedup from avoiding decompression entirely.
+// ---------------------------------------------------------------------------
+
+/// Decompress all strings without searching. Measures pure decompression cost.
+#[inline(never)]
+fn run_decompress_only(
+    prep: &PreparedArray,
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    buf: &mut Vec<u8>,
+) {
+    for i in 0..prep.n {
+        let start = prep.offsets[i];
+        let end = prep.offsets[i + 1];
+        decompress_into(&prep.all_bytes[start..end], symbols, symbol_lengths, buf);
+        // Force the compiler not to optimize away the decompression.
+        std::hint::black_box(buf.len());
+    }
+}
+
+macro_rules! decompress_only_bench {
+    ($name:ident, $make_fn:ident, $bufsz:expr) => {
+        #[divan::bench]
+        fn $name(bencher: Bencher) {
+            let fsst = $make_fn(N);
+            let prep = PreparedArray::from_fsst(&fsst);
+            let symbols = fsst.symbols();
+            let symbol_lengths = fsst.symbol_lengths();
+            let mut buf = Vec::with_capacity($bufsz);
+            bencher.bench_local(|| {
+                run_decompress_only(
+                    &prep,
+                    symbols.as_slice(),
+                    symbol_lengths.as_slice(),
+                    &mut buf,
+                );
+            });
+        }
+    };
+}
+
+decompress_only_bench!(urls_decompress_only, make_fsst_urls, 256);
+decompress_only_bench!(cb_decompress_only, make_fsst_clickbench_urls, 512);
+decompress_only_bench!(log_decompress_only, make_fsst_log_lines, 256);
+decompress_only_bench!(json_decompress_only, make_fsst_json_strings, 256);
+decompress_only_bench!(path_decompress_only, make_fsst_file_paths, 256);
+decompress_only_bench!(email_decompress_only, make_fsst_emails, 64);
+decompress_only_bench!(rare_decompress_only, make_fsst_rare_match, 128);

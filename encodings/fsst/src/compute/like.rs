@@ -244,35 +244,43 @@ impl FsstPrefixDfa {
 
 /// Precomputed KMP-based DFA for substring matching on FSST codes.
 ///
-/// For each (KMP-state, symbol-code) pair the resulting state after feeding
-/// all of that symbol's bytes is precomputed — one table lookup per code.
+/// Uses a fused 256-entry table indexed by the raw code byte, which avoids
+/// branching on `ESCAPE_CODE` in the hot path. Escape codes are handled via
+/// a sentinel value in the main table. Uses `u8` states to halve the table
+/// size for better cache utilization.
 struct FsstContainsDfa {
-    symbol_transitions: Vec<u16>,
-    escape_transitions: Vec<u16>,
-    n_symbols: usize,
-    accept_state: u16,
+    /// Fused transition table: `n_states * 256` entries, indexed by `[state][code_byte]`.
+    /// For non-escape codes, gives the next state directly.
+    /// For ESCAPE_CODE, contains `escape_sentinel` to signal escape handling.
+    transitions: Vec<u8>,
+    /// Escape transition table: `n_states * 256` entries for literal byte lookups.
+    escape_transitions: Vec<u8>,
+    accept_state: u8,
+    escape_sentinel: u8,
 }
 
 impl FsstContainsDfa {
     fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
         let n_symbols = symbols.len();
-        let accept_state = needle.len() as u16;
+        let accept_state = needle.len() as u8;
         let n_states = needle.len() + 1;
+        let escape_sentinel = needle.len() as u8 + 1;
 
         let byte_table = kmp_byte_transitions(needle);
 
+        // Build per-symbol transitions first.
         let mut symbol_transitions = vec![0u16; n_states * n_symbols];
         for state in 0..n_states {
             for code in 0..n_symbols {
-                if state as u16 == accept_state {
-                    symbol_transitions[state * n_symbols + code] = accept_state;
+                if state as u8 == accept_state {
+                    symbol_transitions[state * n_symbols + code] = accept_state as u16;
                     continue;
                 }
                 let sym = symbols[code].to_u64().to_le_bytes();
                 let sym_len = symbol_lengths[code] as usize;
                 let mut s = state as u16;
                 for &b in &sym[..sym_len] {
-                    if s == accept_state {
+                    if s == accept_state as u16 {
                         break;
                     }
                     s = byte_table[s as usize * 256 + b as usize];
@@ -281,21 +289,36 @@ impl FsstContainsDfa {
             }
         }
 
+        // Fuse into a 256-wide table indexed by raw code byte.
+        let mut transitions = vec![0u8; n_states * 256];
+        for state in 0..n_states {
+            for code in 0..n_symbols {
+                transitions[state * 256 + code] =
+                    symbol_transitions[state * n_symbols + code] as u8;
+            }
+            // Mark ESCAPE_CODE with sentinel.
+            transitions[state * 256 + ESCAPE_CODE as usize] = escape_sentinel;
+        }
+
+        // Convert byte_table (u16) to u8 escape_transitions.
+        let escape_transitions: Vec<u8> = byte_table.iter().map(|&v| v as u8).collect();
+
         Self {
-            symbol_transitions,
-            escape_transitions: byte_table,
-            n_symbols,
+            transitions,
+            escape_transitions,
             accept_state,
+            escape_sentinel,
         }
     }
 
     fn matches(&self, codes: &[u8]) -> bool {
-        let mut state = 0u16;
+        let mut state = 0u8;
         let mut pos = 0;
         while pos < codes.len() {
             let code = codes[pos];
             pos += 1;
-            if code == ESCAPE_CODE {
+            let next = self.transitions[state as usize * 256 + code as usize];
+            if next == self.escape_sentinel {
                 if pos >= codes.len() {
                     return false;
                 }
@@ -303,8 +326,7 @@ impl FsstContainsDfa {
                 pos += 1;
                 state = self.escape_transitions[state as usize * 256 + b as usize];
             } else {
-                debug_assert!((code as usize) < self.n_symbols);
-                state = self.symbol_transitions[state as usize * self.n_symbols + code as usize];
+                state = next;
             }
             if state == self.accept_state {
                 return true;
