@@ -56,9 +56,11 @@ runs:
       if: steps.check-rustup.outputs.exists == 'true'
       shell: bash
       run: |
-        [[ -n "$TARGETS" ]] && rustup target add ${TARGETS//,/ }
-        [[ -n "$COMPONENTS" ]] && rustup component add ${COMPONENTS//,/ }
+        rustup toolchain install "$TOOLCHAIN"
+        [[ -n "$TARGETS" ]] && rustup target add --toolchain "$TOOLCHAIN" ${TARGETS//,/ }
+        [[ -n "$COMPONENTS" ]] && rustup component add --toolchain "$TOOLCHAIN" ${COMPONENTS//,/ }
       env:
+        TOOLCHAIN: ${{ steps.toolchain-config.outputs.toolchain }}
         TARGETS: ${{ inputs.targets }}
         COMPONENTS: ${{ inputs.components }}
 
