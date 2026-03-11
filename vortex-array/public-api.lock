@@ -18636,7 +18636,7 @@ pub fn vortex_array::scalar_fn::EmptyOptions::hash<__H: core::hash::Hasher>(&sel
 
 impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::EmptyOptions
 
-pub struct vortex_array::scalar_fn::ScalarFn<V: vortex_array::scalar_fn::ScalarFnVTable>(_)
+pub struct vortex_array::scalar_fn::ScalarFn<V: vortex_array::scalar_fn::ScalarFnVTable>
 
 impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::ScalarFn<V>
 
@@ -18684,6 +18684,10 @@ pub fn vortex_array::scalar_fn::ScalarFnRef::as_<V: vortex_array::scalar_fn::Sca
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::as_opt<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&<V as vortex_array::scalar_fn::ScalarFnVTable>::Options>
 
+pub fn vortex_array::scalar_fn::ScalarFnRef::downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> alloc::sync::Arc<vortex_array::scalar_fn::ScalarFn<V>>
+
+pub fn vortex_array::scalar_fn::ScalarFnRef::downcast_ref<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFn<V>>
+
 pub fn vortex_array::scalar_fn::ScalarFnRef::execute(&self, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::id(&self) -> vortex_array::scalar_fn::ScalarFnId
@@ -18698,9 +18702,9 @@ pub fn vortex_array::scalar_fn::ScalarFnRef::return_dtype(&self, arg_types: &[vo
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::signature(&self) -> vortex_array::scalar_fn::ScalarFnSignature<'_>
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::validity(&self, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+pub fn vortex_array::scalar_fn::ScalarFnRef::try_downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> core::result::Result<alloc::sync::Arc<vortex_array::scalar_fn::ScalarFn<V>>, vortex_array::scalar_fn::ScalarFnRef>
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::vtable_ref<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&V>
+pub fn vortex_array::scalar_fn::ScalarFnRef::validity(&self, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 impl core::clone::Clone for vortex_array::scalar_fn::ScalarFnRef
 

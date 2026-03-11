@@ -10,7 +10,6 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -273,18 +272,11 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
 
     fn try_match(array: &dyn DynArray) -> Option<Self::Match<'_>> {
         let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
-        let scalar_fn_vtable = scalar_fn_array
-            .scalar_fn
-            .vtable_ref::<F>()
-            .vortex_expect("ScalarFn VTable type mismatch in ExactScalarFn matcher");
-        let scalar_fn_options = scalar_fn_array
-            .scalar_fn
-            .as_opt::<F>()
-            .vortex_expect("ScalarFn options type mismatch in ExactScalarFn matcher");
+        let scalar_fn = scalar_fn_array.scalar_fn.downcast_ref::<F>()?;
         Some(ScalarFnArrayView {
             array,
-            vtable: scalar_fn_vtable,
-            options: scalar_fn_options,
+            vtable: scalar_fn.vtable(),
+            options: scalar_fn.options(),
         })
     }
 }

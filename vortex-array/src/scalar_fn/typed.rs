@@ -4,7 +4,7 @@
 //! Typed and inner representations of scalar functions.
 //!
 //! - [`ScalarFn<V>`]: The public typed wrapper, parameterized by a concrete [`ScalarFnVTable`].
-//! - [`ScalarFnInner<V>`]: The private inner struct that holds the vtable + options.
+//! - [`ScalarFn<V>`]: The private inner struct that holds the vtable + options.
 //! - [`DynScalarFn`]: The private sealed trait for type-erased dispatch (bound, options in self).
 
 use std::any::Any;
@@ -35,9 +35,43 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
 
+/// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
+///
+/// You can construct one via [`new()`], and erase the type with [`erased()`] to obtain a
+/// [`ScalarFnRef`].
+///
+/// [`new()`]: ScalarFn::new
+/// [`erased()`]: ScalarFn::erased
+pub struct ScalarFn<V: ScalarFnVTable> {
+    vtable: V,
+    options: V::Options,
+}
+
+impl<V: ScalarFnVTable> ScalarFn<V> {
+    /// Create a new typed scalar function instance.
+    pub fn new(vtable: V, options: V::Options) -> Self {
+        Self { vtable, options }
+    }
+
+    /// Returns a reference to the vtable.
+    pub fn vtable(&self) -> &V {
+        &self.vtable
+    }
+
+    /// Returns a reference to the options.
+    pub fn options(&self) -> &V::Options {
+        &self.options
+    }
+
+    /// Erase the concrete type information, returning a type-erased [`ScalarFnRef`].
+    pub fn erased(self) -> ScalarFnRef {
+        ScalarFnRef(Arc::new(self))
+    }
+}
+
 /// An object-safe, sealed trait for bound scalar function dispatch.
 ///
-/// Options are stored inside the implementing [`ScalarFnInner<V>`], not passed externally.
+/// Options are stored inside the implementing [`ScalarFn<V>`], not passed externally.
 /// This is the sole trait behind [`ScalarFnRef`]'s `Arc<dyn DynScalarFn>`.
 pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn as_any(&self) -> &dyn Any;
@@ -86,16 +120,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn options_debug(&self, f: &mut Formatter<'_>) -> fmt::Result;
 }
 
-/// The private inner representation of a bound scalar function, pairing a vtable with its options.
-///
-/// This is the sole implementor of [`DynScalarFn`], enabling [`ScalarFnRef`] to safely downcast
-/// back to the concrete vtable type via [`Any`].
-pub(super) struct ScalarFnInner<V: ScalarFnVTable> {
-    pub(super) vtable: V,
-    pub(super) options: V::Options,
-}
-
-impl<V: ScalarFnVTable> DynScalarFn for ScalarFnInner<V> {
+impl<V: ScalarFnVTable> DynScalarFn for ScalarFn<V> {
     #[inline(always)]
     fn as_any(&self) -> &dyn Any {
         self
@@ -230,36 +255,5 @@ impl<V: ScalarFnVTable> DynScalarFn for ScalarFnInner<V> {
 
     fn options_debug(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(&self.options, f)
-    }
-}
-
-/// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
-///
-/// You can construct one via [`new()`], and erase the type with [`erased()`] to obtain a
-/// [`ScalarFnRef`].
-///
-/// [`new()`]: ScalarFn::new
-/// [`erased()`]: ScalarFn::erased
-pub struct ScalarFn<V: ScalarFnVTable>(pub(super) Arc<ScalarFnInner<V>>);
-
-impl<V: ScalarFnVTable> ScalarFn<V> {
-    /// Create a new typed scalar function instance.
-    pub fn new(vtable: V, options: V::Options) -> Self {
-        Self(Arc::new(ScalarFnInner { vtable, options }))
-    }
-
-    /// Returns a reference to the vtable.
-    pub fn vtable(&self) -> &V {
-        &self.0.vtable
-    }
-
-    /// Returns a reference to the options.
-    pub fn options(&self) -> &V::Options {
-        &self.0.options
-    }
-
-    /// Erase the concrete type information, returning a type-erased [`ScalarFnRef`].
-    pub fn erased(self) -> ScalarFnRef {
-        ScalarFnRef(self.0)
     }
 }
