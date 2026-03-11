@@ -453,7 +453,7 @@ export default function ChartContainer({
         display: true,
         grid: {
           display: true,
-          color: 'rgba(0, 0, 0, 0.12)',
+          color: 'rgba(166, 166, 166, 0.12)',
         },
         ticks: {
           maxRotation: 45,
@@ -481,7 +481,7 @@ export default function ChartContainer({
         display: true,
         beginAtZero: true,
         grid: {
-          color: 'rgba(0, 0, 0, 0.12)',
+          color: 'rgba(166, 166, 166, 0.12)',
         },
         ticks: {
           font: {
