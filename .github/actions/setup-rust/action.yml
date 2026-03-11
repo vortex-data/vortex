@@ -38,10 +38,15 @@ runs:
       if: runner.os == 'Linux'
       uses: rui314/setup-mold@v1
 
+    - name: Check for rustup
+      id: check-rustup
+      shell: bash
+      run: echo "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+
     - name: Rust Toolchain
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@stable
-      if: steps.rustup-cache.outputs.cache-hit != 'true'
+      if: steps.check-rustup.outputs.exists != 'true'
       with:
         toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
         targets: "${{ inputs.targets }}"
