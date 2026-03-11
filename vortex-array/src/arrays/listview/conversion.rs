@@ -261,10 +261,11 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
             }
         }
         Canonical::Extension(ext_array) => {
-            let converted_storage = recursive_list_from_list_view(ext_array.storage().clone())?;
+            let converted_storage =
+                recursive_list_from_list_view(ext_array.storage_array().clone())?;
 
             // Avoid cloning if elements didn't change.
-            if !Arc::ptr_eq(&converted_storage, ext_array.storage()) {
+            if !Arc::ptr_eq(&converted_storage, ext_array.storage_array()) {
                 ExtensionArray::new(ext_array.ext_dtype().clone(), converted_storage).into_array()
             } else {
                 ext_array.into_array()

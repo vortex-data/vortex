@@ -39,10 +39,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
+use crate::decompress_bool::runend_decode_bools;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
@@ -486,7 +486,7 @@ pub(super) fn run_end_canonicalize(
     Ok(match array.dtype() {
         DType::Bool(_) => {
             let bools = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_bools(pends, bools, array.offset(), array.len())?.into_array()
+            runend_decode_bools(pends, bools, array.offset(), array.len())?
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute_as("values", ctx)?;

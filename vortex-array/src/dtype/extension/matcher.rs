@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
-use crate::dtype::extension::typed::ExtDTypeInner;
 
 /// A trait for matching extension dtypes.
 pub trait Matcher {
@@ -23,13 +23,13 @@ impl<V: ExtVTable> Matcher for V {
     type Match<'a> = &'a V::Metadata;
 
     fn matches(item: &ExtDTypeRef) -> bool {
-        item.0.as_any().is::<ExtDTypeInner<V>>()
+        item.0.as_any().is::<ExtDType<V>>()
     }
 
     fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
         item.0
             .as_any()
-            .downcast_ref::<ExtDTypeInner<V>>()
-            .map(|inner| &inner.metadata)
+            .downcast_ref::<ExtDType<V>>()
+            .map(|inner| inner.metadata())
     }
 }

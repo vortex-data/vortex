@@ -43,18 +43,13 @@ mod tests {
             Ok(0)
         }
 
-        fn validate_dtype(
-            &self,
-            _options: &Self::Metadata,
-            _storage_dtype: &DType,
-        ) -> VortexResult<()> {
+        fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
             Ok(())
         }
 
         fn unpack_native<'a>(
             &self,
-            _metadata: &'a Self::Metadata,
-            _storage_dtype: &'a DType,
+            _ext_dtype: &'a ExtDType<Self>,
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")
@@ -264,18 +259,13 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(
-                &self,
-                _options: &Self::Metadata,
-                _storage_dtype: &DType,
-            ) -> VortexResult<()> {
+            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
                 &self,
-                _metadata: &'a Self::Metadata,
-                _storage_dtype: &'a DType,
+                _ext_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")
@@ -327,18 +317,13 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(
-                &self,
-                _options: &Self::Metadata,
-                _storage_dtype: &DType,
-            ) -> VortexResult<()> {
+            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
                 &self,
-                _metadata: &'a Self::Metadata,
-                _storage_dtype: &'a DType,
+                _ext_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")

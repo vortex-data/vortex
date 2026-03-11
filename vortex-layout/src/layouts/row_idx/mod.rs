@@ -9,6 +9,7 @@ use std::fmt::Formatter;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use Nullability::NonNullable;
 pub use expr::*;
@@ -47,7 +48,7 @@ pub struct RowIdxLayoutReader {
     name: Arc<str>,
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
-    partition_cache: DashMap<ExactExpr, Partitioning>,
+    partition_cache: DashMap<ExactExpr, Arc<OnceLock<Partitioning>>>,
     session: VortexSession,
 }
 
@@ -66,45 +67,52 @@ impl RowIdxLayoutReader {
         let key = ExactExpr(expr.clone());
 
         // Check cache first with read-only lock.
-        if let Some(partitioning) = self.partition_cache.get(&key) {
+        if let Some(entry) = self.partition_cache.get(&key)
+            && let Some(partitioning) = entry.value().get()
+        {
             return partitioning.clone();
         }
 
-        self.partition_cache
+        let cell = self
+            .partition_cache
             .entry(key)
-            .or_insert_with(|| {
-                // Partition the expression into row idx and child expressions.
-                let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
-                    if expr.is::<RowIdx>() {
-                        vec![Partition::RowIdx]
-                    } else if is_root(expr) {
-                        vec![Partition::Child]
-                    } else {
-                        vec![]
-                    }
-                })
-                .vortex_expect("We should not fail to partition expression over struct fields");
+            .or_insert_with(|| Arc::new(OnceLock::new()))
+            .clone();
 
-                // If there's only a single partition, we can directly return the expression.
-                if partitioned.partitions.len() == 1 {
-                    return match &partitioned.partition_annotations[0] {
-                        Partition::RowIdx => {
-                            Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root()))
-                        }
-                        Partition::Child => Partitioning::Child(expr.clone()),
-                    };
+        cell.get_or_init(|| self.compute_partitioning(expr)).clone()
+    }
+
+    fn compute_partitioning(&self, expr: &Expression) -> Partitioning {
+        // Partition the expression into row idx and child expressions.
+        let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
+            if expr.is::<RowIdx>() {
+                vec![Partition::RowIdx]
+            } else if is_root(expr) {
+                vec![Partition::Child]
+            } else {
+                vec![]
+            }
+        })
+        .vortex_expect("We should not fail to partition expression over struct fields");
+
+        // If there's only a single partition, we can directly return the expression.
+        if partitioned.partitions.len() == 1 {
+            return match &partitioned.partition_annotations[0] {
+                Partition::RowIdx => {
+                    Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root()))
                 }
+                Partition::Child => Partitioning::Child(expr.clone()),
+            };
+        }
 
-                // Replace the row_idx expression with the root expression in the row_idx partition.
-                partitioned.partitions = partitioned
-                    .partitions
-                    .into_iter()
-                    .map(|p| replace(p, &row_idx(), root()))
-                    .collect();
+        // Replace the row_idx expression with the root expression in the row_idx partition.
+        partitioned.partitions = partitioned
+            .partitions
+            .into_iter()
+            .map(|p| replace(p, &row_idx(), root()))
+            .collect();
 
-                Partitioning::Partitioned(Arc::new(partitioned))
-            })
-            .clone()
+        Partitioning::Partitioned(Arc::new(partitioned))
     }
 }
 

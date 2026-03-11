@@ -65,13 +65,19 @@ regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 f
 
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
-df3["remark"] = pd.Series([""] * len(df3))
-df3["remark"] = df3["remark"].case_when(
-    [
-        (df3["ratio"] >= regression_threshold, "🚨"),
-        (df3["ratio"] <= improvement_threshold, "🚀"),
-    ]
-)
+
+
+def extract_engine_and_file_format(name):
+    if not isinstance(name, str) or "/" not in name or ":" not in name:
+        return pd.Series({"engine": "unknown", "file_format": "unknown"})
+
+    target = name.rsplit("/", 1)[-1]
+    engine, file_format = target.split(":", 1)
+    return pd.Series({"engine": engine, "file_format": file_format})
+
+
+df3[["engine", "file_format"]] = df3["name"].apply(extract_engine_and_file_format)
+
 
 # Filter for different target combinations for summary statistics
 vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
@@ -146,8 +152,6 @@ def format_performance(ratio, target_name):
 
 overall_performance = "no data" if pd.isna(geo_mean_ratio) else format_performance(geo_mean_ratio, "overall")
 vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
-duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
-datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ratio, "datafusion:vortex")
 parquet_performance = format_performance(parquet_geo_mean_ratio, "parquet")
 
 
@@ -164,41 +168,97 @@ if len(vortex_df) > 0:
 if len(parquet_df) > 0:
     summary_lines.extend([f"- **Parquet**: {parquet_performance}"])
 
-# Only add duckdb:vortex section if we have that data
-if len(duckdb_vortex_df) > 0:
-    summary_lines.append(f"- **duckdb:vortex**: {duckdb_vortex_performance}")
 
-# Only add datafusion:vortex section if we have that data
-if len(datafusion_vortex_df) > 0:
-    summary_lines.append(f"- **datafusion:vortex**: {datafusion_vortex_performance}")
+ENGINE_ORDER = {
+    "vortex": 0,
+    "datafusion": 1,
+    "duckdb": 2,
+    "lance": 3,
+    "arrow": 4,
+}
 
-# Only add best/worst if we have vortex data
-if len(vortex_df) > 0:
-    summary_lines.extend(
-        [
-            f"- **Best**: {best_improvement}",
-            f"- **Worst**: {worst_regression}",
-            f"- **Significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
-        ]
+FILE_FORMAT_ORDER = {
+    "vortex-file-compressed": 0,
+    "vortex-compact": 1,
+    "parquet": 2,
+    "lance": 3,
+    "duckdb": 4,
+    "arrow": 5,
+}
+
+
+def group_sort_key(group_key):
+    engine, file_format = group_key
+    return (
+        ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
+        FILE_FORMAT_ORDER.get(file_format, len(FILE_FORMAT_ORDER)),
+        engine,
+        file_format,
     )
 
-# Build table
-table_df = pd.DataFrame(
-    {
-        "name": df3["name"],
-        f"PR {pr_commit_id[:8]}": df3["value_pr"],
-        f"base {base_commit_id[:8]}": df3["value_base"],
-        "ratio (PR/base)": df3["ratio"],
-        "unit": df3["unit_base"],
-        "remark": df3["remark"],
-    }
-)
+
+def build_group_summary(group_df):
+    geo_mean_ratio = calculate_geo_mean(group_df)
+    ratio_summary = format_performance(geo_mean_ratio, "group")
+
+    significant_improvements = (group_df["ratio"] < improvement_threshold).sum()
+    significant_regressions = (group_df["ratio"] > regression_threshold).sum()
+
+    return ratio_summary, significant_improvements, significant_regressions
+
+
+def format_integer_value(value):
+    if pd.isna(value):
+        return ""
+
+    return str(int(value))
+
+
+def format_name_with_highlight(name, ratio):
+    if pd.isna(ratio):
+        return name
+
+    if ratio <= improvement_threshold:
+        return f"🚀 {name}"
+
+    if ratio >= regression_threshold:
+        return f"🚨 {name}"
+
+    return name
+
 
 # Output complete formatted markdown
 print("\n".join(summary_lines))
 print("")
-print("<details>")
-print("<summary>Detailed Results Table</summary>")
-print("")
-print(table_df.to_markdown(index=False, tablefmt="github", floatfmt=".2f"))
-print("</details>")
+grouped_tables = df3.groupby(["engine", "file_format"], dropna=False, sort=False)
+for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
+    group_df = grouped_tables.get_group((engine, file_format)).sort_values("name")
+    group_performance, significant_improvements, significant_regressions = build_group_summary(group_df)
+    unit = group_df["unit_base"].dropna().iloc[0] if group_df["unit_base"].notna().any() else "unit"
+    display_df = pd.DataFrame(
+        {
+            "name": [
+                format_name_with_highlight(name, ratio) for name, ratio in zip(group_df["name"], group_df["ratio"])
+            ],
+            f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"].map(format_integer_value),
+            f"base {base_commit_id[:8]} ({unit})": group_df["value_base"].map(format_integer_value),
+            "ratio (PR/base)": group_df["ratio"],
+        }
+    )
+    print("<details>")
+    summary_text = (
+        f"{engine} / {file_format} ({group_performance}, {significant_improvements}↑ {significant_regressions}↓)"
+    )
+    print(f"<summary>{summary_text}</summary>")
+    print("")
+    print("<br>")
+    print("")
+    print(
+        display_df.to_markdown(
+            index=False,
+            tablefmt="github",
+            floatfmt=".2f",
+        )
+    )
+    print("")
+    print("</details>")

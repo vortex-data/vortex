@@ -50,6 +50,9 @@ vortex-file = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt", "macros"], optional = true }
 vortex-cuda = { workspace = true, optional = true }
 
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
 [lints]
 workspace = true
 
