@@ -1,0 +1,30 @@
+[package]
+name = "vortex-compat"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "compat-gen"
+path = "src/main.rs"
+
+[dependencies]
+# Vortex crates (path deps — resolve to whatever version is checked out)
+vortex = { path = "../../vortex", features = ["files", "tokio"] }
+vortex-array = { path = "../../vortex-array" }
+vortex-buffer = { path = "../../vortex-buffer" }
+vortex-error = { path = "../../vortex-error" }
+
+# TPC-H generation
+tpchgen = "2"
+tpchgen-arrow = "2"
+arrow-array = "57"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# CLI + serialization
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
