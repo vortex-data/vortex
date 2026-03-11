@@ -50,7 +50,9 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(new_array) =
-                child.vtable().reduce_parent(child, &current_array, slot_idx)?
+                child
+                    .vtable()
+                    .reduce_parent(child, &current_array, slot_idx)?
             {
                 // If the parent was replaced, then we attempt to reduce it again.
                 current_array = new_array;
@@ -98,7 +100,9 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     }
 
     if any_slot_optimized {
-        current_array = current_array.vtable().with_slots(&current_array, new_slots)?;
+        current_array = current_array
+            .vtable()
+            .with_slots(&current_array, new_slots)?;
         any_optimizations = true;
     }
 

@@ -202,8 +202,6 @@ impl VTable for ChunkedVTable {
         })
     }
 
-
-
     fn append_to_builder(
         array: &ChunkedArray,
         builder: &mut dyn ArrayBuilder,

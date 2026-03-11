@@ -162,7 +162,6 @@ pub trait DynArray:
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
-
 }
 
 impl DynArray for Arc<dyn DynArray> {

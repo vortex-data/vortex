@@ -102,5 +102,4 @@ impl SharedArray {
         let result = self.cached.get_or_init(|| computed);
         result.clone().map_err(Into::into)
     }
-
 }
