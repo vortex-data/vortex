@@ -152,8 +152,6 @@ def format_performance(ratio, target_name):
 
 overall_performance = "no data" if pd.isna(geo_mean_ratio) else format_performance(geo_mean_ratio, "overall")
 vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
-duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
-datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ratio, "datafusion:vortex")
 parquet_performance = format_performance(parquet_geo_mean_ratio, "parquet")
 
 
@@ -170,23 +168,6 @@ if len(vortex_df) > 0:
 if len(parquet_df) > 0:
     summary_lines.extend([f"- **Parquet**: {parquet_performance}"])
 
-# Only add duckdb:vortex section if we have that data
-if len(duckdb_vortex_df) > 0:
-    summary_lines.append(f"- **duckdb:vortex**: {duckdb_vortex_performance}")
-
-# Only add datafusion:vortex section if we have that data
-if len(datafusion_vortex_df) > 0:
-    summary_lines.append(f"- **datafusion:vortex**: {datafusion_vortex_performance}")
-
-# Only add best/worst if we have vortex data
-if len(vortex_df) > 0:
-    summary_lines.extend(
-        [
-            f"- **Best**: {best_improvement}",
-            f"- **Worst**: {worst_regression}",
-            f"- **Significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
-        ]
-    )
 
 ENGINE_ORDER = {
     "vortex": 0,
@@ -223,25 +204,7 @@ def build_group_summary(group_df):
     significant_improvements = (group_df["ratio"] < improvement_threshold).sum()
     significant_regressions = (group_df["ratio"] > regression_threshold).sum()
 
-    valid_ratios = group_df["ratio"].dropna()
-    if len(valid_ratios) > 0:
-        best_idx = valid_ratios.idxmin()
-        worst_idx = valid_ratios.idxmax()
-        best_change = f"{group_df.loc[best_idx, 'name']} ({group_df.loc[best_idx, 'ratio']:.3f}x)"
-        worst_change = f"{group_df.loc[worst_idx, 'name']} ({group_df.loc[worst_idx, 'ratio']:.3f}x)"
-    else:
-        best_change = "No valid comparisons"
-        worst_change = "No valid comparisons"
-
-    summary_lines = []
-
-    if significant_improvements > 0 or significant_regressions > 0:
-        summary_lines.append(f"Significant (>{threshold_pct}%): {significant_improvements}↑ {significant_regressions}↓")
-
-    if len(valid_ratios) > 0:
-        summary_lines.append(f"Best/Worst: {best_change} / {worst_change}")
-
-    return ratio_summary, significant_improvements, significant_regressions, summary_lines
+    return ratio_summary, significant_improvements, significant_regressions
 
 
 # Output complete formatted markdown
@@ -250,29 +213,24 @@ print("")
 grouped_tables = df3.groupby(["engine", "file_format"], dropna=False, sort=False)
 for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
     group_df = grouped_tables.get_group((engine, file_format)).sort_values("name")
-    group_performance, significant_improvements, significant_regressions, group_summary_lines = build_group_summary(
-        group_df
-    )
+    group_performance, significant_improvements, significant_regressions = build_group_summary(group_df)
+    unit = group_df["unit_base"].dropna().iloc[0] if group_df["unit_base"].notna().any() else "unit"
     display_df = pd.DataFrame(
         {
             "name": group_df["name"],
-            f"PR {pr_commit_id[:8]}": group_df["value_pr"],
-            f"base {base_commit_id[:8]}": group_df["value_base"],
+            f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"],
+            f"base {base_commit_id[:8]} ({unit})": group_df["value_base"],
             "ratio (PR/base)": group_df["ratio"],
-            "unit": group_df["unit_base"],
         }
     )
     print("<details>")
     summary_text = (
-        f"{engine} / {file_format} "
-        f"({len(group_df)} rows, {group_performance}, "
-        f"{significant_improvements}↑ {significant_regressions}↓)"
+        f"{engine} / {file_format} ({group_performance}, {significant_improvements}↑ {significant_regressions}↓)"
     )
     print(f"<summary>{summary_text}</summary>")
     print("")
-    if len(group_summary_lines) > 0:
-        print(" ".join(group_summary_lines))
-        print("")
+    print("<br>")
+    print("")
     print(
         display_df.to_markdown(
             index=False,
