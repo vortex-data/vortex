@@ -27,6 +27,11 @@ on:
         required: false
         type: string
         default: ""
+      jobs:
+        description: "Number of parallel fuzzing jobs (libfuzzer -fork=N). Set to match available vCPUs."
+        required: false
+        type: number
+        default: 1
     outputs:
       crashes_found:
         description: "Whether crashes were found"
@@ -108,11 +113,15 @@ jobs:
           if [ -n "${{ inputs.extra_features }}" ]; then
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
           fi
+          FORK_FLAG=""
+          if [ "${{ inputs.jobs }}" -gt 1 ]; then
+            FORK_FLAG="-fork=${{ inputs.jobs }}"
+          fi
           RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
-            -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
+            $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
             2>&1 | tee fuzz_output.log
         continue-on-error: true
 
