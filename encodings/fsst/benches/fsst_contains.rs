@@ -2741,3 +2741,121 @@ fn cb_memmem_on_raw_bytes(bencher: Bencher) {
         out
     });
 }
+
+// ---------------------------------------------------------------------------
+// Low match rate (~0.001%) benchmarks — needle appears in ~1/100K strings.
+// Tests performance when almost no string matches (common in large datasets).
+// Uses random alphanumeric strings with a rare injected match.
+// ---------------------------------------------------------------------------
+
+const RARE_NEEDLE: &[u8] = b"xyzzy";
+
+/// Generate N random alphanumeric strings (~40 chars each), injecting the needle
+/// into approximately `match_rate` fraction of them.
+fn generate_rare_match_strings(n: usize, match_rate: f64) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(999);
+    let charset: &[u8] = b"abcdefghijklmnopqrstuvwABCDEFGHIJKLMNOPQRSTUVW0123456789-_.:/";
+    (0..n)
+        .map(|_| {
+            let len = rng.random_range(30..60);
+            let mut s: String = (0..len)
+                .map(|_| charset[rng.random_range(0..charset.len())] as char)
+                .collect();
+            if rng.random_bool(match_rate) {
+                // Inject needle at random position
+                let pos = rng.random_range(0..s.len().saturating_sub(RARE_NEEDLE.len()) + 1);
+                s.replace_range(
+                    pos..pos + RARE_NEEDLE.len().min(s.len() - pos),
+                    std::str::from_utf8(RARE_NEEDLE).unwrap(),
+                );
+            }
+            s
+        })
+        .collect()
+}
+
+fn make_fsst_rare_match(n: usize) -> FSSTArray {
+    let strings = generate_rare_match_strings(n, 0.00001); // ~0.001%
+    let varbin = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let compressor = fsst_train_compressor(&varbin);
+    fsst_compress(varbin, &compressor)
+}
+
+data_bench!(
+    rare_split_table,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    SplitTableDfa,
+    matches
+);
+data_bench!(
+    rare_shift_dfa,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    ShiftDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    rare_compact_no_exit,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    CompactDfa,
+    matches_no_early_exit
+);
+data_bench!(
+    rare_fused_no_exit,
+    make_fsst_rare_match,
+    RARE_NEEDLE,
+    FusedTableDfa,
+    matches_no_early_exit
+);
+
+#[divan::bench]
+fn rare_decompress(bencher: Bencher) {
+    let fsst = make_fsst_rare_match(N);
+    let mut out = Vec::with_capacity(N);
+    bencher.bench_local(|| {
+        bench_decompress(&fsst, RARE_NEEDLE, &mut out);
+    });
+}
+
+#[divan::bench]
+fn rare_memmem_decompress(bencher: Bencher) {
+    let fsst = make_fsst_rare_match(N);
+    let finder = memmem::Finder::new(RARE_NEEDLE);
+    bencher.bench_local(|| {
+        let mut out = Vec::with_capacity(N);
+        let decompressor = fsst.decompressor();
+        fsst.codes().with_iterator(|iter| {
+            out.extend(iter.map(|codes| match codes {
+                Some(c) => {
+                    let decompressed = decompressor.decompress(c);
+                    finder.find(&decompressed).is_some()
+                }
+                None => false,
+            }));
+        });
+        out
+    });
+}
+
+#[divan::bench]
+fn rare_prefilter(bencher: Bencher) {
+    let fsst = make_fsst_rare_match(N);
+    let prep = PreparedArray::from_fsst(&fsst);
+    let dfa = PrefilterDfa::new(
+        fsst.symbols().as_slice(),
+        fsst.symbol_lengths().as_slice(),
+        RARE_NEEDLE,
+    );
+    bencher.bench_local(|| {
+        BitBufferMut::collect_bool(prep.n, |i| {
+            let start = prep.offsets[i];
+            let end = prep.offsets[i + 1];
+            dfa.matches_no_early_exit(&prep.all_bytes[start..end])
+        })
+    });
+}
