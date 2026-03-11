@@ -604,8 +604,6 @@ pub fn vortex_buffer::Buffer<T>::iter(&self) -> vortex_buffer::Iter<'_, T>
 
 pub fn vortex_buffer::Buffer<T>::len(&self) -> usize
 
-pub fn vortex_buffer::Buffer<T>::map_each_in_place<R, F>(self, f: F) -> vortex_buffer::BufferMut<R> where T: core::marker::Copy, F: core::ops::function::FnMut(T) -> R
-
 pub fn vortex_buffer::Buffer<T>::slice(&self, range: impl core::ops::range::RangeBounds<usize>) -> Self
 
 pub fn vortex_buffer::Buffer<T>::slice_ref(&self, subset: &[T]) -> Self
