@@ -296,6 +296,7 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewArray;
     use crate::arrays::listview::list_from_list_view;
     use crate::arrays::listview::list_view_from_list;
     use crate::assert_arrays_eq;
@@ -701,6 +702,26 @@ mod tests {
 
         assert_eq!(result.len(), 4);
         assert_arrays_eq!(struct_array.into_array(), result);
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/6882>.
+    ///
+    /// An empty `ListViewArray` constructed via `try_new` has `is_zero_copy_to_list: false`.
+    /// `list_from_list_view` should still succeed because empty arrays are trivially
+    /// zero-copyable.
+    #[test]
+    fn test_empty_listview_to_list_without_zctl_flag() -> VortexResult<()> {
+        let elements = VarBinViewArray::from_iter_str(Vec::<&str>::new()).into_array();
+        let offsets = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();
+        let sizes = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();
+        let list_view = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)?;
+
+        // `try_new` sets `is_zero_copy_to_list: false`.
+        assert!(!list_view.is_zero_copy_to_list());
+
+        let list_array = list_from_list_view(list_view)?;
+        assert_eq!(list_array.len(), 0);
         Ok(())
     }
 }
