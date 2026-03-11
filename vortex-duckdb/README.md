@@ -6,7 +6,7 @@ Rust bindings for DuckDB. Supports DuckDB precompiled libraries for fast builds 
 
 - **Ninja**: `brew install ninja` (macOS) | `apt-get install ninja-build` (Ubuntu)
 - **CMake**: `brew install cmake` (macOS) | `apt-get install cmake` (Ubuntu)
-- **C++17 compatible compiler**: GCC or Clang
+- **C++20 compatible compiler**: GCC or Clang
 
 ## Build Modes
 
