@@ -273,8 +273,6 @@ fn merge_case_branches(
         return zip_impl(then_value, &else_value, mask);
     }
 
-    let row_count = else_value.len();
-
     let output_nullability = branches
         .iter()
         .fold(else_value.dtype().nullability(), |acc, (_, arr)| {
@@ -300,7 +298,7 @@ fn merge_case_branches(
         return else_value.cast(output_dtype);
     }
 
-    let builder = builder_with_capacity(&output_dtype, row_count);
+    let builder = builder_with_capacity(&output_dtype, else_value.len());
 
     let branch_arrays: Vec<ArrayRef> = branches
         .iter()
@@ -308,11 +306,11 @@ fn merge_case_branches(
         .collect::<VortexResult<_>>()?;
     let else_value = else_value.cast(output_dtype)?;
 
-    let fragmented = !spans.is_empty() && spans.len() > row_count / SLICE_CROSSOVER_RUN_LEN;
+    let fragmented = spans.len() > else_value.len() / SLICE_CROSSOVER_RUN_LEN;
     if fragmented {
-        merge_row_by_row(&branch_arrays, &else_value, &spans, row_count, builder)
+        merge_row_by_row(&branch_arrays, &else_value, &spans, builder)
     } else {
-        merge_run_by_run(&branch_arrays, &else_value, &spans, row_count, builder)
+        merge_run_by_run(&branch_arrays, &else_value, &spans, builder)
     }
 }
 
@@ -322,7 +320,6 @@ fn merge_row_by_row(
     branch_arrays: &[ArrayRef],
     else_value: &ArrayRef,
     spans: &[(usize, usize, usize)],
-    row_count: usize,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
     let mut pos = 0;
@@ -335,7 +332,7 @@ fn merge_row_by_row(
         }
         pos = end;
     }
-    for row in pos..row_count {
+    for row in pos..else_value.len() {
         builder.append_scalar(&else_value.scalar_at(row)?)?;
     }
 
@@ -348,7 +345,6 @@ fn merge_run_by_run(
     branch_arrays: &[ArrayRef],
     else_value: &ArrayRef,
     spans: &[(usize, usize, usize)],
-    row_count: usize,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
     for (start, end, branch_idx) in spans {
@@ -357,8 +353,9 @@ fn merge_run_by_run(
         }
         builder.extend_from_array(&branch_arrays[*branch_idx].slice(*start..*end)?);
     }
-    if builder.len() < row_count {
-        builder.extend_from_array(&else_value.slice(builder.len()..row_count)?);
+    let len = else_value.len();
+    if builder.len() < len {
+        builder.extend_from_array(&else_value.slice(builder.len()..len)?);
     }
 
     Ok(builder.finish())
