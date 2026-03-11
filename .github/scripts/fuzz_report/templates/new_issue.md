@@ -35,6 +35,8 @@
 
 ### Reproduction
 
+<details>
+
 1. Download the crash artifact:
    - **Direct download**: {{ARTIFACT_URL}}
    - Extract the zip file (`unzip`)
@@ -58,10 +60,14 @@ RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} /pa
 RUST_BACKTRACE=full cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} /path/to/crash_file -- -rss_limit_mb=0
 ```
 
+</details>
+
 ### Workflow Example
 
 Assuming you download the zipfile to `~/Downloads`, and your working directory is the repository
 root, you can follow these steps:
+
+<details>
 
 ```bash
 # Create the artifacts directory if you haven't already.
@@ -92,6 +98,8 @@ RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./f
 ```bash
 RUST_BACKTRACE=full cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb=0
 ```
+
+</details>
 
 <!-- seed_hash:{{SEED_HASH}} stack_hash:{{STACK_TRACE_HASH}} message_hash:{{MESSAGE_HASH}} -->
 
