@@ -136,6 +136,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtVTable;
     use crate::extension::uuid::Uuid;
     use crate::extension::uuid::UuidMetadata;
@@ -184,7 +185,8 @@ mod tests {
     fn validate_correct_storage_dtype(#[case] nullability: Nullability) -> VortexResult<()> {
         let metadata = UuidMetadata::default();
         let storage_dtype = uuid_storage_dtype(nullability);
-        Uuid.validate_dtype(&metadata, &storage_dtype)
+        ExtDType::try_with_vtable(Uuid, metadata, storage_dtype)?;
+        Ok(())
     }
 
     #[test]
@@ -195,8 +197,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
-                .is_err()
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype).is_err()
         );
     }
 
@@ -208,8 +209,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
-                .is_err()
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype).is_err()
         );
     }
 
@@ -221,8 +221,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
-                .is_err()
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype).is_err()
         );
     }
 
@@ -230,8 +229,7 @@ mod tests {
     fn validate_rejects_non_fsl() {
         let storage_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
-                .is_err()
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype).is_err()
         );
     }
 
@@ -240,8 +238,10 @@ mod tests {
         let expected = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
             .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        let metadata = UuidMetadata::default();
-        let storage_dtype = uuid_storage_dtype(Nullability::NonNullable);
+        let ext_dtype = ExtDType::try_new(
+            UuidMetadata::default(),
+            uuid_storage_dtype(Nullability::NonNullable),
+        )?;
         let children: Vec<Scalar> = expected
             .as_bytes()
             .iter()
@@ -256,7 +256,7 @@ mod tests {
         let storage_value = storage_scalar
             .value()
             .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        let result = Uuid.unpack_native(&metadata, &storage_dtype, storage_value)?;
+        let result = Uuid.unpack_native(&ext_dtype, storage_value)?;
         assert_eq!(result, expected);
         assert_eq!(result.to_string(), "550e8400-e29b-41d4-a716-446655440000");
         Ok(())
@@ -270,10 +270,13 @@ mod tests {
         assert_eq!(v4_uuid.get_version(), Some(Version::Random));
 
         // Metadata says v7, but the UUID is v4.
-        let metadata = UuidMetadata {
-            version: Some(Version::SortRand),
-        };
-        let storage_dtype = uuid_storage_dtype(Nullability::NonNullable);
+        let ext_dtype = ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata {
+                version: Some(Version::SortRand),
+            },
+            uuid_storage_dtype(Nullability::NonNullable),
+        )?;
         let children: Vec<Scalar> = v4_uuid
             .as_bytes()
             .iter()
@@ -288,10 +291,7 @@ mod tests {
         let storage_value = storage_scalar
             .value()
             .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        assert!(
-            Uuid.unpack_native(&metadata, &storage_dtype, storage_value)
-                .is_err()
-        );
+        assert!(Uuid.unpack_native(&ext_dtype, storage_value).is_err());
         Ok(())
     }
 

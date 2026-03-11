@@ -34,16 +34,14 @@ impl ExtVTable for TestI32Ext {
 
     fn validate_dtype(
         &self,
-        _options: &Self::Metadata,
-        _storage_dtype: &DType,
+        _ext_dtype: &ExtDType<Self>,
     ) -> VortexResult<()> {
         Ok(())
     }
 
     fn unpack_native<'a>(
         &self,
-        _metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
+        _ext_dtype: &'a ExtDType<Self>,
         _storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         Ok("")
@@ -123,16 +121,14 @@ fn test_ext_scalar_partial_ord_different_types() {
 
         fn validate_dtype(
             &self,
-            _options: &Self::Metadata,
-            _storage_dtype: &DType,
+            _ext_dtype: &ExtDType<Self>,
         ) -> VortexResult<()> {
             Ok(())
         }
 
         fn unpack_native<'a>(
             &self,
-            _metadata: &'a Self::Metadata,
-            _storage_dtype: &'a DType,
+            _ext_dtype: &'a ExtDType<Self>,
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")
@@ -311,16 +307,14 @@ fn test_ext_scalar_with_metadata() {
 
         fn validate_dtype(
             &self,
-            _options: &Self::Metadata,
-            _storage_dtype: &DType,
+            _ext_dtype: &ExtDType<Self>,
         ) -> VortexResult<()> {
             Ok(())
         }
 
         fn unpack_native<'a>(
             &self,
-            _metadata: &'a Self::Metadata,
-            _storage_dtype: &'a DType,
+            _ext_dtype: &'a ExtDType<Self>,
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")

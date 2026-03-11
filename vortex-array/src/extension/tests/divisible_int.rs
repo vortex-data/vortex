@@ -53,23 +53,22 @@ impl ExtVTable for DivisibleInt {
 
     fn validate_dtype(
         &self,
-        _metadata: &Self::Metadata,
-        storage_dtype: &DType,
+        ext_dtype: &crate::dtype::extension::ExtDType<Self>,
     ) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(storage_dtype, DType::Primitive(PType::U64, _)),
+            matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
             "divisible int storage dtype must be u64"
         );
         Ok(())
     }
 
-    fn unpack_native(
+    fn unpack_native<'a>(
         &self,
-        metadata: &Self::Metadata,
-        _storage_dtype: &DType,
-        storage_value: &ScalarValue,
-    ) -> VortexResult<Self::NativeValue<'_>> {
+        ext_dtype: &'a crate::dtype::extension::ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
         let value = storage_value.as_primitive().cast::<u64>()?;
+        let metadata = ext_dtype.metadata();
         if value % metadata.0 != 0 {
             vortex_bail!("{} is not divisible by {}", value, metadata.0);
         }
@@ -86,6 +85,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtVTable;
 
     #[test]
@@ -109,29 +109,28 @@ mod tests {
 
     #[test]
     fn rejects_wrong_storage_dtype() {
-        let vtable = DivisibleInt;
         let divisor = Divisor(10);
 
         assert!(
-            vtable
-                .validate_dtype(
-                    &divisor,
-                    &DType::Primitive(PType::I32, Nullability::NonNullable)
-                )
-                .is_err()
+            ExtDType::try_new(
+                divisor.clone(),
+                DType::Primitive(PType::I32, Nullability::NonNullable)
+            )
+            .is_err()
         );
         assert!(
-            vtable
-                .validate_dtype(&divisor, &DType::Utf8(Nullability::NonNullable))
-                .is_err()
+            ExtDType::<DivisibleInt>::try_new(
+                divisor.clone(),
+                DType::Utf8(Nullability::NonNullable)
+            )
+            .is_err()
         );
         assert!(
-            vtable
-                .validate_dtype(
-                    &divisor,
-                    &DType::Primitive(PType::U64, Nullability::NonNullable)
-                )
-                .is_ok()
+            ExtDType::try_new(
+                divisor,
+                DType::Primitive(PType::U64, Nullability::NonNullable)
+            )
+            .is_ok()
         );
     }
 }
