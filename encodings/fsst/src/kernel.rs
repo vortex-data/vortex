@@ -5,6 +5,7 @@ use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
 
 use crate::FSSTVTable;
 
@@ -12,6 +13,7 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> = ParentKernelSet::
     ParentKernelSet::lift(&CompareExecuteAdaptor(FSSTVTable)),
     ParentKernelSet::lift(&FilterExecuteAdaptor(FSSTVTable)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(FSSTVTable)),
+    ParentKernelSet::lift(&LikeExecuteAdaptor(FSSTVTable)),
 ]);
 
 #[cfg(test)]

@@ -96,10 +96,10 @@ impl DictReader {
                     )
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
-                    .map(move |array| {
-                        let array = array?;
-                        Ok(SharedArray::new(array).into_array())
-                    })
+                    // .map(move |array| {
+                    //     let array = array?;
+                    //     Ok(SharedArray::new(array).into_array())
+                    // })
                     .boxed()
                     .shared()
             })
