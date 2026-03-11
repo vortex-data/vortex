@@ -72,14 +72,14 @@ impl LikeKernel for FSSTVTable {
             }
             LikeKind::Contains(needle) => {
                 let needle = needle.as_bytes();
-                let dfa =
-                    FsstContainsDfa::new(symbols.as_slice(), symbol_lengths.as_slice(), needle);
+                let matcher =
+                    build_contains_matcher(symbols.as_slice(), symbol_lengths.as_slice(), needle);
                 match_each_integer_ptype!(offsets.ptype(), |T| {
                     let off = offsets.as_slice::<T>();
                     BitBufferMut::collect_bool(n, |i| {
                         let start = off[i] as usize;
                         let end = off[i + 1] as usize;
-                        dfa.matches(&all_bytes[start..end]) != negated
+                        matcher.matches(&all_bytes[start..end]) != negated
                     })
                     .freeze()
                 })
@@ -242,18 +242,149 @@ impl FsstPrefixDfa {
 // DFA for contains matching (LIKE '%needle%')
 // ---------------------------------------------------------------------------
 
-/// Precomputed KMP-based DFA for substring matching on FSST codes.
+/// Maximum needle length for the shift-based DFA (4 bits per state = 16 states,
+/// minus 1 for the accept state and 1 for the escape sentinel).
+const SHIFT_DFA_MAX_NEEDLE_LEN: usize = 14;
+
+/// Trait for contains-matching on FSST-encoded data.
+trait FsstContainsMatcher {
+    fn matches(&self, codes: &[u8]) -> bool;
+}
+
+/// Shift-based DFA for substring matching on FSST codes.
 ///
-/// For each (KMP-state, symbol-code) pair the resulting state after feeding
-/// all of that symbol's bytes is precomputed — one table lookup per code.
-struct FsstContainsDfa {
+/// Packs all state transitions into a `[u64; 256]` array. The table load
+/// depends only on the input byte (not on the current state), breaking the
+/// load-use dependency chain that makes traditional table-lookup DFAs slow.
+/// The state-dependent work is just a shift + mask on a register value.
+///
+/// Supports needles up to 14 bytes (4 bits per state, 16 states max).
+struct FsstContainsShiftDfa {
+    /// For each code byte (0..255): a u64 packing all state transitions.
+    /// Bits `[state*4 .. state*4+4)` encode the next state for that input.
+    transitions: [u64; 256],
+    /// Same layout for escape byte transitions.
+    escape_transitions: [u64; 256],
+    accept_state: u8,
+    escape_sentinel: u8,
+}
+
+impl FsstContainsShiftDfa {
+    const BITS: u32 = 4;
+    const MASK: u64 = (1 << Self::BITS) - 1;
+
+    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
+        debug_assert!(needle.len() + 2 <= (1 << Self::BITS));
+
+        let n_symbols = symbols.len();
+        let accept_state = needle.len() as u16;
+        let n_states = needle.len() + 1;
+        let escape_sentinel = n_states as u16 + 1;
+
+        let byte_table = kmp_byte_transitions(needle);
+
+        // Build the fused 256-wide symbol transition table.
+        let mut fused_transitions = vec![0u16; n_states * 256];
+        for state in 0..n_states {
+            // Pre-fill symbol codes.
+            for code in 0..n_symbols {
+                if state as u16 == accept_state {
+                    fused_transitions[state * 256 + code] = accept_state;
+                    continue;
+                }
+                let sym = symbols[code].to_u64().to_le_bytes();
+                let sym_len = symbol_lengths[code] as usize;
+                let mut s = state as u16;
+                for &b in &sym[..sym_len] {
+                    if s == accept_state {
+                        break;
+                    }
+                    s = byte_table[s as usize * 256 + b as usize];
+                }
+                fused_transitions[state * 256 + code] = s;
+            }
+            // Mark escape code with sentinel.
+            fused_transitions[state * 256 + ESCAPE_CODE as usize] = escape_sentinel;
+        }
+
+        let escape_sentinel_u8 = escape_sentinel as u8;
+
+        // Pack into shift tables.
+        let mut transitions = [0u64; 256];
+        let mut escape_transitions_packed = [0u64; 256];
+
+        for code_byte in 0..256usize {
+            let mut packed = 0u64;
+            for state in 0..n_states {
+                let next = fused_transitions[state * 256 + code_byte];
+                let next_u8 = if next == escape_sentinel {
+                    escape_sentinel_u8
+                } else {
+                    next as u8
+                };
+                packed |= (next_u8 as u64) << (state as u32 * Self::BITS);
+            }
+            transitions[code_byte] = packed;
+        }
+
+        for byte_val in 0..256usize {
+            let mut packed = 0u64;
+            for state in 0..n_states {
+                let next = byte_table[state * 256 + byte_val] as u8;
+                packed |= (next as u64) << (state as u32 * Self::BITS);
+            }
+            escape_transitions_packed[byte_val] = packed;
+        }
+
+        Self {
+            transitions,
+            escape_transitions: escape_transitions_packed,
+            accept_state: accept_state as u8,
+            escape_sentinel: escape_sentinel_u8,
+        }
+    }
+}
+
+impl FsstContainsMatcher for FsstContainsShiftDfa {
+    #[inline]
+    fn matches(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        while pos < codes.len() {
+            let code = codes[pos];
+            pos += 1;
+            let packed = self.transitions[code as usize];
+            let next = ((packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+            if next == self.escape_sentinel {
+                if pos >= codes.len() {
+                    return false;
+                }
+                let b = codes[pos];
+                pos += 1;
+                let esc_packed = self.escape_transitions[b as usize];
+                state = ((esc_packed >> (state as u32 * Self::BITS)) & Self::MASK) as u8;
+            } else {
+                state = next;
+            }
+            if state == self.accept_state {
+                return true;
+            }
+        }
+        state == self.accept_state
+    }
+}
+
+/// Fallback split-table DFA for needles longer than [`SHIFT_DFA_MAX_NEEDLE_LEN`].
+///
+/// Uses separate symbol and escape transition tables with `u16` states.
+struct FsstContainsSplitDfa {
     symbol_transitions: Vec<u16>,
     escape_transitions: Vec<u16>,
     n_symbols: usize,
     accept_state: u16,
 }
 
-impl FsstContainsDfa {
+impl FsstContainsSplitDfa {
     fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
         let n_symbols = symbols.len();
         let accept_state = needle.len() as u16;
@@ -288,7 +419,10 @@ impl FsstContainsDfa {
             accept_state,
         }
     }
+}
 
+impl FsstContainsMatcher for FsstContainsSplitDfa {
+    #[inline]
     fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u16;
         let mut pos = 0;
@@ -311,6 +445,19 @@ impl FsstContainsDfa {
             }
         }
         false
+    }
+}
+
+/// Build the best available contains matcher for the given needle length.
+fn build_contains_matcher(
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    needle: &[u8],
+) -> Box<dyn FsstContainsMatcher> {
+    if needle.len() <= SHIFT_DFA_MAX_NEEDLE_LEN {
+        Box::new(FsstContainsShiftDfa::new(symbols, symbol_lengths, needle))
+    } else {
+        Box::new(FsstContainsSplitDfa::new(symbols, symbol_lengths, needle))
     }
 }
 
