@@ -6,7 +6,6 @@ use std::hash::Hash;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -203,39 +202,7 @@ impl VTable for ChunkedVTable {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: chunk_offsets, then chunks...
-        vortex_ensure!(
-            !children.is_empty(),
-            "Chunked array needs at least one child"
-        );
 
-        let nchunks = children.len() - 1;
-        let chunk_offsets_array = children[0].to_primitive();
-        let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
-
-        vortex_ensure!(
-            chunk_offsets_buf.len() == nchunks + 1,
-            "Expected {} chunk offsets, found {}",
-            nchunks + 1,
-            chunk_offsets_buf.len()
-        );
-
-        let mut slots = Vec::with_capacity(children.len());
-        slots.push(Some(
-            PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable).into_array(),
-        ));
-        slots.extend(children.into_iter().skip(1).map(Some));
-        array.slots = slots;
-
-        let total_len = chunk_offsets_buf
-            .last()
-            .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
-        array.len = usize::try_from(*total_len)
-            .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
-
-        Ok(())
-    }
 
     fn append_to_builder(
         array: &ChunkedArray,

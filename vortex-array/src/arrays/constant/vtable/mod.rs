@@ -181,15 +181,6 @@ impl VTable for ConstantVTable {
         Ok(ConstantArray::new(metadata.clone(), len))
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.is_empty(),
-            "ConstantArray has no children, got {}",
-            children.len()
-        );
-        Ok(())
-    }
-
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,

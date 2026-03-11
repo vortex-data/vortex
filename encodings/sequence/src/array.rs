@@ -376,15 +376,6 @@ impl VTable for SequenceVTable {
         )
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.is_empty(),
-            "SequenceArray expects 0 children, got {}",
-            children.len()
-        );
-        Ok(())
-    }
-
     fn slots(array: &SequenceArray) -> &[Option<ArrayRef>] {
         &array.slots
     }

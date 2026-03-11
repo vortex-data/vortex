@@ -230,23 +230,6 @@ impl VTable for VarBinViewVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        match children.len() {
-            0 => {}
-            1 => {
-                let [validity]: [ArrayRef; 1] = children
-                    .try_into()
-                    .map_err(|_| vortex_err!("Failed to convert children to array"))?;
-                array.validity = Validity::Array(validity);
-            }
-            _ => vortex_bail!(
-                "VarBinViewArray expects 0 or 1 children (validity?), got {}",
-                children.len()
-            ),
-        }
-        Ok(())
-    }
-
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,

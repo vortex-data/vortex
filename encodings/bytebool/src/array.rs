@@ -159,22 +159,6 @@ impl VTable for ByteBoolVTable {
         Ok(ByteBoolArray::new(buffer, validity))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() <= 1,
-            "ByteBoolArray expects at most 1 child (validity), got {}",
-            children.len()
-        );
-
-        array.validity = if children.is_empty() {
-            Validity::from(array.dtype.nullability())
-        } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
-        };
-
-        Ok(())
-    }
-
     fn slots(array: &ByteBoolArray) -> &[Option<ArrayRef>] {
         &array.slots
     }

@@ -140,18 +140,6 @@ impl VTable for RLEVTable {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 3,
-            "Expected 3 children for RLE encoding, got {}",
-            children.len()
-        );
-
-        array.slots = children.into_iter().map(Some).collect();
-
-        Ok(())
-    }
-
     fn slots(array: &RLEArray) -> &[Option<ArrayRef>] {
         &array.slots
     }

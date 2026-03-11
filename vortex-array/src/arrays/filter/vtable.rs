@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -157,20 +156,6 @@ impl VTable for FilterVTable {
             slots.len()
         );
         array.slots = slots;
-        Ok(())
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "FilterArray expects exactly 1 child, got {}",
-            children.len()
-        );
-        let child = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
-        array.slots = vec![Some(child)];
         Ok(())
     }
 

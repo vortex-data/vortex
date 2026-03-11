@@ -203,22 +203,6 @@ impl VTable for PrimitiveVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() <= 1,
-            "PrimitiveArray can have at most 1 child (validity), got {}",
-            children.len()
-        );
-
-        array.validity = if children.is_empty() {
-            Validity::from(array.dtype().nullability())
-        } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
-        };
-
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(array.clone().into_array()))
     }

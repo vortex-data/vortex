@@ -194,16 +194,6 @@ impl VTable for DecimalBytePartsVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "DecimalBytePartsArray expects exactly 1 child (msp), got {}",
-            children.len()
-        );
-        array.slots = vec![Some(children.into_iter().next().vortex_expect("checked"))];
-        Ok(())
-    }
-
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,

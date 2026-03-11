@@ -136,15 +136,6 @@ impl VTable for NullVTable {
         Ok(NullArray::new(len))
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.is_empty(),
-            "NullArray has no children, got {}",
-            children.len()
-        );
-        Ok(())
-    }
-
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,

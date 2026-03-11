@@ -103,10 +103,4 @@ impl SharedArray {
         result.clone().map_err(Into::into)
     }
 
-    pub(super) fn set_source(&mut self, source: ArrayRef) {
-        self.dtype = source.dtype().clone();
-        self.slots[SOURCE_SLOT] = Some(source);
-        self.cached = Arc::new(OnceLock::new());
-        self.async_compute_lock = Arc::new(AsyncMutex::new(()));
-    }
 }

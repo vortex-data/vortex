@@ -200,19 +200,6 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 2,
-            "DictArray expects exactly 2 children (codes, values), got {}",
-            children.len()
-        );
-        let [codes, values]: [ArrayRef; 2] = children
-            .try_into()
-            .map_err(|_| vortex_err!("Failed to convert children to array"))?;
-        array.slots = vec![Some(codes), Some(values)];
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         if let Some(canonical) = execute_fast_path(array, ctx)? {
             return Ok(ExecutionStep::Done(canonical));

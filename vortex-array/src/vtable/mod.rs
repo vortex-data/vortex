@@ -215,25 +215,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Replaces the slots in `array` with `slots`.
     fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
 
-    /// Replaces the children in `array` with `children`. The count must be the same and types
-    /// of children must be expected.
-    ///
-    /// The default maps children back onto the current slot structure and calls `with_slots`.
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        let mut child_iter = children.into_iter();
-        let slots: Vec<Option<ArrayRef>> = Self::slots(array)
-            .iter()
-            .map(|slot| {
-                slot.is_some().then(|| {
-                    child_iter
-                        .next()
-                        .vortex_expect("too few children for with_children")
-                })
-            })
-            .collect();
-        Self::with_slots(array, slots)
-    }
-
     /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
     /// do next.
     ///

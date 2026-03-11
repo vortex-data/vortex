@@ -7,7 +7,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -156,20 +155,6 @@ impl VTable for SliceVTable {
             slots.len()
         );
         array.slots = slots;
-        Ok(())
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "SliceArray expects exactly 1 child, got {}",
-            children.len()
-        );
-        let child = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
-        array.slots = vec![Some(child)];
         Ok(())
     }
 

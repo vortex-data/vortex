@@ -481,11 +481,6 @@ impl VTable for ZstdBuffersVTable {
         Ok(array)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        array.slots = children.into_iter().map(Some).collect();
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;

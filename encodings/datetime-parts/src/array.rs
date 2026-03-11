@@ -229,23 +229,6 @@ impl VTable for DateTimePartsVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 3,
-            "DateTimePartsArray expects exactly 3 children (days, seconds, subseconds), got {}",
-            children.len()
-        );
-
-        let mut children_iter = children.into_iter();
-        array.slots = vec![
-            Some(children_iter.next().vortex_expect("days child")),
-            Some(children_iter.next().vortex_expect("seconds child")),
-            Some(children_iter.next().vortex_expect("subseconds child")),
-        ];
-
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(
             decode_to_temporal(array, ctx)?.into_array(),

@@ -163,8 +163,6 @@ pub trait DynArray:
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
 
-    /// Replaces the children of the array with the given array references.
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 }
 
 impl DynArray for Arc<dyn DynArray> {
@@ -274,10 +272,6 @@ impl DynArray for Arc<dyn DynArray> {
     fn statistics(&self) -> StatsSetRef<'_> {
         self.as_ref().statistics()
     }
-
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        self.as_ref().with_children(children)
-    }
 }
 
 /// A reference counted pointer to a dynamic [`DynArray`] trait object.
@@ -352,19 +346,6 @@ impl dyn DynArray + '_ {
     /// Whether the array is of a canonical encoding.
     pub fn is_canonical(&self) -> bool {
         self.is::<AnyCanonical>()
-    }
-
-    /// Returns a new array with the child at `child_idx` replaced by `replacement`.
-    pub fn with_child(&self, child_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let mut children: Vec<ArrayRef> = self.children();
-        vortex_ensure!(
-            child_idx < children.len(),
-            "child index {} out of bounds for array with {} children",
-            child_idx,
-            children.len()
-        );
-        children[child_idx] = replacement;
-        self.with_children(children)
     }
 
     /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
@@ -667,12 +648,6 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
 
     fn statistics(&self) -> StatsSetRef<'_> {
         V::stats(&self.0)
-    }
-
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        let mut this = self.0.clone();
-        V::with_children(&mut this, children)?;
-        Ok(this.into_array())
     }
 }
 

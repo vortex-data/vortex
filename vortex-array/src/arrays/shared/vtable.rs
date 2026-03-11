@@ -3,7 +3,6 @@
 
 use std::hash::Hash;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -151,20 +150,6 @@ impl VTable for SharedVTable {
     ) -> VortexResult<SharedArray> {
         let child = children.get(0, dtype, len)?;
         Ok(SharedArray::new(child))
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "SharedArray expects exactly 1 child, got {}",
-            children.len()
-        );
-        let child = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
-        array.set_source(child);
-        Ok(())
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

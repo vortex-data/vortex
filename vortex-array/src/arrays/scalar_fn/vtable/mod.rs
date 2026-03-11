@@ -200,17 +200,6 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == array.slots.len(),
-            "ScalarFnArray expects {} children, got {}",
-            array.slots.len(),
-            children.len()
-        );
-        array.slots = children.into_iter().map(Some).collect();
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = VecExecutionArgs::new(array.children(), array.len);

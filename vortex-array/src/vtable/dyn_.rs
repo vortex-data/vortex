@@ -47,8 +47,6 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
-
     /// See [`VTable::with_slots`]
     fn with_slots(&self, array: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
@@ -95,12 +93,6 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
-        Ok(array.into_array())
-    }
-
-    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        let mut array = array.as_::<V>().clone();
-        V::with_children(&mut array, children)?;
         Ok(array.into_array())
     }
 

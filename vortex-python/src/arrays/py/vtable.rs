@@ -147,15 +147,6 @@ impl VTable for PythonVTable {
         todo!()
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.is_empty(),
-            "PythonArray has no children, got {}",
-            children.len()
-        );
-        Ok(())
-    }
-
     fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         todo!()
     }

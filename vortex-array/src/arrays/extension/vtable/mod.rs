@@ -8,7 +8,6 @@ mod validity;
 use std::hash::Hash;
 
 use kernel::PARENT_KERNELS;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -155,20 +154,6 @@ impl VTable for ExtensionVTable {
             slots.len()
         );
         array.slots = slots;
-        Ok(())
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "ExtensionArray expects exactly 1 child (storage), got {}",
-            children.len()
-        );
-        let storage = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
-        array.slots = vec![Some(storage)];
         Ok(())
     }
 

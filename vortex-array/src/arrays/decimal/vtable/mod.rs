@@ -207,26 +207,6 @@ impl VTable for DecimalVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() <= 1,
-            "DecimalArray expects 0 or 1 child (validity), got {}",
-            children.len()
-        );
-
-        if children.is_empty() {
-            array.validity = Validity::from(array.dtype.nullability());
-        } else {
-            array.validity = Validity::Array(
-                children
-                    .into_iter()
-                    .next()
-                    .vortex_expect("children length already validated"),
-            );
-        }
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(array.clone().into_array()))
     }

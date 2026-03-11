@@ -158,16 +158,6 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "ZigZagArray expects exactly 1 child (encoded), got {}",
-            children.len()
-        );
-        array.slots = vec![Some(children.into_iter().next().vortex_expect("checked"))];
-        Ok(())
-    }
-
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(
             zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),

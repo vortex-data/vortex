@@ -21,7 +21,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -123,20 +122,6 @@ impl VTable for FoRVTable {
             slots.len()
         );
         array.slots = slots;
-        Ok(())
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "Expected 1 child for FoR encoding, got {}",
-            children.len()
-        );
-
-        array.slots = vec![Some(
-            children.into_iter().next().vortex_expect("encoded child"),
-        )];
-
         Ok(())
     }
 

@@ -23,7 +23,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -147,22 +146,6 @@ impl VTable for DeltaVTable {
             slots.len()
         );
         array.slots = slots;
-        Ok(())
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 2,
-            "Expected 2 children for Delta encoding, got {}",
-            children.len()
-        );
-
-        let mut children_iter = children.into_iter();
-        array.slots = vec![
-            Some(children_iter.next().vortex_expect("bases child")),
-            Some(children_iter.next().vortex_expect("deltas child")),
-        ];
-
         Ok(())
     }
 
