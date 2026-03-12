@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod adapter;
 mod fixtures;
 mod manifest;
@@ -18,7 +21,7 @@ use crate::validate::discover_versions;
 )]
 struct Cli {
     /// HTTPS base URL for the fixture bucket.
-    /// e.g. https://vortex-compat-fixtures.s3.amazonaws.com
+    /// e.g. <https://vortex-compat-fixtures.s3.amazonaws.com>
     #[arg(long)]
     fixtures_url: Option<String>,
 

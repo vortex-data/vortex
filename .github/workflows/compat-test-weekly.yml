@@ -3,7 +3,7 @@ name: Compat Test
 on:
   schedule:
     - cron: "0 6 * * 1"  # Monday 6am UTC
-  workflow_dispatch: {}
+  workflow_dispatch: { }
 
 env:
   FIXTURES_URL: https://vortex-compat-fixtures.s3.amazonaws.com

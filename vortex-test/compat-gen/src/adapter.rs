@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 // Epoch C adapter — for Vortex v0.58.0 through HEAD
 //
 // Write: session.write_options(), returns WriteSummary, takes &mut sink
