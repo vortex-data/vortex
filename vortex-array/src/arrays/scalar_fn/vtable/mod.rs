@@ -111,17 +111,6 @@ impl VTable for ScalarFnVTable {
         vortex_panic!("ScalarFnArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ScalarFnArray) -> usize {
-        array.slots.len()
-    }
-
-    fn child(array: &ScalarFnArray, idx: usize) -> ArrayRef {
-        array.slots[idx]
-            .as_ref()
-            .vortex_expect("ScalarFnArray child slot")
-            .clone()
-    }
-
     fn child_name(array: &ScalarFnArray, idx: usize) -> String {
         array
             .scalar_fn
