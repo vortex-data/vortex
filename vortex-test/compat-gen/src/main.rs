@@ -10,7 +10,10 @@ use vortex_compat::manifest::Manifest;
 use vortex_error::VortexResult;
 
 #[derive(Parser)]
-#[command(name = "gen", about = "Generate Vortex backward-compat fixture files")]
+#[command(
+    name = "compat-gen",
+    about = "Generate Vortex backward-compat fixture files"
+)]
 struct Cli {
     /// Version tag for this fixture set (e.g. "0.62.0").
     #[arg(long)]

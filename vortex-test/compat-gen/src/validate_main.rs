@@ -10,7 +10,10 @@ use vortex_compat::validate::validate_all;
 use vortex_error::VortexResult;
 
 #[derive(Parser)]
-#[command(name = "validate", about = "Validate Vortex backward-compat fixtures")]
+#[command(
+    name = "compat-validate",
+    about = "Validate Vortex backward-compat fixtures"
+)]
 struct Cli {
     /// HTTPS base URL for the fixture bucket.
     /// e.g. <https://vortex-compat-fixtures.s3.amazonaws.com>
@@ -34,8 +37,7 @@ fn main() -> VortexResult<()> {
         (Some(url), None) => FixtureSource::Url(url.clone()),
         (None, Some(dir)) => FixtureSource::Dir(dir.clone()),
         _ => {
-            eprintln!("error: specify exactly one of --fixtures-url or --fixtures-dir");
-            std::process::exit(1);
+            vortex_error::vortex_bail!("specify exactly one of --fixtures-url or --fixtures-dir");
         }
     };
 
@@ -85,7 +87,7 @@ fn main() -> VortexResult<()> {
     eprintln!("\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped");
 
     if total_failed > 0 {
-        std::process::exit(1);
+        vortex_error::vortex_bail!("{total_failed} fixture(s) failed validation");
     }
 
     Ok(())

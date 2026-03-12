@@ -16,11 +16,11 @@ version = { workspace = true }
 workspace = true
 
 [[bin]]
-name = "gen"
+name = "compat-gen"
 path = "src/main.rs"
 
 [[bin]]
-name = "validate"
+name = "compat-validate"
 path = "src/validate_main.rs"
 
 [dependencies]
