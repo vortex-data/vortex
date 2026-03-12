@@ -1,0 +1,55 @@
+[package]
+name = "fsst-rs"
+version = "0.5.6"
+edition = "2024"
+rust-version = "1.86.0"
+authors = ["SpiralDB Developers <hello@spiraldb.com>"]
+description = "Pure-Rust implementation of Fast Static Symbol Tables algorithm for string compression"
+license = "Apache-2.0"
+repository = "https://github.com/spiraldb/fsst"
+readme = "README.md"
+keywords = ["compression", "fsst"]
+categories = ["compression"]
+
+[lib]
+name = "fsst"
+path = "src/lib.rs"
+
+[lints.clippy]
+or_fun_call = "deny"
+
+[lints.clippy.all]
+level = "deny"
+priority = -1
+
+[lints.clippy.if_then_some_else_none]
+level = "deny"
+priority = 0
+
+[lints.clippy.mem_forget]
+level = "deny"
+priority = 0
+
+[lints.clippy.panic_in_result_fn]
+level = "deny"
+priority = 0
+
+[lints.clippy.same_name_method]
+level = "deny"
+priority = 0
+
+[lints.clippy.tests_outside_test_module]
+level = "deny"
+priority = 0
+
+[lints.clippy.unwrap_in_result]
+level = "deny"
+priority = 0
+
+[lints.clippy.use_debug]
+level = "deny"
+priority = 0
+
+[lints.rust]
+missing_docs = "deny"
+warnings = "deny"

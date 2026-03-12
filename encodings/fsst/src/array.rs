@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::fmt::Write;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -514,6 +515,46 @@ impl FSSTArray {
     pub fn compressor(&self) -> &Compressor {
         self.compressor.as_ref()
     }
+
+    /// Format the FSST symbol table as a human-readable table.
+    ///
+    /// Each row shows the symbol code, byte length, hex bytes, and a text representation
+    /// where printable ASCII is shown as-is and other bytes are escaped.
+    pub fn format_symbol_table(&self) -> String {
+        fn escape_byte(b: u8) -> String {
+            match b {
+                b'\n' => "\\n".to_string(),
+                b'\t' => "\\t".to_string(),
+                b'\r' => "\\r".to_string(),
+                b if b.is_ascii_graphic() || b == b' ' => (b as char).to_string(),
+                b => format!("\\x{b:02x}"),
+            }
+        }
+
+        let symbols = self.symbols.as_slice();
+        let lengths = self.symbol_lengths.as_slice();
+        let n = symbols.len();
+
+        let mut out = format!("FSST Symbol Table ({n} symbols)\n");
+        let _ = writeln!(out, "{:>4} | {:>3} | {:<23} | Text", "Code", "Len", "Hex");
+        let _ = writeln!(out, "-----+-----+-------------------------+------");
+
+        for (code, (sym, &len)) in symbols.iter().zip(lengths.iter()).enumerate() {
+            let bytes = sym.to_u64().to_le_bytes();
+            let actual = &bytes[..len as usize];
+
+            let hex: String = actual
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let text: String = actual.iter().map(|&b| escape_byte(b)).collect();
+
+            let _ = writeln!(out, "{code:>4} | {len:>3} | {hex:<23} | {text}");
+        }
+        out
+    }
 }
 
 impl ValidityChild<FSSTVTable> for FSSTVTable {
@@ -544,7 +585,9 @@ mod test {
 
     use crate::FSSTVTable;
     use crate::array::FSSTMetadata;
+    use crate::fsst_compress;
     use crate::fsst_compress_iter;
+    use crate::fsst_train_compressor;
 
     #[cfg_attr(miri, ignore)]
     #[test]
@@ -627,5 +670,38 @@ mod test {
                 Ok::<_, VortexError>(())
             })
             .unwrap()
+    }
+
+    #[test]
+    fn test_format_symbol_table_urls() {
+        use vortex_array::arrays::VarBinArray;
+
+        // Clickbench-style URL data
+        let urls: Vec<Option<&[u8]>> = vec![
+            Some(b"http://smeshariki.ru/GameMain.aspx?id=123&tab=1#ref=123"),
+            Some(b"http://smeshariki.ru/index.php?id=456&tab=2#ref=456"),
+            Some(b"http://auto.ru/cars/used/sale?id=789&tab=3#ref=789"),
+            Some(b"http://komme.ru/search?id=1000&tab=4#ref=1000"),
+            Some(b"http://yandex.ru/news/article?id=2000&tab=5#ref=2000"),
+            Some(b"http://mail.ru/user/profile?id=3000&tab=6#ref=3000"),
+            Some(b"http://smeshariki.ru/catalog/item?id=4000&tab=7#ref=4000"),
+            Some(b"http://auto.ru/forum/thread?id=5000&tab=8#ref=5000"),
+            Some(b"http://vk.com/photo/album?id=6000&tab=9#ref=6000"),
+            Some(b"http://livejournal.com/blog/post?id=7000&tab=10#ref=7000"),
+        ];
+
+        let varbin = VarBinArray::from_iter(urls, DType::Utf8(Nullability::NonNullable));
+        let compressor = fsst_train_compressor(&varbin);
+        let fsst_array = fsst_compress(&varbin, &compressor);
+
+        let table = fsst_array.format_symbol_table();
+        eprintln!("{table}");
+
+        // Verify basic structure
+        assert!(table.starts_with("FSST Symbol Table ("));
+        assert!(table.contains("Code"));
+        assert!(table.contains("Len"));
+        assert!(table.contains("Hex"));
+        assert!(table.contains("Text"));
     }
 }
