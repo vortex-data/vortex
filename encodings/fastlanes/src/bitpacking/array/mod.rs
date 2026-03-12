@@ -283,6 +283,18 @@ impl BitPackedArray {
     }
 
     pub fn replace_patches(&mut self, patches: Option<Patches>) {
+        // Update both the patches and the corresponding slots to keep them in sync.
+        let (pi, pv, pco) = match &patches {
+            Some(p) => (
+                Some(p.indices().clone()),
+                Some(p.values().clone()),
+                p.chunk_offsets().clone(),
+            ),
+            None => (None, None, None),
+        };
+        self.slots[PATCH_INDICES_SLOT] = pi;
+        self.slots[PATCH_VALUES_SLOT] = pv;
+        self.slots[PATCH_CHUNK_OFFSETS_SLOT] = pco;
         self.patches = patches;
     }
 

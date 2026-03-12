@@ -505,6 +505,18 @@ impl ALPRDArray {
     }
 
     pub fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
+        // Update both the patches and the corresponding slots to keep them in sync.
+        let (pi, pv, pco) = match &patches {
+            Some(p) => (
+                Some(p.indices().clone()),
+                Some(p.values().clone()),
+                p.chunk_offsets().clone(),
+            ),
+            None => (None, None, None),
+        };
+        self.slots[LP_PATCH_INDICES_SLOT] = pi;
+        self.slots[LP_PATCH_VALUES_SLOT] = pv;
+        self.slots[LP_PATCH_CHUNK_OFFSETS_SLOT] = pco;
         self.left_parts_patches = patches;
     }
 }
