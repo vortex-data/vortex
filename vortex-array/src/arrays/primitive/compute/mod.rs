@@ -11,7 +11,6 @@ mod min_max;
 mod nan_count;
 pub(crate) mod rules;
 mod slice;
-mod sum;
 mod take;
 
 pub use is_constant::*;

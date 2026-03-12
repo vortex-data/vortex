@@ -9,7 +9,6 @@ mod min_max;
 mod not;
 pub(crate) mod rules;
 mod slice;
-mod sum;
 mod take;
 
 #[cfg(test)]

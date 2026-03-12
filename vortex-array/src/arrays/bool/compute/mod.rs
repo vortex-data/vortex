@@ -10,7 +10,6 @@ mod mask;
 mod min_max;
 pub mod rules;
 mod slice;
-mod sum;
 mod take;
 
 #[cfg(test)]

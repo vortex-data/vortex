@@ -542,10 +542,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::min_max(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
-impl vortex_array::compute::SumKernel for vortex_array::arrays::BoolVTable
-
-pub fn vortex_array::arrays::BoolVTable::sum(&self, array: &vortex_array::arrays::BoolArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::BoolVTable> for vortex_array::arrays::bool::BoolMaskedValidityRule
 
 pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::MaskedVTable
@@ -720,10 +716,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::min_max(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ChunkedVTable
-
-pub fn vortex_array::arrays::ChunkedVTable::sum(&self, array: &vortex_array::arrays::ChunkedArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::cast(array: &vortex_array::arrays::ChunkedArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -873,10 +865,6 @@ pub fn vortex_array::arrays::ConstantVTable::slice(array: &Self::Array, range: c
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::min_max(&self, array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ConstantVTable
-
-pub fn vortex_array::arrays::ConstantVTable::sum(&self, array: &vortex_array::arrays::ConstantArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::scalar_fn::fns::between::BetweenReduce for vortex_array::arrays::ConstantVTable
 
@@ -1153,10 +1141,6 @@ pub fn vortex_array::arrays::DecimalVTable::is_strict_sorted(&self, array: &vort
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::DecimalVTable
 
 pub fn vortex_array::arrays::DecimalVTable::min_max(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::DecimalVTable
-
-pub fn vortex_array::arrays::DecimalVTable::sum(&self, array: &vortex_array::arrays::DecimalArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::DecimalVTable> for vortex_array::arrays::decimal::DecimalMaskedValidityRule
 
@@ -1777,10 +1761,6 @@ pub fn vortex_array::arrays::ExtensionVTable::is_strict_sorted(&self, array: &vo
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ExtensionVTable
 
 pub fn vortex_array::arrays::ExtensionVTable::min_max(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ExtensionVTable
-
-pub fn vortex_array::arrays::ExtensionVTable::sum(&self, array: &vortex_array::arrays::ExtensionArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::ExtensionVTable
 
@@ -3101,10 +3081,6 @@ pub fn vortex_array::arrays::PrimitiveVTable::min_max(&self, array: &vortex_arra
 impl vortex_array::compute::NaNCountKernel for vortex_array::arrays::PrimitiveVTable
 
 pub fn vortex_array::arrays::PrimitiveVTable::nan_count(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<usize>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::PrimitiveVTable
-
-pub fn vortex_array::arrays::PrimitiveVTable::sum(&self, array: &vortex_array::arrays::PrimitiveArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::PrimitiveVTable> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
 
@@ -4716,10 +4692,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::min_max(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
-impl vortex_array::compute::SumKernel for vortex_array::arrays::BoolVTable
-
-pub fn vortex_array::arrays::BoolVTable::sum(&self, array: &vortex_array::arrays::BoolArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::BoolVTable> for vortex_array::arrays::bool::BoolMaskedValidityRule
 
 pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::MaskedVTable
@@ -4892,10 +4864,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::min_max(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ChunkedVTable
-
-pub fn vortex_array::arrays::ChunkedVTable::sum(&self, array: &vortex_array::arrays::ChunkedArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::cast(array: &vortex_array::arrays::ChunkedArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5043,10 +5011,6 @@ pub fn vortex_array::arrays::ConstantVTable::slice(array: &Self::Array, range: c
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::min_max(&self, array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ConstantVTable
-
-pub fn vortex_array::arrays::ConstantVTable::sum(&self, array: &vortex_array::arrays::ConstantArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::scalar_fn::fns::between::BetweenReduce for vortex_array::arrays::ConstantVTable
 
@@ -5233,10 +5197,6 @@ pub fn vortex_array::arrays::DecimalVTable::is_strict_sorted(&self, array: &vort
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::DecimalVTable
 
 pub fn vortex_array::arrays::DecimalVTable::min_max(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::DecimalVTable
-
-pub fn vortex_array::arrays::DecimalVTable::sum(&self, array: &vortex_array::arrays::DecimalArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::DecimalVTable> for vortex_array::arrays::decimal::DecimalMaskedValidityRule
 
@@ -5591,10 +5551,6 @@ pub fn vortex_array::arrays::ExtensionVTable::is_strict_sorted(&self, array: &vo
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ExtensionVTable
 
 pub fn vortex_array::arrays::ExtensionVTable::min_max(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ExtensionVTable
-
-pub fn vortex_array::arrays::ExtensionVTable::sum(&self, array: &vortex_array::arrays::ExtensionArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::ExtensionVTable
 
@@ -6689,10 +6645,6 @@ pub fn vortex_array::arrays::PrimitiveVTable::min_max(&self, array: &vortex_arra
 impl vortex_array::compute::NaNCountKernel for vortex_array::arrays::PrimitiveVTable
 
 pub fn vortex_array::arrays::PrimitiveVTable::nan_count(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<usize>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::PrimitiveVTable
-
-pub fn vortex_array::arrays::PrimitiveVTable::sum(&self, array: &vortex_array::arrays::PrimitiveArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::PrimitiveVTable> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
 
@@ -9556,12 +9508,6 @@ impl<'a> core::clone::Clone for vortex_array::compute::InvocationArgs<'a>
 
 pub fn vortex_array::compute::InvocationArgs<'a>::clone(&self) -> vortex_array::compute::InvocationArgs<'a>
 
-impl<'a> core::convert::TryFrom<&vortex_array::compute::InvocationArgs<'a>> for vortex_array::compute::SumArgs<'a>
-
-pub type vortex_array::compute::SumArgs<'a>::Error = vortex_error::VortexError
-
-pub fn vortex_array::compute::SumArgs<'a>::try_from(value: &vortex_array::compute::InvocationArgs<'a>) -> core::result::Result<Self, Self::Error>
-
 pub struct vortex_array::compute::IsConstantKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
 
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::IsConstantKernel> vortex_array::compute::IsConstantKernelAdapter<V>
@@ -9695,36 +9641,6 @@ pub fn vortex_array::compute::NaNCountKernelAdapter<V>::invoke(&self, args: &vor
 pub struct vortex_array::compute::NaNCountKernelRef(_)
 
 impl inventory::Collect for vortex_array::compute::NaNCountKernelRef
-
-pub struct vortex_array::compute::SumArgs<'a>
-
-pub vortex_array::compute::SumArgs::accumulator: &'a vortex_array::scalar::Scalar
-
-pub vortex_array::compute::SumArgs::array: &'a dyn vortex_array::DynArray
-
-impl<'a> core::convert::TryFrom<&vortex_array::compute::InvocationArgs<'a>> for vortex_array::compute::SumArgs<'a>
-
-pub type vortex_array::compute::SumArgs<'a>::Error = vortex_error::VortexError
-
-pub fn vortex_array::compute::SumArgs<'a>::try_from(value: &vortex_array::compute::InvocationArgs<'a>) -> core::result::Result<Self, Self::Error>
-
-pub struct vortex_array::compute::SumKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::SumKernel> vortex_array::compute::SumKernelAdapter<V>
-
-pub const fn vortex_array::compute::SumKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::SumKernelRef
-
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::SumKernelAdapter<V>
-
-pub fn vortex_array::compute::SumKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::SumKernel> vortex_array::compute::Kernel for vortex_array::compute::SumKernelAdapter<V>
-
-pub fn vortex_array::compute::SumKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-pub struct vortex_array::compute::SumKernelRef(_)
-
-impl inventory::Collect for vortex_array::compute::SumKernelRef
 
 pub struct vortex_array::compute::UnaryArgs<'a, O: vortex_array::compute::Options>
 
@@ -9910,10 +9826,6 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::NaNCountKernel> vo
 
 pub fn vortex_array::compute::NaNCountKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::SumKernel> vortex_array::compute::Kernel for vortex_array::compute::SumKernelAdapter<V>
-
-pub fn vortex_array::compute::SumKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
 pub trait vortex_array::compute::MinMaxKernel: vortex_array::vtable::VTable
 
 pub fn vortex_array::compute::MinMaxKernel::min_max(&self, array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -9998,34 +9910,6 @@ impl vortex_array::compute::Options for vortex_array::scalar_fn::fns::between::B
 
 pub fn vortex_array::scalar_fn::fns::between::BetweenOptions::as_any(&self) -> &dyn core::any::Any
 
-pub trait vortex_array::compute::SumKernel: vortex_array::vtable::VTable
-
-pub fn vortex_array::compute::SumKernel::sum(&self, array: &Self::Array, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::BoolVTable
-
-pub fn vortex_array::arrays::BoolVTable::sum(&self, array: &vortex_array::arrays::BoolArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ChunkedVTable
-
-pub fn vortex_array::arrays::ChunkedVTable::sum(&self, array: &vortex_array::arrays::ChunkedArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ConstantVTable
-
-pub fn vortex_array::arrays::ConstantVTable::sum(&self, array: &vortex_array::arrays::ConstantArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::DecimalVTable
-
-pub fn vortex_array::arrays::DecimalVTable::sum(&self, array: &vortex_array::arrays::DecimalArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::ExtensionVTable
-
-pub fn vortex_array::arrays::ExtensionVTable::sum(&self, array: &vortex_array::arrays::ExtensionArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::compute::SumKernel for vortex_array::arrays::PrimitiveVTable
-
-pub fn vortex_array::arrays::PrimitiveVTable::sum(&self, array: &vortex_array::arrays::PrimitiveArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
 pub fn vortex_array::compute::is_constant(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::compute::is_constant_opts(array: &vortex_array::ArrayRef, options: &vortex_array::compute::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
@@ -10041,8 +9925,6 @@ pub fn vortex_array::compute::min_max(array: &vortex_array::ArrayRef) -> vortex_
 pub fn vortex_array::compute::nan_count(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<usize>
 
 pub fn vortex_array::compute::sum(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::compute::sum_impl(array: &vortex_array::ArrayRef, accumulator: &vortex_array::scalar::Scalar, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::compute::warm_up_vtables()
 
