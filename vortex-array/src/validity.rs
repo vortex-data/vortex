@@ -36,7 +36,7 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 
 /// Validity information for an array
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Validity {
     /// Items *can't* be null
     NonNullable,
@@ -48,6 +48,17 @@ pub enum Validity {
     ///
     /// True values are valid, false values are invalid ("null").
     Array(ArrayRef),
+}
+
+impl Debug for Validity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NonNullable => write!(f, "NonNullable"),
+            Self::AllValid => write!(f, "AllValid"),
+            Self::AllInvalid => write!(f, "AllInvalid"),
+            Self::Array(arr) => write!(f, "SomeValid({})", arr.as_ref().display_values()),
+        }
+    }
 }
 
 impl Validity {

@@ -15,9 +15,9 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 impl MaskReduce for ExtensionVTable {
     fn mask(array: &ExtensionArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_storage = MaskExpr.try_new_array(
-            array.storage().len(),
+            array.storage_array().len(),
             EmptyOptions,
-            [array.storage().clone(), mask.clone()],
+            [array.storage_array().clone(), mask.clone()],
         )?;
         Ok(Some(
             ExtensionArray::new(

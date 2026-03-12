@@ -97,12 +97,29 @@ impl Display for VortexFuzzError {
                     "MinMax mismatch: expected {lhs:?} got {rhs:?} in step {step}\nBacktrace:\n{backtrace}"
                 )
             }
-            VortexFuzzError::ArrayNotEqual(expected, actual, idx, lhs, rhs, step, backtrace) => {
+            VortexFuzzError::ArrayNotEqual(
+                expected_scalar,
+                actual_scalar,
+                idx,
+                expected_array,
+                current_array,
+                step,
+                backtrace,
+            ) => {
+                let expected_tree = expected_array.display_tree();
+                let current_tree = current_array.display_tree();
+                let expected_values = expected_array.display_values();
+                let current_values = current_array.display_values();
                 write!(
                     f,
-                    "{expected} != {actual} at index {idx}, lhs is {} rhs is {} in step {step}\nBacktrace:\n{backtrace}",
-                    lhs.display_tree(),
-                    rhs.display_tree(),
+                    "Mismatch at step {step} at index {idx}\n\
+                    Expected scalar:\n{expected_scalar}\n\
+                    Actual scalar:\n{actual_scalar}\n\
+                    Expected tree:\n{expected_tree}\n\
+                    Current tree:\n{current_tree}\
+                    Expected values:\n{expected_values:#}\n\
+                    Current values:\n{current_values:#}\
+                    \n{backtrace}"
                 )
             }
             VortexFuzzError::DTypeMismatch(lhs, rhs, step, backtrace) => {

@@ -89,7 +89,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
         Canonical::Extension(a) => {
             let filtered_storage = a
-                .storage()
+                .storage_array()
                 .filter(values_to_mask(mask))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
