@@ -233,6 +233,8 @@ typedef struct DType DType;
  */
 typedef struct Nullability Nullability;
 
+typedef struct Primitive Primitive;
+
 /**
  * Base type for all Vortex arrays.
  *
