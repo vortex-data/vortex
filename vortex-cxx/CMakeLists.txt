@@ -24,7 +24,7 @@ if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wpedantic -Wno-dollar-in-identifier-extension")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-dollar-in-identifier-extension")
 
 option(VORTEX_ENABLE_TESTING "Enable building test binary for vortex-cxx" OFF)
 option(VORTEX_ENABLE_ASAN "Enable address sanitizer" OFF)
