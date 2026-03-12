@@ -11,7 +11,7 @@
 # you can generate it by running `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON` or
 # `bear -- cargo build` (https://github.com/rizsotto/Bear).
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.22)
 project(vortex_duckdb_cpp)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -21,7 +21,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Default to debug if build config is not explicitly set.
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
-endif ()
+endif()
 
 # Enable compiler warnings (matching build.rs flags).
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-unused-parameter")
