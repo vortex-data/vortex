@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use vortex_error::VortexExpect;
 
 use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
+use vortex_error::VortexExpect;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
