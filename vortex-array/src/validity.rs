@@ -122,34 +122,6 @@ impl Validity {
         }
     }
 
-    #[inline]
-    pub fn all_valid(&self, len: usize) -> VortexResult<bool> {
-        Ok(match self {
-            _ if len == 0 => true,
-            Validity::NonNullable | Validity::AllValid => true,
-            Validity::AllInvalid => false,
-            Validity::Array(array) => {
-                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
-                    .vortex_expect("sum must be a usize")
-                    == array.len()
-            }
-        })
-    }
-
-    #[inline]
-    pub fn all_invalid(&self, len: usize) -> VortexResult<bool> {
-        Ok(match self {
-            _ if len == 0 => true,
-            Validity::NonNullable | Validity::AllValid => false,
-            Validity::AllInvalid => true,
-            Validity::Array(array) => {
-                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
-                    .vortex_expect("sum must be a usize")
-                    == 0
-            }
-        })
-    }
-
     /// Returns whether the `index` item is valid.
     #[inline]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {

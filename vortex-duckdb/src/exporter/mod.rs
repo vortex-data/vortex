@@ -36,6 +36,7 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_array::validity::Validity;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
@@ -57,8 +58,11 @@ impl ArrayExporter {
         cache: &ConversionCache,
         mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
-        let all_valid = array.validity().all_valid(array.len())?;
-        assert!(all_valid);
+        assert!(matches!(
+            array.validity()?,
+            Validity::NonNullable | Validity::AllValid
+        ));
+
         let fields = array
             .unmasked_fields()
             .iter()

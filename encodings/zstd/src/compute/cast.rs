@@ -6,6 +6,7 @@ use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
@@ -45,11 +46,10 @@ impl CastReduce for Zstd {
             }
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
-                let sliced_len = array.slice_stop() - array.slice_start();
-                let has_nulls = !array
-                    .unsliced_validity
-                    .slice(array.slice_start()..array.slice_stop())?
-                    .all_valid(sliced_len)?;
+                let has_nulls = !matches!(
+                    array.validity()?,
+                    Validity::AllValid | Validity::NonNullable
+                );
 
                 // We don't attempt to handle casting when there are nulls.
                 if has_nulls {

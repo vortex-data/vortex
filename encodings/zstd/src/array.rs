@@ -789,7 +789,7 @@ impl ZstdArray {
         // implied by the DType.
         if !self.dtype().is_nullable() && slice_validity != Validity::NonNullable {
             assert!(
-                slice_validity.all_valid(slice_n_rows)?,
+                matches!(slice_validity, Validity::AllValid),
                 "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
 

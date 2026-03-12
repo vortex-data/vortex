@@ -126,7 +126,7 @@ pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
                     .map(|s| ConstantArray::new(s, array.len()).into_array())
                     .collect(),
                 None => {
-                    assert!(validity.all_invalid(array.len())?);
+                    assert!(matches!(validity, Validity::AllInvalid));
                     // The struct is entirely null, so fields just need placeholder values with the
                     // correct dtype. We use `default_value` which returns a zero for non-nullable
                     // dtypes and null for nullable dtypes, preserving each field's nullability.
