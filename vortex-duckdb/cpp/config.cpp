@@ -47,7 +47,8 @@ duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char *key, d
 
         // First check set_variable_defaults (the primary location for config values)
         if (db_config->options.set_variable_defaults.contains(key_str)) {
-            *out_value = reinterpret_cast<duckdb_value>(new Value(db_config->options.set_variable_defaults[key_str]));
+            *out_value =
+                reinterpret_cast<duckdb_value>(new Value(db_config->options.set_variable_defaults[key_str]));
             return DuckDBSuccess;
         }
 
