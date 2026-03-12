@@ -3,6 +3,8 @@
 
 //! Core benchmark trait and types.
 
+use std::path::PathBuf;
+
 use arrow_schema::Schema;
 use glob::Pattern;
 use url::Url;
@@ -71,6 +73,14 @@ pub trait Benchmark: Send + Sync {
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
         _ = table_name;
         _ = format;
+        None
+    }
+
+    /// Directory containing expected result files for validation.
+    ///
+    /// Reference files are stored per-engine at `{dir}/{engine}/q{idx:02}.txt`.
+    /// Use `--generate-reference` to create them, `--validate` to check against them.
+    fn expected_results_dir(&self) -> Option<PathBuf> {
         None
     }
 }
