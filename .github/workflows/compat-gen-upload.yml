@@ -1,12 +1,10 @@
 name: Compat Fixture Upload
 
 on:
-  push:
-    tags: ["[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Git tag to generate fixtures for (e.g. 0.62.0)"
+      version:
+        description: "Version to generate fixtures for (e.g. 0.62.0)"
         required: true
 
 env:
@@ -20,21 +18,15 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: vortex-test/compat-gen
 
       - name: Generate fixtures
         run: |
-          VERSION=${{ github.event.inputs.tag || github.ref_name }}
-          cargo run --manifest-path vortex-test/compat-gen/Cargo.toml \
-            --release --bin compat-gen -- \
-            --version "$VERSION" --output /tmp/fixtures/
+          cargo run -p vortex-compat --release --bin compat-gen -- \
+            --version "${{ inputs.version }}" --output /tmp/fixtures/
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -44,13 +36,11 @@ jobs:
 
       - name: Upload to S3
         run: |
-          VERSION=${{ github.event.inputs.tag || github.ref_name }}
           aws s3 cp /tmp/fixtures/ \
-            "s3://${S3_BUCKET}/v${VERSION}/" --recursive
+            "s3://${S3_BUCKET}/v${{ inputs.version }}/" --recursive
 
       - name: Update versions.json
         run: |
-          VERSION=${{ github.event.inputs.tag || github.ref_name }}
           # Fetch existing versions.json or start with empty array
           aws s3 cp "s3://${S3_BUCKET}/versions.json" /tmp/versions.json 2>/dev/null \
             || echo '[]' > /tmp/versions.json
@@ -65,5 +55,5 @@ jobs:
               versions.sort(key=lambda x: list(map(int, x.split('.'))))
           with open('/tmp/versions.json', 'w') as f:
               json.dump(versions, f, indent=2)
-          " "$VERSION"
+          " "${{ inputs.version }}"
           aws s3 cp /tmp/versions.json "s3://${S3_BUCKET}/versions.json"

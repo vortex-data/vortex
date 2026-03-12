@@ -11,7 +11,10 @@ use crate::fixtures::all_fixtures;
 use crate::manifest::Manifest;
 
 #[derive(Parser)]
-#[command(name = "compat-gen", about = "Generate Vortex backward-compat fixture files")]
+#[command(
+    name = "compat-gen",
+    about = "Generate Vortex backward-compat fixture files"
+)]
 struct Cli {
     /// Version tag for this fixture set (e.g. "0.62.0").
     #[arg(long)]
@@ -32,7 +35,7 @@ fn main() -> vortex_error::VortexResult<()> {
     let mut fixture_names = Vec::with_capacity(fixtures.len());
 
     for fixture in &fixtures {
-        let chunks = fixture.build();
+        let chunks = fixture.build()?;
         let path = cli.output.join(fixture.name());
         adapter::write_file(&path, chunks)?;
         fixture_names.push(fixture.name().to_string());

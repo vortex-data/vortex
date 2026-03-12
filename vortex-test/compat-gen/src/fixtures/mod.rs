@@ -4,6 +4,7 @@ mod synthetic;
 mod tpch;
 
 use vortex_array::ArrayRef;
+use vortex_error::VortexResult;
 
 /// A deterministic fixture that produces the same arrays every time.
 pub trait Fixture: Send + Sync {
@@ -14,7 +15,7 @@ pub trait Fixture: Send + Sync {
     ///
     /// Returns a `Vec` to support chunked fixtures (multiple chunks).
     /// Single-array fixtures return a one-element vec.
-    fn build(&self) -> Vec<ArrayRef>;
+    fn build(&self) -> VortexResult<Vec<ArrayRef>>;
 }
 
 /// All registered fixtures.

@@ -9849,6 +9849,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-compat"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "chrono",
+ "clap",
+ "futures",
+ "parquet",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tpchgen",
+ "tpchgen-arrow",
+ "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
 name = "vortex-cub"
 version = "0.1.0"
 dependencies = [

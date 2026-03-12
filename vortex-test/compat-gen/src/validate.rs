@@ -1,13 +1,17 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{assert_arrays_eq, ArrayRef, IntoArray};
+use vortex_array::assert_arrays_eq;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::adapter;
-use crate::fixtures::{all_fixtures, Fixture};
+use crate::fixtures::Fixture;
+use crate::fixtures::all_fixtures;
 use crate::manifest::Manifest;
 
 /// Result of validating one version's fixtures.
@@ -19,12 +23,13 @@ pub struct VersionResult {
 }
 
 /// Validate all versions' fixtures against the current reader.
-pub fn validate_all(source: &FixtureSource, versions: &[String]) -> VortexResult<Vec<VersionResult>> {
+pub fn validate_all(
+    source: &FixtureSource,
+    versions: &[String],
+) -> VortexResult<Vec<VersionResult>> {
     let fixtures = all_fixtures();
-    let fixture_map: HashMap<&str, &dyn Fixture> = fixtures
-        .iter()
-        .map(|f| (f.name(), f.as_ref()))
-        .collect();
+    let fixture_map: HashMap<&str, &dyn Fixture> =
+        fixtures.iter().map(|f| (f.name(), f.as_ref())).collect();
 
     let mut results = Vec::new();
     for version in versions {
@@ -72,7 +77,7 @@ fn validate_version(
 
 fn validate_one(bytes: ByteBuffer, fixture: &dyn Fixture) -> VortexResult<()> {
     let actual = adapter::read_file(bytes)?;
-    let expected = fixture.build();
+    let expected = fixture.build()?;
 
     let actual_dtype = actual[0].dtype().clone();
     let expected_dtype = expected[0].dtype().clone();
@@ -137,14 +142,13 @@ pub fn discover_versions(source: &FixtureSource) -> VortexResult<Vec<String>> {
             for entry in std::fs::read_dir(dir)
                 .map_err(|e| vortex_err!("failed to read dir {}: {e}", dir.display()))?
             {
-                let entry =
-                    entry.map_err(|e| vortex_err!("failed to read dir entry: {e}"))?;
+                let entry = entry.map_err(|e| vortex_err!("failed to read dir entry: {e}"))?;
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if let Some(version) = name.strip_prefix('v') {
-                    if entry.path().join("manifest.json").exists() {
-                        versions.push(version.to_string());
-                    }
+                if let Some(version) = name.strip_prefix('v')
+                    && entry.path().join("manifest.json").exists()
+                {
+                    versions.push(version.to_string());
                 }
             }
             versions.sort();

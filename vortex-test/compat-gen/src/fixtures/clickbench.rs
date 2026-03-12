@@ -1,9 +1,9 @@
-use std::io::Cursor;
-
 use arrow_array::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use vortex_array::arrow::FromArrowArray;
 use vortex_array::ArrayRef;
+use vortex_array::arrow::FromArrowArray;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use super::Fixture;
 
@@ -18,26 +18,26 @@ impl Fixture for ClickBenchHits1kFixture {
         "clickbench_hits_1k.vortex"
     }
 
-    fn build(&self) -> Vec<ArrayRef> {
+    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
         let bytes = reqwest::blocking::get(CLICKBENCH_URL)
-            .expect("failed to download ClickBench parquet")
+            .map_err(|e| vortex_err!("failed to download ClickBench parquet: {e}"))?
             .bytes()
-            .expect("failed to read ClickBench response body");
+            .map_err(|e| vortex_err!("failed to read ClickBench response body: {e}"))?;
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(bytes)
-            .expect("failed to open parquet")
+            .map_err(|e| vortex_err!("failed to open parquet: {e}"))?
             .with_batch_size(1000)
             .with_limit(1000)
             .build()
-            .expect("failed to build parquet reader");
+            .map_err(|e| vortex_err!("failed to build parquet reader: {e}"))?;
 
         let batches: Vec<RecordBatch> = reader
             .collect::<Result<Vec<_>, _>>()
-            .expect("failed to read parquet batches");
+            .map_err(|e| vortex_err!("failed to read parquet batches: {e}"))?;
 
         batches
             .into_iter()
-            .map(|batch| ArrayRef::from_arrow(batch, false).expect("arrow conversion failed"))
+            .map(|batch| ArrayRef::from_arrow(batch, false))
             .collect()
     }
 }

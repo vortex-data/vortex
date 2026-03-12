@@ -1,7 +1,19 @@
 [package]
 name = "vortex-compat"
-version = "0.1.0"
-edition = "2021"
+authors = { workspace = true }
+description = "Backward-compatibility fixture generation and testing for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "compat-gen"
@@ -12,29 +24,31 @@ name = "compat-test"
 path = "src/test_main.rs"
 
 [dependencies]
-# Vortex crates (path deps — resolve to whatever version is checked out)
-vortex = { path = "../../vortex", features = ["files", "tokio"] }
-vortex-array = { path = "../../vortex-array" }
-vortex-buffer = { path = "../../vortex-buffer" }
-vortex-error = { path = "../../vortex-error" }
+# Vortex crates
+vortex = { workspace = true, features = ["files", "tokio"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 # TPC-H generation
-tpchgen = "2"
-tpchgen-arrow = "2"
-arrow-array = "57"
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
+arrow-array = { workspace = true }
 
 # ClickBench parquet reading
-parquet = "57"
+parquet = { workspace = true }
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
-futures = "0.3"
+tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
 
 # HTTP fetching (for ClickBench fixture + compat-test S3 downloads)
-reqwest = { version = "0.12", features = ["blocking"] }
+reqwest = { workspace = true }
 
 # CLI + serialization
-clap = { version = "4", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-chrono = { version = "0.4", features = ["serde"] }
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }

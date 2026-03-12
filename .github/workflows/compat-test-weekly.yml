@@ -17,11 +17,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: vortex-test/compat-gen
 
       - name: Run compat tests
         run: |
-          cargo run --manifest-path vortex-test/compat-gen/Cargo.toml \
-            --release --bin compat-test -- \
+          cargo run -p vortex-compat --release --bin compat-test -- \
             --fixtures-url "$FIXTURES_URL"

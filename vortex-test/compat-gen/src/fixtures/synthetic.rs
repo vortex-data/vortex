@@ -1,9 +1,13 @@
-use vortex_array::arrays::{BoolArray, ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
-use vortex_array::dtype::field_names::FieldNames;
-use vortex_array::dtype::{DType, Nullability, PType};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 
 use super::Fixture;
 
@@ -14,24 +18,36 @@ impl Fixture for PrimitivesFixture {
         "primitives.vortex"
     }
 
-    fn build(&self) -> Vec<ArrayRef> {
+    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
         let arr = StructArray::try_new(
             FieldNames::from(["u8", "u16", "u32", "u64", "i32", "i64", "f32", "f64"]),
             vec![
                 PrimitiveArray::new(buffer![0u8, 128, 255], Validity::NonNullable).into_array(),
-                PrimitiveArray::new(buffer![0u16, 32768, 65535], Validity::NonNullable).into_array(),
-                PrimitiveArray::new(buffer![0u32, 2_147_483_648, 4_294_967_295], Validity::NonNullable).into_array(),
-                PrimitiveArray::new(buffer![0u64, 9_223_372_036_854_775_808, u64::MAX], Validity::NonNullable).into_array(),
-                PrimitiveArray::new(buffer![i32::MIN, 0i32, i32::MAX], Validity::NonNullable).into_array(),
-                PrimitiveArray::new(buffer![i64::MIN, 0i64, i64::MAX], Validity::NonNullable).into_array(),
-                PrimitiveArray::new(buffer![f32::MIN, 0.0f32, f32::MAX], Validity::NonNullable).into_array(),
-                PrimitiveArray::new(buffer![f64::MIN, 0.0f64, f64::MAX], Validity::NonNullable).into_array(),
+                PrimitiveArray::new(buffer![0u16, 32768, 65535], Validity::NonNullable)
+                    .into_array(),
+                PrimitiveArray::new(
+                    buffer![0u32, 2_147_483_648, 4_294_967_295],
+                    Validity::NonNullable,
+                )
+                .into_array(),
+                PrimitiveArray::new(
+                    buffer![0u64, 9_223_372_036_854_775_808, u64::MAX],
+                    Validity::NonNullable,
+                )
+                .into_array(),
+                PrimitiveArray::new(buffer![i32::MIN, 0i32, i32::MAX], Validity::NonNullable)
+                    .into_array(),
+                PrimitiveArray::new(buffer![i64::MIN, 0i64, i64::MAX], Validity::NonNullable)
+                    .into_array(),
+                PrimitiveArray::new(buffer![f32::MIN, 0.0f32, f32::MAX], Validity::NonNullable)
+                    .into_array(),
+                PrimitiveArray::new(buffer![f64::MIN, 0.0f64, f64::MAX], Validity::NonNullable)
+                    .into_array(),
             ],
             3,
             Validity::NonNullable,
-        )
-        .expect("failed to build primitives fixture");
-        vec![arr.into_array()]
+        )?;
+        Ok(vec![arr.into_array()])
     }
 }
 
@@ -42,16 +58,15 @@ impl Fixture for StringsFixture {
         "strings.vortex"
     }
 
-    fn build(&self) -> Vec<ArrayRef> {
+    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
         let strings = VarBinArray::from(vec!["", "hello", "こんにちは", "\u{1f980}"]);
         let arr = StructArray::try_new(
             FieldNames::from(["text"]),
             vec![strings.into_array()],
             4,
             Validity::NonNullable,
-        )
-        .expect("failed to build strings fixture");
-        vec![arr.into_array()]
+        )?;
+        Ok(vec![arr.into_array()])
     }
 }
 
@@ -62,16 +77,15 @@ impl Fixture for BooleansFixture {
         "booleans.vortex"
     }
 
-    fn build(&self) -> Vec<ArrayRef> {
+    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
         let bools = BoolArray::from_iter([true, false, true, true, false]);
         let arr = StructArray::try_new(
             FieldNames::from(["flag"]),
             vec![bools.into_array()],
             5,
             Validity::NonNullable,
-        )
-        .expect("failed to build booleans fixture");
-        vec![arr.into_array()]
+        )?;
+        Ok(vec![arr.into_array()])
     }
 }
 
@@ -82,29 +96,18 @@ impl Fixture for NullableFixture {
         "nullable.vortex"
     }
 
-    fn build(&self) -> Vec<ArrayRef> {
-        let nullable_ints = PrimitiveArray::from_option_iter([
-            Some(1i32),
-            None,
-            Some(42),
-            None,
-            Some(-7),
-        ]);
-        let nullable_strings = VarBinArray::from(vec![
-            Some("hello"),
-            None,
-            Some("world"),
-            Some(""),
-            None,
-        ]);
+    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+        let nullable_ints =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(42), None, Some(-7)]);
+        let nullable_strings =
+            VarBinArray::from(vec![Some("hello"), None, Some("world"), Some(""), None]);
         let arr = StructArray::try_new(
             FieldNames::from(["int_col", "str_col"]),
             vec![nullable_ints.into_array(), nullable_strings.into_array()],
             5,
             Validity::NonNullable,
-        )
-        .expect("failed to build nullable fixture");
-        vec![arr.into_array()]
+        )?;
+        Ok(vec![arr.into_array()])
     }
 }
 
@@ -115,7 +118,7 @@ impl Fixture for StructNestedFixture {
         "struct_nested.vortex"
     }
 
-    fn build(&self) -> Vec<ArrayRef> {
+    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
         let inner = StructArray::try_new(
             FieldNames::from(["a", "b"]),
             vec![
@@ -124,8 +127,7 @@ impl Fixture for StructNestedFixture {
             ],
             3,
             Validity::NonNullable,
-        )
-        .expect("failed to build inner struct");
+        )?;
 
         let arr = StructArray::try_new(
             FieldNames::from(["inner", "value"]),
@@ -135,9 +137,8 @@ impl Fixture for StructNestedFixture {
             ],
             3,
             Validity::NonNullable,
-        )
-        .expect("failed to build struct_nested fixture");
-        vec![arr.into_array()]
+        )?;
+        Ok(vec![arr.into_array()])
     }
 }
 
@@ -148,21 +149,20 @@ impl Fixture for ChunkedFixture {
         "chunked.vortex"
     }
 
-    fn build(&self) -> Vec<ArrayRef> {
+    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
         // 3 chunks of 1000 rows each. Values are deterministic: chunk_idx * 1000 + row_idx.
         (0u32..3)
             .map(|chunk_idx| {
                 let values: Vec<u32> = (0u32..1000).map(|i| chunk_idx * 1000 + i).collect();
                 let primitives =
                     PrimitiveArray::new(vortex_buffer::Buffer::from(values), Validity::NonNullable);
-                StructArray::try_new(
+                Ok(StructArray::try_new(
                     FieldNames::from(["id"]),
                     vec![primitives.into_array()],
                     1000,
                     Validity::NonNullable,
-                )
-                .expect("failed to build chunk")
-                .into_array()
+                )?
+                .into_array())
             })
             .collect()
     }

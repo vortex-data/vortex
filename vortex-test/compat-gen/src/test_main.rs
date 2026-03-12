@@ -8,10 +8,14 @@ use std::path::PathBuf;
 use clap::Parser;
 use vortex_error::VortexResult;
 
-use crate::validate::{discover_versions, FixtureSource};
+use crate::validate::FixtureSource;
+use crate::validate::discover_versions;
 
 #[derive(Parser)]
-#[command(name = "compat-test", about = "Validate Vortex backward-compat fixtures")]
+#[command(
+    name = "compat-test",
+    about = "Validate Vortex backward-compat fixtures"
+)]
 struct Cli {
     /// HTTPS base URL for the fixture bucket.
     /// e.g. https://vortex-compat-fixtures.s3.amazonaws.com
@@ -48,7 +52,11 @@ fn main() -> VortexResult<()> {
         }
     };
 
-    eprintln!("testing {} version(s): {}", versions.len(), versions.join(", "));
+    eprintln!(
+        "testing {} version(s): {}",
+        versions.len(),
+        versions.join(", ")
+    );
 
     let results = validate::validate_all(&source, &versions)?;
 
@@ -61,7 +69,10 @@ fn main() -> VortexResult<()> {
         total_failed += r.failed.len();
         total_skipped += r.skipped;
         if r.failed.is_empty() {
-            eprintln!("  v{}: {} passed, {} skipped", r.version, r.passed, r.skipped);
+            eprintln!(
+                "  v{}: {} passed, {} skipped",
+                r.version, r.passed, r.skipped
+            );
         } else {
             eprintln!(
                 "  v{}: {} passed, {} FAILED, {} skipped",
@@ -76,9 +87,7 @@ fn main() -> VortexResult<()> {
         }
     }
 
-    eprintln!(
-        "\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped"
-    );
+    eprintln!("\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped");
 
     if total_failed > 0 {
         std::process::exit(1);

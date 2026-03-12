@@ -1,4 +1,7 @@
+#![allow(dead_code)]
+
 use vortex_array::ArrayRef;
+use vortex_error::VortexResult;
 
 use super::Fixture;
 
@@ -11,11 +14,8 @@ macro_rules! encoding_stub {
                 $file
             }
 
-            fn build(&self) -> Vec<ArrayRef> {
-                todo!(concat!(
-                    "blocked on stable-encodings RFC — ",
-                    $file
-                ))
+            fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+                todo!(concat!("blocked on stable-encodings RFC — ", $file))
             }
         }
     };

@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Manifest listing all fixtures generated for a given version.
 #[derive(Debug, Serialize, Deserialize)]
