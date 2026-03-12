@@ -55,10 +55,13 @@ fn list_to_list(
 
     let null_buffer = to_arrow_null_buffer(array.validity().clone(), array.len(), ctx)?;
 
-    Ok(Arc::new(arrow_array::FixedSizeListArray::new(
-        elements_field.clone(),
-        list_size,
-        elements,
-        null_buffer,
-    )))
+    Ok(Arc::new(
+        arrow_array::FixedSizeListArray::try_new_with_length(
+            elements_field.clone(),
+            list_size,
+            elements,
+            null_buffer,
+            array.len(),
+        )?,
+    ))
 }
