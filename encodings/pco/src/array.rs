@@ -22,9 +22,11 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -263,8 +265,8 @@ impl VTable for Pco {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.decompress()?.into_array()))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.decompress(ctx)?.into_array()))
     }
 
     fn reduce_parent(
@@ -437,14 +439,14 @@ impl PcoArray {
         }
     }
 
-    pub fn decompress(&self) -> VortexResult<PrimitiveArray> {
+    pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
         let number_type = number_type_from_dtype(&self.dtype);
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
-              self.decompress_values_typed::<T>()?
+              self.decompress_values_typed::<T>(ctx)?
             }
         );
 
@@ -457,11 +459,14 @@ impl PcoArray {
         ))
     }
 
-    fn decompress_values_typed<T: Number>(&self) -> VortexResult<ByteBuffer> {
+    fn decompress_values_typed<T: Number>(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ByteBuffer> {
         // To start, we figure out what range of values we need to decompress.
         let slice_value_indices = self
             .unsliced_validity
-            .to_mask(self.unsliced_n_rows)
+            .execute_mask(self.unsliced_n_rows, ctx)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
         let slice_value_stop = slice_value_indices[1];
@@ -564,7 +569,11 @@ impl ValiditySliceHelper for PcoArray {
 
 impl OperationsVTable<Pco> for Pco {
     fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        array
+            ._slice(index, index + 1)
+            .decompress(&mut ctx)?
+            .scalar_at(0)
     }
 }
 

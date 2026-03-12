@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -47,7 +48,8 @@ fn test_compress_decompress() {
     assert!(compressed.pages.len() < array.nbytes() as usize);
 
     // check full decompression works
-    let decompressed = compressed.decompress().unwrap();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let decompressed = compressed.decompress(&mut ctx).unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
@@ -69,7 +71,8 @@ fn test_compress_decompress_small() {
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
 
-    let decompressed = compressed.decompress().unwrap();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let decompressed = compressed.decompress(&mut ctx).unwrap();
     assert_arrays_eq!(decompressed, expected);
 }
 
@@ -78,7 +81,8 @@ fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
-    let primitive = compressed.decompress().unwrap();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let primitive = compressed.decompress(&mut ctx).unwrap();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
 }
 
@@ -118,9 +122,16 @@ fn test_validity_and_multiple_chunks_and_pages() {
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
     let primitive = slice.to_primitive();
-    assert_eq!(
-        primitive.validity(),
-        &Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array())
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(
+        primitive
+            .validity()
+            .mask_eq(
+                &Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array()),
+                &mut ctx,
+            )
+            .unwrap()
     );
 }
 

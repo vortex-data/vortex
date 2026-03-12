@@ -200,7 +200,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let elements = elements.execute::<Columnar>(ctx)?.into_array();
         let offsets = groups.offsets();
         let sizes = groups.sizes().cast(offsets.dtype().clone())?;
-        let validity = groups.validity().to_mask(offsets.len());
+        let validity = groups.validity().execute_mask(offsets.len(), ctx)?;
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
@@ -285,7 +285,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
         let elements = elements.execute::<Columnar>(ctx)?.into_array();
-        let validity = groups.validity().to_mask(groups.len());
+        let validity = groups.validity().execute_mask(groups.len(), ctx)?;
 
         let mut accumulator = Accumulator::try_new(
             self.vtable.clone(),

@@ -115,6 +115,7 @@ mod test {
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn cast_u32_u8() {
         let arr = buffer![0u32, 10, 200].into_array();
@@ -122,7 +123,7 @@ mod test {
         // cast from u32 to u8
         let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
 
         // to nullable
         let p = p
@@ -134,7 +135,7 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid)
         );
-        assert_eq!(p.validity(), &Validity::AllValid);
+        assert!(matches!(p.validity(), Validity::AllValid));
 
         // back to non-nullable
         let p = p
@@ -143,7 +144,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
 
         // to nullable u32
         let p = p
@@ -155,7 +156,7 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid)
         );
-        assert_eq!(p.validity(), &Validity::AllValid);
+        assert!(matches!(p.validity(), Validity::AllValid));
 
         // to non-nullable u8
         let p = p
@@ -164,7 +165,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
     }
 
     #[test]

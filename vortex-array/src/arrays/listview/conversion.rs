@@ -287,8 +287,10 @@ mod tests {
     use super::super::tests::common::create_nullable_listview;
     use super::super::tests::common::create_overlapping_listview;
     use super::recursive_list_from_list_view;
+    use crate::ArrayEq;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::Precision;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeListArray;
@@ -386,7 +388,11 @@ mod tests {
         let nullable_list_view = list_view_from_list(nullable_list.clone(), &mut ctx)?;
 
         // Verify validity is preserved.
-        assert_eq!(nullable_list_view.validity(), &validity);
+        assert!(
+            nullable_list_view
+                .validity()
+                .array_eq(&validity, Precision::Ptr)
+        );
         assert_eq!(nullable_list_view.len(), 3);
 
         // Round-trip conversion.

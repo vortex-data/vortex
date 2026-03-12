@@ -496,7 +496,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 4);
         assert_eq!(canonical.list_size(), 3);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
@@ -523,7 +523,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 2);
-        assert_eq!(canonical.validity(), &Validity::AllValid);
+        assert!(matches!(canonical.validity(), Validity::AllValid));
 
         // Check elements.
         let elements = canonical.elements().to_primitive();
@@ -547,7 +547,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 5);
         assert_eq!(canonical.list_size(), 4);
-        assert_eq!(canonical.validity(), &Validity::AllInvalid);
+        assert!(matches!(canonical.validity(), Validity::AllInvalid));
 
         // Elements should be defaults (zeros).
         let elements = canonical.elements().to_primitive();
@@ -569,7 +569,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 10);
         assert_eq!(canonical.list_size(), 0);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Elements array should be empty.
         assert!(canonical.elements().is_empty());
@@ -635,7 +635,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 3);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Check elements including nulls.
         let elements = canonical.elements().to_primitive();

@@ -176,7 +176,7 @@ mod tests {
             .to_decimal();
 
         assert_eq!(casted.dtype(), &nullable_dtype);
-        assert_eq!(casted.validity(), &Validity::AllValid);
+        assert!(matches!(casted.validity(), Validity::AllValid));
         assert_eq!(casted.len(), 3);
     }
 
@@ -196,7 +196,7 @@ mod tests {
             .to_decimal();
 
         assert_eq!(casted.dtype(), &non_nullable_dtype);
-        assert_eq!(casted.validity(), &Validity::NonNullable);
+        assert!(matches!(casted.validity(), Validity::NonNullable));
     }
 
     #[test]

@@ -47,8 +47,8 @@ impl ZipKernel for Struct {
 
             (v1, v2) => {
                 let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;
-                let v1m = v1.to_mask(if_true.len());
-                let v2m = v2.to_mask(if_false.len());
+                let v1m = v1.execute_mask(if_true.len(), ctx)?;
+                let v2m = v2.execute_mask(if_false.len(), ctx)?;
 
                 let combined = (v1m.bitand(&mask_mask)).bitor(&v2m.bitand(&mask_mask.not()));
                 Validity::from_mask(

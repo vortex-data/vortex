@@ -32,7 +32,7 @@ impl MaskKernel for ALP {
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let vortex_mask = Validity::Array(mask.not()?).to_mask(array.len());
+        let vortex_mask = Validity::Array(mask.not()?).execute_mask(array.len(), ctx)?;
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         let masked_patches = array
             .patches()

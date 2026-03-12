@@ -31,7 +31,6 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
-use vortex::array::validity::Validity;
 use vortex::array::vtable::ValidityHelper;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
@@ -58,10 +57,8 @@ impl ArrayExporter {
         cache: &ConversionCache,
         mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
-        assert!(matches!(
-            array.validity(),
-            Validity::NonNullable | Validity::AllValid
-        ));
+        let validity = array.validity().execute_mask(array.len(), &mut ctx)?;
+        assert!(validity.all_true());
 
         let fields = array
             .unmasked_fields()
