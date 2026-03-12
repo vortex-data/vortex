@@ -1,12 +1,11 @@
 // Quick script: read ClickBench parquet, FSST-compress the URL column,
 // dump the symbol table, and show how LIKE patterns encode into the DFA.
 
-use std::sync::Arc;
-
-use arrow::array::AsArray;
-use arrow::datatypes::DataType;
+use arrow_array::Array as ArrowArray;
+use arrow_array::cast::AsArray;
+use arrow_schema::DataType;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::{DType, Nullability};
 
@@ -20,7 +19,6 @@ fn main() {
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).expect("parquet builder");
     let schema = builder.schema().clone();
 
-    // Find the URL column index
     let url_idx = schema
         .fields()
         .iter()
@@ -29,31 +27,22 @@ fn main() {
     println!("URL column index: {url_idx}");
 
     let reader = builder.build().expect("build reader");
-
-    // Collect first batch of URLs
     let batch = reader.into_iter().next().expect("no batches").expect("batch error");
     let url_col = batch.column(url_idx);
     println!("Batch rows: {}, URL dtype: {:?}", batch.num_rows(), url_col.data_type());
 
-    // Convert arrow StringArray to VarBinArray
     let urls: Vec<Option<&str>> = match url_col.data_type() {
         DataType::Utf8 => {
             let arr = url_col.as_string::<i32>();
-            (0..arr.len()).map(|i| {
-                if arr.is_null(i) { None } else { Some(arr.value(i)) }
-            }).collect()
+            (0..arr.len()).map(|i| if arr.is_null(i) { None } else { Some(arr.value(i)) }).collect()
         }
         DataType::LargeUtf8 => {
             let arr = url_col.as_string::<i64>();
-            (0..arr.len()).map(|i| {
-                if arr.is_null(i) { None } else { Some(arr.value(i)) }
-            }).collect()
+            (0..arr.len()).map(|i| if arr.is_null(i) { None } else { Some(arr.value(i)) }).collect()
         }
         DataType::Utf8View => {
             let arr = url_col.as_string_view();
-            (0..arr.len()).map(|i| {
-                if arr.is_null(i) { None } else { Some(arr.value(i)) }
-            }).collect()
+            (0..arr.len()).map(|i| if arr.is_null(i) { None } else { Some(arr.value(i)) }).collect()
         }
         other => panic!("unexpected URL dtype: {other:?}"),
     };
@@ -62,7 +51,6 @@ fn main() {
     let non_null = urls.iter().filter(|u| u.is_some()).count();
     println!("URLs: {n_urls} total, {non_null} non-null");
 
-    // Show some sample URLs
     println!("\n=== Sample URLs ===");
     for (i, u) in urls.iter().enumerate().take(10) {
         if let Some(s) = u {
@@ -76,10 +64,10 @@ fn main() {
     // --- 2. FSST compress ---
     let varbin = VarBinArray::from_iter(urls.iter().copied(), DType::Utf8(Nullability::Nullable));
     let compressor = vortex_fsst::fsst_train_compressor(&varbin);
-    let fsst = vortex_fsst::fsst_compress(varbin, &compressor);
+    let fsst_arr = vortex_fsst::fsst_compress(varbin, &compressor);
 
-    let symbols = fsst.symbols();
-    let symbol_lengths = fsst.symbol_lengths();
+    let symbols = fsst_arr.symbols();
+    let symbol_lengths = fsst_arr.symbol_lengths();
 
     println!("\n=== FSST Symbol Table ({} symbols) ===", symbols.len());
     println!("{:<6} {:<6} {:<20} {:<20}", "Code", "Len", "Hex", "ASCII");
@@ -104,30 +92,19 @@ fn main() {
     println!("\n=== Pattern Encoding (ESCAPE_CODE = 0x{escape_code:02x}) ===");
 
     for pattern in &patterns {
-        print!("\nPattern \"{pattern}\":");
-        // Compress the pattern string to see how it encodes
+        println!("\nPattern \"{pattern}\":");
         let mut buf = vec![0u8; 2 * pattern.len() + 7];
         unsafe { compressor.compress_into(pattern.as_bytes(), &mut buf) };
-        let codes = &buf[..];
-        // Print the codes (stop at first zero if it looks like the output is shorter)
-        let code_str: Vec<String> = codes.iter().map(|c| {
-            if *c == escape_code {
-                "ESC".to_string()
-            } else {
-                format!("0x{c:02x}")
-            }
-        }).collect();
-        println!("  codes = [{}]", code_str.join(", "));
 
-        // Annotate: walk codes and show what each one decodes to
-        print!("  decoded: ");
+        // Walk codes and annotate what each one decodes to
+        print!("  encoded: ");
         let mut pos = 0;
-        while pos < codes.len() {
-            let c = codes[pos];
+        while pos < buf.len() {
+            let c = buf[pos];
             if c == escape_code {
                 pos += 1;
-                if pos < codes.len() {
-                    let lit = codes[pos];
+                if pos < buf.len() {
+                    let lit = buf[pos];
                     let ch = if lit.is_ascii_graphic() || lit == b' ' {
                         format!("{}", lit as char)
                     } else {
@@ -135,7 +112,7 @@ fn main() {
                     };
                     print!("[ESC '{ch}'] ");
                 }
-            } else {
+            } else if (c as usize) < symbols.len() {
                 let sym = symbols[c as usize];
                 let len = symbol_lengths[c as usize] as usize;
                 let bytes = sym.to_u64().to_le_bytes();
@@ -143,16 +120,18 @@ fn main() {
                     .iter()
                     .map(|&b| if b.is_ascii_graphic() || b == b' ' { b as char } else { '.' })
                     .collect();
-                print!("[{c}→\"{s}\"] ");
+                print!("[0x{c:02x}→\"{s}\"] ");
+            } else {
+                print!("[0x{c:02x}?] ");
             }
             pos += 1;
         }
         println!();
     }
 
-    // --- 4. Show a sample string's compressed codes ---
+    // --- 4. Show sample compressed strings ---
     println!("\n=== Sample Compressed Strings ===");
-    let codes_varbin = fsst.codes();
+    let codes_varbin = fsst_arr.codes();
     let offsets = codes_varbin.offsets().to_primitive();
     let all_bytes = codes_varbin.bytes();
     let all_bytes = all_bytes.as_slice();
@@ -172,12 +151,12 @@ fn main() {
 
         let display_orig = if original.len() > 60 { &original[..60] } else { original };
         println!(
-            "  [{i}] {orig_len}B → {comp_len}B ({ratio:.2}x): \"{display_orig}...\""
+            "  [{i}] {orig_len}B -> {comp_len}B ({ratio:.2}x): \"{display_orig}...\""
         );
 
-        // Show first 20 code bytes
-        let show = &string_codes[..string_codes.len().min(20)];
-        let hex: String = show
+        // Show first 30 code bytes with annotations
+        let show_len = string_codes.len().min(30);
+        let hex: String = string_codes[..show_len]
             .iter()
             .map(|b| {
                 if *b == escape_code {
@@ -188,7 +167,7 @@ fn main() {
             })
             .collect::<Vec<_>>()
             .join(" ");
-        println!("         codes: [{hex}{}]", if string_codes.len() > 20 { " ..." } else { "" });
+        println!("         codes: [{hex}{}]", if string_codes.len() > 30 { " ..." } else { "" });
     }
 
     // --- 5. Compression stats ---
@@ -200,12 +179,6 @@ fn main() {
     println!("\n=== Compression Stats ===");
     println!("  Original:   {total_orig} bytes");
     println!("  Compressed: {total_comp} bytes");
-    println!(
-        "  Ratio:      {:.2}x",
-        total_comp as f64 / total_orig as f64
-    );
-    println!(
-        "  Savings:    {:.1}%",
-        (1.0 - total_comp as f64 / total_orig as f64) * 100.0
-    );
+    println!("  Ratio:      {:.2}x", total_comp as f64 / total_orig as f64);
+    println!("  Savings:    {:.1}%", (1.0 - total_comp as f64 / total_orig as f64) * 100.0);
 }

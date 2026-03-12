@@ -10133,11 +10133,14 @@ name = "vortex-fsst"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
+ "arrow-array",
+ "arrow-schema",
  "codspeed-divan-compat",
  "daachorse",
  "fsst-rs",
  "jetscii",
  "memchr",
+ "parquet",
  "prost 0.14.3",
  "rand 0.9.2",
  "regex-automata",
