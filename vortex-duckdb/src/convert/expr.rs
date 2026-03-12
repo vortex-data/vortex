@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use itertools::Itertools;
 use tracing::debug;
 use vortex::dtype::Nullability;
 use vortex::error::VortexError;
@@ -97,7 +96,7 @@ pub fn try_from_bound_expression(
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
-                let children = operator.children().collect_vec();
+                let children: Vec<_> = operator.children().collect();
                 assert_eq!(children.len(), 1);
                 let Some(child) = try_from_bound_expression(children[0])? else {
                     return Ok(None);
@@ -113,7 +112,7 @@ pub fn try_from_bound_expression(
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
-                let children = operator.children().collect_vec();
+                let children: Vec<_> = operator.children().collect();
                 assert!(children.len() >= 2);
                 let Some(element) = try_from_bound_expression(children[0])? else {
                     return Ok(None);
@@ -153,7 +152,7 @@ pub fn try_from_bound_expression(
         },
         duckdb::ExpressionClass::BoundFunction(func) => match func.scalar_function.name() {
             DUCKDB_FUNCTION_NAME_CONTAINS => {
-                let children = func.children().collect_vec();
+                let children: Vec<_> = func.children().collect();
                 assert_eq!(children.len(), 2);
                 let Some(value) = try_from_bound_expression(children[0])? else {
                     return Ok(None);

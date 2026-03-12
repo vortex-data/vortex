@@ -72,7 +72,6 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -112,9 +111,9 @@ mod tests {
         let arr = PrimitiveArray::from_iter(0..len as i32);
 
         {
-            let mut chunk = (0..ARRAY_COUNT)
+            let mut chunk: Vec<DataChunk> = (0..ARRAY_COUNT)
                 .map(|_| DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]))
-                .collect_vec();
+                .collect();
 
             for i in 0..ARRAY_COUNT {
                 let mut ctx = SESSION.create_execution_ctx();
@@ -137,6 +136,7 @@ mod tests {
 "#,
                         &(i * vector_size..(i + 1) * vector_size)
                             .map(|i| i.to_string())
+                            .collect::<Vec<String>>()
                             .join(", ")
                     )
                 );

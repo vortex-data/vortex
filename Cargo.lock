@@ -10015,7 +10015,6 @@ dependencies = [
  "kanal",
  "num-traits",
  "object_store",
- "once_cell",
  "parking_lot",
  "paste",
  "reqwest",
@@ -10028,7 +10027,6 @@ dependencies = [
  "vortex-runend",
  "vortex-sequence",
  "vortex-utils",
- "walkdir",
  "zip",
 ]
 

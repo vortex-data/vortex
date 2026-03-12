@@ -130,7 +130,7 @@ impl Debug for DataSourceBindData {
                     .filter_exprs
                     .iter()
                     .map(|e| e.to_string())
-                    .collect_vec(),
+                    .collect::<Vec<String>>(),
             )
             .finish()
     }
@@ -523,7 +523,7 @@ fn extract_table_filter_expr(
     };
 
     table_filter_exprs.extend(additional_filters.iter().cloned());
-    Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
+    Ok(and_collect(table_filter_exprs))
 }
 
 #[cfg(test)]
