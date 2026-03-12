@@ -92,6 +92,10 @@ struct Cli {
     /// Disable IO request coalescing entirely.
     #[arg(long)]
     no_coalesce: bool,
+
+    /// Known compression ratio (input/output). Skips the extra scan pass to measure output size.
+    #[arg(long)]
+    compression_ratio: Option<f64>,
 }
 
 #[cuda_not_available]
@@ -258,8 +262,11 @@ async fn main() -> VortexResult<()> {
         );
     }
 
-    // Measure output size in a separate untimed pass
-    let output_bytes: u64 = if !no_execute {
+    // Measure output size: use compression ratio if provided, otherwise run a separate pass
+    let file_size = reader.size().await?;
+    let output_bytes: u64 = if let Some(ratio) = cli.compression_ratio {
+        (file_size as f64 * ratio) as u64
+    } else if !no_execute {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
         let batches = gpu_file
             .scan()?
@@ -287,7 +294,6 @@ async fn main() -> VortexResult<()> {
     // Compute summary stats
     let total: std::time::Duration = iteration_times.iter().sum();
     let avg = total / iteration_times.len() as u32;
-    let file_size = reader.size().await?;
     let file_size_mb = file_size as f64 / (1024.0 * 1024.0);
     let output_size_mb = output_bytes as f64 / (1024.0 * 1024.0);
     let input_throughput_mbs = file_size_mb / avg.as_secs_f64();
