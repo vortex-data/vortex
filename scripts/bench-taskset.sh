@@ -15,13 +15,11 @@ if [[ -f /tmp/vortex-benchmark.env ]]; then
     source /tmp/vortex-benchmark.env
 fi
 
+
+
 if [[ -z "${BENCH_CPUS:-}" ]]; then
     cpu_count="$(nproc)"
-    if (( cpu_count <= 2 )); then
-        BENCH_CPUS="0-$((cpu_count - 1))"
-    else
-        BENCH_CPUS="2-$((cpu_count - 1))"
-    fi
+    BENCH_CPUS="2-$((cpu_count - 1))"
 fi
 
 if command -v numactl >/dev/null 2>&1; then

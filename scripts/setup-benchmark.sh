@@ -15,6 +15,7 @@ for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
     echo performance > "$gov" 2>/dev/null || true
 done
 
+# Disable turbo boost so benchmark runs stay at a more stable clock rate.
 [[ -w /sys/devices/system/cpu/intel_pstate/no_turbo ]] && echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo || true
 [[ -w /sys/devices/system/cpu/cpufreq/boost ]] && echo 0 > /sys/devices/system/cpu/cpufreq/boost || true
 
@@ -48,29 +49,21 @@ aa-teardown
 # Reduce background activity (Ubuntu-specific)
 for unit in \
   irqbalance \
-  unattended-upgrades \
   apt-daily.service \
   apt-daily-upgrade.service \
   apt-daily.timer \
   apt-daily-upgrade.timer \
   motd-news.service \
   motd-news.timer \
-  whoopsie \
-  apport \
-  snapd
+  apport
 do
-  systemctl disable --now "$unit" 2>/dev/null || true
+  systemctl disable --now "$unit" 2>/dev/null
 done
-systemctl mask irqbalance 2>/dev/null || true
+systemctl mask irqbalance 2>/dev/null
 
 CPU_COUNT="$(nproc)"
-if (( CPU_COUNT <= 2 )); then
-  HOUSEKEEPING_CPUS="0"
-  BENCH_CPUS="0-$((CPU_COUNT - 1))"
-else
-  HOUSEKEEPING_CPUS="0-1"
-  BENCH_CPUS="2-$((CPU_COUNT - 1))"
-fi
+HOUSEKEEPING_CPUS="0-1"
+BENCH_CPUS="2-$((CPU_COUNT - 1))"
 
 # Pin all IRQs to housekeeping CPUs
 for f in /proc/irq/[0-9]*/smp_affinity_list; do
