@@ -204,12 +204,8 @@ void c_pushdown_complex_filter(ClientContext & /*context*/,
             throw BinderException(IntoErrString(error_out));
         }
 
-        if (pushed) {
-            // If the pushdown complex filter returns true, we can remove the filter from the list.
-            iter = filters.erase(iter);
-        } else {
-            ++iter;
-        }
+        // If the pushdown complex filter returns true, we can remove the filter from the list.
+        iter = pushed ? filters.erase(iter) : std::next(iter);
     }
 }
 
