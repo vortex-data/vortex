@@ -49,7 +49,7 @@ impl VTable for ExtensionVTable {
     }
 
     fn len(array: &ExtensionArray) -> usize {
-        array.storage().len()
+        array.storage_array().len()
     }
 
     fn dtype(array: &ExtensionArray) -> &DType {
@@ -66,11 +66,14 @@ impl VTable for ExtensionVTable {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.storage().array_hash(state, precision);
+        array.storage_array().array_hash(state, precision);
     }
 
     fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
-        array.dtype == other.dtype && array.storage().array_eq(other.storage(), precision)
+        array.dtype == other.dtype
+            && array
+                .storage_array()
+                .array_eq(other.storage_array(), precision)
     }
 
     fn nbuffers(_array: &ExtensionArray) -> usize {
@@ -91,7 +94,7 @@ impl VTable for ExtensionVTable {
 
     fn child(array: &ExtensionArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.storage().clone(),
+            0 => array.storage_array().clone(),
             _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
         }
     }

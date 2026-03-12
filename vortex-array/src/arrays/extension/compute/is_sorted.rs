@@ -12,11 +12,11 @@ use crate::register_kernel;
 
 impl IsSortedKernel for ExtensionVTable {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<Option<bool>> {
-        compute::is_sorted(array.storage())
+        compute::is_sorted(array.storage_array())
     }
 
     fn is_strict_sorted(&self, array: &ExtensionArray) -> VortexResult<Option<bool>> {
-        compute::is_strict_sorted(array.storage())
+        compute::is_strict_sorted(array.storage_array())
     }
 }
 

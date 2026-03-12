@@ -128,7 +128,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::Extension(array) => {
             // Recursively mask the storage array
-            let masked_storage = mask_canonical_array(array.storage().to_canonical()?, mask)
+            let masked_storage = mask_canonical_array(array.storage_array().to_canonical()?, mask)
                 .vortex_expect("mask_canonical_array should succeed in fuzz test");
 
             let ext_dtype = array

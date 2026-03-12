@@ -17,7 +17,7 @@ impl IsConstantKernel for ExtensionVTable {
         array: &ExtensionArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        compute::is_constant_opts(array.storage(), opts)
+        compute::is_constant_opts(array.storage_array(), opts)
     }
 }
 

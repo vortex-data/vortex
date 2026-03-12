@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
-use crate::dtype::extension::ExtId;
 use crate::stats::ArrayStats;
 
 pub(super) const STORAGE_SLOT: usize = 0;
@@ -123,14 +122,9 @@ impl ExtensionArray {
         ext
     }
 
-    pub fn storage(&self) -> &ArrayRef {
+    pub fn storage_array(&self) -> &ArrayRef {
         self.slots[STORAGE_SLOT]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot")
-    }
-
-    #[inline]
-    pub fn id(&self) -> ExtId {
-        self.ext_dtype().id()
     }
 }

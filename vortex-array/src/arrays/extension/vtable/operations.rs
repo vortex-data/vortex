@@ -13,7 +13,7 @@ impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
     fn scalar_at(array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension_ref(
             array.ext_dtype().clone(),
-            array.storage().scalar_at(index)?,
+            array.storage_array().scalar_at(index)?,
         ))
     }
 }
