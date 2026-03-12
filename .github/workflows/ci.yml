@@ -110,9 +110,12 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+
       - name: Pytest Benchmarks - Vortex
         run: |
-          uv run --all-packages pytest --benchmark-only benchmark/
+          bash ../scripts/bench-taskset.sh uv run --all-packages pytest --benchmark-only benchmark/
         working-directory: vortex-python/
 
       - name: Doctest - PyVortex
@@ -743,7 +746,7 @@ jobs:
       - name: Run benchmarks
         uses: CodSpeedHQ/action@281164b0f014a4e7badd2c02cecad9b595b70537
         with:
-          run: cargo codspeed run
+          run: bash scripts/bench-taskset.sh cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
