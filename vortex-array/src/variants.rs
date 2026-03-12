@@ -10,7 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::{DynArray, VortexSessionExecute, LEGACY_SESSION};
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;
@@ -108,8 +108,7 @@ pub struct BoolTyped<'a>(&'a dyn DynArray);
 
 impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let true_count = sum(&self.0.to_array(), &mut ctx)?;
+        let true_count = sum(&self.0.to_array())?;
         Ok(true_count
             .as_primitive()
             .as_::<usize>()

@@ -26,7 +26,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::sum;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::optimizer::ArrayOptimizer;

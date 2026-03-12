@@ -31,12 +31,12 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
+use vortex::array::validity::Validity;
 use vortex::array::vtable::ValidityHelper;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex_array::validity::Validity;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
@@ -59,7 +59,7 @@ impl ArrayExporter {
         mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
         assert!(matches!(
-            array.validity()?,
+            array.validity(),
             Validity::NonNullable | Validity::AllValid
         ));
 
