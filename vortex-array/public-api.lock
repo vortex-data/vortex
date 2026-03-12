@@ -20110,10 +20110,6 @@ impl vortex_array::validity::Validity
 
 pub const vortex_array::validity::Validity::DTYPE: vortex_array::dtype::DType
 
-pub fn vortex_array::validity::Validity::all_invalid(&self, len: usize) -> vortex_error::VortexResult<bool>
-
-pub fn vortex_array::validity::Validity::all_valid(&self, len: usize) -> vortex_error::VortexResult<bool>
-
 pub fn vortex_array::validity::Validity::and(self, rhs: vortex_array::validity::Validity) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub fn vortex_array::validity::Validity::as_array(&self) -> core::option::Option<&vortex_array::ArrayRef>
@@ -20121,6 +20117,8 @@ pub fn vortex_array::validity::Validity::as_array(&self) -> core::option::Option
 pub fn vortex_array::validity::Validity::cast_nullability(self, nullability: vortex_array::dtype::Nullability, len: usize) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub fn vortex_array::validity::Validity::copy_from_array(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::validity::Validity::execute_mask(&self, length: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_mask::Mask>
 
 pub fn vortex_array::validity::Validity::filter(&self, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<Self>
 
@@ -20133,6 +20131,8 @@ pub fn vortex_array::validity::Validity::into_nullable(self) -> vortex_array::va
 pub fn vortex_array::validity::Validity::is_null(&self, index: usize) -> vortex_error::VortexResult<bool>
 
 pub fn vortex_array::validity::Validity::is_valid(&self, index: usize) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::validity::Validity::mask_eq(&self, other: &vortex_array::validity::Validity, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 pub fn vortex_array::validity::Validity::maybe_len(&self) -> core::option::Option<usize>
 
@@ -20147,8 +20147,6 @@ pub fn vortex_array::validity::Validity::slice(&self, range: core::ops::range::R
 pub fn vortex_array::validity::Validity::take(&self, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::validity::Validity::to_array(&self, len: usize) -> vortex_array::ArrayRef
-
-pub fn vortex_array::validity::Validity::to_mask(&self, length: usize) -> vortex_mask::Mask
 
 pub fn vortex_array::validity::Validity::uncompressed_size(&self) -> usize
 
@@ -20167,10 +20165,6 @@ pub fn vortex_array::validity::Validity::from_mask(mask: vortex_mask::Mask, null
 impl core::clone::Clone for vortex_array::validity::Validity
 
 pub fn vortex_array::validity::Validity::clone(&self) -> vortex_array::validity::Validity
-
-impl core::cmp::PartialEq for vortex_array::validity::Validity
-
-pub fn vortex_array::validity::Validity::eq(&self, other: &Self) -> bool
 
 impl core::convert::From<&vortex_array::dtype::Nullability> for vortex_array::validity::Validity
 

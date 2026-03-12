@@ -46,7 +46,7 @@ pub fn vortex_pco::Pco::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::
 
 pub fn vortex_pco::Pco::dtype(array: &vortex_pco::PcoArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_pco::Pco::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_pco::Pco::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
 
 pub fn vortex_pco::Pco::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -74,7 +74,7 @@ pub struct vortex_pco::PcoArray
 
 impl vortex_pco::PcoArray
 
-pub fn vortex_pco::PcoArray::decompress(&self) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>
+pub fn vortex_pco::PcoArray::decompress(&self, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>
 
 pub fn vortex_pco::PcoArray::from_array(array: vortex_array::array::ArrayRef, level: usize, nums_per_page: usize) -> vortex_error::VortexResult<Self>
 

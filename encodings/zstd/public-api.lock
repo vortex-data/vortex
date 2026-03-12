@@ -74,7 +74,7 @@ pub struct vortex_zstd::ZstdArray
 
 impl vortex_zstd::ZstdArray
 
-pub fn vortex_zstd::ZstdArray::decompress(&self) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_zstd::ZstdArray::decompress(&self, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_zstd::ZstdArray::from_array(array: vortex_array::array::ArrayRef, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
 
