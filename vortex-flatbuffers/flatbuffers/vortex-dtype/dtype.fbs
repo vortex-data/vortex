@@ -63,6 +63,8 @@ table Extension {
     metadata: [ubyte];
 }
 
+table Variant {}
+
 union Type {
     Null = 1,
     Bool = 2,
@@ -74,6 +76,7 @@ union Type {
     List = 8,
     Extension = 9,
     FixedSizeList = 10, // This is after `Extension` for backwards compatibility.
+    Variant = 11,
 }
 
 table DType {

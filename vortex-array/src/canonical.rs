@@ -221,6 +221,9 @@ impl Canonical {
                 ext_dtype.clone(),
                 Canonical::empty(ext_dtype.storage_dtype()).into_array(),
             )),
+            DType::Variant => {
+                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
+            }
         }
     }
 

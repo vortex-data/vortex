@@ -231,9 +231,11 @@ impl TryFrom<ViewedDType> for DType {
 
                 Ok(Self::Extension(ext_dtype))
             }
-            // This is here to fail to compile if another variant is included.
-            #[allow(clippy::wildcard_in_or_patterns)]
-            fb::Type(11) => Err(vortex_err!("Unknown DType variant")),
+            fb::Type::Variant => {
+                fb.type__as_variant()
+                    .ok_or_else(|| vortex_err!("failed to parse variant from flatbuffer"))?;
+                Ok(Self::Variant)
+            }
             _ => Err(vortex_err!("Unknown DType variant")),
         }
     }
@@ -349,6 +351,7 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
+            Self::Variant => fb::Variant::create(fbb, &fb::VariantArgs {}).as_union_value(),
         };
 
         let dtype_type = match self {
@@ -362,6 +365,7 @@ impl WriteFlatBuffer for DType {
             Self::List(..) => fb::Type::List,
             Self::FixedSizeList(..) => fb::Type::FixedSizeList,
             Self::Extension { .. } => fb::Type::Extension,
+            Self::Variant => fb::Type::Variant,
         };
 
         Ok(fb::DType::create(
@@ -477,6 +481,7 @@ mod test {
                 ],
             ),
             Nullability::NonNullable,
-        ))
+        ));
+        roundtrip_dtype(DType::Variant);
     }
 }

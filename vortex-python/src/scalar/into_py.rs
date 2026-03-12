@@ -9,6 +9,7 @@ use pyo3::PyAny;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::Python;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::prelude::PyDictMethods;
 use pyo3::types::PyBytes;
@@ -85,6 +86,9 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::Extension(_) => {
                 PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
             }
+            DType::Variant => Err(PyValueError::new_err(
+                "Variant scalars are not supported in Python yet",
+            )),
         }
     }
 }

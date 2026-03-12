@@ -133,10 +133,10 @@ impl flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 10;
+pub const ENUM_MAX_TYPE: u8 = 11;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_TYPE: [Type; 11] = [
+pub const ENUM_VALUES_TYPE: [Type; 12] = [
   Type::NONE,
   Type::Null,
   Type::Bool,
@@ -148,6 +148,7 @@ pub const ENUM_VALUES_TYPE: [Type; 11] = [
   Type::List,
   Type::Extension,
   Type::FixedSizeList,
+  Type::Variant,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -166,9 +167,10 @@ impl Type {
   pub const List: Self = Self(8);
   pub const Extension: Self = Self(9);
   pub const FixedSizeList: Self = Self(10);
+  pub const Variant: Self = Self(11);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 10;
+  pub const ENUM_MAX: u8 = 11;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
@@ -181,6 +183,7 @@ impl Type {
     Self::List,
     Self::Extension,
     Self::FixedSizeList,
+    Self::Variant,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -196,6 +199,7 @@ impl Type {
       Self::List => Some("List"),
       Self::Extension => Some("Extension"),
       Self::FixedSizeList => Some("FixedSizeList"),
+      Self::Variant => Some("Variant"),
       _ => None,
     }
   }
@@ -1375,6 +1379,85 @@ impl core::fmt::Debug for Extension<'_> {
       ds.finish()
   }
 }
+pub enum VariantOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Variant<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Variant<'a> {
+  type Inner = Variant<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> Variant<'a> {
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    Variant { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    _args: &'args VariantArgs
+  ) -> flatbuffers::WIPOffset<Variant<'bldr>> {
+    let mut builder = VariantBuilder::new(_fbb);
+    builder.finish()
+  }
+
+}
+
+impl flatbuffers::Verifiable for Variant<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct VariantArgs {
+}
+impl<'a> Default for VariantArgs {
+  #[inline]
+  fn default() -> Self {
+    VariantArgs {
+    }
+  }
+}
+
+pub struct VariantBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> VariantBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> VariantBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    VariantBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Variant<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for Variant<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("Variant");
+      ds.finish()
+  }
+}
 pub enum DTypeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1574,6 +1657,21 @@ impl<'a> DType<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn type__as_variant(&self) -> Option<Variant<'a>> {
+    if self.type_type() == Type::Variant {
+      self.type_().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { Variant::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for DType<'_> {
@@ -1595,6 +1693,7 @@ impl flatbuffers::Verifiable for DType<'_> {
           Type::List => v.verify_union_variant::<flatbuffers::ForwardsUOffset<List>>("Type::List", pos),
           Type::Extension => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Extension>>("Type::Extension", pos),
           Type::FixedSizeList => v.verify_union_variant::<flatbuffers::ForwardsUOffset<FixedSizeList>>("Type::FixedSizeList", pos),
+          Type::Variant => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Variant>>("Type::Variant", pos),
           _ => Ok(()),
         }
      })?
@@ -1714,6 +1813,13 @@ impl core::fmt::Debug for DType<'_> {
         },
         Type::FixedSizeList => {
           if let Some(x) = self.type__as_fixed_size_list() {
+            ds.field("type_", &x)
+          } else {
+            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Type::Variant => {
+          if let Some(x) = self.type__as_variant() {
             ds.field("type_", &x)
           } else {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")

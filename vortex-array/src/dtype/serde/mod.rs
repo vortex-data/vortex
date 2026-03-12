@@ -70,6 +70,19 @@ mod test {
     }
 
     #[test]
+    fn test_serde_variant_dtype() {
+        use serde_test::assert_ser_tokens;
+
+        assert_ser_tokens(
+            &DType::Variant,
+            &[Token::UnitVariant {
+                name: "DType",
+                variant: "Variant",
+            }],
+        );
+    }
+
+    #[test]
     fn test_serde_nullability() {
         assert_tokens(&Nullability::NonNullable, &[Token::Bool(false)]);
     }
@@ -152,5 +165,17 @@ mod test {
             .deserialize(deserializer)
             .unwrap();
         assert_eq!(fields, from_value);
+    }
+
+    #[test]
+    fn test_serde_variant_dtype_json_roundtrip() {
+        let json = serde_json::to_string(&DType::Variant).unwrap();
+        assert_eq!(json, "\"Variant\"");
+
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
+        assert_eq!(DType::Variant, deserialized);
     }
 }

@@ -70,6 +70,8 @@ message Extension {
   optional bytes metadata = 3;
 }
 
+message Variant {}
+
 message DType {
   oneof dtype_type {
     Null null = 1;
@@ -82,6 +84,7 @@ message DType {
     List list = 8;
     Extension extension = 9;
     FixedSizeList fixed_size_list = 10; // This is after `Extension` for backwards compatibility.
+    Variant variant = 11;
   }
 }
 

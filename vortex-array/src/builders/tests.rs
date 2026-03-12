@@ -630,6 +630,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                 };
                 Scalar::extension_ref(ext_dtype.clone(), storage_scalar)
             }
+            DType::Variant => continue,
         };
         scalars.push(scalar);
     }

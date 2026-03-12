@@ -119,6 +119,12 @@ impl Scalar {
                 }
             }
             DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
+            DType::Variant => {
+                vortex_ensure!(
+                    matches!(value, ScalarValue::Variant(_)),
+                    "variant dtype expected Variant value, got {value}",
+                );
+            }
         }
 
         Ok(())

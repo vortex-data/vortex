@@ -1235,6 +1235,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
             )]
         }
         DType::Extension(_) => vec![], // Extension types typically only cast to themselves
+        DType::Variant => unimplemented!(),
     };
 
     // Test each target dtype

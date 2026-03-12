@@ -54,7 +54,7 @@ impl DType {
     #[inline]
     pub fn is_nullable(&self) -> bool {
         match self {
-            Null => true,
+            Null | Variant => true,
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
             Bool(null)
             | Primitive(_, null)
@@ -90,6 +90,7 @@ impl DType {
             List(edt, _) => List(edt.clone(), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(edt.clone(), *size, nullability),
             Extension(ext) => Extension(ext.with_nullability(nullability)),
+            Variant => Variant,
         }
     }
 
@@ -122,6 +123,7 @@ impl DType {
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
             }
+            (Variant, Variant) => true,
             _ => false,
         }
     }
@@ -246,11 +248,16 @@ impl DType {
         matches!(self, Extension(_))
     }
 
+    /// Check if `self` is a [`DType::Variant`] type
+    pub fn is_variant(&self) -> bool {
+        matches!(self, Variant)
+    }
+
     /// Check if `self` is a nested type, i.e. list, fixed size list, struct, or extension of a
     /// recursive type.
     pub fn is_nested(&self) -> bool {
         match self {
-            List(..) | FixedSizeList(..) | Struct(..) => true,
+            List(..) | FixedSizeList(..) | Struct(..) | Variant => true,
             Extension(ext) => ext.storage_dtype().is_nested(),
             _ => false,
         }
@@ -284,6 +291,7 @@ impl DType {
                 Some(sum)
             }
             Extension(ext) => ext.storage_dtype().element_size(),
+            Variant => None,
         }
     }
 
@@ -459,6 +467,7 @@ impl Display for DType {
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Extension(ext) => write!(f, "{}", ext),
+            Variant => write!(f, "variant"),
         }
     }
 }

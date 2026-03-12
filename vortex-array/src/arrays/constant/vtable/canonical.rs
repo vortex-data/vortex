@@ -164,6 +164,7 @@ pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
         }
+        DType::Variant => todo!(),
     })
 }
 

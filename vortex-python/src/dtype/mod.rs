@@ -26,6 +26,7 @@ use pyo3::PyClass;
 use pyo3::PyClassInitializer;
 use pyo3::PyResult;
 use pyo3::Python;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyModule;
 use pyo3::prelude::PyModuleMethods;
 use pyo3::pyclass;
@@ -124,6 +125,9 @@ impl PyDType {
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
+            DType::Variant => Err(PyValueError::new_err(
+                "Variant DType is not supported in Python yet",
+            )),
         }
     }
 

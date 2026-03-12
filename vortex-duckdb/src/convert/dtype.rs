@@ -236,6 +236,9 @@ impl TryFrom<&DType> for LogicalType {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::array_type(element_logical_type, *list_size);
             }
+            DType::Variant => {
+                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
+            }
             DType::Extension(ext_dtype) => {
                 let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());

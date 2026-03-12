@@ -162,7 +162,10 @@ fn random_array_chunk(
             random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)
         }
         DType::Extension(..) => {
-            todo!("Extension arrays are not implemented")
+            unimplemented!("Extension arrays are not implemented")
+        }
+        DType::Variant => {
+            unimplemented!("Variant arrays are not implemented")
         }
     }
 }

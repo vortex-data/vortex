@@ -15,6 +15,7 @@ use vortex_error::vortex_panic;
 use crate::dtype::DType;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
+use crate::scalar::VariantValue;
 
 /// The value stored in a [`Scalar`][crate::scalar::Scalar].
 ///
@@ -34,6 +35,8 @@ pub enum ScalarValue {
     Binary(ByteBuffer),
     /// A list of potentially null scalar values.
     List(Vec<Option<ScalarValue>>),
+    /// A semantic variant value.
+    Variant(VariantValue),
 }
 
 impl ScalarValue {
@@ -64,6 +67,7 @@ impl ScalarValue {
                 // zero storage value and try to make an extension scalar from that.
                 Self::zero_value(ext_dtype.storage_dtype())
             }
+            DType::Variant => Self::Variant(VariantValue::Null),
         }
     }
 
@@ -100,6 +104,7 @@ impl ScalarValue {
                 // default storage value and try to make an extension scalar from that.
                 Self::default_value(ext_dtype.storage_dtype())?
             }
+            DType::Variant => Self::Variant(VariantValue::Null),
         })
     }
 }
@@ -113,6 +118,7 @@ impl PartialOrd for ScalarValue {
             (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a.partial_cmp(b),
             (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a.partial_cmp(b),
             (ScalarValue::List(a), ScalarValue::List(b)) => a.partial_cmp(b),
+            (ScalarValue::Variant(a), ScalarValue::Variant(b)) => a.partial_cmp(b),
             // (ScalarValue::Extension(a), ScalarValue::Extension(b)) => a.partial_cmp(b),
             _ => None,
         }
@@ -163,6 +169,7 @@ impl Display for ScalarValue {
                 }
                 write!(f, "]")
             }
+            ScalarValue::Variant(value) => write!(f, "{value}"),
         }
     }
 }

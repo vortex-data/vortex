@@ -141,7 +141,7 @@ pub fn compare_canonical_array(
             )
             .into_array()
         }
-        d @ (DType::Null | DType::Extension(_)) => {
+        d @ (DType::Null | DType::Extension(_) | DType::Variant) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

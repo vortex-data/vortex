@@ -24,10 +24,12 @@ mod scalar_value;
 mod truncation;
 mod typed_view;
 mod validate;
+mod variant_value;
 
 pub use scalar_value::*;
 pub use truncation::*;
 pub use typed_view::*;
+pub use variant_value::*;
 
 use crate::dtype::DType;
 
