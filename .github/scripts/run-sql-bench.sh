@@ -15,6 +15,7 @@
 #
 # Options:
 #   --scale-factor <sf>       Scale factor for the benchmark (e.g., 1.0, 10.0)
+#   --iterations <n>          Number of iterations to pass to each benchmark binary
 #   --remote-storage <url>    Remote storage URL (e.g., s3://bucket/path/)
 #                             If provided, runs in remote mode (no lance support).
 #   --benchmark-id <id>       Benchmark ID for error messages (e.g., tpch-s3)
@@ -26,6 +27,7 @@ targets="$2"
 shift 2
 
 scale_factor=""
+iterations=""
 remote_storage=""
 benchmark_id=""
 
@@ -33,6 +35,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --scale-factor)
             scale_factor="$2"
+            shift 2
+            ;;
+        --iterations)
+            iterations="$2"
             shift 2
             ;;
         --remote-storage)
@@ -90,6 +96,9 @@ if [[ -n "$scale_factor" ]]; then
     else
         opts="--opt scale-factor=$scale_factor"
     fi
+fi
+if [[ -n "$iterations" ]]; then
+    opts="-i $iterations $opts"
 fi
 
 touch results.json
