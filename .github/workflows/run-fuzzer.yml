@@ -12,21 +12,21 @@ on:
         required: false
         type: number
         default: 7200
-      family:
-        description: "Runner family (e.g., m8g.large for CPU, g5+g4dn+g6 for GPU)"
+      runner:
+        description: "Runner name from .github-private runs-on.yml (e.g., arm64-medium, gpu)"
         required: false
         type: string
-        default: "m8g.large"
-      image:
-        description: "Runner image (e.g., ubuntu24-full-arm64, ubuntu24-gpu-x64)"
-        required: false
-        type: string
-        default: "ubuntu24-full-arm64"
+        default: "arm64-medium"
       extra_features:
         description: "Extra cargo features to enable (e.g., cuda)"
         required: false
         type: string
         default: ""
+      jobs:
+        description: "Number of parallel fuzzing jobs (libfuzzer -fork=N). Set to match available vCPUs."
+        required: false
+        type: number
+        default: 1
     outputs:
       crashes_found:
         description: "Whether crashes were found"
@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 230  # almost 4 hours
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=arm64-medium/disk=large/tag={1}-fuzz', github.run_id, inputs.fuzz_target)
+          && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_target)
           || 'ubuntu-latest' }}
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
@@ -108,11 +108,15 @@ jobs:
           if [ -n "${{ inputs.extra_features }}" ]; then
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
           fi
+          FORK_FLAG=""
+          if [ "${{ inputs.jobs }}" -gt 1 ]; then
+            FORK_FLAG="-fork=${{ inputs.jobs }}"
+          fi
           RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
-            -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
+            $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
             2>&1 | tee fuzz_output.log
         continue-on-error: true
 
@@ -136,6 +140,23 @@ jobs:
             echo "crash_count=0" >> $GITHUB_OUTPUT
             echo "No crashes found"
           fi
+
+      - name: Reproduce crash for full output
+        if: steps.check.outputs.crashes_found == 'true' && inputs.jobs > 1
+        run: |
+          # In fork mode, child output (backtrace, panic message) is not captured in
+          # fuzz_output.log. Replay the crashing input in single-process mode to get
+          # the full output for the crash reporting pipeline.
+          FEATURES_FLAG=""
+          if [ -n "${{ inputs.extra_features }}" ]; then
+            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
+          fi
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+            cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
+            $FEATURES_FLAG \
+            ${{ inputs.fuzz_target }} \
+            "${{ steps.check.outputs.first_crash }}" \
+            2>&1 | tee fuzz_output.log || true
 
       - name: Archive crash artifacts
         id: upload_artifacts

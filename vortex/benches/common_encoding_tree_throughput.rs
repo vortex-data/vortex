@@ -44,7 +44,7 @@ fn main() {
     divan::main();
 }
 
-const NUM_VALUES: u64 = 1_000_000;
+const NUM_VALUES: u64 = 100_000;
 
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {

@@ -38,14 +38,31 @@ runs:
       if: runner.os == 'Linux'
       uses: rui314/setup-mold@v1
 
+    - name: Check for rustup
+      id: check-rustup
+      shell: bash
+      run: echo "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+
     - name: Rust Toolchain
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@stable
-      if: steps.rustup-cache.outputs.cache-hit != 'true'
+      if: steps.check-rustup.outputs.exists != 'true'
       with:
         toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
         targets: "${{ inputs.targets }}"
         components: "${{ inputs.components }}"
+
+    - name: Install additional targets and components
+      if: steps.check-rustup.outputs.exists == 'true'
+      shell: bash
+      run: |
+        rustup toolchain install "$TOOLCHAIN"
+        [[ -n "$TARGETS" ]] && rustup target add --toolchain "$TOOLCHAIN" ${TARGETS//,/ }
+        [[ -n "$COMPONENTS" ]] && rustup component add --toolchain "$TOOLCHAIN" ${COMPONENTS//,/ }
+      env:
+        TOOLCHAIN: ${{ steps.toolchain-config.outputs.toolchain }}
+        TARGETS: ${{ inputs.targets }}
+        COMPONENTS: ${{ inputs.components }}
 
     - name: Configure sccache timeout
       if: inputs.enable-sccache == 'true'
