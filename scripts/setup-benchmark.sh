@@ -10,11 +10,6 @@ if [ "$EUID" -ne 0 ]; then
     exit 0
 fi
 
-# Turn off frequency scaling
-for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-    echo performance > "$gov" 2>/dev/null || true
-done
-
 # Disable turbo boost so benchmark runs stay at a more stable clock rate.
 [[ -w /sys/devices/system/cpu/intel_pstate/no_turbo ]] && echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo || true
 [[ -w /sys/devices/system/cpu/cpufreq/boost ]] && echo 0 > /sys/devices/system/cpu/cpufreq/boost || true
