@@ -660,3 +660,114 @@ fn test_dfa_matches_decompressed_contains() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Symbol-table sizing: how many FSST symbols do representative columns produce?
+// ---------------------------------------------------------------------------
+
+#[test]
+fn clickbench_like_fsst_symbol_counts() {
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    let mut rng = StdRng::seed_from_u64(42);
+
+    let domains = [
+        "google.com",
+        "facebook.com",
+        "github.com",
+        "stackoverflow.com",
+        "amazon.com",
+        "reddit.com",
+        "twitter.com",
+        "youtube.com",
+        "wikipedia.org",
+        "microsoft.com",
+        "apple.com",
+        "netflix.com",
+        "linkedin.com",
+        "cloudflare.com",
+        "google.co.uk",
+        "docs.google.com",
+        "mail.google.com",
+        "maps.google.com",
+        "news.ycombinator.com",
+        "arxiv.org",
+    ];
+    let paths = [
+        "/index.html",
+        "/about",
+        "/search?q=vortex",
+        "/user/profile/settings",
+        "/api/v2/data",
+        "/blog/2024/post",
+        "/products/item/12345",
+        "/docs/reference/guide",
+        "/login",
+        "/dashboard/analytics",
+    ];
+
+    // URL column
+    let urls: Vec<Option<String>> = (0..10_000)
+        .map(|_| {
+            let scheme = if rng.random_bool(0.8) {
+                "https"
+            } else {
+                "http"
+            };
+            let domain = domains[rng.random_range(0..domains.len())];
+            let path = paths[rng.random_range(0..paths.len())];
+            Some(format!("{scheme}://{domain}{path}"))
+        })
+        .collect();
+    let url_fsst = make_fsst(&urls.iter().map(|s| s.as_deref()).collect::<Vec<_>>());
+
+    // Title column: short sentences
+    let titles = [
+        "Breaking News: Major Event Unfolds",
+        "How to Learn Rust in 2024",
+        "Top 10 Programming Languages",
+        "Weather Forecast for Today",
+        "New Study Reveals Surprising Results",
+        "Product Review: Latest Smartphone",
+        "Travel Guide: Best Destinations",
+        "Cooking Recipe: Quick and Easy Pasta",
+        "Sports Update: Championship Finals",
+        "Technology Trends to Watch",
+    ];
+    let titles_repeated: Vec<Option<&str>> =
+        titles.iter().copied().cycle().take(10_000).map(Some).collect();
+    let title_fsst = make_fsst(&titles_repeated);
+
+    // SearchPhrase column: mostly empty, some short queries
+    let phrases: Vec<Option<&str>> = (0..10_000)
+        .map(|i| match i % 20 {
+            0 => Some("vortex database"),
+            1 => Some("rust programming"),
+            2 => Some("clickhouse benchmark"),
+            3 => Some("data compression"),
+            _ => Some(""),
+        })
+        .collect();
+    let phrase_fsst = make_fsst(&phrases);
+
+    // Referer column: URLs with more empty strings
+    let referers: Vec<Option<String>> = (0..10_000)
+        .map(|_| {
+            if rng.random_bool(0.3) {
+                Some(String::new())
+            } else {
+                let domain = domains[rng.random_range(0..domains.len())];
+                Some(format!("https://{domain}/"))
+            }
+        })
+        .collect();
+    let referer_fsst = make_fsst(&referers.iter().map(|s| s.as_deref()).collect::<Vec<_>>());
+
+    eprintln!("=== FSST symbol counts for representative clickbench columns ===");
+    eprintln!("URL:          {} symbols", url_fsst.symbols().len());
+    eprintln!("Title:        {} symbols", title_fsst.symbols().len());
+    eprintln!("SearchPhrase: {} symbols", phrase_fsst.symbols().len());
+    eprintln!("Referer:      {} symbols", referer_fsst.symbols().len());
+}
