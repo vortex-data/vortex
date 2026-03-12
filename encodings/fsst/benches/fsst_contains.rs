@@ -3580,3 +3580,71 @@ vortex_like_bench!(vortex_like_json, make_fsst_json_strings, "%enterprise%");
 vortex_like_bench!(vortex_like_path, make_fsst_file_paths, "%target/release%");
 vortex_like_bench!(vortex_like_email, make_fsst_emails, "%gmail%");
 vortex_like_bench!(vortex_like_rare, make_fsst_rare_match, "%xyzzy%");
+
+// Arrow LIKE benchmarks: decompress FSST → canonical, then run Arrow's LIKE
+// (which uses memchr::memmem for %needle% patterns).
+macro_rules! arrow_like_bench {
+    ($name:ident, $make_fn:ident, $pattern:expr) => {
+        #[divan::bench]
+        fn $name(bencher: Bencher) {
+            let fsst = $make_fn(N);
+            let len = fsst.len();
+            // Pre-decompress to canonical (VarBinViewArray)
+            let canonical = fsst
+                .into_array()
+                .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+                .unwrap()
+                .into_array();
+            let pattern = ConstantArray::new($pattern, len).into_array();
+            bencher.bench_local(|| {
+                Like.try_new_array(
+                    len,
+                    LikeOptions::default(),
+                    [canonical.clone(), pattern.clone()],
+                )
+                .unwrap()
+                .into_array()
+                .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+                .unwrap()
+            });
+        }
+    };
+}
+
+arrow_like_bench!(arrow_like_urls, make_fsst_urls, "%google%");
+arrow_like_bench!(arrow_like_cb, make_fsst_clickbench_urls, "%yandex%");
+arrow_like_bench!(arrow_like_log, make_fsst_log_lines, "%Googlebot%");
+arrow_like_bench!(arrow_like_json, make_fsst_json_strings, "%enterprise%");
+arrow_like_bench!(arrow_like_rare, make_fsst_rare_match, "%xyzzy%");
+
+// End-to-end: decompress + arrow LIKE (measures total cost including decompression)
+macro_rules! e2e_arrow_like_bench {
+    ($name:ident, $make_fn:ident, $pattern:expr) => {
+        #[divan::bench]
+        fn $name(bencher: Bencher) {
+            let fsst = $make_fn(N);
+            let len = fsst.len();
+            let arr = fsst.into_array();
+            let pattern = ConstantArray::new($pattern, len).into_array();
+            bencher.bench_local(|| {
+                // Decompress inside the timed section
+                let canonical = arr
+                    .clone()
+                    .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+                    .unwrap()
+                    .into_array();
+                Like.try_new_array(len, LikeOptions::default(), [canonical, pattern.clone()])
+                    .unwrap()
+                    .into_array()
+                    .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+                    .unwrap()
+            });
+        }
+    };
+}
+
+e2e_arrow_like_bench!(e2e_arrow_urls, make_fsst_urls, "%google%");
+e2e_arrow_like_bench!(e2e_arrow_cb, make_fsst_clickbench_urls, "%yandex%");
+e2e_arrow_like_bench!(e2e_arrow_log, make_fsst_log_lines, "%Googlebot%");
+e2e_arrow_like_bench!(e2e_arrow_json, make_fsst_json_strings, "%enterprise%");
+e2e_arrow_like_bench!(e2e_arrow_rare, make_fsst_rare_match, "%xyzzy%");
