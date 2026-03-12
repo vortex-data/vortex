@@ -489,7 +489,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             ActionType::iter().collect()
         }
         // Currently, no support at all
-        DType::Variant => Default::default(),
+        DType::Variant => unreachable!("Variant dtype shouldn't be fuzzed"),
     }
 }
 
