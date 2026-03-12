@@ -51,7 +51,7 @@ jobs:
           - id: compress-memory-bench
             name: Compression Memory
             build_args: "--features dhat,lance"
-            run_args: "--formats parquet,lance,vortex"
+            run_args: "--formats parquet,vortex"
           - id: tpch-datafusion-memory-bench
             name: TPC-H DataFusion Memory
             build_args: "--features dhat"
