@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright SpiralDB Developers
+
 use std::fmt::Debug;
 
 use crate::Code;

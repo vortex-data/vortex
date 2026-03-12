@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright SpiralDB Developers
+
 #![doc = "Pure-Rust implementation of Fast Static Symbol Tables algorithm for string compression"]
 #![cfg(target_endian = "little")]
 

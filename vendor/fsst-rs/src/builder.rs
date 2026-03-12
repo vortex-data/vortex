@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright SpiralDB Developers
+
 //! Functions and types used for building a [`Compressor`] from a corpus of text.
 //!
 //! This module implements the logic from Algorithm 3 of the [FSST Paper].

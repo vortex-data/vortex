@@ -10,6 +10,7 @@ repository = "https://github.com/spiraldb/fsst"
 readme = "README.md"
 keywords = ["compression", "fsst"]
 categories = ["compression"]
+publish = false
 
 [lib]
 name = "fsst"
