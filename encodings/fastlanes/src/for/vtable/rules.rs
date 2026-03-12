@@ -39,7 +39,7 @@ impl ArrayParentReduceRule<FoRVTable> for FoRFilterPushDownRule {
         let new_array = unsafe {
             FoRArray::new_unchecked(
                 child.encoded().filter(parent.filter_mask().clone())?,
-                child.reference_scalar().clone(),
+                child.reference.clone(),
             )
         };
         Ok(Some(new_array.into_array()))

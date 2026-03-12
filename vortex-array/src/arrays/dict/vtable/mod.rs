@@ -13,10 +13,8 @@ use vortex_session::VortexSession;
 
 use super::DictArray;
 use super::DictMetadata;
-use super::array::CODES_SLOT;
 use super::array::NUM_SLOTS;
 use super::array::SLOT_NAMES;
-use super::array::VALUES_SLOT;
 use super::take_canonical;
 use crate::ArrayRef;
 use crate::Canonical;
