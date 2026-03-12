@@ -3390,7 +3390,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: &vor
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &vortex_array::arrays::scalar_fn::metadata::ScalarFnMetadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<Self::Array>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child(array: &vortex_array::arrays::scalar_fn::ScalarFnArray, idx: usize) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child_name(array: &vortex_array::arrays::scalar_fn::ScalarFnArray, idx: usize) -> alloc::string::String
 
@@ -3410,7 +3410,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::metadata(array: &Self::A
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7002,7 +7002,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: &vor
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &vortex_array::arrays::scalar_fn::metadata::ScalarFnMetadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<Self::Array>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child(array: &vortex_array::arrays::scalar_fn::ScalarFnArray, idx: usize) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child_name(array: &vortex_array::arrays::scalar_fn::ScalarFnArray, idx: usize) -> alloc::string::String
 
@@ -7022,7 +7022,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::metadata(array: &Self::A
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21636,7 +21636,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: &vor
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &vortex_array::arrays::scalar_fn::metadata::ScalarFnMetadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<Self::Array>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child(array: &vortex_array::arrays::scalar_fn::ScalarFnArray, idx: usize) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::child_name(array: &vortex_array::arrays::scalar_fn::ScalarFnArray, idx: usize) -> alloc::string::String
 
@@ -21656,7 +21656,7 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::metadata(array: &Self::A
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
