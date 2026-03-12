@@ -69,11 +69,17 @@ def head_etag(bucket: str, key: str) -> str | None:
     """Fetch the current ETag for an S3 object, or None if missing."""
     result = subprocess.run(
         [
-            "aws", "s3api", "head-object",
-            "--bucket", bucket,
-            "--key", key,
-            "--query", "ETag",
-            "--output", "text",
+            "aws",
+            "s3api",
+            "head-object",
+            "--bucket",
+            bucket,
+            "--key",
+            key,
+            "--query",
+            "ETag",
+            "--output",
+            "text",
         ],
         capture_output=True,
         text=True,
@@ -89,10 +95,15 @@ def head_etag(bucket: str, key: str) -> str | None:
 def put_object(bucket: str, key: str, body: str, if_match: str | None) -> bool:
     """Upload a single object with optional ETag precondition."""
     cmd = [
-        "aws", "s3api", "put-object",
-        "--bucket", bucket,
-        "--key", key,
-        "--body", body,
+        "aws",
+        "s3api",
+        "put-object",
+        "--bucket",
+        bucket,
+        "--key",
+        key,
+        "--body",
+        body,
     ]
     if if_match:
         cmd.extend(["--if-match", if_match])
@@ -112,9 +123,8 @@ def upload_versions_json(local_path: str, max_retries: int = 5) -> None:
         if attempt == max_retries:
             break
 
-        delay = min(2 ** attempt, 30)
-        log(f"  versions.json upload failed (attempt {attempt}/{max_retries}), "
-            f"retrying in {delay}s...")
+        delay = min(2**attempt, 30)
+        log(f"  versions.json upload failed (attempt {attempt}/{max_retries}), retrying in {delay}s...")
         time.sleep(delay)
 
     log(f"ERROR: versions.json upload failed after {max_retries} attempts")
@@ -201,25 +211,41 @@ def merge_manifest(
         json.dump(generated, f, indent=2)
         f.write("\n")
 
-    log(f"  merged manifest: {len(prev_by_name)} existing, "
-        f"{len(gen_by_name) - len(prev_by_name)} new fixtures")
+    log(f"  merged manifest: {len(prev_by_name)} existing, {len(gen_by_name) - len(prev_by_name)} new fixtures")
 
 
 def build_fixtures(version: str, output_dir: str) -> None:
     """Run cargo to build and execute compat-gen."""
-    run([
-        "cargo", "run", "-p", "vortex-compat", "--release", "--bin", "compat-gen",
-        "--", "--version", version, "--output", output_dir,
-    ])
+    run(
+        [
+            "cargo",
+            "run",
+            "-p",
+            "vortex-compat",
+            "--release",
+            "--bin",
+            "compat-gen",
+            "--",
+            "--version",
+            version,
+            "--output",
+            output_dir,
+        ]
+    )
 
 
 def upload_fixtures(version: str, output_dir: str) -> None:
     """Upload the output directory to S3."""
-    run([
-        "aws", "s3", "cp", output_dir,
-        f"s3://{S3_BUCKET}/v{version}/",
-        "--recursive",
-    ])
+    run(
+        [
+            "aws",
+            "s3",
+            "cp",
+            output_dir,
+            f"s3://{S3_BUCKET}/v{version}/",
+            "--recursive",
+        ]
+    )
 
 
 def update_versions(version: str, tmp_dir: str) -> None:
@@ -248,7 +274,8 @@ def main() -> None:
         description="Build, generate, and upload Vortex backward-compat fixtures.",
     )
     parser.add_argument(
-        "--version", required=True,
+        "--version",
+        required=True,
         help='Version tag for this fixture set (e.g. "0.62.0").',
     )
     parser.add_argument(
@@ -256,11 +283,13 @@ def main() -> None:
         help="Output directory for generated fixtures (default: temp dir).",
     )
     parser.add_argument(
-        "--skip-build", action="store_true",
+        "--skip-build",
+        action="store_true",
         help="Skip cargo build + compat-gen run (assumes --output already populated).",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Generate and merge manifest but skip S3 upload.",
     )
     args = parser.parse_args()
@@ -314,6 +343,7 @@ def main() -> None:
         # Clean up temp dir if we created one.
         if owns_tmp and not args.dry_run:
             import shutil
+
             shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
 
