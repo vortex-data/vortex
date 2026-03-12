@@ -28,7 +28,7 @@ fn main() {
 }
 
 /// Number of lists in the source array.
-const NUM_LISTS: usize = 10_000;
+const NUM_LISTS: usize = 500;
 
 /// Number of indices to take.
 const NUM_INDICES: &[usize] = &[100, 1_000];

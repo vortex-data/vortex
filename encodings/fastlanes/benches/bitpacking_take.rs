@@ -28,10 +28,10 @@ fn main() {
 
 #[divan::bench]
 fn take_10_stratified(bencher: Bencher) {
-    let values = fixture(1_000_000, 8);
+    let values = fixture(65_536, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-    let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
+    let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 6_553));
 
     bencher
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
@@ -46,7 +46,7 @@ fn take_10_stratified(bencher: Bencher) {
 
 #[divan::bench]
 fn take_10_contiguous(bencher: Bencher) {
-    let values = fixture(1_000_000, 8);
+    let values = fixture(65_536, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = buffer![0..10].into_array();
@@ -64,7 +64,7 @@ fn take_10_contiguous(bencher: Bencher) {
 
 #[divan::bench]
 fn take_10k_random(bencher: Bencher) {
-    let values = fixture(1_000_000, 8);
+    let values = fixture(65_536, 8);
     let range = Uniform::new(0, values.len()).unwrap();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
@@ -85,7 +85,7 @@ fn take_10k_random(bencher: Bencher) {
 
 #[divan::bench]
 fn take_10k_contiguous(bencher: Bencher) {
-    let values = fixture(1_000_000, 8);
+    let values = fixture(65_536, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter(0..10_000);
@@ -102,11 +102,11 @@ fn take_10k_contiguous(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn take_200k_dispersed(bencher: Bencher) {
-    let values = fixture(1_000_000, 8);
+fn take_10k_dispersed(bencher: Bencher) {
+    let values = fixture(65_536, 8);
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-    let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
+    let indices = PrimitiveArray::from_iter((0..10_000).map(|i| (i * 42) % values.len() as u64));
 
     bencher
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
@@ -120,11 +120,11 @@ fn take_200k_dispersed(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn take_200k_first_chunk_only(bencher: Bencher) {
-    let values = fixture(1_000_000, 8);
+fn take_10k_first_chunk_only(bencher: Bencher) {
+    let values = fixture(65_536, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-    let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
+    let indices = PrimitiveArray::from_iter((0..10_000).map(|i| ((i * 42) % 1024) as u64));
 
     bencher
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
@@ -154,8 +154,8 @@ fn fixture(len: usize, bits: usize) -> Buffer<u32> {
 // I've iterated on both thresholds (1) and (2) using this collection of benchmarks, and those
 // were roughly the best values that I found.
 
-const BIG_BASE2: u32 = 1048576;
-const NUM_EXCEPTIONS: u32 = 10000;
+const BIG_BASE2: u32 = 65536;
+const NUM_EXCEPTIONS: u32 = 1024;
 
 #[divan::bench]
 fn patched_take_10_stratified(bencher: Bencher) {
@@ -169,7 +169,7 @@ fn patched_take_10_stratified(bencher: Bencher) {
         NUM_EXCEPTIONS as usize
     );
 
-    let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
+    let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 6_653));
 
     bencher
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
@@ -273,11 +273,11 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn patched_take_200k_dispersed(bencher: Bencher) {
+fn patched_take_10k_dispersed(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-    let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
+    let indices = PrimitiveArray::from_iter((0..10_000).map(|i| (i * 42) % values.len() as u64));
 
     bencher
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
@@ -291,11 +291,11 @@ fn patched_take_200k_dispersed(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn patched_take_200k_first_chunk_only(bencher: Bencher) {
+fn patched_take_10k_first_chunk_only(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-    let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
+    let indices = PrimitiveArray::from_iter((0..10_000).map(|i| ((i * 42) % 1024) as u64));
 
     bencher
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))

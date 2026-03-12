@@ -92,12 +92,13 @@ impl ExtVTable for Time {
         TimeUnit::try_from(tag)
     }
 
-    fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        let metadata = ext_dtype.metadata();
         let ptype = time_ptype(metadata)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
 
         vortex_ensure!(
-            storage_dtype.as_ptype() == ptype,
+            ext_dtype.storage_dtype().as_ptype() == ptype,
             "Time storage dtype for {} must be {}",
             metadata,
             ptype
@@ -108,13 +109,12 @@ impl ExtVTable for Time {
 
     fn unpack_native(
         &self,
-        metadata: &Self::Metadata,
-        _storage_dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         storage_value: &ScalarValue,
     ) -> VortexResult<Self::NativeValue<'_>> {
         let length_of_time = storage_value.as_primitive().cast::<i64>()?;
 
-        let (span, value) = match *metadata {
+        let (span, value) = match *ext_dtype.metadata() {
             TimeUnit::Seconds => {
                 let v = i32::try_from(length_of_time)
                     .map_err(|e| vortex_err!("Time seconds value out of i32 range: {e}"))?;

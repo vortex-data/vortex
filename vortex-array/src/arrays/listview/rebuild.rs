@@ -57,7 +57,8 @@ impl ListViewArray {
     /// Rebuilds the [`ListViewArray`] according to the specified mode.
     pub fn rebuild(&self, mode: ListViewRebuildMode) -> VortexResult<ListViewArray> {
         if self.is_empty() {
-            return Ok(self.clone());
+            // SAFETY: An empty array is trivially zero-copyable to a `ListArray`.
+            return Ok(unsafe { self.clone().with_zero_copy_to_list(true) });
         }
 
         match mode {

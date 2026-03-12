@@ -32,7 +32,14 @@ use crate::scalar::ScalarValue;
 /// [`try_with_vtable()`]: ExtDType::try_with_vtable
 /// [`erased()`]: ExtDType::erased
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ExtDType<V: ExtVTable>(pub(super) Arc<ExtDTypeInner<V>>);
+pub struct ExtDType<V: ExtVTable> {
+    /// The extension dtype vtable.
+    vtable: V,
+    /// The extension dtype metadata.
+    metadata: V::Metadata,
+    /// The underlying storage dtype.
+    storage_dtype: DType,
+}
 
 /// Convenience implementation for zero-sized VTables (or VTables that implement `Default`).
 impl<V: ExtVTable + Default> ExtDType<V> {
@@ -49,58 +56,41 @@ impl<V: ExtVTable> ExtDType<V> {
         metadata: V::Metadata,
         storage_dtype: DType,
     ) -> VortexResult<Self> {
-        vtable.validate_dtype(&metadata, &storage_dtype)?;
-
-        Ok(Self(Arc::new(ExtDTypeInner::<V> {
+        let this = Self {
             vtable,
             metadata,
             storage_dtype,
-        })))
+        };
+
+        this.vtable.validate_dtype(&this)?;
+
+        Ok(this)
     }
 
     /// Returns the identifier of the extension type.
     pub fn id(&self) -> ExtId {
-        self.0.vtable.id()
+        self.vtable.id()
     }
 
     /// Returns the vtable of the extension type.
     pub fn vtable(&self) -> &V {
-        &self.0.vtable
+        &self.vtable
     }
 
     /// Returns the metadata of the extension type.
     pub fn metadata(&self) -> &V::Metadata {
-        &self.0.metadata
+        &self.metadata
     }
 
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
-        &self.0.storage_dtype
+        &self.storage_dtype
     }
 
     /// Erase the concrete type information, returning a type-erased extension dtype.
     pub fn erased(self) -> ExtDTypeRef {
-        ExtDTypeRef(self.0)
+        ExtDTypeRef(Arc::new(self))
     }
-}
-
-// ---------------------------------------------------------------------------
-// Private inner struct + sealed trait
-// ---------------------------------------------------------------------------
-
-/// The private inner representation of an extension dtype, pairing a vtable with its metadata
-/// and storage dtype.
-///
-/// This is the sole implementor of [`DynExtDType`], enabling [`ExtDTypeRef`] to safely downcast
-/// back to the concrete vtable type via [`Any`].
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub(super) struct ExtDTypeInner<V: ExtVTable> {
-    /// The extension dtype vtable.
-    pub(super) vtable: V,
-    /// The extension dtype metadata.
-    pub(super) metadata: V::Metadata,
-    /// The underlying storage dtype.
-    pub(super) storage_dtype: DType,
 }
 
 /// An object-safe, sealed trait encapsulating the behavior for extension dtypes.
@@ -111,9 +101,9 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     /// Returns `self` as a trait object for downcasting.
     fn as_any(&self) -> &dyn Any;
     /// Returns the [`ExtId`] identifying this extension type.
-    fn id(&self) -> ExtId;
+    fn ext_id(&self) -> ExtId;
     /// Returns a reference to the storage [`DType`].
-    fn storage_dtype(&self) -> &DType;
+    fn ext_storage_dtype(&self) -> &DType;
     /// Returns the metadata as a trait object for downcasting.
     fn metadata_any(&self) -> &dyn Any;
     /// Formats the metadata using [`Debug`].
@@ -135,16 +125,16 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     -> fmt::Result;
 }
 
-impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
+impl<V: ExtVTable> DynExtDType for ExtDType<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn id(&self) -> ExtId {
+    fn ext_id(&self) -> ExtId {
         self.vtable.id()
     }
 
-    fn storage_dtype(&self) -> &DType {
+    fn ext_storage_dtype(&self) -> &DType {
         &self.storage_dtype
     }
 
@@ -186,8 +176,7 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
     }
 
     fn value_validate(&self, storage_value: &ScalarValue) -> VortexResult<()> {
-        self.vtable
-            .validate_scalar_value(&self.metadata, &self.storage_dtype, storage_value)
+        self.vtable.validate_scalar_value(self, storage_value)
     }
 
     fn value_display(
@@ -195,10 +184,7 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
         f: &mut fmt::Formatter<'_>,
         storage_value: &ScalarValue,
     ) -> fmt::Result {
-        match self
-            .vtable
-            .unpack_native(&self.metadata, &self.storage_dtype, storage_value)
-        {
+        match self.vtable.unpack_native(self, storage_value) {
             Ok(native) => fmt::Display::fmt(&native, f),
             Err(_) => write!(
                 f,

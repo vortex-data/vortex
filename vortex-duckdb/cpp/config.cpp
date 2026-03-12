@@ -2,9 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "include/duckdb_vx/config.h"
+
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/config.hpp"
+DUCKDB_INCLUDES_END
+
 #include <string>
 #include <memory>
 #include <cstdlib>

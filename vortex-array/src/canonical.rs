@@ -206,6 +206,7 @@ impl Canonical {
                         .into_array(),
                     Validity::from(n),
                 )
+                // An empty list view is trivially copyable to a list.
                 .with_zero_copy_to_list(true)
             }),
             DType::FixedSizeList(elem_dtype, list_size, null) => Canonical::FixedSizeList(unsafe {

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::dtype::DType;
+use vortex::dtype::extension::ExtDType;
 use vortex::dtype::extension::ExtId;
 use vortex::dtype::extension::ExtVTable;
 use vortex::error::VortexResult;
@@ -32,7 +33,8 @@ impl ExtVTable for FixedShapeTensor {
         proto::deserialize(metadata)
     }
 
-    fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        let storage_dtype = ext_dtype.storage_dtype();
         let DType::FixedSizeList(element_dtype, list_size, _nullability) = storage_dtype else {
             vortex_bail!(
                 "FixedShapeTensor storage dtype must be a FixedSizeList, got {storage_dtype}"
@@ -50,7 +52,7 @@ impl ExtVTable for FixedShapeTensor {
             "FixedShapeTensor element dtype must be non-nullable (may change in the future)"
         );
 
-        let element_count: usize = metadata.logical_shape().iter().product();
+        let element_count: usize = ext_dtype.metadata().logical_shape().iter().product();
         vortex_ensure_eq!(
             element_count,
             *list_size as usize,
@@ -63,8 +65,7 @@ impl ExtVTable for FixedShapeTensor {
 
     fn unpack_native<'a>(
         &self,
-        _metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
+        _ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         // TODO(connor): This is just a placeholder. However, even if we have a dedicated native
