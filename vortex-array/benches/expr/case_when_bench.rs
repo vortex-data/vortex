@@ -82,7 +82,7 @@ fn case_when_simple(bencher: Bencher, size: usize) {
 }
 
 /// Benchmark n-ary CASE WHEN with 3 conditions.
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000])]
 fn case_when_nary_3_conditions(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -109,7 +109,7 @@ fn case_when_nary_3_conditions(bencher: Bencher, size: usize) {
 }
 
 /// Benchmark n-ary CASE WHEN with 10 conditions.
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000])]
 fn case_when_nary_10_conditions(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -137,7 +137,7 @@ fn case_when_nary_10_conditions(bencher: Bencher, size: usize) {
 }
 
 /// Benchmark n-ary CASE WHEN with equality conditions (lookup-table style).
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000])]
 fn case_when_nary_equality_lookup(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -206,7 +206,7 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
 /// Benchmark n-ary CASE WHEN where the first branch dominates (~90% of rows).
 /// This highlights the early-exit and deferred-merge optimizations: subsequent conditions
 /// match no remaining rows and are skipped entirely.
-#[divan::bench(args = [1000, 10000, 100000])]
+#[divan::bench(args = [1000, 10000])]
 fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
@@ -262,7 +262,7 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
 
 /// Benchmark CASE WHEN cycling through 3 branches per row (triggers merge_row_by_row).
 /// Run length = 1; exercises branch 0, branch 1, and the else fallback at every 3rd row.
-#[divan::bench(args = [1000, 10000])]
+#[divan::bench(args = [1000])]
 fn case_when_fragmented(bencher: Bencher, size: usize) {
     let array = make_fragmented_array(size);
 
