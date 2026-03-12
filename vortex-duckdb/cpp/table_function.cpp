@@ -257,11 +257,10 @@ extern "C" duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx
     }
     const auto info = reinterpret_cast<TableFunctionBindInput *>(ffi_input);
 
-    auto t = info->named_parameters.find(name);
-    if (t == info->named_parameters.end()) {
+    if (!info->named_parameters.contains(name)) {
         return nullptr;
     }
-    auto value = duckdb::make_uniq<Value>(t->second);
+    auto value = duckdb::make_uniq<Value>(info->named_parameters.at(name));
     return reinterpret_cast<duckdb_value>(value.release());
 }
 
