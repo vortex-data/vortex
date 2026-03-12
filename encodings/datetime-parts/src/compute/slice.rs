@@ -8,10 +8,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-impl SliceReduce for DateTimePartsVTable {
+impl SliceReduce for DateTimeParts {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: slicing all components preserves values
         Ok(Some(unsafe {

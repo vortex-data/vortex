@@ -71,7 +71,7 @@ impl<V> ArrayParentReduceRule<V> for SliceReduceAdaptor<V>
 where
     V: SliceReduce,
 {
-    type Parent = SliceVTable;
+    type Parent = Slice;
 
     fn reduce_parent(
         &self,
@@ -94,7 +94,7 @@ impl<V> ExecuteParentKernel<V> for SliceExecuteAdaptor<V>
 where
     V: SliceKernel,
 {
-    type Parent = SliceVTable;
+    type Parent = Slice;
 
     fn execute_parent(
         &self,

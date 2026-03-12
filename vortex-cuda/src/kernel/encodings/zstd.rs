@@ -23,10 +23,10 @@ use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
+use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
 use vortex::encodings::zstd::ZstdArrayParts;
 use vortex::encodings::zstd::ZstdMetadata;
-use vortex::encodings::zstd::ZstdVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -184,7 +184,7 @@ pub(crate) struct ZstdExecutor;
 
 impl ZstdExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
-        array.as_opt::<ZstdVTable>().cloned()
+        array.as_opt::<Zstd>().cloned()
     }
 }
 

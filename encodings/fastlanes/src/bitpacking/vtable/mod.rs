@@ -62,7 +62,7 @@ pub struct BitPackedMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
-impl VTable for BitPackedVTable {
+impl VTable for BitPacked {
     type Array = BitPackedArray;
 
     type Metadata = ProstMetadata<BitPackedMetadata>;
@@ -369,8 +369,8 @@ impl VTable for BitPackedVTable {
 }
 
 #[derive(Debug)]
-pub struct BitPackedVTable;
+pub struct BitPacked;
 
-impl BitPackedVTable {
+impl BitPacked {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
 }

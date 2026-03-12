@@ -17,10 +17,10 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Dict;
 use crate::arrays::DictArray;
-use crate::arrays::DictVTable;
 use crate::arrays::dict::DictArrayParts;
 use crate::arrow::ArrowArrayExecutor;
 
@@ -30,11 +30,11 @@ pub(super) fn to_arrow_dictionary(
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = match array.try_into::<DictVTable>() {
+    let array = match array.try_into::<Dict>() {
         Ok(dict) => return dict_to_dict(dict, codes_type, values_type, ctx),
         Err(array) => array,
     };
-    let array = match array.try_into::<ConstantVTable>() {
+    let array = match array.try_into::<Constant>() {
         Ok(constant) => return constant_to_dict(constant, codes_type, values_type, ctx),
         Err(array) => array,
     };

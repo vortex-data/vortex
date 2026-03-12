@@ -12,13 +12,13 @@ use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
+use crate::RLE;
 use crate::RLEArray;
-use crate::RLEVTable;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<RLEVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLEVTable))]);
+pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
+    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLE))]);
 
-impl SliceKernel for RLEVTable {
+impl SliceKernel for RLE {
     fn slice(
         array: &RLEArray,
         range: Range<usize>,

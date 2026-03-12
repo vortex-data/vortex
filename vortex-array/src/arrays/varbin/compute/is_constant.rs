@@ -4,14 +4,14 @@
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::register_kernel;
 
-impl IsConstantKernel for VarBinVTable {
+impl IsConstantKernel for VarBin {
     fn is_constant(
         &self,
         array: &VarBinArray,
@@ -24,7 +24,7 @@ impl IsConstantKernel for VarBinVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(VarBinVTable).lift());
+register_kernel!(IsConstantKernelAdapter(VarBin).lift());
 
 pub(super) fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
     let Some(first_value) = iter.next() else {

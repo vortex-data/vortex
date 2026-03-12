@@ -3,15 +3,15 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::compute::is_constant_opts;
 use crate::register_kernel;
 
-impl IsConstantKernel for DictVTable {
+impl IsConstantKernel for Dict {
     fn is_constant(&self, array: &DictArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         if is_constant_opts(array.codes(), opts)? == Some(true) {
             return Ok(Some(true));
@@ -21,4 +21,4 @@ impl IsConstantKernel for DictVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DictVTable).lift());
+register_kernel!(IsConstantKernelAdapter(Dict).lift());

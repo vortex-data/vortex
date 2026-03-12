@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
@@ -13,7 +13,7 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for MaskedVTable {
+impl MaskReduce for Masked {
     fn mask(array: &MaskedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // AND the existing validity mask with the new mask and push into child.
         let combined_mask = array

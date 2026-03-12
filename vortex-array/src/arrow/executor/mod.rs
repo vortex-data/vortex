@@ -31,8 +31,8 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::DynArray;
-use crate::arrays::ListVTable;
-use crate::arrays::VarBinVTable;
+use crate::arrays::List;
+use crate::arrays::VarBin;
 use crate::arrow::executor::bool::to_arrow_bool;
 use crate::arrow::executor::byte::to_arrow_byte_array;
 use crate::arrow::executor::byte_view::to_arrow_byte_view;
@@ -193,7 +193,7 @@ impl ArrowArrayExecutor for ArrayRef {
 /// - `ListArray`: Uses `List` instead of `ListView`
 fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
     // VarBinArray: use offset-based Binary/Utf8 instead of View types
-    if let Some(varbin) = array.as_opt::<VarBinVTable>() {
+    if let Some(varbin) = array.as_opt::<VarBin>() {
         let offsets_ptype = PType::try_from(varbin.offsets().dtype())?;
         let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
 
@@ -207,7 +207,7 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
     }
 
     // ListArray: use List with appropriate offset size
-    if let Some(list) = array.as_opt::<ListVTable>() {
+    if let Some(list) = array.as_opt::<List>() {
         let offsets_ptype = PType::try_from(list.offsets().dtype())?;
         let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
         // Recursively get the preferred type for elements

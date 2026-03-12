@@ -12,8 +12,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinVTable;
 use crate::arrays::dict::TakeExecute;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -21,7 +21,7 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
-impl TakeExecute for VarBinVTable {
+impl TakeExecute for VarBin {
     fn take(
         array: &VarBinArray,
         indices: &ArrayRef,

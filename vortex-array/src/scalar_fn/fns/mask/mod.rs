@@ -15,8 +15,8 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -153,7 +153,7 @@ impl ScalarFnVTable for Mask {
 fn execute_constant(input: &ArrayRef, mask_array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     let len = input.len();
 
-    if let Some(constant_mask) = mask_array.as_opt::<ConstantVTable>() {
+    if let Some(constant_mask) = mask_array.as_opt::<Constant>() {
         let mask_value = constant_mask.scalar().as_bool().value().unwrap_or(false);
         return if mask_value {
             input.cast(input.dtype().as_nullable()).map(Some)
@@ -164,7 +164,7 @@ fn execute_constant(input: &ArrayRef, mask_array: &ArrayRef) -> VortexResult<Opt
         };
     }
 
-    if let Some(constant_input) = input.as_opt::<ConstantVTable>()
+    if let Some(constant_input) = input.as_opt::<Constant>()
         && constant_input.scalar().is_null()
     {
         return Ok(Some(

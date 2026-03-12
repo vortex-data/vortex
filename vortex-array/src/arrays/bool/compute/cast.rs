@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::array::ArrayRef;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastReduce for BoolVTable {
+impl CastReduce for Bool {
     fn cast(array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
             return Ok(None);

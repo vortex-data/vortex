@@ -8,10 +8,10 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::Sequence;
 use crate::SequenceArray;
-use crate::SequenceVTable;
 
-impl IsSortedKernel for SequenceVTable {
+impl IsSortedKernel for Sequence {
     fn is_sorted(&self, array: &SequenceArray) -> VortexResult<Option<bool>> {
         let m = array.multiplier();
         match_each_native_ptype!(m.ptype(), |P| {
@@ -27,4 +27,4 @@ impl IsSortedKernel for SequenceVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(SequenceVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Sequence).lift());

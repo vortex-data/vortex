@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
@@ -15,7 +15,7 @@ use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
 
-impl LikeReduce for DictVTable {
+impl LikeReduce for Dict {
     fn like(
         array: &DictArray,
         pattern: &ArrayRef,

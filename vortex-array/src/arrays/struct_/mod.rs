@@ -7,7 +7,7 @@ pub use array::StructArrayParts;
 pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::StructVTable;
+pub use vtable::Struct;
 
 #[cfg(test)]
 mod tests;

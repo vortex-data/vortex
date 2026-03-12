@@ -28,7 +28,7 @@ use crate::vtable;
 
 vtable!(Chunked);
 
-impl VTable for ChunkedVTable {
+impl VTable for Chunked {
     type Layout = ChunkedLayout;
     type Encoding = ChunkedLayoutEncoding;
     type Metadata = EmptyMetadata;

@@ -37,7 +37,7 @@ pub(super) fn flat_layout_inline_array_node() -> bool {
 
 vtable!(Flat);
 
-impl VTable for FlatVTable {
+impl VTable for Flat {
     type Layout = FlatLayout;
     type Encoding = FlatLayoutEncoding;
     type Metadata = ProstMetadata<FlatLayoutMetadata>;

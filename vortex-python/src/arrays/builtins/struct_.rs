@@ -6,7 +6,7 @@ use pyo3::PyRef;
 use pyo3::PyResult;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::array::arrays::StructVTable;
+use vortex::array::arrays::Struct;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::AsArrayRef;
@@ -19,7 +19,7 @@ use crate::error::PyVortexResult;
 pub(crate) struct PyStructArray;
 
 impl EncodingSubclass for PyStructArray {
-    type VTable = StructVTable;
+    type VTable = Struct;
 }
 
 #[pymethods]

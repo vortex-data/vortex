@@ -45,7 +45,7 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
-vtable!(ScalarFn);
+vtable!(ScalarFn, ScalarFnVTable);
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnVTable;

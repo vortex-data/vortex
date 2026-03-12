@@ -7,15 +7,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::dtype::Nullability;
 use crate::register_kernel;
 use crate::scalar::Scalar;
 
-impl SumKernel for BoolVTable {
+impl SumKernel for Bool {
     fn sum(&self, array: &BoolArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let true_count: Option<u64> = match array.validity_mask()?.bit_buffer() {
             AllOr::All => {
@@ -43,4 +43,4 @@ impl SumKernel for BoolVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(BoolVTable).lift());
+register_kernel!(SumKernelAdapter(Bool).lift());

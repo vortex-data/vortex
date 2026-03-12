@@ -11,10 +11,10 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::Sequence;
 use crate::SequenceArray;
-use crate::SequenceVTable;
 
-impl CastReduce for SequenceVTable {
+impl CastReduce for Sequence {
     fn cast(array: &SequenceArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // SequenceArray represents arithmetic sequences (base + i * multiplier) which
         // only makes sense for integer types. Floating-point sequences would accumulate

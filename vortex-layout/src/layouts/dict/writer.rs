@@ -21,7 +21,7 @@ use futures::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
-use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder;
@@ -152,7 +152,7 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
-                !compressed.is::<DictVTable>()
+                !compressed.is::<Dict>()
             }
         };
         if should_fallback {

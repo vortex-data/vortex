@@ -9,10 +9,10 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl FilterKernel for SparseVTable {
+impl FilterKernel for Sparse {
     fn filter(
         array: &SparseArray,
         mask: &Mask,

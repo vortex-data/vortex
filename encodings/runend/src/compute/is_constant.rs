@@ -10,9 +10,9 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::RunEndVTable;
+use crate::RunEnd;
 
-impl IsConstantKernel for RunEndVTable {
+impl IsConstantKernel for RunEnd {
     fn is_constant(
         &self,
         array: &Self::Array,
@@ -30,4 +30,4 @@ impl IsConstantKernel for RunEndVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(RunEndVTable).lift());
+register_kernel!(IsConstantKernelAdapter(RunEnd).lift());

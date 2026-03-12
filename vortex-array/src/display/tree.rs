@@ -11,7 +11,7 @@ use vortex_error::VortexExpect as _;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::DynArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
 use crate::display::DisplayOptions;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -164,7 +164,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 .flatten()
                 .unwrap_or(nbytes);
 
-            self.ancestor_sizes.push(if array.is::<ChunkedVTable>() {
+            self.ancestor_sizes.push(if array.is::<Chunked>() {
                 // Treat each chunk as a new root
                 None
             } else {

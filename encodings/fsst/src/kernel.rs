@@ -6,12 +6,12 @@ use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
-use crate::FSSTVTable;
+use crate::FSST;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CompareExecuteAdaptor(FSSTVTable)),
-    ParentKernelSet::lift(&FilterExecuteAdaptor(FSSTVTable)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(FSSTVTable)),
+pub(super) const PARENT_KERNELS: ParentKernelSet<FSST> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(FSST)),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(FSST)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(FSST)),
 ]);
 
 #[cfg(test)]
@@ -33,7 +33,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
-    use crate::FSSTVTable;
+    use crate::FSST;
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn test_fsst_filter_simple() -> VortexResult<()> {
         let fsst_array = build_test_fsst_array();
-        assert!(fsst_array.is::<FSSTVTable>());
+        assert!(fsst_array.is::<FSST>());
         assert_eq!(fsst_array.len(), 10);
 
         // Filter 1/5 elements (every 5th element: indices 0 and 5)

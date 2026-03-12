@@ -10,8 +10,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::dtype::NativePType;
@@ -20,7 +20,7 @@ use crate::match_each_native_ptype;
 use crate::register_kernel;
 use crate::scalar::Scalar;
 
-impl SumKernel for PrimitiveVTable {
+impl SumKernel for Primitive {
     fn sum(&self, array: &PrimitiveArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let array_sum_scalar = match array.validity_mask()?.bit_buffer() {
             AllOr::All => {
@@ -90,7 +90,7 @@ impl SumKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(PrimitiveVTable).lift());
+register_kernel!(SumKernelAdapter(Primitive).lift());
 
 fn sum_integer<T: NativePType + ToPrimitive, R: NativePType + CheckedAdd>(
     values: &[T],

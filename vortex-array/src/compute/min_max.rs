@@ -11,7 +11,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray as _;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Constant;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -157,8 +157,8 @@ fn min_max_impl(
         return Ok(None);
     }
 
-    if let Some(array) = array.as_opt::<ConstantVTable>() {
-        return ConstantVTable.min_max(array);
+    if let Some(array) = array.as_opt::<Constant>() {
+        return Constant.min_max(array);
     }
 
     let min = array

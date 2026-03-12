@@ -8,8 +8,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -26,12 +26,12 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
     ParentRuleSet::lift(&StructGetItemRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(StructVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(StructVTable)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(StructVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Struct)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Struct)),
+    ParentRuleSet::lift(&TakeReduceAdaptor(Struct)),
 ]);
 
 /// Rule to push down cast into struct fields.
@@ -42,7 +42,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(
 /// at the end of the struct, filled with null values.
 #[derive(Debug)]
 struct StructCastPushDownRule;
-impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
+impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
     type Parent = ExactScalarFn<Cast>;
 
     fn reduce_parent(
@@ -96,7 +96,7 @@ impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
 /// Rule to flatten get_item from struct by field name
 #[derive(Debug)]
 pub(crate) struct StructGetItemRule;
-impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
+impl ArrayParentReduceRule<Struct> for StructGetItemRule {
     type Parent = ExactScalarFn<GetItem>;
 
     fn reduce_parent(

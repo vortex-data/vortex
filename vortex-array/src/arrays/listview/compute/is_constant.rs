@@ -3,15 +3,15 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::compute::is_constant_opts;
 use crate::register_kernel;
 
-impl IsConstantKernel for ListViewVTable {
+impl IsConstantKernel for ListView {
     fn is_constant(
         &self,
         array: &ListViewArray,
@@ -49,4 +49,4 @@ impl IsConstantKernel for ListViewVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ListViewVTable).lift());
+register_kernel!(IsConstantKernelAdapter(ListView).lift());

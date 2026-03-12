@@ -6,22 +6,22 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array
 // then zips once.
-impl ZipKernel for ChunkedVTable {
+impl ZipKernel for Chunked {
     fn zip(
         if_true: &ChunkedArray,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<ChunkedVTable>() else {
+        let Some(if_false) = if_false.as_opt::<Chunked>() else {
             return Ok(None);
         };
         let dtype = if_true
@@ -80,8 +80,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
+    use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ChunkedVTable;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -121,7 +121,7 @@ mod tests {
             .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let zipped = zipped
-            .as_opt::<ChunkedVTable>()
+            .as_opt::<Chunked>()
             .expect("zip should keep chunked encoding");
 
         assert_eq!(zipped.nchunks(), 4);

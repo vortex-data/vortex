@@ -7,8 +7,8 @@ use Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
@@ -16,7 +16,7 @@ use crate::dtype::Nullability;
 use crate::register_kernel;
 use crate::scalar::Scalar;
 
-impl MinMaxKernel for BoolVTable {
+impl MinMaxKernel for Bool {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
         let mask = array.validity_mask()?;
         let true_non_null = match &mask {
@@ -72,7 +72,7 @@ impl MinMaxKernel for BoolVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(BoolVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Bool).lift());
 
 #[cfg(test)]
 mod tests {
