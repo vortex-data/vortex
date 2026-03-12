@@ -13,8 +13,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::VarBinViewVTable;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::compute::is_constant;
 use vortex_array::scalar::Scalar;
@@ -26,8 +26,8 @@ use vortex_error::vortex_err;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
+use vortex_sparse::Sparse;
 use vortex_sparse::SparseArray;
-use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::integer::DictScheme as IntDictScheme;
@@ -99,7 +99,7 @@ impl StringStats {
 }
 
 impl CompressorStats for StringStats {
-    type ArrayVTable = VarBinViewVTable;
+    type ArrayVTable = VarBinView;
 
     fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
@@ -139,7 +139,7 @@ pub struct StringCompressor<'a> {
 }
 
 impl<'a> Compressor for StringCompressor<'a> {
-    type ArrayVTable = VarBinViewVTable;
+    type ArrayVTable = VarBinView;
     type SchemeType = dyn StringScheme;
     type StatsType = StringStats;
 
@@ -498,7 +498,7 @@ impl Scheme for NullDominated {
         // We pass None as we only run this pathway for NULL-dominated string arrays
         let sparse_encoded = SparseArray::encode(&stats.src.clone().into_array(), None)?;
 
-        if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
+        if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings)
             let new_excludes = vec![IntSparseScheme.code(), IntCode::Dict];
 
@@ -633,13 +633,13 @@ mod tests {
 #[cfg(test)]
 mod scheme_selection_tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ConstantVTable;
-    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_fsst::FSSTVTable;
+    use vortex_fsst::FSST;
 
     use crate::BtrBlocksCompressor;
 
@@ -649,7 +649,7 @@ mod scheme_selection_tests {
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
         let array_ref = array.into_array();
         let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
-        assert!(compressed.is::<ConstantVTable>());
+        assert!(compressed.is::<Constant>());
         Ok(())
     }
 
@@ -663,7 +663,7 @@ mod scheme_selection_tests {
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
         let array_ref = array.into_array();
         let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
-        assert!(compressed.is::<DictVTable>());
+        assert!(compressed.is::<Dict>());
         Ok(())
     }
 
@@ -678,7 +678,7 @@ mod scheme_selection_tests {
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
         let array_ref = array.into_array();
         let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
-        assert!(compressed.is::<FSSTVTable>());
+        assert!(compressed.is::<FSST>());
         Ok(())
     }
 }

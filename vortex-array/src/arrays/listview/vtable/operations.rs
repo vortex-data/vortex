@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
-use crate::arrays::ListViewVTable;
+use crate::arrays::ListView;
 use crate::arrays::listview::vtable::ListViewArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<ListViewVTable> for ListViewVTable {
+impl OperationsVTable<ListView> for ListView {
     fn scalar_at(array: &ListViewArray, index: usize) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
         let list = array.list_elements_at(index)?;

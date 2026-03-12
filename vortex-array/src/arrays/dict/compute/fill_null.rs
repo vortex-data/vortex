@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
@@ -19,7 +19,7 @@ use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::scalar_fn::fns::operators::Operator;
 
-impl FillNullKernel for DictVTable {
+impl FillNullKernel for Dict {
     fn fill_null(
         array: &DictArray,
         fill_value: &Scalar,

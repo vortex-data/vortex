@@ -3,18 +3,18 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
-impl MinMaxKernel for ListViewVTable {
+impl MinMaxKernel for ListView {
     fn min_max(&self, _array: &ListViewArray) -> VortexResult<Option<MinMaxResult>> {
         // This would require finding the lexicographically minimum and maximum lists.
         Ok(None)
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(ListViewVTable).lift());
+register_kernel!(MinMaxKernelAdapter(ListView).lift());

@@ -12,18 +12,18 @@ use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskExecuteAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-use crate::ALPVTable;
+use crate::ALP;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<ALPVTable> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CompareExecuteAdaptor(ALPVTable)),
-    ParentKernelSet::lift(&FilterExecuteAdaptor(ALPVTable)),
-    ParentKernelSet::lift(&MaskExecuteAdaptor(ALPVTable)),
-    ParentKernelSet::lift(&SliceExecuteAdaptor(ALPVTable)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(ALPVTable)),
+pub(super) const PARENT_KERNELS: ParentKernelSet<ALP> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(ALP)),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(ALP)),
+    ParentKernelSet::lift(&MaskExecuteAdaptor(ALP)),
+    ParentKernelSet::lift(&SliceExecuteAdaptor(ALP)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(ALP)),
 ]);
 
-pub(super) const RULES: ParentRuleSet<ALPVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&BetweenReduceAdaptor(ALPVTable)),
-    ParentRuleSet::lift(&CastReduceAdaptor(ALPVTable)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ALPVTable)),
+pub(super) const RULES: ParentRuleSet<ALP> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&BetweenReduceAdaptor(ALP)),
+    ParentRuleSet::lift(&CastReduceAdaptor(ALP)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(ALP)),
 ]);

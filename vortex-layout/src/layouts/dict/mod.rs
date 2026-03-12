@@ -34,7 +34,7 @@ use crate::vtable;
 
 vtable!(Dict);
 
-impl VTable for DictVTable {
+impl VTable for Dict {
     type Layout = DictLayout;
     type Encoding = DictLayoutEncoding;
     type Metadata = ProstMetadata<DictLayoutMetadata>;
@@ -116,7 +116,7 @@ impl VTable for DictVTable {
             .map(Nullability::from)
             // The old behaviour (without `is_nullable_codes` metadata) used the nullability
             // of the values (and whole array).
-            // see [`SerdeVTable<DictVTable>::build`].
+            // see [`SerdeVTable<Dict>::build`].
             .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
         Ok(unsafe {

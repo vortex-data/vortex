@@ -26,14 +26,14 @@ pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::ConstantVTable;
-use vortex::array::arrays::DictVTable;
-use vortex::array::arrays::ListVTable;
+use vortex::array::arrays::Constant;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::vtable::ValidityHelper;
-use vortex::encodings::runend::RunEndVTable;
-use vortex::encodings::sequence::SequenceVTable;
+use vortex::encodings::runend::RunEnd;
+use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
@@ -140,25 +140,25 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let array = match array.try_into::<ConstantVTable>() {
+    let array = match array.try_into::<Constant>() {
         Ok(array) => return constant::new_exporter(array),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<SequenceVTable>() {
+    if let Some(array) = array.as_opt::<Sequence>() {
         return sequence::new_exporter(array);
     }
 
-    let array = match array.try_into::<RunEndVTable>() {
+    let array = match array.try_into::<RunEnd>() {
         Ok(array) => return run_end::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<DictVTable>() {
+    if let Some(array) = array.as_opt::<Dict>() {
         return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
     }
 
-    let array = match array.try_into::<ListVTable>() {
+    let array = match array.try_into::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),
         Err(array) => array,
     };

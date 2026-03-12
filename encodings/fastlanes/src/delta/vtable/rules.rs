@@ -5,9 +5,9 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 
-use crate::delta::vtable::DeltaVTable;
+use crate::delta::vtable::Delta;
 
-pub(crate) static RULES: ParentRuleSet<DeltaVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&SliceReduceAdaptor(DeltaVTable)),
-    ParentRuleSet::lift(&CastReduceAdaptor(DeltaVTable)),
+pub(crate) static RULES: ParentRuleSet<Delta> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&SliceReduceAdaptor(Delta)),
+    ParentRuleSet::lift(&CastReduceAdaptor(Delta)),
 ]);

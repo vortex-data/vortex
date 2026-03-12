@@ -14,8 +14,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::byte_view::execute_varbinview_to_arrow;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -34,7 +34,7 @@ where
     T::Offset: NativePType,
 {
     // If the Vortex array is already in VarBin format, we can directly convert it.
-    if let Some(array) = array.as_opt::<VarBinVTable>() {
+    if let Some(array) = array.as_opt::<VarBin>() {
         return varbin_to_byte_array::<T>(array, ctx);
     }
 

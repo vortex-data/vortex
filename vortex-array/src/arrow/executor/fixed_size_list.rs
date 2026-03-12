@@ -9,8 +9,8 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::vtable::ValidityHelper;
@@ -22,7 +22,7 @@ pub(super) fn to_arrow_fixed_list(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     // Check for Vortex FixedSizeListArray and convert directly.
-    if let Some(array) = array.as_opt::<FixedSizeListVTable>() {
+    if let Some(array) = array.as_opt::<FixedSizeList>() {
         return list_to_list(array, elements_field, list_size, ctx);
     }
 

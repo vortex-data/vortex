@@ -51,7 +51,7 @@ pub struct VarBinMetadata {
     pub(crate) offsets_ptype: i32,
 }
 
-impl VTable for VarBinVTable {
+impl VTable for VarBin {
     type Array = VarBinArray;
 
     type Metadata = ProstMetadata<VarBinMetadata>;
@@ -227,8 +227,8 @@ impl VTable for VarBinVTable {
 }
 
 #[derive(Debug)]
-pub struct VarBinVTable;
+pub struct VarBin;
 
-impl VarBinVTable {
+impl VarBin {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.varbin");
 }

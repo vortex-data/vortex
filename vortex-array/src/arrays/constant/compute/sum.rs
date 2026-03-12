@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::dtype::DType;
@@ -27,7 +27,7 @@ use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
-impl SumKernel for ConstantVTable {
+impl SumKernel for Constant {
     fn sum(&self, array: &ConstantArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         // Compute the expected dtype of the sum.
         let sum_dtype = Stat::Sum
@@ -165,7 +165,7 @@ fn sum_float(
     Ok(Some(initial + v * len_f64))
 }
 
-register_kernel!(SumKernelAdapter(ConstantVTable).lift());
+register_kernel!(SumKernelAdapter(Constant).lift());
 
 #[cfg(test)]
 mod tests {

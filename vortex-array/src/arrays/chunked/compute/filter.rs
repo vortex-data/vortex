@@ -11,8 +11,8 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::filter::FilterKernel;
 use crate::search_sorted::SearchSorted;
@@ -22,7 +22,7 @@ use crate::validity::Validity;
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for ChunkedVTable {
+impl FilterKernel for Chunked {
     fn filter(
         array: &ChunkedArray,
         mask: &Mask,

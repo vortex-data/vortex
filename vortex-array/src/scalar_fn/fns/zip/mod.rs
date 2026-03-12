@@ -233,8 +233,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Struct;
     use crate::arrays::StructArray;
-    use crate::arrays::StructVTable;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::IntoArrowArray;
     use crate::assert_arrays_eq;
@@ -391,7 +391,7 @@ mod tests {
         let wrapped_result = mask_array
             .zip(wrapped1, wrapped2)?
             .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
-        assert!(wrapped_result.is::<StructVTable>());
+        assert!(wrapped_result.is::<Struct>());
 
         Ok(())
     }

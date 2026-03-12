@@ -9,8 +9,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 use crate::builtins::ArrayBuiltins;
@@ -67,10 +67,7 @@ fn constant_boolean(
     rhs: &ArrayRef,
     op: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
-    let (Some(lhs), Some(rhs)) = (
-        lhs.as_opt::<ConstantVTable>(),
-        rhs.as_opt::<ConstantVTable>(),
-    ) else {
+    let (Some(lhs), Some(rhs)) = (lhs.as_opt::<Constant>(), rhs.as_opt::<Constant>()) else {
         return Ok(None);
     };
 

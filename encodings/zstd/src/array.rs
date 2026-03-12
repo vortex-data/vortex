@@ -81,7 +81,7 @@ type ViewLen = u32;
 
 vtable!(Zstd);
 
-impl VTable for ZstdVTable {
+impl VTable for Zstd {
     type Array = ZstdArray;
 
     type Metadata = ProstMetadata<ZstdMetadata>;
@@ -289,9 +289,9 @@ impl VTable for ZstdVTable {
 }
 
 #[derive(Debug)]
-pub struct ZstdVTable;
+pub struct Zstd;
 
-impl ZstdVTable {
+impl Zstd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
 }
 
@@ -935,7 +935,7 @@ impl ValiditySliceHelper for ZstdArray {
     }
 }
 
-impl OperationsVTable<ZstdVTable> for ZstdVTable {
+impl OperationsVTable<Zstd> for Zstd {
     fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress()?.scalar_at(0)
     }

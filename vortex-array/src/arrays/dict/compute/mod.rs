@@ -15,8 +15,8 @@ mod slice;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use super::TakeExecute;
 use crate::ArrayRef;
 use crate::DynArray;
@@ -24,7 +24,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
 
-impl TakeExecute for DictVTable {
+impl TakeExecute for Dict {
     fn take(
         array: &DictArray,
         indices: &ArrayRef,
@@ -39,7 +39,7 @@ impl TakeExecute for DictVTable {
     }
 }
 
-impl FilterReduce for DictVTable {
+impl FilterReduce for Dict {
     fn filter(array: &DictArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let codes = array.codes().filter(mask.clone())?;
 

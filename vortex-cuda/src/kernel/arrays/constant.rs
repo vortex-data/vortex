@@ -10,8 +10,8 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
@@ -40,7 +40,7 @@ pub(crate) struct ConstantNumericExecutor;
 
 impl ConstantNumericExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ConstantArray> {
-        array.try_into::<ConstantVTable>().ok()
+        array.try_into::<Constant>().ok()
     }
 }
 

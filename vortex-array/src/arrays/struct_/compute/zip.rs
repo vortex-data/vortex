@@ -10,21 +10,21 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl ZipKernel for StructVTable {
+impl ZipKernel for Struct {
     fn zip(
         if_true: &StructArray,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<StructVTable>() else {
+        let Some(if_false) = if_false.as_opt::<Struct>() else {
             return Ok(None);
         };
         assert_eq!(

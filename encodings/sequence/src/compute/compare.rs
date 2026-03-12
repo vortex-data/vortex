@@ -21,9 +21,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::SequenceArray;
-use crate::array::SequenceVTable;
+use crate::array::Sequence;
 
-impl CompareKernel for SequenceVTable {
+impl CompareKernel for Sequence {
     fn compare(
         lhs: &SequenceArray,
         rhs: &ArrayRef,

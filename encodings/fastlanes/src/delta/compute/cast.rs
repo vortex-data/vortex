@@ -10,10 +10,10 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::delta::Delta;
 use crate::delta::DeltaArray;
-use crate::delta::DeltaVTable;
 
-impl CastReduce for DeltaVTable {
+impl CastReduce for Delta {
     fn cast(array: &DeltaArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Delta encoding stores differences between consecutive values, which requires
         // unsigned integers to avoid overflow issues. Signed integers could produce

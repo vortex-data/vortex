@@ -6,11 +6,11 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Null;
 use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
 use crate::arrays::filter::FilterReduce;
 
-impl FilterReduce for NullVTable {
+impl FilterReduce for Null {
     fn filter(_array: &NullArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(NullArray::new(mask.true_count()).into_array()))
     }

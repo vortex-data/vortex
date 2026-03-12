@@ -37,13 +37,13 @@ mod validity;
 vtable!(FixedSizeList);
 
 #[derive(Debug)]
-pub struct FixedSizeListVTable;
+pub struct FixedSizeList;
 
-impl FixedSizeListVTable {
+impl FixedSizeList {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
 }
 
-impl VTable for FixedSizeListVTable {
+impl VTable for FixedSizeList {
     type Array = FixedSizeListArray;
 
     type Metadata = EmptyMetadata;
@@ -169,7 +169,7 @@ impl VTable for FixedSizeListVTable {
     ) -> VortexResult<FixedSizeListArray> {
         vortex_ensure!(
             buffers.is_empty(),
-            "`FixedSizeListVTable::build` expects no buffers"
+            "`FixedSizeList::build` expects no buffers"
         );
 
         let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
@@ -178,7 +178,7 @@ impl VTable for FixedSizeListVTable {
 
         let validity = {
             if children.len() > 2 {
-                vortex_bail!("`FixedSizeListVTable::build` method expected 1 or 2 children")
+                vortex_bail!("`FixedSizeList::build` method expected 1 or 2 children")
             }
 
             if children.len() == 2 {

@@ -23,8 +23,8 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayVisitor;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrow::ArrowArrayExecutor;
 
 /// The encoding ID used by `vortex-runend`. We match on this string to avoid a crate dependency.
@@ -48,7 +48,7 @@ pub(super) fn to_arrow_run_end(
     values_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = match array.try_into::<ConstantVTable>() {
+    let array = match array.try_into::<Constant>() {
         Ok(constant) => {
             return constant_to_run_end(constant, ends_type, values_type, ctx);
         }

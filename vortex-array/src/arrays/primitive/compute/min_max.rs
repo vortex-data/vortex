@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
@@ -17,7 +17,7 @@ use crate::register_kernel;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 
-impl MinMaxKernel for PrimitiveVTable {
+impl MinMaxKernel for Primitive {
     fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_native_ptype!(array.ptype(), |T| {
             compute_min_max_with_validity::<T>(array)
@@ -25,7 +25,7 @@ impl MinMaxKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(PrimitiveVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Primitive).lift());
 
 #[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>

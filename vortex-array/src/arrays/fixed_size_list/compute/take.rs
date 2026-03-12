@@ -10,8 +10,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
@@ -25,7 +25,7 @@ use crate::vtable::ValidityHelper;
 /// Unlike `ListView`, `FixedSizeListArray` must rebuild the elements array because it requires
 /// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
 /// into element indices and push them down to the child elements array.
-impl TakeExecute for FixedSizeListVTable {
+impl TakeExecute for FixedSizeList {
     fn take(
         array: &FixedSizeListArray,
         indices: &ArrayRef,

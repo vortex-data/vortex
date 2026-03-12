@@ -3,14 +3,14 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
-impl MinMaxKernel for ConstantVTable {
+impl MinMaxKernel for Constant {
     fn min_max(&self, array: &ConstantArray) -> VortexResult<Option<MinMaxResult>> {
         let scalar = array.scalar();
         if scalar.is_null() || scalar.as_primitive_opt().is_some_and(|p| p.is_nan()) {
@@ -24,7 +24,7 @@ impl MinMaxKernel for ConstantVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(ConstantVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Constant).lift());
 
 #[cfg(test)]
 mod test {

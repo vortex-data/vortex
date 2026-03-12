@@ -22,9 +22,9 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinVTable;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
@@ -168,9 +168,9 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
         );
 
         let len = array.len();
-        if let Some(varbinview) = array.as_opt::<VarBinViewVTable>() {
+        if let Some(varbinview) = array.as_opt::<VarBinView>() {
             self.encode_bytes(varbinview, len)
-        } else if let Some(varbin) = array.as_opt::<VarBinVTable>() {
+        } else if let Some(varbin) = array.as_opt::<VarBin>() {
             self.encode_bytes(varbin, len)
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.

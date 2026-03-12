@@ -8,10 +8,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::alp_rd::ALPRD;
 use crate::alp_rd::ALPRDArray;
-use crate::alp_rd::ALPRDVTable;
 
-impl CastReduce for ALPRDVTable {
+impl CastReduce for ALPRD {
     fn cast(array: &ALPRDArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ALPRDArray stores floating-point values, so only cast between float types
         // or if just changing nullability

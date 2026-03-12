@@ -4,14 +4,14 @@
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::register_kernel;
 
-impl IsSortedKernel for VarBinViewVTable {
+impl IsSortedKernel for VarBinView {
     fn is_sorted(&self, array: &VarBinViewArray) -> VortexResult<Option<bool>> {
         Ok(Some(
             array.with_iterator(|bytes_iter| bytes_iter.is_sorted()),
@@ -25,4 +25,4 @@ impl IsSortedKernel for VarBinViewVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(VarBinViewVTable).lift());
+register_kernel!(IsSortedKernelAdapter(VarBinView).lift());

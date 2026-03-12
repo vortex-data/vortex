@@ -11,8 +11,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
@@ -22,7 +22,7 @@ use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
-impl TakeExecute for BoolVTable {
+impl TakeExecute for Bool {
     fn take(
         array: &BoolArray,
         indices: &ArrayRef,

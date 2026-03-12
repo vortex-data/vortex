@@ -9,11 +9,11 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::slice::SliceKernel;
 
-impl SliceKernel for ChunkedVTable {
+impl SliceKernel for Chunked {
     fn slice(
         array: &Self::Array,
         range: Range<usize>,

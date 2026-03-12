@@ -45,13 +45,13 @@ mod validity;
 vtable!(Constant);
 
 #[derive(Debug)]
-pub struct ConstantVTable;
+pub struct Constant;
 
-impl ConstantVTable {
+impl Constant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
 }
 
-impl VTable for ConstantVTable {
+impl VTable for Constant {
     type Array = ConstantArray;
 
     type Metadata = Scalar;

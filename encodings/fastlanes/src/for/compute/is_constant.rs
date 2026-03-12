@@ -8,13 +8,13 @@ use vortex_array::compute::is_constant_opts;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
-impl IsConstantKernel for FoRVTable {
+impl IsConstantKernel for FoR {
     fn is_constant(&self, array: &FoRArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         is_constant_opts(array.encoded(), opts)
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(FoRVTable).lift());
+register_kernel!(IsConstantKernelAdapter(FoR).lift());

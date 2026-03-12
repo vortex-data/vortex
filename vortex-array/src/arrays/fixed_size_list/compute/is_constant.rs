@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
@@ -13,7 +13,7 @@ use crate::register_kernel;
 /// IsConstant implementation for [`FixedSizeListArray`].
 ///
 /// Compares each list scalar against the first to determine if all lists are identical.
-impl IsConstantKernel for FixedSizeListVTable {
+impl IsConstantKernel for FixedSizeList {
     fn is_constant(
         &self,
         array: &FixedSizeListArray,
@@ -41,4 +41,4 @@ impl IsConstantKernel for FixedSizeListVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(FixedSizeListVTable).lift());
+register_kernel!(IsConstantKernelAdapter(FixedSizeList).lift());

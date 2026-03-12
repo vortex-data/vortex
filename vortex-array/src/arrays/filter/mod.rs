@@ -16,4 +16,4 @@ pub use kernel::FilterReduceAdaptor;
 mod rules;
 
 mod vtable;
-pub use vtable::FilterVTable;
+pub use vtable::Filter;

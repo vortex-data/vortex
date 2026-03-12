@@ -9,10 +9,10 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
+use crate::ByteBool;
 use crate::ByteBoolArray;
-use crate::ByteBoolVTable;
 
-impl SliceReduce for ByteBoolVTable {
+impl SliceReduce for ByteBool {
     fn slice(array: &ByteBoolArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ByteBoolArray::new(

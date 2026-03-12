@@ -7,10 +7,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
@@ -19,10 +19,10 @@ use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
-pub(crate) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[
+pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(DecimalVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(DecimalVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Decimal)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Decimal)),
 ]);
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
@@ -32,8 +32,8 @@ pub(crate) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[
 #[derive(Default, Debug)]
 pub struct DecimalMaskedValidityRule;
 
-impl ArrayParentReduceRule<DecimalVTable> for DecimalMaskedValidityRule {
-    type Parent = MaskedVTable;
+impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
+    type Parent = Masked;
 
     fn reduce_parent(
         &self,
@@ -60,7 +60,7 @@ impl ArrayParentReduceRule<DecimalVTable> for DecimalMaskedValidityRule {
     }
 }
 
-impl SliceReduce for DecimalVTable {
+impl SliceReduce for Decimal {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             let sliced = array.buffer::<D>().slice(range.clone());

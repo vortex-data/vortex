@@ -10,12 +10,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 use crate::timestamp;
 use crate::timestamp::TimestampParts;
 
-impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
+impl OperationsVTable<DateTimeParts> for DateTimeParts {
     fn scalar_at(array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_panic!(

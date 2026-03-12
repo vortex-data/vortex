@@ -9,10 +9,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
+use crate::alp_rd::ALPRD;
 use crate::alp_rd::ALPRDArray;
-use crate::alp_rd::ALPRDVTable;
 
-impl SliceKernel for ALPRDVTable {
+impl SliceKernel for ALPRD {
     fn slice(
         array: &Self::Array,
         range: Range<usize>,

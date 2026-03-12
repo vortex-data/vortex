@@ -23,8 +23,8 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::VarBinVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
@@ -75,7 +75,7 @@ impl FSSTMetadata {
     }
 }
 
-impl VTable for FSSTVTable {
+impl VTable for FSST {
     type Array = FSSTArray;
 
     type Metadata = ProstMetadata<FSSTMetadata>;
@@ -230,7 +230,7 @@ impl VTable for FSSTVTable {
             }
             let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
             let codes = codes
-                .as_opt::<VarBinVTable>()
+                .as_opt::<VarBin>()
                 .ok_or_else(|| {
                     vortex_err!(
                         "Expected VarBinArray for codes, got {}",
@@ -322,7 +322,7 @@ impl VTable for FSSTVTable {
             .ok_or_else(|| vortex_err!("FSSTArray with_children missing codes"))?;
 
         let codes = codes
-            .as_opt::<VarBinVTable>()
+            .as_opt::<VarBin>()
             .ok_or_else(|| {
                 vortex_err!(
                     "Expected VarBinArray for codes, got {}",
@@ -391,9 +391,9 @@ impl Debug for FSSTArray {
 }
 
 #[derive(Debug)]
-pub struct FSSTVTable;
+pub struct FSST;
 
-impl FSSTVTable {
+impl FSST {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
 }
 
@@ -557,7 +557,7 @@ impl FSSTArray {
     }
 }
 
-impl ValidityChild<FSSTVTable> for FSSTVTable {
+impl ValidityChild<FSST> for FSST {
     fn validity_child(array: &FSSTArray) -> &ArrayRef {
         &array.codes_array
     }
@@ -583,7 +583,7 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
 
-    use crate::FSSTVTable;
+    use crate::FSST;
     use crate::array::FSSTMetadata;
     use crate::fsst_compress;
     use crate::fsst_compress_iter;
@@ -642,7 +642,7 @@ mod test {
             fsst_array.uncompressed_lengths().clone(),
         ];
 
-        let fsst = FSSTVTable::build(
+        let fsst = FSST::build(
             &DType::Utf8(Nullability::NonNullable),
             2,
             &ProstMetadata(FSSTMetadata {

@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for ListVTable {
+impl MaskReduce for List {
     fn mask(array: &ListArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         ListArray::try_new(
             array.elements().clone(),
