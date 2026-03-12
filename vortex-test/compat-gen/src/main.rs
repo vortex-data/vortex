@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use chrono::Utc;
 use clap::Parser;
 use vortex_compat::fixtures::all_fixtures;
+use vortex_compat::manifest::FixtureEntry;
 use vortex_compat::manifest::Manifest;
 use vortex_error::VortexResult;
 
@@ -31,20 +32,24 @@ fn main() -> VortexResult<()> {
         .map_err(|e| vortex_error::vortex_err!("failed to create output dir: {e}"))?;
 
     let fixtures = all_fixtures();
-    let mut fixture_names = Vec::with_capacity(fixtures.len());
+    let mut entries = Vec::with_capacity(fixtures.len());
 
     for fixture in &fixtures {
         let chunks = fixture.build()?;
         let path = cli.output.join(fixture.name());
         vortex_compat::adapter::write_file(&path, chunks)?;
-        fixture_names.push(fixture.name().to_string());
+
+        entries.push(FixtureEntry {
+            name: fixture.name().to_string(),
+            since: cli.version.clone(),
+        });
         eprintln!("  wrote {}", fixture.name());
     }
 
     let manifest = Manifest {
         version: cli.version.clone(),
         generated_at: Utc::now(),
-        fixtures: fixture_names,
+        fixtures: entries,
     };
     let manifest_path = cli.output.join("manifest.json");
     let manifest_json = serde_json::to_string_pretty(&manifest)

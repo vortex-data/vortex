@@ -26,10 +26,11 @@ method. The following rules apply:
   structural pattern, add a new fixture with a new filename. Never modify an
   existing fixture to cover new ground.
 
-- **Older versions have fewer fixtures.** Each version's `manifest.json` lists
-  which fixtures were generated for that version. `compat-validate` only validates
-  the fixtures listed in the manifest — it skips any fixture that didn't exist
-  at that version.
+- **Additive-only fixture list.** The fixture list only ever grows; fixtures are
+  never removed. The upload script (`scripts/upload.py`) enforces this by checking
+  that every fixture in the previous version's manifest still exists in the
+  generated output. Each fixture's `since` field in the manifest records the first
+  version that introduced it.
 
 - **`versions.json`** is the top-level index listing every version that has
   uploaded fixtures. `compat-validate` iterates over all listed versions.
@@ -47,84 +48,43 @@ After creating the S3 bucket (see [AWS Setup](#aws-setup-one-time) below), seed 
 with the first fixture set:
 
 ```bash
-# 1. Generate fixtures for the current version
-cargo run -p vortex-compat --release --bin compat-gen -- \
-  --version 0.62.0 --output /tmp/fixtures/
+# Generate + upload (first version, no previous manifest to merge)
+python3 vortex-test/compat-gen/scripts/upload.py --version 0.62.0
 
-# 2. Upload to S3
-AWS_PROFILE=vortex-ci aws s3 cp /tmp/fixtures/ \
-  s3://vortex-compat-fixtures/v0.62.0/ --recursive
-
-# 3. Create the initial versions.json
-echo '["0.62.0"]' > /tmp/versions.json
-AWS_PROFILE=vortex-ci aws s3 cp /tmp/versions.json \
-  s3://vortex-compat-fixtures/versions.json
-
-# 4. Verify the round-trip
+# Verify the round-trip
 AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-validate -- \
   --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
 ```
 
 ## Uploading Fixtures for a New Version
 
-When a new Vortex version is tagged and you want to upload its fixtures manually
-(CI does this automatically on tag push):
+Use the upload script, which handles building, manifest merging, and S3 upload:
 
 ```bash
-VERSION=0.63.0
+# Full upload
+python3 vortex-test/compat-gen/scripts/upload.py --version 0.63.0
 
-# 1. Generate fixtures
-cargo run -p vortex-compat --release --bin compat-gen -- \
-  --version "$VERSION" --output /tmp/fixtures/
+# Dry run (generate + merge manifest, skip S3)
+python3 vortex-test/compat-gen/scripts/upload.py --version 0.63.0 --dry-run
 
-# 2. Upload to S3 under the new version prefix
-AWS_PROFILE=vortex-ci aws s3 cp /tmp/fixtures/ \
-  "s3://vortex-compat-fixtures/v${VERSION}/" --recursive
+# Skip the cargo build (if you already have fixtures generated)
+python3 vortex-test/compat-gen/scripts/upload.py \
+  --version 0.63.0 --output /tmp/fixtures/ --skip-build
 
-# 3. Append the version to versions.json
-AWS_PROFILE=vortex-ci aws s3 cp \
-  s3://vortex-compat-fixtures/versions.json /tmp/versions.json
-python3 -c "
-import json, sys
-with open('/tmp/versions.json') as f:
-    versions = json.load(f)
-v = sys.argv[1]
-if v not in versions:
-    versions.append(v)
-    versions.sort(key=lambda x: list(map(int, x.split('.'))))
-with open('/tmp/versions.json', 'w') as f:
-    json.dump(versions, f, indent=2)
-" "$VERSION"
-AWS_PROFILE=vortex-ci aws s3 cp /tmp/versions.json \
-  s3://vortex-compat-fixtures/versions.json
-
-# 4. Verify all versions (including the new one)
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-validate -- \
+# Verify all versions
+cargo run -p vortex-compat --release --bin compat-validate -- \
   --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
 ```
 
 ## Re-uploading Fixtures for an Existing Version
 
-If a fixture was added or changed and you need to regenerate for a version that
-already exists in the bucket, the upload overwrites the existing prefix:
+The upload script will overwrite the existing prefix in S3:
 
 ```bash
-VERSION=0.62.0
-
-# 1. Regenerate
-cargo run -p vortex-compat --release --bin compat-gen -- \
-  --version "$VERSION" --output /tmp/fixtures/
-
-# 2. Overwrite in S3
-AWS_PROFILE=vortex-ci aws s3 cp /tmp/fixtures/ \
-  "s3://vortex-compat-fixtures/v${VERSION}/" --recursive
-
-# 3. Verify
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-validate -- \
-  --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
+python3 vortex-test/compat-gen/scripts/upload.py --version 0.62.0
 ```
 
-No need to update `versions.json` — the version is already listed.
+No need to update `versions.json` — the script handles it idempotently.
 
 ## Local-Only Workflow
 
@@ -192,57 +152,15 @@ aws s3api put-bucket-policy \
   }'
 ```
 
-### 3. Create an IAM OIDC provider for GitHub Actions
+### 3. Grant the benchmark role access to the compat bucket
 
-Skip this step if the account already has a GitHub OIDC provider configured.
-
-```bash
-aws iam create-open-id-connect-provider \
-  --url https://token.actions.githubusercontent.com \
-  --client-id-list sts.amazonaws.com \
-  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
-```
-
-### 4. Create the IAM role for CI
-
-Create the trust policy file (`trust-policy.json`):
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::245040174862:oidc-provider/token.actions.githubusercontent.com"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:spiraldb/vortex:ref:refs/tags/*"
-        }
-      }
-    }
-  ]
-}
-```
-
-Create the role:
-
-```bash
-aws iam create-role \
-  --role-name GitHubCompatFixturesRole \
-  --assume-role-policy-document file://trust-policy.json
-```
-
-Attach an inline permission policy:
+The CI workflow reuses the existing `GitHubBenchmarkRole`
+(`arn:aws:iam::245040174862:role/GitHubBenchmarkRole`).
+Add an inline policy granting it S3 access to the compat fixtures bucket:
 
 ```bash
 aws iam put-role-policy \
-  --role-name GitHubCompatFixturesRole \
+  --role-name GitHubBenchmarkRole \
   --policy-name CompatFixturesS3Access \
   --policy-document '{
     "Version": "2012-10-17",
@@ -263,13 +181,6 @@ aws iam put-role-policy \
   }'
 ```
 
-### 5. Store the role ARN as a GitHub secret
-
-```bash
-gh secret set COMPAT_FIXTURES_ROLE_ARN \
-  --body "arn:aws:iam::245040174862:role/GitHubCompatFixturesRole"
-```
-
 ## CI Workflows
 
 ### Fixture upload (`.github/workflows/compat-gen-upload.yml`)
@@ -278,10 +189,12 @@ Triggered via **manual dispatch** with a required `version` input (e.g. `0.62.0`
 Will be updated to also trigger on release tag pushes once the workflow is proven.
 
 1. Checks out the current branch
-2. Runs `compat-gen --version <input> --output /tmp/fixtures/`
-3. Assumes the `GitHubCompatFixturesRole` via OIDC
-4. Uploads fixtures to `s3://vortex-compat-fixtures/v<version>/`
-5. Appends the version to `versions.json`
+2. Runs `scripts/upload.py --version <input>` which:
+   - Builds and runs `compat-gen` to generate fixtures
+   - Fetches the previous version's manifest and merges `since` values
+   - Enforces additive-only (no fixtures removed)
+   - Uploads fixtures to `s3://vortex-compat-fixtures/v<version>/`
+   - Updates `versions.json` with ETag-based optimistic locking
 
 ### Weekly compat test (`.github/workflows/compat-test-weekly.yml`)
 
@@ -293,17 +206,17 @@ Runs **every Monday at 06:00 UTC** and on **manual dispatch**.
 
 ## Fixture Suite
 
-| Fixture | File | Description |
-|---------|------|-------------|
-| Primitives | `primitives.vortex` | All numeric types (u8–u64, i32, i64, f32, f64) with min/mid/max values |
-| Strings | `strings.vortex` | Variable-length strings including empty, ASCII, Unicode, and emoji |
-| Booleans | `booleans.vortex` | Boolean array with mixed true/false values |
-| Nullable | `nullable.vortex` | Nullable int and string columns with interleaved nulls |
-| Nested Struct | `struct_nested.vortex` | Two-level nested struct (inner struct within outer struct) |
-| Chunked | `chunked.vortex` | Multi-chunk file: 3 chunks of 1000 rows each |
-| TPC-H Lineitem | `tpch_lineitem.vortex` | TPC-H lineitem table at scale factor 0.01 |
-| TPC-H Orders | `tpch_orders.vortex` | TPC-H orders table at scale factor 0.01 |
-| ClickBench Hits | `clickbench_hits_1k.vortex` | First 1000 rows of the ClickBench hits table |
+| Fixture | File | Since | Description |
+|---------|------|-------|-------------|
+| Primitives | `primitives.vortex` | 0.62.0 | All numeric types (u8–u64, i32, i64, f32, f64) with min/mid/max values |
+| Strings | `strings.vortex` | 0.62.0 | Variable-length strings including empty, ASCII, Unicode, and emoji |
+| Booleans | `booleans.vortex` | 0.62.0 | Boolean array with mixed true/false values |
+| Nullable | `nullable.vortex` | 0.62.0 | Nullable int and string columns with interleaved nulls |
+| Nested Struct | `struct_nested.vortex` | 0.62.0 | Two-level nested struct (inner struct within outer struct) |
+| Chunked | `chunked.vortex` | 0.62.0 | Multi-chunk file: 3 chunks of 1000 rows each |
+| TPC-H Lineitem | `tpch_lineitem.vortex` | 0.62.0 | TPC-H lineitem table at scale factor 0.01 |
+| TPC-H Orders | `tpch_orders.vortex` | 0.62.0 | TPC-H orders table at scale factor 0.01 |
+| ClickBench Hits | `clickbench_hits_1k.vortex` | 0.62.0 | First 1000 rows of the ClickBench hits table |
 
 ### Adding a new fixture
 
@@ -320,8 +233,9 @@ Never modify an existing fixture's `build()` output (see [Fixture Contract](#fix
    ```
 2. Register it in `all_fixtures()` in `src/fixtures/mod.rs`.
 3. Run `compat-gen` locally to verify it produces a valid file.
-4. Upload fixtures for the current version — the new file will appear in that
-   version's `manifest.json`. Older versions are unaffected.
+4. Upload fixtures for the current version — the upload script merges the manifest
+   so the new fixture gets `since` set to the current version while existing
+   fixtures keep their original `since` values.
 
 ## Adapter Epochs
 

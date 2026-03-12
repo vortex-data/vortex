@@ -52,20 +52,23 @@ fn validate_version(
     let mut skipped = 0;
     let mut failed = Vec::new();
 
-    for fixture_name in &manifest.fixtures {
-        let Some(fixture) = fixture_map.get(fixture_name.as_str()) else {
-            eprintln!("  warn: unknown fixture {fixture_name} in v{version}, skipping");
+    for entry in &manifest.fixtures {
+        let Some(fixture) = fixture_map.get(entry.name.as_str()) else {
+            eprintln!(
+                "  warn: unknown fixture {} in v{version}, skipping",
+                entry.name
+            );
             skipped += 1;
             continue;
         };
 
-        eprintln!("  checking {fixture_name} from v{version}...");
-        let bytes = source.fetch_fixture(version, fixture_name)?;
+        eprintln!("  checking {} from v{version}...", entry.name);
+        let bytes = source.fetch_fixture(version, &entry.name)?;
         match validate_one(bytes, *fixture) {
             Ok(()) => passed += 1,
             Err(e) => {
-                eprintln!("  FAIL: {fixture_name} from v{version}: {e}");
-                failed.push((fixture_name.clone(), e.to_string()));
+                eprintln!("  FAIL: {} from v{version}: {e}", entry.name);
+                failed.push((entry.name.clone(), e.to_string()));
             }
         }
     }

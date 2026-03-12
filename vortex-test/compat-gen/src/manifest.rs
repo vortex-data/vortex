@@ -11,5 +11,14 @@ use serde::Serialize;
 pub struct Manifest {
     pub version: String,
     pub generated_at: DateTime<Utc>,
-    pub fixtures: Vec<String>,
+    pub fixtures: Vec<FixtureEntry>,
+}
+
+/// One entry in the manifest's fixture list.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FixtureEntry {
+    /// Filename, e.g. "primitives.vortex".
+    pub name: String,
+    /// First version that introduced this fixture, e.g. "0.62.0".
+    pub since: String,
 }

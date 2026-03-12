@@ -7,9 +7,6 @@ on:
         description: "Version to generate fixtures for (e.g. 0.62.0)"
         required: true
 
-env:
-  S3_BUCKET: vortex-compat-fixtures
-
 jobs:
   upload-fixtures:
     runs-on: ubuntu-latest
@@ -23,26 +20,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Generate fixtures
-        run: |
-          cargo run -p vortex-compat --release --bin compat-gen -- \
-            --version "${{ inputs.version }}" --output /tmp/fixtures/
-
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ secrets.COMPAT_FIXTURES_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
-      - name: Upload to S3
-        run: |
-          aws s3 cp /tmp/fixtures/ \
-            "s3://${S3_BUCKET}/v${{ inputs.version }}/" --recursive
-
-      - name: Update versions.json
-        run: |
-          aws s3 cp "s3://${S3_BUCKET}/versions.json" /tmp/versions.json 2>/dev/null \
-            || echo '[]' > /tmp/versions.json
-          python3 vortex-test/compat-gen/scripts/update-versions-json.py \
-            /tmp/versions.json "${{ inputs.version }}"
-          aws s3 cp /tmp/versions.json "s3://${S3_BUCKET}/versions.json"
+      - name: Generate and upload fixtures
+        run: >
+          python3 vortex-test/compat-gen/scripts/upload.py
+          --version "${{ inputs.version }}"
