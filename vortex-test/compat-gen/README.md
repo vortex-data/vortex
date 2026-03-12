@@ -10,6 +10,30 @@ written by older versions:
 Fixtures are stored in an S3 bucket. CI uploads new fixtures on every release tag
 and runs weekly validation against all prior versions.
 
+## Fixture Contract
+
+Fixtures are the unit of backward-compatibility. Each fixture is a named file
+(e.g. `primitives.vortex`) whose contents are defined by a deterministic `build()`
+method. The following rules apply:
+
+- **Immutable data.** Once a fixture's `build()` is defined, its output (columns,
+  values, nulls, ordering) must never change. Every version that includes that
+  fixture must produce byte-for-byte identical logical arrays. `compat-test`
+  validates this by rebuilding expected arrays from `build()` and comparing them
+  against what was read from the stored file.
+
+- **New capabilities get new files.** To test a new encoding, data type, or
+  structural pattern, add a new fixture with a new filename. Never modify an
+  existing fixture to cover new ground.
+
+- **Older versions have fewer fixtures.** Each version's `manifest.json` lists
+  which fixtures were generated for that version. `compat-test` only validates
+  the fixtures listed in the manifest — it skips any fixture that didn't exist
+  at that version.
+
+- **`versions.json`** is the top-level index listing every version that has
+  uploaded fixtures. `compat-test` iterates over all listed versions.
+
 ## First-Time Setup: Bootstrap the Bucket
 
 After creating the S3 bucket (see [AWS Setup](#aws-setup-one-time) below), seed it
@@ -279,6 +303,9 @@ stubbed and will be enabled once the stable-encodings RFC lands.
 
 ### Adding a new fixture
 
+New encodings, data types, or structural patterns always get a **new fixture file**.
+Never modify an existing fixture's `build()` output (see [Fixture Contract](#fixture-contract)).
+
 1. Create a struct implementing the `Fixture` trait in `src/fixtures/`:
    ```rust
    pub struct MyFixture;
@@ -289,9 +316,8 @@ stubbed and will be enabled once the stable-encodings RFC lands.
    ```
 2. Register it in `all_fixtures()` in `src/fixtures/mod.rs`.
 3. Run `compat-gen` locally to verify it produces a valid file.
-
-The `build()` method **must be deterministic** — `compat-test` calls it to produce the
-expected arrays and compares against what was read from disk.
+4. Upload fixtures for the current version — the new file will appear in that
+   version's `manifest.json`. Older versions are unaffected.
 
 ## Adapter Epochs
 

@@ -41,19 +41,8 @@ jobs:
 
       - name: Update versions.json
         run: |
-          # Fetch existing versions.json or start with empty array
           aws s3 cp "s3://${S3_BUCKET}/versions.json" /tmp/versions.json 2>/dev/null \
             || echo '[]' > /tmp/versions.json
-          # Append new version if not already present, sort
-          python3 -c "
-          import json, sys
-          with open('/tmp/versions.json') as f:
-              versions = json.load(f)
-          v = sys.argv[1]
-          if v not in versions:
-              versions.append(v)
-              versions.sort(key=lambda x: list(map(int, x.split('.'))))
-          with open('/tmp/versions.json', 'w') as f:
-              json.dump(versions, f, indent=2)
-          " "${{ inputs.version }}"
+          python3 vortex-test/compat-gen/scripts/update-versions-json.py \
+            /tmp/versions.json "${{ inputs.version }}"
           aws s3 cp /tmp/versions.json "s3://${S3_BUCKET}/versions.json"
