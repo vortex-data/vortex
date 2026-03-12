@@ -403,7 +403,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         //  If we plumb row count estimation into the layout tree, perhaps we could use zone maps
         //  etc. to return estimates. But this function is probably called too late anyway. Maybe
         //  we need our own cardinality heuristics.
-        Ok(false)
+        Ok(true)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
