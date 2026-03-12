@@ -3,12 +3,16 @@
 
 #include "duckdb_vx.h"
 #include "duckdb_vx/data.hpp"
+#include "duckdb_vx/error.hpp"
+
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/parser/parsed_data/create_copy_function_info.hpp"
-#include "duckdb_vx/error.hpp"
+DUCKDB_INCLUDES_END
 
 using namespace duckdb;
 
@@ -39,7 +43,7 @@ struct CCopyLocalData final : LocalFunctionData {
 
 static duckdb_vx_copy_func_vtab_t copy_vtab_one;
 
-unique_ptr<FunctionData> c_bind_one(ClientContext &context,
+unique_ptr<FunctionData> c_bind_one(ClientContext & /*context*/,
                                     CopyFunctionBindInput &info,
                                     const vector<string> &column_names,
                                     const vector<LogicalType> &column_types) {
@@ -90,7 +94,7 @@ c_init_global(ClientContext &context, FunctionData &bind_data, const string &fil
     return make_uniq<CCopyGlobalData>(unique_ptr<CData>(reinterpret_cast<CData *>(global_data)));
 }
 
-unique_ptr<LocalFunctionData> c_init_local(ExecutionContext &context, FunctionData &bind_data) {
+unique_ptr<LocalFunctionData> c_init_local(ExecutionContext & /*context*/, FunctionData &bind_data) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     duckdb_vx_error error_out = nullptr;
     auto data = bind.vtab.init_local(bind.ffi_data->DataPtr(), &error_out);
@@ -101,7 +105,7 @@ unique_ptr<LocalFunctionData> c_init_local(ExecutionContext &context, FunctionDa
     return make_uniq<CCopyLocalData>(unique_ptr<CData>(reinterpret_cast<CData *>(data)));
 }
 
-void c_copy_to_sink(ExecutionContext &context,
+void c_copy_to_sink(ExecutionContext & /*context*/,
                     FunctionData &bind_data,
                     GlobalFunctionData &gstate,
                     LocalFunctionData &lstate,
@@ -120,7 +124,7 @@ void c_copy_to_sink(ExecutionContext &context,
     }
 }
 
-void copy_to_finalize(ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
+void copy_to_finalize(ClientContext & /*context*/, FunctionData &bind_data, GlobalFunctionData &gstate) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     auto &global = gstate.Cast<CCopyGlobalData>();
     duckdb_vx_error error_out = nullptr;
@@ -152,7 +156,7 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_database ff
     copy_function.extension = copy_vtab_one.extension;
 
     // TODO(joe): expose this via c our api
-    copy_function.execution_mode = [](bool preserve_insertion_order, bool supports_batch_index) {
+    copy_function.execution_mode = [](bool /*preserve_insertion_order*/, bool /*supports_batch_index*/) {
         return CopyFunctionExecutionMode::REGULAR_COPY_TO_FILE;
     };
     // TODO(joe): handle parameters as in table_function

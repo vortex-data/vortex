@@ -3,6 +3,7 @@
 
 import math
 import os
+from pathlib import Path
 
 import duckdb
 import polars
@@ -126,6 +127,25 @@ def test_filter(ds: vx.dataset.VortexDataset):
 
     tbl = ds.to_table(filter=((pc.field("index") / 2) < 10))
     assert len(tbl) == 20
+
+
+def test_filter_with_nested_null_dtype(tmp_path: Path):
+    path = tmp_path / "test.vortex"
+
+    batch = pa.RecordBatch.from_pylist(
+        [
+            {"a": 0, "b": {"x": None}},
+            {"a": 1, "b": {"x": None}},
+        ]
+    )
+
+    arr = vx.array(batch.to_struct_array())
+    vx.io.write(vx.ArrayIterator.from_iter(arr.dtype, iter([arr])), str(path))
+
+    dataset = vx.open(str(path)).to_dataset()
+    actual = dataset.to_table(filter=pc.field("a") == 0)
+
+    assert actual.to_pylist() == [{"a": 0, "b": {"x": None}}]
 
 
 def test_duckdb(ds: vx.dataset.VortexDataset):

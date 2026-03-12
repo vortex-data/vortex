@@ -6,10 +6,11 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -126,11 +127,6 @@ impl ScalarFnVTable for Zip {
             return if_true.cast(return_dtype)?.execute(ctx);
         }
 
-        let return_dtype = if_true
-            .dtype()
-            .clone()
-            .union_nullability(if_false.dtype().nullability());
-
         if mask.all_false() {
             return if_false.cast(return_dtype)?.execute(ctx);
         }
@@ -189,10 +185,19 @@ pub(crate) fn zip_impl(
         .dtype()
         .clone()
         .union_nullability(if_false.dtype().nullability());
+
+    if mask.all_true() {
+        return if_true.cast(return_type);
+    }
+    if mask.all_false() {
+        return if_false.cast(return_type);
+    }
+
     zip_impl_with_builder(
         if_true,
         if_false,
-        mask,
+        mask.values()
+            .vortex_expect("zip_impl_with_builder: mask is not all-true or all-false"),
         builder_with_capacity(&return_type, if_true.len()),
     )
 }
@@ -200,23 +205,17 @@ pub(crate) fn zip_impl(
 fn zip_impl_with_builder(
     if_true: &ArrayRef,
     if_false: &ArrayRef,
-    mask: &Mask,
+    mask: &MaskValues,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
-    match mask.slices() {
-        AllOr::All => Ok(if_true.to_array()),
-        AllOr::None => Ok(if_false.to_array()),
-        AllOr::Some(slices) => {
-            for (start, end) in slices {
-                builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
-                builder.extend_from_array(&if_true.slice(*start..*end)?);
-            }
-            if builder.len() < if_false.len() {
-                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
-            }
-            Ok(builder.finish())
-        }
+    for (start, end) in mask.slices() {
+        builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
+        builder.extend_from_array(&if_true.slice(*start..*end)?);
     }
+    if builder.len() < if_false.len() {
+        builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
+    }
+    Ok(builder.finish())
 }
 
 #[cfg(test)]
@@ -227,6 +226,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use super::zip_impl;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -291,9 +291,55 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array();
 
         assert_arrays_eq!(result, expected);
-
-        // result must be nullable even if_true was not
         assert_eq!(result.dtype(), if_false.dtype())
+    }
+
+    #[test]
+    fn test_zip_all_false_widens_nullability() {
+        let mask = Mask::new_false(4);
+        let if_true =
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
+        let if_false = buffer![1i32, 2, 3, 4].into_array();
+
+        let result = mask.into_array().zip(if_true.clone(), if_false).unwrap();
+        let expected =
+            PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), Some(4)]).into_array();
+
+        assert_arrays_eq!(result, expected);
+        assert_eq!(result.dtype(), if_true.dtype());
+    }
+
+    #[test]
+    fn test_zip_impl_all_true_widens_nullability() -> VortexResult<()> {
+        let mask = Mask::new_true(4);
+        let if_true = buffer![10i32, 20, 30, 40].into_array();
+        let if_false =
+            PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
+
+        let result = zip_impl(&if_true, &if_false, &mask)?;
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30), Some(40)])
+                .into_array()
+        );
+        assert_eq!(result.dtype(), if_false.dtype());
+        Ok(())
+    }
+
+    #[test]
+    fn test_zip_impl_all_false_widens_nullability() -> VortexResult<()> {
+        let mask = Mask::new_false(4);
+        let if_true =
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
+        let if_false = buffer![1i32, 2, 3, 4].into_array();
+
+        let result = zip_impl(&if_true, &if_false, &mask)?;
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]).into_array()
+        );
+        assert_eq!(result.dtype(), if_true.dtype());
+        Ok(())
     }
 
     #[test]
@@ -339,7 +385,6 @@ mod tests {
           buffer: views host 1.60 kB (align=16) (96.56%)
         ");
 
-        // test wrapped in a struct
         let wrapped1 = StructArray::try_from_iter([("nested", const1)])?.into_array();
         let wrapped2 = StructArray::try_from_iter([("nested", const2)])?.into_array();
 
@@ -383,7 +428,6 @@ mod tests {
             builder.finish()
         };
 
-        // [1,2,4,5,7,8,..]
         let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
         let mask_array = mask.clone().into_array();
 
@@ -394,7 +438,6 @@ mod tests {
             .unwrap();
         assert_eq!(zipped.nbuffers(), 2);
 
-        // assert the result is the same as arrow
         let expected = arrow_zip(
             mask.into_array()
                 .into_arrow_preferred()

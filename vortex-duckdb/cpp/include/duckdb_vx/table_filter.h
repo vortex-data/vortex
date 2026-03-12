@@ -3,7 +3,12 @@
 
 #pragma once
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
+DUCKDB_INCLUDES_END
+
 #include "duckdb_vx/expr.h"
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */

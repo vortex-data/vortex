@@ -46,6 +46,21 @@ impl BitOr for &Mask {
     }
 }
 
+impl Mask {
+    /// Computes `self & !rhs` (AND NOT), equivalent to set difference.
+    pub fn bitand_not(self, rhs: &Mask) -> Mask {
+        if self.len() != rhs.len() {
+            vortex_panic!("Masks must have the same length");
+        }
+        match (self.bit_buffer(), rhs.bit_buffer()) {
+            (AllOr::None, _) | (_, AllOr::All) => Mask::new_false(self.len()),
+            (_, AllOr::None) => self,
+            (AllOr::All, _) => !rhs,
+            (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs.bitand_not(rhs)),
+        }
+    }
+}
+
 impl Not for Mask {
     type Output = Mask;
 
@@ -351,6 +366,34 @@ mod tests {
         assert!(!result.value(1)); // (!(!false) | true) & !true = (false | true) & false = false
         assert!(result.value(2)); // (!(!true) | false) & !false = (true | false) & true = true
         assert!(!result.value(3)); // (!(!false) | false) & !true = (false | false) & false = false
+    }
+
+    #[test]
+    fn test_bitand_not() {
+        let a = Mask::from_buffer(BitBuffer::from_iter([true, true, false, false]));
+        let b = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false]));
+        let result = a.clone().bitand_not(&b);
+        assert!(!result.value(0)); // true & !true  = false
+        assert!(result.value(1)); // true & !false = true
+        assert!(!result.value(2)); // false & !true  = false
+        assert!(!result.value(3)); // false & !false = false
+
+        // bitand_not(All) = None
+        assert!(a.clone().bitand_not(&Mask::new_true(4)).all_false());
+
+        // bitand_not(None) = self
+        let none = Mask::new_false(4);
+        assert_eq!(a.clone().bitand_not(&none).true_count(), a.true_count());
+
+        // None.bitand_not(_) = None
+        assert!(none.bitand_not(&a).all_false());
+
+        // All.bitand_not(x) = !x
+        let not_b = !&b;
+        let all_bitand_not_b = Mask::new_true(4).bitand_not(&b);
+        for i in 0..4 {
+            assert_eq!(all_bitand_not_b.value(i), not_b.value(i));
+        }
     }
 
     #[test]
