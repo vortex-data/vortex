@@ -574,6 +574,8 @@ pub enum vortex_flatbuffers::dtype::Struct_Offset
 
 pub enum vortex_flatbuffers::dtype::Utf8Offset
 
+pub enum vortex_flatbuffers::dtype::VariantOffset
+
 pub struct vortex_flatbuffers::dtype::Binary<'a>
 
 pub vortex_flatbuffers::dtype::Binary::_tab: flatbuffers::table::Table<'a>
@@ -725,6 +727,8 @@ pub fn vortex_flatbuffers::dtype::DType<'a>::type__as_primitive(&self) -> core::
 pub fn vortex_flatbuffers::dtype::DType<'a>::type__as_struct_(&self) -> core::option::Option<vortex_flatbuffers::dtype::Struct_<'a>>
 
 pub fn vortex_flatbuffers::dtype::DType<'a>::type__as_utf_8(&self) -> core::option::Option<vortex_flatbuffers::dtype::Utf8<'a>>
+
+pub fn vortex_flatbuffers::dtype::DType<'a>::type__as_variant(&self) -> core::option::Option<vortex_flatbuffers::dtype::Variant<'a>>
 
 pub fn vortex_flatbuffers::dtype::DType<'a>::type_type(&self) -> vortex_flatbuffers::dtype::Type
 
@@ -1380,6 +1384,8 @@ pub const vortex_flatbuffers::dtype::Type::Struct_: Self
 
 pub const vortex_flatbuffers::dtype::Type::Utf8: Self
 
+pub const vortex_flatbuffers::dtype::Type::Variant: Self
+
 pub fn vortex_flatbuffers::dtype::Type::variant_name(self) -> core::option::Option<&'static str>
 
 impl core::clone::Clone for vortex_flatbuffers::dtype::Type
@@ -1502,6 +1508,56 @@ pub fn vortex_flatbuffers::dtype::Utf8Builder<'a, 'b, A>::finish(self) -> flatbu
 
 pub fn vortex_flatbuffers::dtype::Utf8Builder<'a, 'b, A>::new(_fbb: &'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>) -> vortex_flatbuffers::dtype::Utf8Builder<'a, 'b, A>
 
+pub struct vortex_flatbuffers::dtype::Variant<'a>
+
+pub vortex_flatbuffers::dtype::Variant::_tab: flatbuffers::table::Table<'a>
+
+impl<'a> vortex_flatbuffers::dtype::Variant<'a>
+
+pub fn vortex_flatbuffers::dtype::Variant<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(_fbb: &'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, _args: &'args vortex_flatbuffers::dtype::VariantArgs) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Variant<'bldr>>
+
+pub unsafe fn vortex_flatbuffers::dtype::Variant<'a>::init_from_table(table: flatbuffers::table::Table<'a>) -> Self
+
+impl core::fmt::Debug for vortex_flatbuffers::dtype::Variant<'_>
+
+pub fn vortex_flatbuffers::dtype::Variant<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl flatbuffers::verifier::Verifiable for vortex_flatbuffers::dtype::Variant<'_>
+
+pub fn vortex_flatbuffers::dtype::Variant<'_>::run_verifier(v: &mut flatbuffers::verifier::Verifier<'_, '_>, pos: usize) -> core::result::Result<(), flatbuffers::verifier::InvalidFlatbuffer>
+
+impl<'a> core::clone::Clone for vortex_flatbuffers::dtype::Variant<'a>
+
+pub fn vortex_flatbuffers::dtype::Variant<'a>::clone(&self) -> vortex_flatbuffers::dtype::Variant<'a>
+
+impl<'a> core::cmp::PartialEq for vortex_flatbuffers::dtype::Variant<'a>
+
+pub fn vortex_flatbuffers::dtype::Variant<'a>::eq(&self, other: &vortex_flatbuffers::dtype::Variant<'a>) -> bool
+
+impl<'a> core::marker::Copy for vortex_flatbuffers::dtype::Variant<'a>
+
+impl<'a> core::marker::StructuralPartialEq for vortex_flatbuffers::dtype::Variant<'a>
+
+impl<'a> flatbuffers::follow::Follow<'a> for vortex_flatbuffers::dtype::Variant<'a>
+
+pub type vortex_flatbuffers::dtype::Variant<'a>::Inner = vortex_flatbuffers::dtype::Variant<'a>
+
+pub unsafe fn vortex_flatbuffers::dtype::Variant<'a>::follow(buf: &'a [u8], loc: usize) -> Self::Inner
+
+pub struct vortex_flatbuffers::dtype::VariantArgs
+
+impl<'a> core::default::Default for vortex_flatbuffers::dtype::VariantArgs
+
+pub fn vortex_flatbuffers::dtype::VariantArgs::default() -> Self
+
+pub struct vortex_flatbuffers::dtype::VariantBuilder<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a>
+
+impl<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a> vortex_flatbuffers::dtype::VariantBuilder<'a, 'b, A>
+
+pub fn vortex_flatbuffers::dtype::VariantBuilder<'a, 'b, A>::finish(self) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Variant<'a>>
+
+pub fn vortex_flatbuffers::dtype::VariantBuilder<'a, 'b, A>::new(_fbb: &'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>) -> vortex_flatbuffers::dtype::VariantBuilder<'a, 'b, A>
+
 pub const vortex_flatbuffers::dtype::ENUM_MAX_PTYPE: u8
 
 pub const vortex_flatbuffers::dtype::ENUM_MAX_TYPE: u8
@@ -1512,7 +1568,7 @@ pub const vortex_flatbuffers::dtype::ENUM_MIN_TYPE: u8
 
 pub const vortex_flatbuffers::dtype::ENUM_VALUES_PTYPE: [vortex_flatbuffers::dtype::PType; 11]
 
-pub const vortex_flatbuffers::dtype::ENUM_VALUES_TYPE: [vortex_flatbuffers::dtype::Type; 11]
+pub const vortex_flatbuffers::dtype::ENUM_VALUES_TYPE: [vortex_flatbuffers::dtype::Type; 12]
 
 pub fn vortex_flatbuffers::dtype::finish_dtype_buffer<'a, 'b, A: flatbuffers::builder::Allocator + 'a>(fbb: &'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>, root: flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::DType<'a>>)
 
