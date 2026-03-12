@@ -26,6 +26,11 @@ impl FromIterator<bool> for Arrow<BooleanBuffer> {
 
 const INPUT_SIZE: &[usize] = &[128, 1024, 2048, 16_384, 65_536];
 
+#[inline]
+fn true_count_pattern(i: usize) -> bool {
+    (i.is_multiple_of(3)) ^ (i.is_multiple_of(11))
+}
+
 #[cfg(not(codspeed))]
 #[divan::bench(args = INPUT_SIZE)]
 fn from_iter_arrow(n: usize) {
@@ -160,7 +165,7 @@ fn slice_arrow_buffer(bencher: Bencher, length: usize) {
 
 #[divan::bench(args = INPUT_SIZE)]
 fn true_count_vortex_buffer(bencher: Bencher, length: usize) {
-    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    let buffer = BitBuffer::from_iter((0..length).map(true_count_pattern));
     bencher
         .with_inputs(|| &buffer)
         .bench_refs(|buffer| buffer.true_count())
@@ -168,7 +173,9 @@ fn true_count_vortex_buffer(bencher: Bencher, length: usize) {
 
 #[divan::bench(args = INPUT_SIZE)]
 fn true_count_arrow_buffer(bencher: Bencher, length: usize) {
-    let buffer = Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0)));
+    let buffer = Arrow(BooleanBuffer::from_iter(
+        (0..length).map(true_count_pattern),
+    ));
     bencher
         .with_inputs(|| &buffer)
         .bench_refs(|buffer| buffer.0.count_set_bits());
