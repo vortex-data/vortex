@@ -268,7 +268,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre/tag=rust-lint', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -276,12 +276,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install nightly for fmt
-        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
+      - uses: ./.github/actions/setup-prebuild
       - name: Rust Lint - Format
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
