@@ -1,23 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod adapter;
-mod fixtures;
-mod manifest;
-
 use std::path::PathBuf;
 
 use chrono::Utc;
 use clap::Parser;
-
-use crate::fixtures::all_fixtures;
-use crate::manifest::Manifest;
+use vortex_compat::fixtures::all_fixtures;
+use vortex_compat::manifest::Manifest;
+use vortex_error::VortexResult;
 
 #[derive(Parser)]
-#[command(
-    name = "compat-gen",
-    about = "Generate Vortex backward-compat fixture files"
-)]
+#[command(name = "gen", about = "Generate Vortex backward-compat fixture files")]
 struct Cli {
     /// Version tag for this fixture set (e.g. "0.62.0").
     #[arg(long)]
@@ -28,7 +21,7 @@ struct Cli {
     output: PathBuf,
 }
 
-fn main() -> vortex_error::VortexResult<()> {
+fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
     std::fs::create_dir_all(&cli.output)
@@ -40,7 +33,7 @@ fn main() -> vortex_error::VortexResult<()> {
     for fixture in &fixtures {
         let chunks = fixture.build()?;
         let path = cli.output.join(fixture.name());
-        adapter::write_file(&path, chunks)?;
+        vortex_compat::adapter::write_file(&path, chunks)?;
         fixture_names.push(fixture.name().to_string());
         eprintln!("  wrote {}", fixture.name());
     }

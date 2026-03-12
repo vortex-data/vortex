@@ -20,5 +20,5 @@ jobs:
 
       - name: Run compat tests
         run: |
-          cargo run -p vortex-compat --release --bin compat-test -- \
+          cargo run -p vortex-compat --release --bin validate -- \
             --fixtures-url "$FIXTURES_URL"

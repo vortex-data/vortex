@@ -26,7 +26,6 @@ fn runtime() -> VortexResult<Runtime> {
 }
 
 /// Write a sequence of array chunks as a `.vortex` file.
-#[allow(dead_code)]
 pub fn write_file(path: &Path, chunks: Vec<ArrayRef>) -> VortexResult<()> {
     let dtype = chunks[0].dtype().clone();
     let stream = ArrayStreamAdapter::new(dtype, stream::iter(chunks.into_iter().map(Ok)));
@@ -42,7 +41,6 @@ pub fn write_file(path: &Path, chunks: Vec<ArrayRef>) -> VortexResult<()> {
 }
 
 /// Read a `.vortex` file from bytes, returning the arrays.
-#[allow(dead_code)]
 pub fn read_file(bytes: ByteBuffer) -> VortexResult<Vec<ArrayRef>> {
     runtime()?.block_on(async {
         let session = VortexSession::default().with_tokio();

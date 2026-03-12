@@ -16,12 +16,12 @@ version = { workspace = true }
 workspace = true
 
 [[bin]]
-name = "compat-gen"
+name = "gen"
 path = "src/main.rs"
 
 [[bin]]
-name = "compat-test"
-path = "src/test_main.rs"
+name = "validate"
+path = "src/validate_main.rs"
 
 [dependencies]
 # Vortex crates

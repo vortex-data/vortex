@@ -25,7 +25,7 @@ jobs:
 
       - name: Generate fixtures
         run: |
-          cargo run -p vortex-compat --release --bin compat-gen -- \
+          cargo run -p vortex-compat --release --bin gen -- \
             --version "${{ inputs.version }}" --output /tmp/fixtures/
 
       - name: Configure AWS credentials

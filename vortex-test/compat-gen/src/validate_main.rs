@@ -1,24 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod adapter;
-mod fixtures;
-mod manifest;
-mod validate;
-
 use std::path::PathBuf;
 
 use clap::Parser;
+use vortex_compat::validate::FixtureSource;
+use vortex_compat::validate::discover_versions;
+use vortex_compat::validate::validate_all;
 use vortex_error::VortexResult;
 
-use crate::validate::FixtureSource;
-use crate::validate::discover_versions;
-
 #[derive(Parser)]
-#[command(
-    name = "compat-test",
-    about = "Validate Vortex backward-compat fixtures"
-)]
+#[command(name = "validate", about = "Validate Vortex backward-compat fixtures")]
 struct Cli {
     /// HTTPS base URL for the fixture bucket.
     /// e.g. <https://vortex-compat-fixtures.s3.amazonaws.com>
@@ -61,7 +53,7 @@ fn main() -> VortexResult<()> {
         versions.join(", ")
     );
 
-    let results = validate::validate_all(&source, &versions)?;
+    let results = validate_all(&source, &versions)?;
 
     let mut total_passed = 0;
     let mut total_failed = 0;

@@ -3,8 +3,8 @@
 This crate provides two binaries that together ensure Vortex can always read files
 written by older versions:
 
-- **`compat-gen`** — generates deterministic fixture files for a given Vortex version.
-- **`compat-test`** — reads fixtures from every historical version and validates
+- **`gen`** — generates deterministic fixture files for a given Vortex version.
+- **`validate`** — reads fixtures from every historical version and validates
   they round-trip to the expected arrays.
 
 Fixtures are stored in an S3 bucket. CI uploads new fixtures on every release tag
@@ -18,7 +18,7 @@ method. The following rules apply:
 
 - **Immutable data.** Once a fixture's `build()` is defined, its output (columns,
   values, nulls, ordering) must never change. Every version that includes that
-  fixture must produce byte-for-byte identical logical arrays. `compat-test`
+  fixture must produce byte-for-byte identical logical arrays. `validate`
   validates this by rebuilding expected arrays from `build()` and comparing them
   against what was read from the stored file.
 
@@ -27,12 +27,12 @@ method. The following rules apply:
   existing fixture to cover new ground.
 
 - **Older versions have fewer fixtures.** Each version's `manifest.json` lists
-  which fixtures were generated for that version. `compat-test` only validates
+  which fixtures were generated for that version. `validate` only validates
   the fixtures listed in the manifest — it skips any fixture that didn't exist
   at that version.
 
 - **`versions.json`** is the top-level index listing every version that has
-  uploaded fixtures. `compat-test` iterates over all listed versions.
+  uploaded fixtures. `validate` iterates over all listed versions.
 
 ## First-Time Setup: Bootstrap the Bucket
 
@@ -41,7 +41,7 @@ with the first fixture set:
 
 ```bash
 # 1. Generate fixtures for the current version
-cargo run -p vortex-compat --release --bin compat-gen -- \
+cargo run -p vortex-compat --release --bin gen -- \
   --version 0.62.0 --output /tmp/fixtures/
 
 # 2. Upload to S3
@@ -54,7 +54,7 @@ AWS_PROFILE=vortex-ci aws s3 cp /tmp/versions.json \
   s3://vortex-compat-fixtures/versions.json
 
 # 4. Verify the round-trip
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-test -- \
+AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin validate -- \
   --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
 ```
 
@@ -67,7 +67,7 @@ When a new Vortex version is tagged and you want to upload its fixtures manually
 VERSION=0.63.0
 
 # 1. Generate fixtures
-cargo run -p vortex-compat --release --bin compat-gen -- \
+cargo run -p vortex-compat --release --bin gen -- \
   --version "$VERSION" --output /tmp/fixtures/
 
 # 2. Upload to S3 under the new version prefix
@@ -92,7 +92,7 @@ AWS_PROFILE=vortex-ci aws s3 cp /tmp/versions.json \
   s3://vortex-compat-fixtures/versions.json
 
 # 4. Verify all versions (including the new one)
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-test -- \
+AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin validate -- \
   --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
 ```
 
@@ -105,7 +105,7 @@ already exists in the bucket, the upload overwrites the existing prefix:
 VERSION=0.62.0
 
 # 1. Regenerate
-cargo run -p vortex-compat --release --bin compat-gen -- \
+cargo run -p vortex-compat --release --bin gen -- \
   --version "$VERSION" --output /tmp/fixtures/
 
 # 2. Overwrite in S3
@@ -113,7 +113,7 @@ AWS_PROFILE=vortex-ci aws s3 cp /tmp/fixtures/ \
   "s3://vortex-compat-fixtures/v${VERSION}/" --recursive
 
 # 3. Verify
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-test -- \
+AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin validate -- \
   --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
 ```
 
@@ -125,18 +125,18 @@ You can skip S3 entirely and work against local directories:
 
 ```bash
 # Generate into a versioned subdirectory
-cargo run -p vortex-compat --release --bin compat-gen -- \
+cargo run -p vortex-compat --release --bin gen -- \
   --version 0.62.0 --output /tmp/compat-root/v0.62.0/
 
 # Validate all local versions
-cargo run -p vortex-compat --release --bin compat-test -- \
+cargo run -p vortex-compat --release --bin validate -- \
   --fixtures-dir /tmp/compat-root/
 ```
 
 If the bucket requires authenticated access, set your AWS profile:
 
 ```bash
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-test -- \
+AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin validate -- \
   --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
 ```
 
@@ -315,7 +315,7 @@ Never modify an existing fixture's `build()` output (see [Fixture Contract](#fix
    }
    ```
 2. Register it in `all_fixtures()` in `src/fixtures/mod.rs`.
-3. Run `compat-gen` locally to verify it produces a valid file.
+3. Run `gen` locally to verify it produces a valid file.
 4. Upload fixtures for the current version — the new file will appear in that
    version's `manifest.json`. Older versions are unaffected.
 
@@ -342,4 +342,4 @@ To generate fixtures for a version in Epoch A or B:
 2. Cherry-pick the compat-gen crate: `git cherry-pick --no-commit <commit-range>`
 3. Swap `src/adapter.rs` to the appropriate epoch's implementation
 4. Resolve any dependency mismatches in `Cargo.toml`
-5. Run `compat-gen` and upload the resulting fixtures
+5. Run `gen` and upload the resulting fixtures
