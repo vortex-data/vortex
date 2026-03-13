@@ -4,3 +4,7 @@ images:
     platform: "linux"
     arch: "arm64"
     ami: "ami-08f97c6362847dc5d"
+  ubuntu24-full-x64-pre:
+    platform: "linux"
+    arch: "x64"
+    ami: "ami-060dcbd4f64b44d1c"
