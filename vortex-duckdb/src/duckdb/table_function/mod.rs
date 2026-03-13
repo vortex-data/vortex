@@ -11,10 +11,10 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 mod bind;
 mod cardinality;
+mod export_array;
 mod init;
 mod partition;
 mod pushdown_complex_filter;
-mod table_scan_progress;
 mod virtual_columns;
 
 pub use bind::*;
@@ -32,9 +32,9 @@ use crate::duckdb::client_context::ClientContextRef;
 use crate::duckdb::data_chunk::DataChunkRef;
 use crate::duckdb::expr::ExpressionRef;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
+use crate::duckdb::table_function::export_array::export_array_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
-use crate::duckdb::table_function::table_scan_progress::table_scan_progress_callback;
 use crate::duckdb::table_function::virtual_columns::get_virtual_columns_callback;
 use crate::duckdb_try;
 
@@ -194,7 +194,6 @@ impl DatabaseRef {
             pushdown_expression: ptr::null_mut::<c_void>(),
             get_virtual_columns: Some(get_virtual_columns_callback::<T>),
             to_string: Some(to_string_callback::<T>),
-            table_scan_progress: Some(table_scan_progress_callback::<T>),
             get_partition_data: Some(get_partition_data_callback::<T>),
             projection_pushdown: T::PROJECTION_PUSHDOWN,
             filter_pushdown: T::FILTER_PUSHDOWN,
@@ -202,6 +201,7 @@ impl DatabaseRef {
             sampling_pushdown: false,
             late_materialization: false,
             max_threads: T::MAX_THREADS,
+            export_array: Some(export_array_callback::<T>),
         };
 
         duckdb_try!(

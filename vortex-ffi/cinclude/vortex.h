@@ -18,6 +18,12 @@
  */
 #define BinaryView_MAX_INLINED_SIZE 12
 
+typedef enum {
+    VX_CARD_UNKNOWN = 0,
+    VX_CARD_ESTIMATE = 1,
+    VX_CARD_MAXIMUM = 2,
+} vx_cardinality;
+
 /**
  * Variant enum for Vortex primitive types.
  */
@@ -144,6 +150,18 @@ typedef enum {
     LOG_LEVEL_TRACE = 5,
 } vx_log_level;
 
+typedef enum {
+    VX_S_INCLUDE_ALL = 0,
+    VX_S_INCLUDE_RANGE = 1,
+    VX_S_EXCLUDE_RANGE = 2,
+} vx_scan_selection_include;
+
+typedef enum {
+    VX_ESTIMATE_UNKNOWN = 0,
+    VX_ESTIMATE_EXACT = 1,
+    VX_ESTIMATE_INEXACT = 2,
+} vx_estimate_boundary;
+
 /**
  * Physical type enum, represents the in-memory physical layout but might represent a different logical type.
  */
@@ -235,6 +253,8 @@ typedef struct Nullability Nullability;
 
 typedef struct Primitive Primitive;
 
+typedef struct VxFileHandle VxFileHandle;
+
 /**
  * Base type for all Vortex arrays.
  *
@@ -285,6 +305,14 @@ typedef struct vx_array_sink vx_array_sink;
 typedef struct vx_binary vx_binary;
 
 /**
+ * A data source is a reference to multiple possibly remote files. When
+ * created, it opens first file to determine the schema from DType, all
+ * other operations are deferred till a scan is requested. You can request
+ * multiple file scans from a data source
+ */
+typedef struct vx_data_source vx_data_source;
+
+/**
  * A Vortex data type.
  *
  * Data types in Vortex are purely logical, meaning they confer no information about how the data
@@ -297,10 +325,22 @@ typedef struct vx_dtype vx_dtype;
  */
 typedef struct vx_error vx_error;
 
+typedef struct vx_expression vx_expression;
+
 /**
  * A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
  */
 typedef struct vx_file vx_file;
+
+/**
+ * A partition is a contiguous chunk of memory from which you can
+ * interatively get vx_arrays.
+ * TODO We're going away from exposing partitions to user, revise
+ * design
+ */
+typedef struct vx_partition vx_partition;
+
+typedef struct vx_scan vx_scan;
 
 /**
  * A handle to a Vortex session.
@@ -321,6 +361,86 @@ typedef struct vx_struct_fields vx_struct_fields;
  * Builder for creating a [`vx_struct_fields`].
  */
 typedef struct vx_struct_fields_builder vx_struct_fields_builder;
+
+typedef int (*vx_fs_use_vortex)(const char *schema, const char *path);
+
+typedef void (*vx_fs_set_userdata)(void *userdata);
+
+typedef void (*vx_fs_open)(void *userdata, const char *path, vx_error **err);
+
+typedef void (*vx_fs_create)(void *userdata, const char *path, vx_error **err);
+
+typedef void (*vx_list_callback)(void *userdata, const char *name, int is_dir);
+
+typedef void (*vx_fs_list)(const void *userdata,
+                           const char *path,
+                           vx_list_callback callback,
+                           vx_error **error);
+
+typedef const VxFileHandle *vx_file_handle;
+
+typedef void (*vx_fs_close)(vx_file_handle handle);
+
+typedef uint64_t (*vx_fs_size)(vx_file_handle handle, vx_error **err);
+
+typedef uint64_t (
+    *vx_fs_read)(vx_file_handle handle, uint64_t offset, size_t len, uint8_t *buffer, vx_error **err);
+
+typedef uint64_t (
+    *vx_fs_write)(vx_file_handle handle, uint64_t offset, size_t len, uint8_t *buffer, vx_error **err);
+
+typedef void (*vx_fs_sync)(vx_file_handle handle, vx_error **err);
+
+typedef void (*vx_glob_callback)(void *userdata, const char *file);
+
+typedef void (*vx_glob)(const char *glob, vx_glob_callback callback, vx_error **err);
+
+typedef void *vx_cache;
+
+typedef vx_cache (*vx_cache_init)(vx_error **err);
+
+typedef void (*vx_cache_free)(vx_cache cache, vx_error **err);
+
+typedef const char *vx_cache_key;
+
+typedef void (*vx_cache_get)(vx_cache cache, vx_cache_key key, void **value, vx_error **err);
+
+typedef void (*vx_cache_put)(vx_cache cache, vx_cache_key key, void *value, vx_error **err);
+
+typedef void (*vx_cache_delete)(vx_cache cache, vx_cache_key key, vx_error **err);
+
+/**
+ * Host must either implement all or none of fs_* callbacks.
+ */
+typedef struct {
+    const char *files;
+    /**
+     * Whether to use Vortex filesystem or host's filesystem.
+     * Return 1 to use Vortex for a given schema ("file", "s3") and path.
+     * Return 0 to use host's filesystem.
+     */
+    vx_fs_use_vortex fs_use_vortex;
+    vx_fs_set_userdata fs_set_userdata;
+    vx_fs_open fs_open;
+    vx_fs_create fs_create;
+    vx_fs_list fs_list;
+    vx_fs_close fs_close;
+    vx_fs_size fs_size;
+    vx_fs_read fs_read;
+    vx_fs_write fs_write;
+    vx_fs_sync fs_sync;
+    vx_glob glob;
+    vx_cache_init cache_init;
+    vx_cache_free cache_free;
+    vx_cache_get cache_get;
+    vx_cache_put cache_put;
+    vx_cache_delete cache_delete;
+} vx_data_source_options;
+
+typedef struct {
+    vx_cardinality cardinality;
+    uint64_t rows;
+} vx_data_source_row_count;
 
 /**
  * Options supplied for opening a file.
@@ -383,6 +503,27 @@ typedef struct {
      */
     unsigned long row_offset;
 } vx_file_scan_options;
+
+typedef struct {
+    uint64_t *idx;
+    size_t idx_len;
+    vx_scan_selection_include include;
+} vx_scan_selection;
+
+typedef struct {
+    const vx_expression *projection;
+    const vx_expression *filter;
+    uint64_t row_range_begin;
+    uint64_t row_range_end;
+    vx_scan_selection selection;
+    uint64_t limit;
+    int ordered;
+} vx_scan_options;
+
+typedef struct {
+    uint64_t estimate;
+    vx_estimate_boundary boundary;
+} vx_estimate;
 
 #ifdef __cplusplus
 extern "C" {
@@ -520,6 +661,34 @@ size_t vx_binary_len(const vx_binary *ptr);
  * Return the pointer to the string data.
  */
 const char *vx_binary_ptr(const vx_binary *ptr);
+
+/**
+ * Clone a borrowed [`vx_data_source`], returning an owned [`vx_data_source`].
+ *
+ *
+ * Must be released with [`vx_data_source_free`].
+ */
+const vx_data_source *vx_data_source_clone(const vx_data_source *ptr);
+
+/**
+ * Free an owned [`vx_data_source`] object.
+ */
+void vx_data_source_free(const vx_data_source *ptr);
+
+/**
+ * Create a new owned datasource which must be freed by the caller
+ */
+const vx_data_source *
+vx_data_source_new(const vx_session *session, const vx_data_source_options *opts, vx_error **err);
+
+/**
+ * Create a non-owned dtype referencing dataframe.
+ * This dtype's lifetime is bound to underlying data source.
+ * Caller should not free this dtype manually
+ */
+const vx_dtype *vx_data_source_dtype(const vx_data_source *ds);
+
+void vx_data_source_get_row_count(const vx_data_source *ds, vx_data_source_row_count *rc);
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
@@ -664,6 +833,8 @@ uint8_t vx_dtype_time_unit(const DType *dtype);
  */
 const vx_string *vx_dtype_time_zone(const DType *dtype);
 
+void vx_type_to_arrow_schema(const vx_dtype *_dtype, FFI_ArrowSchema *_schema, vx_error **_err);
+
 /**
  * Free an owned [`vx_error`] object.
  */
@@ -676,6 +847,15 @@ void vx_error_free(vx_error *ptr);
  * Do NOT free the returned string pointer - it shares the lifetime of the error.
  */
 const vx_string *vx_error_get_message(const vx_error *error);
+
+/**
+ * Free an owned [`vx_expression`] object.
+ */
+void vx_expression_free(vx_expression *ptr);
+
+vx_expression *vx_expression_root(void);
+
+vx_expression *vx_expression_select(const char *const *names, size_t names_len, const vx_expression *child);
 
 /**
  * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
@@ -734,6 +914,47 @@ vx_array_iterator *vx_file_scan(const vx_session *session,
  * The logger will only be installed on the first call.
  */
 void vx_set_log_level(vx_log_level level);
+
+/**
+ * Free an owned [`vx_scan`] object.
+ */
+void vx_scan_free(vx_scan *ptr);
+
+/**
+ * Free an owned [`vx_partition`] object.
+ */
+void vx_partition_free(vx_partition *ptr);
+
+vx_scan *
+vx_data_source_scan(const vx_data_source *data_source, const vx_scan_options *options, vx_error **err);
+
+void vx_scan_partition_count(const vx_scan *scan, vx_estimate *count, vx_error **err);
+
+/**
+ * Get next owned partition out of a scan request.
+ * Caller must free this partition using vx_partition_free.
+ * This method is thread-safe.
+ * If using in a sync multi-thread runtime, users are encouraged to create a
+ * worker thread per partition.
+ * Returns NULL and doesn't set err on exhaustion.
+ * Returns NULL and sets err on error.
+ */
+vx_partition *vx_scan_next(vx_scan *scan, vx_error **err);
+
+void vx_partition_row_count(const vx_partition *partition, vx_estimate *count, vx_error **err);
+
+void vx_partition_scan_arrow(const vx_partition *_partition, FFI_ArrowArrayStream *_stream, vx_error **err);
+
+/**
+ * Get next vx_array out of this partition.
+ * Thread-unsafe.
+ */
+const vx_array *vx_partition_next(vx_partition *partition, vx_error **err);
+
+/**
+ * Scan progress between 0.0 and 1.0
+ */
+double vx_scan_progress(const vx_scan *_scan);
 
 /**
  * Free an owned [`vx_session`] object.

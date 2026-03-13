@@ -19,6 +19,15 @@ box_wrapper!(
     vx_error
 );
 
+#[inline]
+pub(crate) fn write_error(error_out: *mut *mut vx_error, error_string: &str) {
+    let err = vx_error::new(Box::new(VortexError {
+        message: error_string.into(),
+    }));
+    unsafe { error_out.write(err) };
+}
+
+#[inline]
 pub fn try_or_default<T: Default>(
     error_out: *mut *mut vx_error,
     function: impl FnOnce() -> VortexResult<T>,
@@ -29,10 +38,7 @@ pub fn try_or_default<T: Default>(
             value
         }
         Err(err) => {
-            let err = vx_error::new(Box::new(VortexError {
-                message: err.to_string().into(),
-            }));
-            unsafe { error_out.write(err) };
+            write_error(error_out, &err.to_string());
             T::default()
         }
     }

@@ -341,6 +341,12 @@ impl From<Vec<&str>> for FieldNames {
     }
 }
 
+impl From<Vec<String>> for FieldNames {
+    fn from(value: Vec<String>) -> Self {
+        Self(value.into_iter().map(FieldName::from).collect())
+    }
+}
+
 impl From<&[FieldName]> for FieldNames {
     fn from(value: &[FieldName]) -> Self {
         Self(Arc::from(value))

@@ -2,8 +2,8 @@
 name = "vortex-ffi"
 description = "Native C FFI bindings for Vortex"
 readme = "README.md"
-# This crate is not meant to be consumed by other Rust code but rather produces a static binary
-# that can be linked to by other languages.
+# This crate is not meant to be consumed by Rust code outside of Vortex but rather
+# producee a static binary that can be linked to by other languages.
 publish = false
 version = { workspace = true }
 homepage = { workspace = true }
@@ -31,6 +31,7 @@ tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }
+arrow-array = { workspace = true, features = ["ffi"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -44,7 +45,8 @@ mimalloc = ["dep:mimalloc"]
 
 [lib]
 name = "vortex_ffi"
-crate-type = ["staticlib", "cdylib"]
+# TODO lib for vortex-duckdb exporter hack
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [lints]
 workspace = true

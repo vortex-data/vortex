@@ -41,6 +41,8 @@ const SOURCE_FILES: [&str; 18] = [
     "cpp/vector_buffer.cpp",
 ];
 
+const FFI_INCLUDE: &str = "../vortex-ffi/cinclude";
+
 const DOWNLOAD_MAX_RETRIES: i32 = 3;
 const DOWNLOAD_TIMEOUT: u64 = 90;
 
@@ -302,6 +304,7 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .rustified_non_exhaustive_enum("DUCKDB_TYPE")
         .size_t_is_usize(true)
         .clang_arg(format!("-I{}", duckdb_include_dir.display()))
+        .clang_arg(format!("-I{}", crate_dir.join(FFI_INCLUDE).display()))
         .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
         .generate_comments(true)
         // Tell cargo to invalidate the built crate whenever any of the
@@ -329,12 +332,18 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 }
 
 fn cpp(duckdb_include_dir: &Path) {
+    //println!("cargo:rustc-link-arg=-fsanitize=address");
     cc::Build::new()
         .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic"])
+        // Duckdb sources fail -Wno-unused-parameter
+        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Wno-unused-parameter"])
+        // TODO
+        //.flag("-fsanitize=address")
         .cpp(true)
+        .debug(true)
         .include(duckdb_include_dir)
         .include("cpp/include")
+        .include(FFI_INCLUDE)
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
     // bindgen generates rerun-if-changed for .h/.hpp files

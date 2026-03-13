@@ -12,7 +12,22 @@
 #include "error.h"
 #include "table_filter.h"
 #include "duckdb_vx/data.h"
-#include "duckdb_vx/client_context.h"
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+#ifdef __cplusplus
+DUCKDB_INCLUDES_BEGIN
+#include "duckdb/common/arrow/arrow.hpp"
+DUCKDB_INCLUDES_END
+
+using FFI_ArrowSchema = ArrowSchema;
+using FFI_ArrowArrayStream = ArrowArrayStream;
+#else
+// TODO nanoarrow
+typedef void FFI_ArrowSchema;
+typedef void FFI_ArrowArrayStream;
+#endif
+
+#include "vortex.h"
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
 extern "C" {
@@ -150,8 +165,6 @@ typedef struct {
     duckdb_vx_string_map (*to_string)(void *bind_data);
     // void *dynamic_to_string;
 
-    double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
-
     idx_t (*get_partition_data)(const void *bind_data,
                                 void *init_global_data,
                                 void *init_local_data,
@@ -171,6 +184,11 @@ typedef struct {
     bool sampling_pushdown;
     bool late_materialization;
     idx_t max_threads;
+
+    // PoC hack: retain Rust exporter code
+    // return local batch id
+    uint64_t (*export_array)(const vx_array *arr, duckdb_data_chunk chunk);
+
 } duckdb_vx_tfunc_vtab_t;
 
 // A single function for configuring the DuckDB table function vtable.

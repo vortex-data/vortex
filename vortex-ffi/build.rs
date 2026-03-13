@@ -7,9 +7,28 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
+const SOURCE_FILES: [&str; 15] = [
+    "array.rs",
+    "array_iterator.rs",
+    "binary.rs",
+    "dtype.rs",
+    "error.rs",
+    "file.rs",
+    "lib.rs",
+    "log.rs",
+    "macros.rs",
+    "ptype.rs",
+    "scan.rs",
+    "session.rs",
+    "sink.rs",
+    "string.rs",
+    "struct_fields.rs",
+];
+
 fn main() {
-    // Set up dependency tracking
-    println!("cargo:rerun-if-changed=src/");
+    for f in SOURCE_FILES {
+        println!("cargo:rerun-if-changed=src/{f}");
+    }
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
@@ -43,6 +62,7 @@ fn main() {
     let result = cbindgen::Builder::new()
         .with_crate(&crate_dir)
         .with_config(config)
+        .with_documentation(true)
         .generate();
 
     match result {

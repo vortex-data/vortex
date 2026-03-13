@@ -4,6 +4,7 @@
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::ffi::FFI_ArrowSchema;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::error::VortexExpect;
@@ -14,6 +15,7 @@ use vortex::extension::datetime::Time;
 use vortex::extension::datetime::Timestamp;
 
 use crate::arc_wrapper;
+use crate::error::vx_error;
 use crate::ptype::vx_ptype;
 use crate::string::vx_string;
 use crate::struct_fields::vx_struct_fields;
@@ -321,6 +323,15 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
         Some(zone) => vx_string::new(zone.clone()),
         None => ptr::null(),
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_type_to_arrow_schema(
+    _dtype: *const vx_dtype,
+    _schema: *mut FFI_ArrowSchema,
+    _err: *mut *mut vx_error,
+) {
+    todo!();
 }
 
 #[cfg(test)]

@@ -37,6 +37,7 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+vortex-ffi = { workspace = true }
 vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
@@ -55,6 +56,6 @@ workspace = true
 [build-dependencies]
 bindgen = { workspace = true }
 cbindgen = { workspace = true }
-cc = { workspace = true }
+cc = { workspace = true , features = ["parallel"] }
 reqwest = { workspace = true }
 zip = { workspace = true }

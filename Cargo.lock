@@ -10116,6 +10116,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
+ "vortex-ffi",
  "vortex-runend",
  "vortex-sequence",
  "vortex-utils",
@@ -10162,6 +10163,7 @@ dependencies = [
 name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
  "async-fs",
  "cbindgen",
  "futures",

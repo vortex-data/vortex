@@ -265,6 +265,7 @@ vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
+vortex-ffi = { version = "0.1.0", path = "./vortex-ffi", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }

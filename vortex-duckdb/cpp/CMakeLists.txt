@@ -23,7 +23,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Enable compiler warnings (matching build.rs flags).
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-unused-parameter")
 
 # Find DuckDB include directory via the symlink created by build.rs.
 # The symlink points to target/duckdb-source-vX.Y.Z which contains duckdb-X.Y.Z/
@@ -39,7 +39,7 @@ else()
     )
 endif()
 
-include_directories(include ${DUCKDB_INCLUDE})
+include_directories(include ${DUCKDB_INCLUDE} ../../vortex-ffi/cinclude)
 
 # Auto-discover C++ source files
 file(GLOB CPP_SOURCES "*.cpp")

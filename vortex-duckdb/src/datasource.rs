@@ -320,6 +320,10 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
+        // TODO create exporter for every chunk, use global
+        // variable to keep track of exporter till it fully
+        // consumes generated array
+
         loop {
             if local_state.exporter.is_none() {
                 let mut ctx = SESSION.create_execution_ctx();
@@ -404,14 +408,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         //  etc. to return estimates. But this function is probably called too late anyway. Maybe
         //  we need our own cardinality heuristics.
         Ok(false)
-    }
-
-    fn cardinality(bind_data: &Self::BindData) -> Cardinality {
-        match bind_data.data_source.row_count() {
-            Some(Precision::Exact(v)) => Cardinality::Maximum(v),
-            Some(Precision::Inexact(v)) => Cardinality::Estimate(v),
-            None => Cardinality::Unknown,
-        }
     }
 
     fn partition_data(

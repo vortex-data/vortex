@@ -9,12 +9,15 @@
 mod array;
 mod array_iterator;
 mod binary;
+mod data_source;
 mod dtype;
 mod error;
+mod expression;
 mod file;
 mod log;
 mod macros;
 mod ptype;
+mod scan;
 mod session;
 mod sink;
 mod string;
@@ -25,6 +28,8 @@ use std::ffi::c_char;
 use std::ffi::c_int;
 use std::sync::LazyLock;
 
+// TODO hack for duckdb exporter
+pub use array::vx_array;
 pub use log::vx_log_level;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 

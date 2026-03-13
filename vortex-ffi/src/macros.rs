@@ -66,7 +66,8 @@ macro_rules! arc_dyn_wrapper {
                 }
 
                 /// Extract a borrowed reference from a const pointer.
-                pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a std::sync::Arc<$T> {
+                /// TODO hack for duckdb exporter
+                pub fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a std::sync::Arc<$T> {
                     use vortex::error::VortexExpect;
                     // TODO(joe): propagate this error up instead of expecting
                     &unsafe { ptr.as_ref() }
