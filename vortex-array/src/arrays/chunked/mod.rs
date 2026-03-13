@@ -5,6 +5,7 @@ mod array;
 pub use array::ChunkedArray;
 
 pub(crate) mod compute;
+mod paired_chunks;
 
 mod vtable;
 pub use vtable::Chunked;
