@@ -52,6 +52,11 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable", None),
     "polars": ("https://docs.pola.rs/api/python/stable", "polars.objects.inv"),
 }
+intersphinx_timeout = 10
+
+suppress_warnings = [
+    "intersphinx.external",
+]
 
 git_root = Path(__file__).parent.parent
 
