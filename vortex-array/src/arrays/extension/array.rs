@@ -75,7 +75,11 @@ impl ExtensionArray {
     ///
     /// Returns an error if the storage array in not compatible with the extension dtype.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        ext_dtype.validate_storage_array(&storage_array)?;
+        if storage_array.is_host() {
+            ext_dtype.validate_storage_array(&storage_array)?;
+        } else {
+            eprintln!("Unable to validate storage array on GPU")
+        }
 
         // SAFETY: we validate that the inputs are valid above.
         Ok(unsafe { Self::new_unchecked(ext_dtype, storage_array) })
@@ -90,9 +94,15 @@ impl ExtensionArray {
     /// called successfully on this storage array.
     pub unsafe fn new_unchecked(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
         #[cfg(debug_assertions)]
-        ext_dtype
-            .validate_storage_array(&storage_array)
-            .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
+        {
+            if storage_array.is_host() {
+                ext_dtype
+                    .validate_storage_array(&storage_array)
+                    .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
+            } else {
+                eprintln!("Unable to validate storage array on GPU")
+            }
+        }
 
         // The dtype check is much cheaper than the storage validation, so we might as well do this.
         assert_eq!(
