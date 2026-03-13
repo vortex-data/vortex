@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![cfg(target_arch = "aarch64")]
 
 use core::arch::aarch64::uint64x2_t;

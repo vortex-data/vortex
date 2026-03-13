@@ -11,8 +11,15 @@
 //! position from 8 different input bytes at stride 16. The input byte groups follow
 //! the `FL_ORDER` permutation pattern.
 
+#[cfg(feature = "_test-harness")]
 pub mod aarch64;
+#[cfg(feature = "_test-harness")]
 pub mod x86;
+
+#[cfg(not(feature = "_test-harness"))]
+mod aarch64;
+#[cfg(not(feature = "_test-harness"))]
+mod x86;
 
 /// Base indices for the first 64 output bytes (lanes 0-7).
 /// Each entry indicates the starting input byte index for that output byte group.
@@ -239,7 +246,6 @@ fn generate_test_data(seed: u8) -> [u8; 128] {
 }
 
 #[cfg(test)]
-#[inline(never)]
 pub fn transpose_bits_baseline(input: &[u8; 128], output: &mut [u8; 128]) {
     for in_bit in 0..1024 {
         let out_bit = fastlanes::transpose(in_bit);
@@ -253,7 +259,6 @@ pub fn transpose_bits_baseline(input: &[u8; 128], output: &mut [u8; 128]) {
 }
 
 #[cfg(test)]
-#[inline(never)]
 pub fn untranspose_bits_baseline(input: &[u8; 128], output: &mut [u8; 128]) {
     for out_bit in 0..1024 {
         let in_bit = fastlanes::transpose(out_bit);
