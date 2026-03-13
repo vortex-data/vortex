@@ -161,7 +161,7 @@ jobs:
       - name: Archive crash artifacts
         id: upload_artifacts
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.fuzz_target }}-crash-artifacts
           path: fuzz/artifacts
@@ -169,7 +169,7 @@ jobs:
 
       - name: Archive fuzzer output log
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.fuzz_target }}-logs
           path: fuzz_output.log
