@@ -4,6 +4,7 @@
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use reqwest::Client;
@@ -121,6 +122,14 @@ impl Benchmark for ClickBenchBenchmark {
 
     fn table_specs(&self) -> Vec<TableSpec> {
         vec![TableSpec::new("hits", Some(HITS_SCHEMA.clone()))]
+    }
+
+    fn expected_results_dir(&self) -> Option<PathBuf> {
+        Some(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("clickbench")
+                .join("results"),
+        )
     }
 }
 

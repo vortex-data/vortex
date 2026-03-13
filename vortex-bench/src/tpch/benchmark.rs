@@ -3,6 +3,10 @@
 
 //! TPCH benchmark implementation
 
+use std::env;
+use std::path::Path;
+use std::path::PathBuf;
+
 use glob::Pattern;
 use tracing::info;
 use tracing::warn;
@@ -137,6 +141,14 @@ impl Benchmark for TpcHBenchmark {
             TableSpec::new("region", Some(REGION.clone())),
             TableSpec::new("supplier", Some(SUPPLIER.clone())),
         ]
+    }
+
+    fn expected_results_dir(&self) -> Option<PathBuf> {
+        Some(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tpch")
+                .join("results"),
+        )
     }
 
     #[expect(clippy::expect_used, clippy::unwrap_in_result)]

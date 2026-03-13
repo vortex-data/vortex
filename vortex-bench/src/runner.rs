@@ -3,6 +3,7 @@
 
 //! Generic benchmark runner infrastructure to reduce boilerplate across engine-specific benchmarks.
 
+use std::fs;
 use std::fs::File;
 use std::future::Future;
 use std::io::Write;
@@ -12,6 +13,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use indicatif::ProgressBar;
+use similar::ChangeTag;
+use similar::TextDiff;
 use vortex::error::vortex_panic;
 
 use crate::Benchmark;
@@ -19,6 +22,7 @@ use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
 use crate::Target;
+use crate::validation::rows_to_normalized_tsv;
 
 /// Controls whether queries are benchmarked or explained.
 pub enum BenchmarkMode {
@@ -26,6 +30,10 @@ pub enum BenchmarkMode {
     Run { iterations: usize },
     /// Prepend `EXPLAIN` to each query, print the result, skip timing.
     Explain,
+    /// Run each query once and compare results against reference files.
+    Validate,
+    /// Run each query once and write results as new reference files.
+    GenerateReference,
 }
 
 /// Trait implemented by engine-specific query results so the runner can
@@ -36,6 +44,13 @@ pub trait BenchmarkQueryResult {
     fn row_count(&self) -> usize;
     /// Human-readable representation of the result (used by Explain mode).
     fn display(self) -> String;
+    /// Normalized result for cross-engine validation.
+    ///
+    /// Returns column names and rows of normalized string values suitable for
+    /// comparison across different query engines. Values are normalized using
+    /// sqllogictest conventions (floats rounded to 12 decimal places, etc.)
+    /// via [`crate::validation`].
+    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>);
 }
 use crate::display::DisplayFormat;
 use crate::display::print_measurements_json;
@@ -67,6 +82,7 @@ pub struct SqlBenchmarkRunner {
     benchmark_dataset: BenchmarkDataset,
     storage: String,
     expected_row_counts: Option<Vec<usize>>,
+    expected_results_dir: Option<PathBuf>,
     formats: Vec<Format>,
     memory_tracker: Option<BenchmarkMemoryTracker>,
     hide_progress_bar: bool,
@@ -92,6 +108,7 @@ impl SqlBenchmarkRunner {
             benchmark_dataset: benchmark.dataset(),
             storage,
             expected_row_counts: benchmark.expected_row_counts().map(|s| s.to_vec()),
+            expected_results_dir: benchmark.expected_results_dir(),
             formats,
             memory_tracker,
             hide_progress_bar,
@@ -247,6 +264,83 @@ impl SqlBenchmarkRunner {
         }
     }
 
+    /// Get the path for a reference result file.
+    ///
+    /// Reference files are stored per-engine as TSV at
+    /// `{dir}/{engine}/q{idx:02}.tsv`.
+    fn reference_path(&self, query_idx: usize) -> Option<PathBuf> {
+        self.expected_results_dir.as_ref().map(|dir| {
+            dir.join(self.engine.to_string())
+                .join(format!("q{query_idx:02}.tsv"))
+        })
+    }
+
+    /// Validate a query result against its reference file.
+    ///
+    /// Returns `true` if the result matches (or no reference exists), `false` on mismatch.
+    fn validate_query_result(&self, query_idx: usize, actual: &str) -> bool {
+        let Some(path) = self.reference_path(query_idx) else {
+            eprintln!("No expected_results_dir configured, skipping validation for q{query_idx}");
+            return true;
+        };
+
+        if !path.exists() {
+            eprintln!(
+                "Reference file {} does not exist, skipping validation for q{query_idx}. \
+                 Run with --generate-reference to create it.",
+                path.display()
+            );
+            return true;
+        }
+
+        let expected = fs::read_to_string(&path).unwrap_or_else(|e| {
+            vortex_panic!("Failed to read reference file {}: {e}", path.display());
+        });
+
+        if expected == actual {
+            return true;
+        }
+
+        let diff = TextDiff::from_lines(expected.as_str(), actual);
+        eprintln!(
+            "=== Result mismatch for q{query_idx} ({engine}) ===",
+            engine = self.engine
+        );
+        for change in diff.iter_all_changes() {
+            let sign = match change.tag() {
+                ChangeTag::Delete => "-",
+                ChangeTag::Insert => "+",
+                ChangeTag::Equal => " ",
+            };
+            eprint!("{sign}{change}");
+        }
+        eprintln!();
+
+        false
+    }
+
+    /// Write a query result as a new reference file.
+    fn write_reference_result(&self, query_idx: usize, result: &str) {
+        let Some(path) = self.reference_path(query_idx) else {
+            eprintln!(
+                "No expected_results_dir configured, cannot generate reference for q{query_idx}"
+            );
+            return;
+        };
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|e| {
+                vortex_panic!("Failed to create directory {}: {e}", parent.display());
+            });
+        }
+
+        fs::write(&path, result).unwrap_or_else(|e| {
+            vortex_panic!("Failed to write reference file {}: {e}", path.display());
+        });
+
+        eprintln!("Wrote reference for q{query_idx} to {}", path.display());
+    }
+
     /// Run (or explain) all queries for all formats synchronously.
     ///
     /// In `Run` mode, executes each query `iterations` times, collecting timing.
@@ -310,6 +404,44 @@ impl SqlBenchmarkRunner {
                         println!("{}", result.display());
                         println!();
                     }
+                }
+            }
+            BenchmarkMode::Validate => {
+                let mut all_passed = true;
+                // Validate using only the first format (results should be format-independent)
+                let format = *self.formats.first().ok_or_else(|| {
+                    anyhow::anyhow!("At least one format is required for validation")
+                })?;
+                let mut ctx = setup(format)?;
+
+                for (query_idx, query) in queries.iter() {
+                    let (_, result) = execute(&mut ctx, *query_idx, format, query.as_str())?;
+                    let (cols, mut rows) = result.normalized_result();
+                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
+                    if !self.validate_query_result(*query_idx, &tsv) {
+                        all_passed = false;
+                    }
+                }
+
+                if !all_passed {
+                    anyhow::bail!(
+                        "Result validation failed for one or more queries ({engine})",
+                        engine = self.engine,
+                    );
+                }
+            }
+            BenchmarkMode::GenerateReference => {
+                // Generate using only the first format
+                let format = *self.formats.first().ok_or_else(|| {
+                    anyhow::anyhow!("At least one format is required for reference generation")
+                })?;
+                let mut ctx = setup(format)?;
+
+                for (query_idx, query) in queries.iter() {
+                    let (_, result) = execute(&mut ctx, *query_idx, format, query.as_str())?;
+                    let (cols, mut rows) = result.normalized_result();
+                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
+                    self.write_reference_result(*query_idx, &tsv);
                 }
             }
         }
@@ -399,6 +531,42 @@ impl SqlBenchmarkRunner {
                         println!("{}", result.display());
                         println!();
                     }
+                }
+            }
+            BenchmarkMode::Validate => {
+                let mut all_passed = true;
+                let format = *self.formats.first().ok_or_else(|| {
+                    anyhow::anyhow!("At least one format is required for validation")
+                })?;
+                let ctx = setup(format).await?;
+
+                for (query_idx, query) in queries.iter() {
+                    let (_, result) = execute(*query_idx, &ctx, query.as_str()).await?;
+                    let (cols, mut rows) = result.normalized_result();
+                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
+                    if !self.validate_query_result(*query_idx, &tsv) {
+                        all_passed = false;
+                    }
+                }
+
+                if !all_passed {
+                    anyhow::bail!(
+                        "Result validation failed for one or more queries ({engine})",
+                        engine = self.engine,
+                    );
+                }
+            }
+            BenchmarkMode::GenerateReference => {
+                let format = *self.formats.first().ok_or_else(|| {
+                    anyhow::anyhow!("At least one format is required for reference generation")
+                })?;
+                let ctx = setup(format).await?;
+
+                for (query_idx, query) in queries.iter() {
+                    let (_, result) = execute(*query_idx, &ctx, query.as_str()).await?;
+                    let (cols, mut rows) = result.normalized_result();
+                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
+                    self.write_reference_result(*query_idx, &tsv);
                 }
             }
         }

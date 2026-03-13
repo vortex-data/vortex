@@ -8,7 +8,10 @@ use std::time::Instant;
 use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
+use datafusion::arrow::array::Array;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::util::display::ArrayFormatter;
+use datafusion::arrow::util::display::FormatOptions;
 use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
@@ -97,6 +100,14 @@ struct Args {
     #[arg(long, default_value_t = false)]
     explain: bool,
 
+    /// Validate query results against reference files.
+    #[arg(long, default_value_t = false, conflicts_with_all = &["explain", "generate_reference"])]
+    validate: bool,
+
+    /// Generate reference result files for future validation.
+    #[arg(long, default_value_t = false, conflicts_with_all = &["explain", "validate"])]
+    generate_reference: bool,
+
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
@@ -163,6 +174,10 @@ async fn main() -> anyhow::Result<()> {
 
     let mode = if args.explain {
         BenchmarkMode::Explain
+    } else if args.validate {
+        BenchmarkMode::Validate
+    } else if args.generate_reference {
+        BenchmarkMode::GenerateReference
     } else {
         BenchmarkMode::Run {
             iterations: args.iterations,
@@ -215,7 +230,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-    if !args.explain {
+    if !args.explain && !args.validate && !args.generate_reference {
         // Print metrics if requested
         if show_metrics {
             let plans = collected_plans.lock();
@@ -400,6 +415,82 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
             .map(|d| d.to_string())
             .unwrap_or_else(|e| format!("<error: {e}>"))
     }
+
+    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
+        normalize_record_batches(&self.0)
+    }
+}
+
+/// Convert Arrow `RecordBatch`es into normalized column names and row values.
+///
+/// Uses [`vortex_bench::validation`] normalization for floats and strings to
+/// match the sqllogictest conventions used by DuckDB's result normalization.
+fn normalize_record_batches(batches: &[RecordBatch]) -> (Vec<String>, Vec<Vec<String>>) {
+    use datafusion::arrow::datatypes::DataType;
+    use vortex::error::VortexExpect;
+    use vortex_bench::validation::normalize_f32;
+    use vortex_bench::validation::normalize_f64;
+    use vortex_bench::validation::normalize_string;
+
+    let column_names = batches
+        .first()
+        .map(|b| {
+            b.schema()
+                .fields()
+                .iter()
+                .map(|f| f.name().clone())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let format_opts = FormatOptions::default().with_null("NULL");
+    let mut rows = Vec::new();
+
+    for batch in batches {
+        let formatters: Vec<ArrayFormatter> = batch
+            .columns()
+            .iter()
+            .map(|col| ArrayFormatter::try_new(col.as_ref(), &format_opts))
+            .collect::<Result<Vec<_>, _>>()
+            .vortex_expect("ArrayFormatter creation should not fail");
+
+        for row_idx in 0..batch.num_rows() {
+            let mut row = Vec::with_capacity(batch.num_columns());
+            for (col_idx, formatter) in formatters.iter().enumerate() {
+                let col = batch.column(col_idx);
+                if col.is_null(row_idx) {
+                    row.push("NULL".to_string());
+                } else {
+                    let dt = col.data_type();
+                    let cell = match dt {
+                        DataType::Float32 => {
+                            let arr = col
+                                .as_any()
+                                .downcast_ref::<datafusion::arrow::array::Float32Array>()
+                                .vortex_expect("Float32 downcast");
+                            normalize_f32(arr.value(row_idx))
+                        }
+                        DataType::Float64 => {
+                            let arr = col
+                                .as_any()
+                                .downcast_ref::<datafusion::arrow::array::Float64Array>()
+                                .vortex_expect("Float64 downcast");
+                            normalize_f64(arr.value(row_idx))
+                        }
+                        DataType::Utf8 | DataType::LargeUtf8 => {
+                            let s = formatter.value(row_idx).to_string();
+                            normalize_string(&s)
+                        }
+                        _ => formatter.value(row_idx).to_string(),
+                    };
+                    row.push(cell);
+                }
+            }
+            rows.push(row);
+        }
+    }
+
+    (column_names, rows)
 }
 
 pub async fn execute_query(

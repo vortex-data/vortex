@@ -52,6 +52,7 @@ pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
 pub mod utils;
+pub mod validation;
 
 pub use benchmark::Benchmark;
 pub use benchmark::TableSpec;

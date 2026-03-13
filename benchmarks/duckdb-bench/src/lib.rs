@@ -16,10 +16,13 @@ use vortex_bench::Format;
 use vortex_bench::IdempotentPath;
 use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::runner::BenchmarkQueryResult;
+use vortex_bench::validation;
 use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
+use vortex_duckdb::duckdb::ExtractedValue;
 use vortex_duckdb::duckdb::QueryResult;
+use vortex_duckdb::duckdb::Value;
 
 /// DuckDB context for benchmarks.
 pub struct DuckClient {
@@ -199,25 +202,113 @@ impl DuckClient {
         let time_instant = Instant::now();
         let result = self.connection().query(query)?;
         let query_time = time_instant.elapsed();
-        Ok((Some(query_time), DuckQueryResult(result)))
+        Ok((Some(query_time), DuckQueryResult::from_query_result(result)))
     }
 }
 
-/// Wrapper around DuckDB's `QueryResult` implementing `BenchmarkQueryResult`.
-pub struct DuckQueryResult(pub QueryResult);
+/// Eagerly materialized wrapper around DuckDB query results.
+///
+/// Materializes the result on construction so that both `row_count()`,
+/// `display()`, and `normalized_result()` can be called via shared reference.
+pub struct DuckQueryResult {
+    row_count: usize,
+    display_string: String,
+    column_names: Vec<String>,
+    normalized_rows: Vec<Vec<String>>,
+}
+
+impl DuckQueryResult {
+    /// Consume a DuckDB `QueryResult` and materialize its contents.
+    pub fn from_query_result(result: QueryResult) -> Self {
+        let row_count = usize::try_from(result.row_count()).unwrap_or(0);
+        let col_count = usize::try_from(result.column_count()).unwrap_or(0);
+
+        let mut column_names = Vec::with_capacity(col_count);
+        for col_idx in 0..col_count {
+            column_names.push(
+                result
+                    .column_name(col_idx)
+                    .vortex_expect("column name should be valid")
+                    .to_string(),
+            );
+        }
+
+        let mut display_string = String::new();
+        let mut normalized_rows = Vec::new();
+
+        for chunk in result {
+            let chunk_str =
+                String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
+            display_string.push_str(&chunk_str);
+
+            for row_idx in 0..chunk.len() {
+                let mut row = Vec::with_capacity(chunk.column_count());
+                for col_idx in 0..chunk.column_count() {
+                    let vector = chunk.get_vector(col_idx);
+                    let cell = match vector.get_value(row_idx, chunk.len()) {
+                        Some(value) => normalize_duckdb_value(&value),
+                        None => "NULL".to_string(),
+                    };
+                    row.push(cell);
+                }
+                normalized_rows.push(row);
+            }
+        }
+
+        Self {
+            row_count,
+            display_string,
+            column_names,
+            normalized_rows,
+        }
+    }
+}
 
 impl BenchmarkQueryResult for DuckQueryResult {
     fn row_count(&self) -> usize {
-        usize::try_from(self.0.row_count()).unwrap_or(0)
+        self.row_count
     }
 
     fn display(self) -> String {
-        let mut output = String::new();
-        for chunk in self.0 {
-            let chunk_str =
-                String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
-            output.push_str(&chunk_str);
-        }
-        output
+        self.display_string
+    }
+
+    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
+        (self.column_names.clone(), self.normalized_rows.clone())
+    }
+}
+
+/// Normalize a DuckDB value to a canonical string representation.
+///
+/// Uses the same normalization as `vortex-sqllogictest`'s `ValueDisplayAdapter`
+/// and the shared [`vortex_bench::validation`] helpers so that results are
+/// comparable with DataFusion output.
+fn normalize_duckdb_value(value: &Value) -> String {
+    match value.extract() {
+        ExtractedValue::Null => "NULL".to_string(),
+        ExtractedValue::TinyInt(v) => v.to_string(),
+        ExtractedValue::SmallInt(v) => v.to_string(),
+        ExtractedValue::Integer(v) => v.to_string(),
+        ExtractedValue::BigInt(v) => v.to_string(),
+        ExtractedValue::HugeInt(v) => v.to_string(),
+        ExtractedValue::UTinyInt(v) => v.to_string(),
+        ExtractedValue::USmallInt(v) => v.to_string(),
+        ExtractedValue::UInteger(v) => v.to_string(),
+        ExtractedValue::UBigInt(v) => v.to_string(),
+        ExtractedValue::UHugeInt(v) => v.to_string(),
+        ExtractedValue::Float(v) => validation::normalize_f32(v),
+        ExtractedValue::Double(v) => validation::normalize_f64(v),
+        ExtractedValue::Boolean(v) => v.to_string(),
+        ExtractedValue::Varchar(s) => validation::normalize_string(s.as_str()),
+        ExtractedValue::Decimal(_, scale, v) => validation::normalize_decimal(v, scale),
+        // Delegate to DuckDB's native string representation for other types.
+        ExtractedValue::Blob(_)
+        | ExtractedValue::Date(_)
+        | ExtractedValue::Time(_)
+        | ExtractedValue::TimestampNs(_)
+        | ExtractedValue::Timestamp(_)
+        | ExtractedValue::TimestampMs(_)
+        | ExtractedValue::TimestampS(_)
+        | ExtractedValue::List(_) => value.to_string(),
     }
 }
