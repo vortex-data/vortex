@@ -27,7 +27,7 @@ method. The following rules apply:
   existing fixture to cover new ground.
 
 - **Additive-only fixture list.** The fixture list only ever grows; fixtures are
-  never removed. The upload script (`scripts/upload.py`) enforces this by checking
+  never removed. The CLI (`scripts/compat.py`) enforces this by checking
   that every fixture in the previous version's manifest still exists in the
   generated output. Each fixture's `since` field in the manifest records the first
   version that introduced it.
@@ -42,6 +42,57 @@ method. The following rules apply:
   all old versions for a specific fixture, check whether its `build()` deps
   changed before blaming the reader.
 
+## CLI Tool (`scripts/compat.py`)
+
+All operations go through the unified `compat.py` CLI, which supports both local
+directories and S3 as targets.
+
+```bash
+python3 vortex-test/compat-gen/scripts/compat.py --help
+```
+
+### `add-version` — generate and store fixtures
+
+```bash
+# Upload to S3
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.63.0 --target s3
+
+# Dry run (generate + merge manifest, skip S3 upload)
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.63.0 --target s3 --dry-run
+
+# Store locally (no S3 needed)
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.63.0 --target local:/tmp/compat
+
+# Skip the cargo build (if you already have fixtures generated)
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.63.0 --target s3 --output /tmp/fixtures/ --skip-build
+```
+
+### `check` — validate fixtures against the current reader
+
+```bash
+# Validate all versions from S3
+python3 vortex-test/compat-gen/scripts/compat.py check --target s3
+
+# Validate all versions from a local directory
+python3 vortex-test/compat-gen/scripts/compat.py check --target local:/tmp/compat
+
+# Validate specific versions only
+python3 vortex-test/compat-gen/scripts/compat.py check \
+  --target s3 --versions 0.62.0,0.63.0
+```
+
+### Target types
+
+- **`s3`** — use the shared S3 bucket (`vortex-compat-fixtures`). Requires AWS
+  credentials for uploads; reads are public.
+- **`local:<path>`** — use a local directory. The tool creates versioned
+  subdirectories (`v0.62.0/`, `v0.63.0/`, ...) and a `versions.json` index
+  automatically. No AWS credentials needed.
+
 ## First-Time Setup: Bootstrap the Bucket
 
 After creating the S3 bucket (see [AWS Setup](#aws-setup-one-time) below), seed it
@@ -49,62 +100,47 @@ with the first fixture set:
 
 ```bash
 # Generate + upload (first version, no previous manifest to merge)
-python3 vortex-test/compat-gen/scripts/upload.py --version 0.62.0
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.62.0 --target s3
 
 # Verify the round-trip
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-validate -- \
-  --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
-```
-
-## Uploading Fixtures for a New Version
-
-Use the upload script, which handles building, manifest merging, and S3 upload:
-
-```bash
-# Full upload
-python3 vortex-test/compat-gen/scripts/upload.py --version 0.63.0
-
-# Dry run (generate + merge manifest, skip S3)
-python3 vortex-test/compat-gen/scripts/upload.py --version 0.63.0 --dry-run
-
-# Skip the cargo build (if you already have fixtures generated)
-python3 vortex-test/compat-gen/scripts/upload.py \
-  --version 0.63.0 --output /tmp/fixtures/ --skip-build
-
-# Verify all versions
-cargo run -p vortex-compat --release --bin compat-validate -- \
-  --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
+python3 vortex-test/compat-gen/scripts/compat.py check --target s3
 ```
 
 ## Re-uploading Fixtures for an Existing Version
 
-The upload script will overwrite the existing prefix in S3:
+The CLI will overwrite the existing prefix in S3:
 
 ```bash
-python3 vortex-test/compat-gen/scripts/upload.py --version 0.62.0
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.62.0 --target s3
 ```
 
-No need to update `versions.json` — the script handles it idempotently.
+No need to update `versions.json` — the CLI handles it idempotently.
 
 ## Local-Only Workflow
 
 You can skip S3 entirely and work against local directories:
 
 ```bash
-# Generate into a versioned subdirectory
-cargo run -p vortex-compat --release --bin compat-gen -- \
-  --version 0.62.0 --output /tmp/compat-root/v0.62.0/
+# Generate fixtures locally
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.62.0 --target local:/tmp/compat
+
+# Add another version
+python3 vortex-test/compat-gen/scripts/compat.py add-version \
+  --version 0.63.0 --target local:/tmp/compat
 
 # Validate all local versions
-cargo run -p vortex-compat --release --bin compat-validate -- \
-  --fixtures-dir /tmp/compat-root/
+python3 vortex-test/compat-gen/scripts/compat.py check \
+  --target local:/tmp/compat
 ```
 
 If the bucket requires authenticated access, set your AWS profile:
 
 ```bash
-AWS_PROFILE=vortex-ci cargo run -p vortex-compat --release --bin compat-validate -- \
-  --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com
+AWS_PROFILE=vortex-ci python3 vortex-test/compat-gen/scripts/compat.py check \
+  --target s3
 ```
 
 ## AWS Setup (one-time)
@@ -189,7 +225,7 @@ Triggered via **manual dispatch** with a required `version` input (e.g. `0.62.0`
 Will be updated to also trigger on release tag pushes once the workflow is proven.
 
 1. Checks out the current branch
-2. Runs `scripts/upload.py --version <input>` which:
+2. Runs `scripts/compat.py add-version --version <input> --target s3` which:
    - Builds and runs `compat-gen` to generate fixtures
    - Fetches the previous version's manifest and merges `since` values
    - Enforces additive-only (no fixtures removed)
@@ -201,7 +237,7 @@ Will be updated to also trigger on release tag pushes once the workflow is prove
 Runs **every Monday at 06:00 UTC** and on **manual dispatch**.
 
 1. Checks out `main` at HEAD
-2. Runs `compat-test --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com`
+2. Runs `scripts/compat.py check --target s3`
 3. Validates every version listed in `versions.json`
 
 ## Fixture Suite

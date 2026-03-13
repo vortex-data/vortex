@@ -28,5 +28,6 @@ jobs:
 
       - name: Generate and upload fixtures
         run: >
-          python3 vortex-test/compat-gen/scripts/upload.py
+          python3 vortex-test/compat-gen/scripts/compat.py add-version
           --version "${{ inputs.version }}"
+          --target s3

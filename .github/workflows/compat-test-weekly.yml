@@ -5,9 +5,6 @@ on:
     - cron: "0 6 * * 1"  # Monday 6am UTC
   workflow_dispatch: { }
 
-env:
-  FIXTURES_URL: https://vortex-compat-fixtures.s3.amazonaws.com
-
 jobs:
   compat-test:
     runs-on: ubuntu-latest
@@ -19,6 +16,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run compat tests
-        run: |
-          cargo run -p vortex-compat --release --bin compat-validate -- \
-            --fixtures-url "$FIXTURES_URL"
+        run: >
+          python3 vortex-test/compat-gen/scripts/compat.py check
+          --target s3
