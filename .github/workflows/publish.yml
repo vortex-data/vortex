@@ -73,6 +73,26 @@ jobs:
           verbose: true
           skip-existing: true  # Idempotent releases
 
+  upload-compat-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write  # enables AWS-GitHub OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Generate and upload compat fixtures
+        run: python3 vortex-test/compat-gen/scripts/upload.py --version ${{ github.event.release.tag_name }}
+
   publish-java:
     needs: [package]
     runs-on: ubuntu-latest

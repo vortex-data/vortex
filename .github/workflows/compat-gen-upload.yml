@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: Compat Fixture Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. 0.62.0)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write  # enables AWS-GitHub OIDC
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Generate and upload fixtures
+        run: python3 vortex-test/compat-gen/scripts/upload.py --version ${{ inputs.version }}

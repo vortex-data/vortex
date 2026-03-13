@@ -201,7 +201,7 @@ Will be updated to also trigger on release tag pushes once the workflow is prove
 Runs **every Monday at 06:00 UTC** and on **manual dispatch**.
 
 1. Checks out `main` at HEAD
-2. Runs `compat-test --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com`
+2. Runs `compat-validate --fixtures-url https://vortex-compat-fixtures.s3.amazonaws.com`
 3. Validates every version listed in `versions.json`
 
 ## Fixture Suite
