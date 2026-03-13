@@ -7,11 +7,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Null;
 use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
 use crate::arrays::slice::SliceReduce;
 
-impl SliceReduce for NullVTable {
+impl SliceReduce for Null {
     fn slice(_array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(NullArray::new(range.len()).into_array()))
     }

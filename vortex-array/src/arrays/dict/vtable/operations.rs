@@ -4,13 +4,13 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use super::DictVTable;
+use super::Dict;
 use crate::DynArray;
 use crate::arrays::DictArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<DictVTable> for DictVTable {
+impl OperationsVTable<Dict> for Dict {
     fn scalar_at(array: &DictArray, index: usize) -> VortexResult<Scalar> {
         let Some(dict_index) = array
             .codes()

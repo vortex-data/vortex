@@ -15,8 +15,8 @@ use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
 use vortex::layout::LayoutRef;
 use vortex::layout::VTable;
-use vortex::layout::layouts::flat::FlatVTable;
-use vortex::layout::layouts::zoned::ZonedVTable;
+use vortex::layout::layouts::flat::Flat;
+use vortex::layout::layouts::zoned::Zoned;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
 use vortex::session::VortexSession;
@@ -116,10 +116,10 @@ impl LayoutCursor {
     ///
     /// # Panics
     ///
-    /// Panics if the current layout is not a [`FlatVTable`] layout.
+    /// Panics if the current layout is not a [`Flat`] layout.
     pub fn flat_layout_metadata_info(&self) -> String {
-        let flat_layout = self.layout.as_::<FlatVTable>();
-        let metadata = FlatVTable::metadata(flat_layout);
+        let flat_layout = self.layout.as_::<Flat>();
+        let metadata = Flat::metadata(flat_layout);
 
         match metadata.0.array_encoding_tree.as_ref() {
             Some(tree) => {
@@ -151,10 +151,10 @@ impl LayoutCursor {
 
     /// Returns `true` if the cursor is currently pointing at a statistics table.
     ///
-    /// A statistics table is the second child of a [`ZonedVTable`] layout.
+    /// A statistics table is the second child of a [`Zoned`] layout.
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
-        parent.layout().is::<ZonedVTable>() && self.path.last().copied().unwrap_or_default() == 1
+        parent.layout().is::<Zoned>() && self.path.last().copied().unwrap_or_default() == 1
     }
 
     /// Get the data type of the current layout.
@@ -340,7 +340,7 @@ impl AppState {
     ///
     /// This resets the list selection to the first item and clears any scroll offset.
     /// The caller is responsible for awaiting `load_flat_data()` afterward if the
-    /// new layout is a [`FlatVTable`].
+    /// new layout is a [`Flat`].
     pub fn reset_layout_view_state(&mut self) {
         self.layouts_list_state = ListState::default().with_selected(Some(0));
         self.tree_scroll_offset = 0;
@@ -376,7 +376,7 @@ impl AppState {
         self.cached_flat_array = Some(array);
 
         // Load the flatbuffer size.
-        let segment_id = layout.as_::<FlatVTable>().segment_id();
+        let segment_id = layout.as_::<Flat>().segment_id();
         let segment = self
             .cursor
             .segment_source

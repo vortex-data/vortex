@@ -77,7 +77,9 @@ impl TryFrom<TemporalArray> for DateTimePartsArray {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::extension::datetime::TimeUnit;
@@ -110,8 +112,21 @@ mod tests {
             seconds,
             subseconds,
         } = split_temporal(temporal_array).unwrap();
-        assert_eq!(days.to_primitive().validity(), &validity);
-        assert_eq!(seconds.to_primitive().validity(), &Validity::NonNullable);
-        assert_eq!(subseconds.to_primitive().validity(), &Validity::NonNullable);
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert!(
+            days.to_primitive()
+                .validity()
+                .mask_eq(&validity, &mut ctx)
+                .unwrap()
+        );
+        assert!(matches!(
+            seconds.to_primitive().validity(),
+            Validity::NonNullable
+        ));
+        assert!(matches!(
+            subseconds.to_primitive().validity(),
+            Validity::NonNullable
+        ));
     }
 }

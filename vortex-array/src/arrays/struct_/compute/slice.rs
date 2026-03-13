@@ -8,12 +8,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
 use crate::arrays::slice::SliceReduce;
 use crate::vtable::ValidityHelper;
 
-impl SliceReduce for StructVTable {
+impl SliceReduce for Struct {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let fields: Vec<_> = array
             .unmasked_fields()

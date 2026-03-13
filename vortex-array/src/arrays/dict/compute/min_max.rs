@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::DynArray as _;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -16,7 +16,7 @@ use crate::compute::min_max;
 use crate::register_kernel;
 use crate::validity::Validity;
 
-impl MinMaxKernel for DictVTable {
+impl MinMaxKernel for Dict {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
         let codes_validity = array.codes().validity_mask()?;
         if codes_validity.all_false() {
@@ -39,7 +39,7 @@ impl MinMaxKernel for DictVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(DictVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Dict).lift());
 
 #[cfg(test)]
 mod tests {

@@ -15,8 +15,8 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
 fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
@@ -85,7 +85,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     )
 }
 
-impl TakeExecute for DateTimePartsVTable {
+impl TakeExecute for DateTimeParts {
     fn take(
         array: &DateTimePartsArray,
         indices: &ArrayRef,

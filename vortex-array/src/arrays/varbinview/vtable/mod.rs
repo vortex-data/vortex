@@ -44,13 +44,13 @@ mod validity;
 vtable!(VarBinView);
 
 #[derive(Debug)]
-pub struct VarBinViewVTable;
+pub struct VarBinView;
 
-impl VarBinViewVTable {
+impl VarBinView {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
 }
 
-impl VTable for VarBinViewVTable {
+impl VTable for VarBinView {
     type Array = VarBinViewArray;
 
     type Metadata = EmptyMetadata;

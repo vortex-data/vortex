@@ -8,10 +8,10 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Dict;
 use crate::arrays::DictArray;
-use crate::arrays::DictVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
@@ -26,21 +26,21 @@ use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&FilterReduceAdaptor(DictVTable)),
-    ParentRuleSet::lift(&CastReduceAdaptor(DictVTable)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(DictVTable)),
-    ParentRuleSet::lift(&LikeReduceAdaptor(DictVTable)),
+pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
+    ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
+    ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(DictVTable)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
 ]);
 
 /// Push down a scalar function to run only over the values of a dictionary array.
 #[derive(Debug)]
 struct DictionaryScalarFnValuesPushDownRule;
 
-impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule {
+impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
     type Parent = AnyScalarFn;
 
     fn reduce_parent(
@@ -88,7 +88,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
             .children()
             .iter()
             .enumerate()
-            .all(|(idx, c)| idx == child_idx || c.is::<ConstantVTable>())
+            .all(|(idx, c)| idx == child_idx || c.is::<Constant>())
         {
             return Ok(None);
         }
@@ -114,7 +114,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
             if idx == child_idx {
                 new_children.push(array.values().clone());
             } else {
-                let scalar = child.as_::<ConstantVTable>().scalar().clone();
+                let scalar = child.as_::<Constant>().scalar().clone();
                 new_children.push(ConstantArray::new(scalar, values_len).into_array());
             }
         }
@@ -143,7 +143,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
 #[derive(Debug)]
 struct DictionaryScalarFnCodesPullUpRule;
 
-impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnCodesPullUpRule {
+impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
     type Parent = AnyScalarFn;
 
     fn reduce_parent(
@@ -161,7 +161,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnCodesPullUpRule {
         // This is a cheap first loop.
         if !parent.children().iter().enumerate().all(|(idx, c)| {
             idx == child_idx
-                || c.as_opt::<DictVTable>()
+                || c.as_opt::<Dict>()
                     .is_some_and(|c| c.values().len() == array.values().len())
         }) {
             return Ok(None);
@@ -171,7 +171,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnCodesPullUpRule {
         // We use the cheaper Precision::Ptr to avoid doing data comparisons.
         if !parent.children().iter().enumerate().all(|(idx, c)| {
             idx == child_idx
-                || c.as_opt::<DictVTable>()
+                || c.as_opt::<Dict>()
                     .is_some_and(|c| c.codes().array_eq(array.codes(), Precision::Value))
         }) {
             return Ok(None);
@@ -182,7 +182,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnCodesPullUpRule {
             if idx == child_idx {
                 new_children.push(array.values().clone());
             } else {
-                new_children.push(child.as_::<DictVTable>().values().clone());
+                new_children.push(child.as_::<Dict>().values().clone());
             }
         }
 

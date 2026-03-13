@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
@@ -18,7 +18,7 @@ use crate::register_kernel;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
-impl MinMaxKernel for DecimalVTable {
+impl MinMaxKernel for Decimal {
     fn min_max(&self, array: &DecimalArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_decimal_value_type!(array.values_type(), |T| {
             compute_min_max_with_validity::<T>(array)
@@ -26,7 +26,7 @@ impl MinMaxKernel for DecimalVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(DecimalVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Decimal).lift());
 
 #[inline]
 fn compute_min_max_with_validity<D>(array: &DecimalArray) -> VortexResult<Option<MinMaxResult>>

@@ -5,8 +5,8 @@ use vortex_buffer::buffer;
 
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::dtype::DType;
@@ -61,7 +61,7 @@ fn test_listview_of_listview_with_overlapping() {
 
     // Verify the outer structure.
     let first_outer = outer_listview.list_elements_at(0).unwrap();
-    let first_outer_lv = first_outer.as_::<ListViewVTable>();
+    let first_outer_lv = first_outer.as_::<ListView>();
     assert_eq!(first_outer_lv.len(), 3);
 
     // Verify overlapping data is preserved correctly.
@@ -112,7 +112,7 @@ fn test_listview_of_listview_with_overlapping() {
     // Test slicing the outer ListView.
     let sliced = outer_listview.slice(1..2).unwrap();
     assert_eq!(sliced.len(), 1);
-    let sliced_lv = sliced.as_::<ListViewVTable>();
+    let sliced_lv = sliced.as_::<ListView>();
     let inner_after_slice = sliced_lv.list_elements_at(0).unwrap();
     assert_eq!(inner_after_slice.len(), 3);
 }
@@ -164,12 +164,12 @@ fn test_deeply_nested_out_of_order() {
 
     // Navigate through the scrambled structure.
     let top0 = level3.list_elements_at(0).unwrap();
-    let top0_lv = top0.as_::<ListViewVTable>();
+    let top0_lv = top0.as_::<ListView>();
     assert_eq!(top0_lv.len(), 2);
 
     // Due to out-of-order at level3, top0 actually contains level2[2] and level2[3].
     let mid0 = top0_lv.list_elements_at(0).unwrap();
-    let mid0_lv = mid0.as_::<ListViewVTable>();
+    let mid0_lv = mid0.as_::<ListView>();
     assert_eq!(mid0_lv.len(), 2);
 
     // Verify data integrity through the scrambled offsets.
@@ -229,7 +229,7 @@ fn test_mixed_offset_size_types() {
     // Test slicing with mixed types.
     let sliced = outer_listview.slice(1..3).unwrap();
     assert_eq!(sliced.len(), 2);
-    let sliced_lv = sliced.as_::<ListViewVTable>();
+    let sliced_lv = sliced.as_::<ListView>();
 
     // Verify the sliced data maintains correct offsets despite type differences.
     let sliced_first = sliced_lv.list_elements_at(0).unwrap();
@@ -280,7 +280,7 @@ fn test_listview_zero_and_overlapping() {
 
     // Test first outer list with mixed empty/non-empty.
     let first_outer = outer_listview.list_elements_at(0).unwrap();
-    let first_outer_lv = first_outer.as_::<ListViewVTable>();
+    let first_outer_lv = first_outer.as_::<ListView>();
 
     let inner0 = first_outer_lv.list_elements_at(0).unwrap();
     assert_eq!(inner0.len(), 0); // Empty
@@ -302,7 +302,7 @@ fn test_listview_zero_and_overlapping() {
 
     // Test second outer list with overlapping data.
     let second_outer = outer_listview.list_elements_at(1).unwrap();
-    let second_outer_lv = second_outer.as_::<ListViewVTable>();
+    let second_outer_lv = second_outer.as_::<ListView>();
 
     let inner3 = second_outer_lv.list_elements_at(0).unwrap();
     assert_eq!(inner3.len(), 3); // [2, 3, 4]

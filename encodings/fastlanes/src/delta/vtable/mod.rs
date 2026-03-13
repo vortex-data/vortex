@@ -50,7 +50,7 @@ pub struct DeltaMetadata {
     offset: u32, // must be <1024
 }
 
-impl VTable for DeltaVTable {
+impl VTable for Delta {
     type Array = DeltaArray;
 
     type Metadata = ProstMetadata<DeltaMetadata>;
@@ -202,9 +202,9 @@ impl VTable for DeltaVTable {
 }
 
 #[derive(Debug)]
-pub struct DeltaVTable;
+pub struct Delta;
 
-impl DeltaVTable {
+impl Delta {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
 }
 

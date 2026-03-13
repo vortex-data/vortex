@@ -16,10 +16,10 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
 use crate::arrays::struct_::StructArrayParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -38,7 +38,7 @@ pub(super) fn to_arrow_struct(
     let len = array.len();
 
     // If the array is chunked, then we invert the chunk-of-struct to struct-of-chunk.
-    let array = match array.try_into::<ChunkedVTable>() {
+    let array = match array.try_into::<Chunked>() {
         Ok(array) => {
             // NOTE(ngates): this currently uses the old into_canonical code path, but we should
             //  just call directly into the swizzle-chunks function.
@@ -47,8 +47,8 @@ pub(super) fn to_arrow_struct(
         Err(array) => array,
     };
 
-    // Attempt to short-circuit if the array is already a StructVTable:
-    let array = match array.try_into::<StructVTable>() {
+    // Attempt to short-circuit if the array is already a Struct:
+    let array = match array.try_into::<Struct>() {
         Ok(array) => {
             let len = array.len();
             let StructArrayParts {

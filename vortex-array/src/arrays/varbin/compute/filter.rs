@@ -15,8 +15,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinVTable;
 use crate::arrays::filter::FilterKernel;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::dtype::DType;
@@ -25,7 +25,7 @@ use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl FilterKernel for VarBinVTable {
+impl FilterKernel for VarBin {
     fn filter(
         array: &VarBinArray,
         mask: &Mask,

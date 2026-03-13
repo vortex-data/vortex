@@ -9,7 +9,7 @@ pub(crate) mod compute;
 
 mod vtable;
 pub use compute::rules::DecimalMaskedValidityRule;
-pub use vtable::DecimalVTable;
+pub use vtable::Decimal;
 
 mod utils;
 pub use utils::*;

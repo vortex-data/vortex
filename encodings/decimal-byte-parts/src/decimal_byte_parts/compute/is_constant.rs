@@ -8,10 +8,10 @@ use vortex_array::compute::is_constant_opts;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
-use crate::DecimalBytePartsVTable;
 
-impl IsConstantKernel for DecimalBytePartsVTable {
+impl IsConstantKernel for DecimalByteParts {
     fn is_constant(
         &self,
         array: &DecimalBytePartsArray,
@@ -21,4 +21,4 @@ impl IsConstantKernel for DecimalBytePartsVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DecimalBytePartsVTable).lift());
+register_kernel!(IsConstantKernelAdapter(DecimalByteParts).lift());

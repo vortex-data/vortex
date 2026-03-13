@@ -40,9 +40,9 @@ use crate::ZstdBuffersMetadata;
 vtable!(ZstdBuffers);
 
 #[derive(Debug)]
-pub struct ZstdBuffersVTable;
+pub struct ZstdBuffers;
 
-impl ZstdBuffersVTable {
+impl ZstdBuffers {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd_buffers");
 }
 
@@ -325,7 +325,7 @@ fn array_id_from_string(s: &str) -> ArrayId {
     ArrayId::new_arc(Arc::from(s))
 }
 
-impl VTable for ZstdBuffersVTable {
+impl VTable for ZstdBuffers {
     type Array = ZstdBuffersArray;
 
     type Metadata = ProstMetadata<ZstdBuffersMetadata>;
@@ -490,7 +490,7 @@ impl VTable for ZstdBuffersVTable {
     }
 }
 
-impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
+impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
     fn scalar_at(array: &ZstdBuffersArray, index: usize) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
@@ -500,7 +500,7 @@ impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
     }
 }
 
-impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
+impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
     fn validity(array: &ZstdBuffersArray) -> VortexResult<vortex_array::validity::Validity> {
         if !array.dtype.is_nullable() {
             return Ok(vortex_array::validity::Validity::NonNullable);

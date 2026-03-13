@@ -8,10 +8,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
+use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
-use crate::DecimalBytePartsVTable;
 
-impl SliceReduce for DecimalBytePartsVTable {
+impl SliceReduce for DecimalByteParts {
     fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: slicing encoded MSP does not change the encoded values
         Ok(Some(unsafe {

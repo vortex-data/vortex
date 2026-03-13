@@ -110,9 +110,12 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+
       - name: Pytest Benchmarks - Vortex
         run: |
-          uv run --all-packages pytest --benchmark-only benchmark/
+          bash ../scripts/bench-taskset.sh uv run --all-packages pytest --benchmark-only benchmark/
         working-directory: vortex-python/
 
       - name: Doctest - PyVortex
@@ -624,8 +627,7 @@ jobs:
             runner: runs-on=${{ github.run_id }}/pool=windows-x64
             fallback_runner: windows-latest
           - os: linux-arm64
-            runner: runs-on=${{ github.run_id }}/runner=arm64-medium/tag=rust-test-linux-arm64
-            fallback_runner: ubuntu-24.04-arm
+            runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre/tag=rust-test-linux-arm64
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && matrix.runner
@@ -649,13 +651,18 @@ jobs:
         with:
           python-version: "3.11"
       - id: setup-rust
+        if: matrix.os == 'windows-x64'
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install nextest
+        if: matrix.os == 'windows-x64'
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
+      - name: Setup Prebuild
+        if: matrix.os != 'windows-x64'
+        uses: ./.github/actions/setup-prebuild
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
@@ -743,7 +750,7 @@ jobs:
       - name: Run benchmarks
         uses: CodSpeedHQ/action@281164b0f014a4e7badd2c02cecad9b595b70537
         with:
-          run: cargo codspeed run
+          run: bash scripts/bench-taskset.sh cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 

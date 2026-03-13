@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
@@ -15,7 +15,7 @@ use crate::scalar_fn::fns::operators::Operator;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
 
-impl IsConstantKernel for ListVTable {
+impl IsConstantKernel for List {
     fn is_constant(&self, array: &ListArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         // At this point, we're guaranteed:
         // - Array has at least 2 elements
@@ -71,7 +71,7 @@ impl IsConstantKernel for ListVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ListVTable).lift());
+register_kernel!(IsConstantKernelAdapter(List).lift());
 
 #[cfg(test)]
 mod tests {

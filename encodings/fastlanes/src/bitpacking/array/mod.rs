@@ -3,7 +3,7 @@
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -316,7 +316,7 @@ impl BitPackedArray {
     /// error will be returned.
     // FIXME(ngates): take a PrimitiveArray
     pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+        if let Some(parray) = array.as_opt::<Primitive>() {
             bitpack_encode(parray, bit_width, None)
         } else {
             vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");

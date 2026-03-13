@@ -7,7 +7,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
 use crate::scalar::Scalar;
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ impl DynAggregateKernel for ChunkedArrayAggregate {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        let Some(chunked) = batch.as_opt::<ChunkedVTable>() else {
+        let Some(chunked) = batch.as_opt::<Chunked>() else {
             return Ok(None);
         };
 

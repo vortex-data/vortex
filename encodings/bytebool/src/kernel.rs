@@ -4,7 +4,7 @@
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 
-use crate::ByteBoolVTable;
+use crate::ByteBool;
 
-pub(crate) const PARENT_KERNELS: ParentKernelSet<ByteBoolVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(ByteBoolVTable))]);
+pub(crate) const PARENT_KERNELS: ParentKernelSet<ByteBool> =
+    ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(ByteBool))]);

@@ -50,7 +50,7 @@ pub struct BoolMetadata {
     pub offset: u32,
 }
 
-impl VTable for BoolVTable {
+impl VTable for Bool {
     type Array = BoolArray;
 
     type Metadata = ProstMetadata<BoolMetadata>;
@@ -212,8 +212,8 @@ impl VTable for BoolVTable {
 }
 
 #[derive(Debug)]
-pub struct BoolVTable;
+pub struct Bool;
 
-impl BoolVTable {
+impl Bool {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
 }

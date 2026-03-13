@@ -13,8 +13,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ToCanonical;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::bool;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -369,7 +369,7 @@ impl ListViewArray {
 
         // Fast path for `PrimitiveArray`.
         self.offsets()
-            .as_opt::<PrimitiveVTable>()
+            .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
@@ -397,7 +397,7 @@ impl ListViewArray {
 
         // Fast path for `PrimitiveArray`.
         self.sizes()
-            .as_opt::<PrimitiveVTable>()
+            .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.

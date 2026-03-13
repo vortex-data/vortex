@@ -7,8 +7,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
-use vortex_array::arrays::SliceVTable;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
@@ -16,16 +16,16 @@ use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
-use crate::compute::take_from::RunEndVTableTakeFrom;
+use crate::compute::take_from::RunEndTakeFrom;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CompareExecuteAdaptor(RunEndVTable)),
+pub(super) const PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(RunEnd)),
     ParentKernelSet::lift(&RunEndSliceKernel),
-    ParentKernelSet::lift(&FilterExecuteAdaptor(RunEndVTable)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(RunEndVTable)),
-    ParentKernelSet::lift(&RunEndVTableTakeFrom),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(RunEnd)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(RunEnd)),
+    ParentKernelSet::lift(&RunEndTakeFrom),
 ]);
 
 /// Kernel to execute slicing on a RunEnd array.
@@ -35,8 +35,8 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> = ParentKernelSet
 #[derive(Debug)]
 struct RunEndSliceKernel;
 
-impl ExecuteParentKernel<RunEndVTable> for RunEndSliceKernel {
-    type Parent = SliceVTable;
+impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
+    type Parent = Slice;
 
     fn execute_parent(
         &self,

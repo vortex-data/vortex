@@ -9,8 +9,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
@@ -99,7 +99,7 @@ fn take_chunked(
     flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())
 }
 
-impl TakeExecute for ChunkedVTable {
+impl TakeExecute for Chunked {
     fn take(
         array: &ChunkedArray,
         indices: &ArrayRef,

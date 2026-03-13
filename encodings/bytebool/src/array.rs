@@ -41,7 +41,7 @@ use crate::kernel::PARENT_KERNELS;
 
 vtable!(ByteBool);
 
-impl VTable for ByteBoolVTable {
+impl VTable for ByteBool {
     type Array = ByteBoolArray;
 
     type Metadata = EmptyMetadata;
@@ -216,9 +216,9 @@ pub struct ByteBoolArray {
 }
 
 #[derive(Debug)]
-pub struct ByteBoolVTable;
+pub struct ByteBool;
 
-impl ByteBoolVTable {
+impl ByteBool {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
 }
 
@@ -267,7 +267,7 @@ impl ValidityHelper for ByteBoolArray {
     }
 }
 
-impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
+impl OperationsVTable<ByteBool> for ByteBool {
     fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             array.buffer.as_host()[index] == 1,

@@ -37,7 +37,7 @@ use crate::vtable;
 
 vtable!(Struct);
 
-impl VTable for StructVTable {
+impl VTable for Struct {
     type Layout = StructLayout;
     type Encoding = StructLayoutEncoding;
     type Metadata = EmptyMetadata;

@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/types.hpp"
+DUCKDB_INCLUDES_END
 
 #include "duckdb_vx.h"
 #include "duckdb_vx/logical_type.h"
 
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/types.hpp"
+DUCKDB_INCLUDES_END
 #include <cassert>
 
 duckdb_logical_type duckdb_vx_logical_type_copy(duckdb_logical_type ty) {

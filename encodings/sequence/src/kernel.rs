@@ -6,10 +6,10 @@ use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
-use crate::SequenceVTable;
+use crate::Sequence;
 
-pub(crate) const PARENT_KERNELS: ParentKernelSet<SequenceVTable> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CompareExecuteAdaptor(SequenceVTable)),
-    ParentKernelSet::lift(&FilterExecuteAdaptor(SequenceVTable)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(SequenceVTable)),
+pub(crate) const PARENT_KERNELS: ParentKernelSet<Sequence> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(Sequence)),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(Sequence)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(Sequence)),
 ]);

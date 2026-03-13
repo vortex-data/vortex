@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::BoolArray;
 use vortex::buffer::BitBuffer;
@@ -51,7 +50,7 @@ impl ColumnExporter for BoolExporter {
                 .bit_buffer
                 .slice(offset..(offset + len))
                 .iter()
-                .collect_vec(),
+                .collect::<Vec<bool>>(),
         );
 
         Ok(())
@@ -109,7 +108,7 @@ mod tests {
                 r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 65 = [ {}]
 "#,
-                iter::repeat_n("true", 65).join(", ")
+                iter::repeat_n("true", 65).collect::<Vec<&str>>().join(", ")
             )
         );
     }

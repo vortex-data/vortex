@@ -42,13 +42,13 @@ use crate::vtable::ValidityVTable;
 vtable!(Filter);
 
 #[derive(Debug)]
-pub struct FilterVTable;
+pub struct Filter;
 
-impl FilterVTable {
+impl Filter {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.filter");
 }
 
-impl VTable for FilterVTable {
+impl VTable for Filter {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
     type OperationsVTable = Self;
@@ -186,14 +186,14 @@ impl VTable for FilterVTable {
         RULES.evaluate(array)
     }
 }
-impl OperationsVTable<FilterVTable> for FilterVTable {
+impl OperationsVTable<Filter> for Filter {
     fn scalar_at(array: &FilterArray, index: usize) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);
         array.child().scalar_at(rank_idx)
     }
 }
 
-impl ValidityVTable<FilterVTable> for FilterVTable {
+impl ValidityVTable<Filter> for Filter {
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child().validity()?.filter(&array.mask)
     }

@@ -7,8 +7,8 @@ use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::expr::stats::Stat;
@@ -175,7 +175,7 @@ impl IntegerStats {
 }
 
 impl CompressorStats for IntegerStats {
-    type ArrayVTable = PrimitiveVTable;
+    type ArrayVTable = Primitive;
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)

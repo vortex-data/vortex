@@ -3,9 +3,12 @@
 
 #include "duckdb_vx.h"
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include <duckdb/main/client_context.hpp>
 #include <duckdb/main/connection.hpp>
 #include <duckdb/storage/object_cache.hpp>
+DUCKDB_INCLUDES_END
 
 extern "C" duckdb_client_context duckdb_vx_connection_get_client_context(duckdb_connection conn) {
     try {

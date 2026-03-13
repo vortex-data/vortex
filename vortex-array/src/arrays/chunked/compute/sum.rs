@@ -3,15 +3,15 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::compute::sum_with_accumulator;
 use crate::register_kernel;
 use crate::scalar::Scalar;
 
-impl SumKernel for ChunkedVTable {
+impl SumKernel for Chunked {
     fn sum(&self, array: &ChunkedArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         array
             .chunks()
@@ -22,7 +22,7 @@ impl SumKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
+register_kernel!(SumKernelAdapter(Chunked).lift());
 
 #[cfg(test)]
 mod tests {

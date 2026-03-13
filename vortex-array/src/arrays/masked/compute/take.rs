@@ -6,14 +6,14 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
 use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
-impl TakeReduce for MaskedVTable {
+impl TakeReduce for Masked {
     fn take(array: &MaskedArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let taken_child = if !indices.all_valid()? {
             // This is safe because we'll mask out these positions in the validity.

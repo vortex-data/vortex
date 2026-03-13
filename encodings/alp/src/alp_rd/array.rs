@@ -62,7 +62,7 @@ pub struct ALPRDMetadata {
     patches: Option<PatchesMetadata>,
 }
 
-impl VTable for ALPRDVTable {
+impl VTable for ALPRD {
     type Array = ALPRDArray;
 
     type Metadata = ProstMetadata<ALPRDMetadata>;
@@ -346,9 +346,9 @@ pub struct ALPRDArray {
 }
 
 #[derive(Debug)]
-pub struct ALPRDVTable;
+pub struct ALPRD;
 
-impl ALPRDVTable {
+impl ALPRD {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
 }
 
@@ -521,7 +521,7 @@ impl ALPRDArray {
     }
 }
 
-impl ValidityChild<ALPRDVTable> for ALPRDVTable {
+impl ValidityChild<ALPRD> for ALPRD {
     fn validity_child(array: &ALPRDArray) -> &ArrayRef {
         array.left_parts()
     }

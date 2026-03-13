@@ -24,10 +24,10 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::DecimalBytePartsVTable;
+use crate::DecimalByteParts;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
-impl CompareKernel for DecimalBytePartsVTable {
+impl CompareKernel for DecimalByteParts {
     fn compare(
         lhs: &Self::Array,
         rhs: &ArrayRef,

@@ -44,7 +44,7 @@ use crate::vtable::ArrayId;
 
 vtable!(Primitive);
 
-impl VTable for PrimitiveVTable {
+impl VTable for Primitive {
     type Array = PrimitiveArray;
 
     type Metadata = EmptyMetadata;
@@ -226,8 +226,8 @@ impl VTable for PrimitiveVTable {
 }
 
 #[derive(Debug)]
-pub struct PrimitiveVTable;
+pub struct Primitive;
 
-impl PrimitiveVTable {
+impl Primitive {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.primitive");
 }

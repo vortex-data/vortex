@@ -8,10 +8,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
+use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
-use crate::DecimalBytePartsVTable;
 
-impl TakeExecute for DecimalBytePartsVTable {
+impl TakeExecute for DecimalByteParts {
     fn take(
         array: &DecimalBytePartsArray,
         indices: &ArrayRef,

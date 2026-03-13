@@ -21,7 +21,7 @@ on:
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
-              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb"
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
             },
             {
               "id": "tpch-nvme",
@@ -37,7 +37,8 @@ on:
               "local_dir": "vortex-bench/data/tpch/1.0",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "1.0"
+              "scale_factor": "1.0",
+              "iterations": "10"
             },
             {
               "id": "tpch-nvme-10",
@@ -53,7 +54,8 @@ on:
               "local_dir": "vortex-bench/data/tpch/10.0",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "10.0"
+              "scale_factor": "10.0",
+              "iterations": "10"
             },
             {
               "id": "tpcds-nvme",
@@ -83,7 +85,8 @@ on:
               "local_dir": "vortex-bench/data/fineweb",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "100"
+              "scale_factor": "100",
+              "iterations": "10"
             },
             {
               "id": "polarsignals",
@@ -198,7 +201,8 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -212,7 +216,8 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --remote-storage "${{ matrix.remote_storage }}" \
             --benchmark-id "${{ matrix.id }}" \
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}

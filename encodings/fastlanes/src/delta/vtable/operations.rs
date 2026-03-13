@@ -6,10 +6,10 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
-use super::DeltaVTable;
+use super::Delta;
 use crate::DeltaArray;
 
-impl OperationsVTable<DeltaVTable> for DeltaVTable {
+impl OperationsVTable<Delta> for Delta {
     fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
         let decompressed = array.slice(index..index + 1)?.to_primitive();
         decompressed.scalar_at(0)

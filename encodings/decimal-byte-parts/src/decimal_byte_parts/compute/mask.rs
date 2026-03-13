@@ -9,10 +9,10 @@ use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
+use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
-use crate::DecimalBytePartsVTable;
 
-impl MaskReduce for DecimalBytePartsVTable {
+impl MaskReduce for DecimalByteParts {
     fn mask(array: &DecimalBytePartsArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_msp = MaskExpr.try_new_array(
             array.msp().len(),

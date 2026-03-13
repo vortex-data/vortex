@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::ListVTable;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::List;
+use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::min_max;
 use crate::dtype::DType;
@@ -270,7 +270,7 @@ impl ListArray {
             self.len()
         );
 
-        if let Some(p) = self.offsets().as_opt::<PrimitiveVTable>() {
+        if let Some(p) = self.offsets().as_opt::<Primitive>() {
             Ok(match_each_native_ptype!(p.ptype(), |P| {
                 p.as_slice::<P>()[index].as_()
             }))
@@ -333,7 +333,7 @@ impl ListArray {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
             elements = elements.to_canonical()?.compact()?.into_array();
-        } else if recurse && let Some(child_list_array) = elements.as_opt::<ListVTable>() {
+        } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
             elements = child_list_array.reset_offsets(recurse)?.into_array();
         }
 

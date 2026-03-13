@@ -38,7 +38,7 @@ use crate::vtable::ArrayId;
 
 vtable!(Struct);
 
-impl VTable for StructVTable {
+impl VTable for Struct {
     type Array = StructArray;
 
     type Metadata = EmptyMetadata;
@@ -192,8 +192,8 @@ impl VTable for StructVTable {
 }
 
 #[derive(Debug)]
-pub struct StructVTable;
+pub struct Struct;
 
-impl StructVTable {
+impl Struct {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
 }

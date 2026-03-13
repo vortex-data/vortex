@@ -31,7 +31,7 @@ use vortex_session::VortexSession;
 
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(RunEndVTable::ID, RunEndVTable);
+    session.arrays().register(RunEnd::ID, RunEnd);
 }
 
 #[cfg(test)]

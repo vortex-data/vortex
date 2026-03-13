@@ -338,38 +338,41 @@ pub fn patches_child_name(idx: usize) -> &'static str {
 #[macro_export]
 macro_rules! vtable {
     ($V:ident) => {
+        $crate::vtable!($V, $V);
+    };
+    ($Base:ident, $VT:ident) => {
         $crate::aliases::paste::paste! {
-            impl AsRef<dyn $crate::DynArray> for [<$V Array>] {
+            impl AsRef<dyn $crate::DynArray> for [<$Base Array>] {
                 fn as_ref(&self) -> &dyn $crate::DynArray {
                     // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
                 }
             }
 
-            impl std::ops::Deref for [<$V Array>] {
+            impl std::ops::Deref for [<$Base Array>] {
                 type Target = dyn $crate::DynArray;
 
                 fn deref(&self) -> &Self::Target {
                     // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
                 }
             }
 
-            impl $crate::IntoArray for [<$V Array>] {
+            impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
                     // We can unsafe transmute ourselves to an ArrayAdapter.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Array>], $crate::ArrayAdapter::<[<$V VTable>]>>(self) })
+                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$Base Array>], $crate::ArrayAdapter::<$VT>>(self) })
                 }
             }
 
-            impl From<[<$V Array>]> for $crate::ArrayRef {
-                fn from(value: [<$V Array>]) -> $crate::ArrayRef {
+            impl From<[<$Base Array>]> for $crate::ArrayRef {
+                fn from(value: [<$Base Array>]) -> $crate::ArrayRef {
                     use $crate::IntoArray;
                     value.into_array()
                 }
             }
 
-            impl [<$V Array>] {
+            impl [<$Base Array>] {
                 #[deprecated(note = "use `.into_array()` (owned) or `.clone().into_array()` (ref) to make clones explicit")]
                 pub fn to_array(&self) -> $crate::ArrayRef {
                     use $crate::IntoArray;

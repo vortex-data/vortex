@@ -13,8 +13,10 @@ use vortex_session::VortexSession;
 
 use super::DictArray;
 use super::DictMetadata;
+use super::array::CODES_SLOT;
 use super::array::NUM_SLOTS;
 use super::array::SLOT_NAMES;
+use super::array::VALUES_SLOT;
 use super::take_canonical;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -47,13 +49,13 @@ mod validity;
 vtable!(Dict);
 
 #[derive(Debug)]
-pub struct DictVTable;
+pub struct Dict;
 
-impl DictVTable {
+impl Dict {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
 }
 
-impl VTable for DictVTable {
+impl VTable for Dict {
     type Array = DictArray;
 
     type Metadata = ProstMetadata<DictMetadata>;

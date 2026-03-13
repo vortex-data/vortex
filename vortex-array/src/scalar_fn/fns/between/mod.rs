@@ -20,8 +20,8 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::DecimalVTable;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::Decimal;
+use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::Options;
 use crate::dtype::DType;
@@ -151,15 +151,14 @@ fn between_canonical(
     }
 
     // Try type-specific kernels
-    if let Some(prim) = arr.as_opt::<PrimitiveVTable>()
+    if let Some(prim) = arr.as_opt::<Primitive>()
         && let Some(result) =
-            <PrimitiveVTable as BetweenKernel>::between(prim, lower, upper, options, ctx)?
+            <Primitive as BetweenKernel>::between(prim, lower, upper, options, ctx)?
     {
         return Ok(result);
     }
-    if let Some(dec) = arr.as_opt::<DecimalVTable>()
-        && let Some(result) =
-            <DecimalVTable as BetweenKernel>::between(dec, lower, upper, options, ctx)?
+    if let Some(dec) = arr.as_opt::<Decimal>()
+        && let Some(result) = <Decimal as BetweenKernel>::between(dec, lower, upper, options, ctx)?
     {
         return Ok(result);
     }

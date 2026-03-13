@@ -6,10 +6,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::optimizer::ArrayOptimizer;
@@ -18,17 +18,17 @@ use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(ChunkedVTable)),
+pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
-    ParentRuleSet::lift(&FillNullReduceAdaptor(ChunkedVTable)),
+    ParentRuleSet::lift(&FillNullReduceAdaptor(Chunked)),
 ]);
 
 /// Push down any unary scalar function through chunked arrays.
 #[derive(Debug)]
 struct ChunkedUnaryScalarFnPushDownRule;
-impl ArrayParentReduceRule<ChunkedVTable> for ChunkedUnaryScalarFnPushDownRule {
+impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
     type Parent = AnyScalarFn;
 
     fn reduce_parent(
@@ -64,7 +64,7 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedUnaryScalarFnPushDownRule {
 /// Push down non-unary scalar functions through chunked arrays where other siblings are constant.
 #[derive(Debug)]
 struct ChunkedConstantScalarFnPushDownRule;
-impl ArrayParentReduceRule<ChunkedVTable> for ChunkedConstantScalarFnPushDownRule {
+impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
     type Parent = AnyScalarFn;
 
     fn reduce_parent(
@@ -77,7 +77,7 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedConstantScalarFnPushDownRul
             if idx == child_idx {
                 continue;
             }
-            if !child.is::<ConstantVTable>() {
+            if !child.is::<Constant>() {
                 return Ok(None);
             }
         }
@@ -95,7 +95,7 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedConstantScalarFnPushDownRul
                             chunk.clone()
                         } else {
                             ConstantArray::new(
-                                child.as_::<ConstantVTable>().scalar().clone(),
+                                child.as_::<Constant>().scalar().clone(),
                                 chunk.len(),
                             )
                             .into_array()
