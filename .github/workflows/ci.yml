@@ -721,7 +721,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/system-info
       - name: Install Codspeed
-        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
+        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
         with:
           tool: cargo-codspeed
       - name: Build benchmarks
@@ -925,7 +925,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
+        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
         with:
           tool: cargo-edit
       - name: Set Version
