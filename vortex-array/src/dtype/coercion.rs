@@ -211,6 +211,73 @@ impl DType {
     }
 }
 
+/// Returns the least supertype (widest common type) of two primitive types,
+/// or `None` if no lossless promotion exists.
+///
+/// Rules:
+/// - Same type: return it.
+/// - Same family (both unsigned, both signed, both float): pick the wider one.
+/// - Unsigned + Signed: promote to a signed type one width-step wider than both.
+/// - Int + Float: pick the smallest float that losslessly represents the integer,
+///   then take the wider of that and the given float.
+fn ptype_least_supertype(a: PType, b: PType) -> Option<PType> {
+    use PType::*;
+
+    if a == b {
+        return Some(a);
+    }
+
+    // Same family — pick the wider.
+    if a.is_unsigned_int() && b.is_unsigned_int() {
+        return Some(a.max_unsigned_ptype(b));
+    }
+    if a.is_signed_int() && b.is_signed_int() {
+        return Some(a.max_signed_ptype(b));
+    }
+    if a.is_float() && b.is_float() {
+        return if a.byte_width() >= b.byte_width() {
+            Some(a)
+        } else {
+            Some(b)
+        };
+    }
+
+    // Unsigned + Signed crossover — promote to signed one width-step wider.
+    let (unsigned, signed) = if a.is_unsigned_int() && b.is_signed_int() {
+        (a, b)
+    } else if a.is_signed_int() && b.is_unsigned_int() {
+        (b, a)
+    } else {
+        // Must be int + float (in either order).
+        let (int, float) = if a.is_float() { (b, a) } else { (a, b) };
+        return int_float_supertype(int, float);
+    };
+
+    match unsigned.byte_width().max(signed.byte_width()) {
+        1 => Some(I16),
+        2 => Some(I32),
+        4 => Some(I64),
+        _ => None, // U64 + I64 — no lossless 128-bit integer type
+    }
+}
+
+/// Promote integer + float to the minimum float that losslessly represents the integer.
+fn int_float_supertype(int: PType, float: PType) -> Option<PType> {
+    use PType::*;
+
+    let min_float = match int.byte_width() {
+        1 => F16,         // f16 has 11-bit mantissa, enough for 8-bit ints
+        2 => F32,         // f32 has 24-bit mantissa, enough for 16-bit ints
+        4 => F64,         // f64 has 53-bit mantissa, enough for 32-bit ints
+        _ => return None, // no standard float for 64-bit ints
+    };
+    if float.byte_width() >= min_float.byte_width() {
+        Some(float)
+    } else {
+        Some(min_float)
+    }
+}
+
 /// Maps integer PType widths to the minimum decimal precision needed.
 fn integer_decimal_precision(ptype: PType) -> u8 {
     match ptype {
