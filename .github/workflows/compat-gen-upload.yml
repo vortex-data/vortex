@@ -1,0 +1,32 @@
+name: Compat Fixture Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to generate fixtures for (e.g. 0.62.0)"
+        required: true
+
+jobs:
+  upload-fixtures:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Generate and upload fixtures
+        run: >
+          python3 vortex-test/compat-gen/scripts/upload.py
+          --version "${{ inputs.version }}"
