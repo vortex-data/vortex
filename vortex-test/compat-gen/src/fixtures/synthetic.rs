@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::Path;
+
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -21,7 +23,7 @@ impl Fixture for PrimitivesFixture {
         "primitives.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let arr = StructArray::try_new(
             FieldNames::from(["u8", "u16", "u32", "u64", "i32", "i64", "f32", "f64"]),
             vec![
@@ -61,7 +63,7 @@ impl Fixture for StringsFixture {
         "strings.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let strings = VarBinArray::from(vec!["", "hello", "こんにちは", "\u{1f980}"]);
         let arr = StructArray::try_new(
             FieldNames::from(["text"]),
@@ -80,7 +82,7 @@ impl Fixture for BooleansFixture {
         "booleans.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let bools = BoolArray::from_iter([true, false, true, true, false]);
         let arr = StructArray::try_new(
             FieldNames::from(["flag"]),
@@ -99,7 +101,7 @@ impl Fixture for NullableFixture {
         "nullable.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let nullable_ints =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(42), None, Some(-7)]);
         let nullable_strings =
@@ -121,7 +123,7 @@ impl Fixture for StructNestedFixture {
         "struct_nested.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let inner = StructArray::try_new(
             FieldNames::from(["a", "b"]),
             vec![
@@ -152,7 +154,7 @@ impl Fixture for ChunkedFixture {
         "chunked.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         // 3 chunks of 1000 rows each. Values are deterministic: chunk_idx * 1000 + row_idx.
         (0u32..3)
             .map(|chunk_idx| {

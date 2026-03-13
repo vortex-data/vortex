@@ -31,9 +31,12 @@ pub fn validate_all(
     let fixture_map: HashMap<&str, &dyn Fixture> =
         fixtures.iter().map(|f| (f.name(), f.as_ref())).collect();
 
+    let tmp_dir = tempfile::tempdir()
+        .map_err(|e| vortex_error::vortex_err!("failed to create temp dir: {e}"))?;
+
     let mut results = Vec::new();
     for version in versions {
-        let result = validate_version(store, version, &fixture_map)?;
+        let result = validate_version(store, version, &fixture_map, tmp_dir.path())?;
         results.push(result);
     }
     Ok(results)
@@ -43,6 +46,7 @@ fn validate_version(
     store: &dyn FixtureStore,
     version: &str,
     fixture_map: &HashMap<&str, &dyn Fixture>,
+    tmp_dir: &std::path::Path,
 ) -> VortexResult<VersionResult> {
     let manifest = store.fetch_manifest(version)?;
     let mut passed = 0;
@@ -61,7 +65,7 @@ fn validate_version(
 
         eprintln!("  checking {} from v{version}...", entry.name);
         let bytes = store.fetch_fixture(version, &entry.name)?;
-        match validate_one(ByteBuffer::from(bytes), *fixture) {
+        match validate_one(ByteBuffer::from(bytes), *fixture, tmp_dir) {
             Ok(()) => passed += 1,
             Err(e) => {
                 eprintln!("  FAIL: {} from v{version}: {e}", entry.name);
@@ -78,9 +82,13 @@ fn validate_version(
     })
 }
 
-fn validate_one(bytes: ByteBuffer, fixture: &dyn Fixture) -> VortexResult<()> {
+fn validate_one(
+    bytes: ByteBuffer,
+    fixture: &dyn Fixture,
+    tmp_dir: &std::path::Path,
+) -> VortexResult<()> {
     let actual = adapter::read_file(bytes)?;
-    let expected = fixture.build()?;
+    let expected = fixture.build(tmp_dir)?;
 
     let actual_dtype = actual[0].dtype().clone();
     let expected_dtype = expected[0].dtype().clone();

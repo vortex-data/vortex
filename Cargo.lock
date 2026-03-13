@@ -9878,9 +9878,11 @@ name = "vortex-compat"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "bytes",
  "chrono",
  "clap",
  "futures",
+ "parking_lot",
  "parquet",
  "reqwest",
  "serde",

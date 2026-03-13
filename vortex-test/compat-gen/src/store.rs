@@ -14,7 +14,7 @@ use vortex_error::vortex_err;
 use crate::manifest::Manifest;
 
 /// Abstraction over local filesystem and S3 fixture stores.
-pub trait FixtureStore {
+pub trait FixtureStore: Send + Sync {
     /// Read a file's bytes. Returns None if not found.
     fn read(&self, key: &str) -> VortexResult<Option<Vec<u8>>>;
 

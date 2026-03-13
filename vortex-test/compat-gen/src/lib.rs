@@ -5,5 +5,6 @@ pub mod adapter;
 pub mod fixtures;
 pub mod generate;
 pub mod manifest;
+pub mod publish;
 pub mod store;
 pub mod validate;

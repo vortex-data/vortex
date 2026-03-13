@@ -35,7 +35,11 @@ tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 
 # ClickBench parquet reading
+bytes = { workspace = true }
 parquet = { workspace = true }
+
+# Concurrency
+parking_lot = { workspace = true }
 
 # Async runtime
 futures = { workspace = true }

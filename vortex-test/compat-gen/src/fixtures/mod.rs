@@ -5,19 +5,25 @@ mod clickbench;
 mod synthetic;
 mod tpch;
 
+use std::path::Path;
+
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 
 /// A deterministic fixture that produces the same arrays every time.
+///
+/// Each fixture is given a `tmp_dir` it can use as scratch space for
+/// downloading external data or intermediate files. Fixtures that don't
+/// need external data simply ignore it.
 pub trait Fixture: Send + Sync {
     /// The filename for this fixture, e.g. "primitives.vortex".
     fn name(&self) -> &str;
 
-    /// Build the expected arrays. Must be deterministic.
+    /// Build the expected arrays, using `tmp_dir` as scratch space for any
+    /// downloads or intermediate files.
     ///
-    /// Returns a `Vec` to support chunked fixtures (multiple chunks).
-    /// Single-array fixtures return a one-element vec.
-    fn build(&self) -> VortexResult<Vec<ArrayRef>>;
+    /// Must be deterministic. Returns a `Vec` to support chunked fixtures.
+    fn build(&self, tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>>;
 }
 
 /// All registered fixtures.

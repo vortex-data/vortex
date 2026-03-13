@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::Path;
+
 use arrow_array::RecordBatch;
 use tpchgen::generators::LineItemGenerator;
 use tpchgen::generators::OrderGenerator;
@@ -28,7 +30,7 @@ impl Fixture for TpchLineitemFixture {
         "tpch_lineitem.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let generator = LineItemGenerator::new(SCALE_FACTOR, 1, 1);
         let arrow_iter = tpchgen_arrow::LineItemArrow::new(generator).with_batch_size(65_536);
         collect_batches_as_vortex(arrow_iter)
@@ -42,7 +44,7 @@ impl Fixture for TpchOrdersFixture {
         "tpch_orders.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let generator = OrderGenerator::new(SCALE_FACTOR, 1, 1);
         let arrow_iter = tpchgen_arrow::OrderArrow::new(generator).with_batch_size(65_536);
         collect_batches_as_vortex(arrow_iter)

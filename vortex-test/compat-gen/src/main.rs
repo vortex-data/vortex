@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::PathBuf;
+
 use clap::Parser;
 use clap::Subcommand;
 use vortex_compat::generate::generate;
+use vortex_compat::publish::publish;
 use vortex_compat::store::DEFAULT_STORE;
 use vortex_compat::store::FixtureStore;
 use vortex_compat::store::parse_store;
@@ -23,8 +26,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Generate fixtures for a version and write them into a store.
+    /// Generate fixture files into a local directory.
+    ///
+    /// Builds all fixtures in memory first, then writes to disk.
+    /// If any fixture fails to build, nothing is written.
     Generate {
+        /// Version tag (e.g. "0.63.0").
+        #[arg(long)]
+        version: String,
+
+        /// Local directory to write fixtures into.
+        #[arg(long)]
+        output: PathBuf,
+    },
+
+    /// Generate fixtures and publish them to a store.
+    ///
+    /// Stages: (1) generate all fixtures locally, (2) merge manifest with
+    /// previous version, (3) upload all fixture files in parallel,
+    /// (4) write manifest, (5) update versions.json.
+    /// Nothing is uploaded until all fixtures are successfully generated.
+    Publish {
         /// Version tag (e.g. "0.63.0").
         #[arg(long)]
         version: String,
@@ -33,14 +55,15 @@ enum Commands {
         #[arg(long, default_value = DEFAULT_STORE)]
         store: String,
 
-        /// Merge manifest and print it, but don't write to the store.
+        /// Local directory for intermediate fixture files (default: temp dir).
+        #[arg(long)]
+        tmp_dir: Option<PathBuf>,
+
+        /// Generate and merge manifest but don't upload to the store.
         #[arg(long)]
         dry_run: bool,
-
-        /// Skip fixture generation (use for re-uploading with manifest merge only).
-        #[arg(long)]
-        skip_build: bool,
     },
+
     /// Validate fixtures in a store against the current reader.
     Check {
         /// Fixture store: local path or s3://bucket.
@@ -51,6 +74,7 @@ enum Commands {
         #[arg(long, value_delimiter = ',')]
         versions: Option<Vec<String>>,
     },
+
     /// List versions and fixtures in a store.
     List {
         /// Fixture store: local path or s3://bucket.
@@ -61,6 +85,7 @@ enum Commands {
         #[arg(long)]
         version: Option<String>,
     },
+
     /// Validate that manifests are additive-only across all versions.
     ///
     /// Checks that each version's manifest contains all fixtures from the
@@ -77,14 +102,15 @@ fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate {
+        Commands::Generate { version, output } => generate(&output, &version),
+        Commands::Publish {
             version,
             store,
+            tmp_dir,
             dry_run,
-            skip_build,
         } => {
             let store = parse_store(&store)?;
-            generate(store.as_ref(), &version, dry_run, skip_build)
+            publish(store.as_ref(), &version, tmp_dir.as_deref(), dry_run)
         }
         Commands::Check { store, versions } => {
             let store = parse_store(&store)?;
@@ -126,9 +152,6 @@ fn run_list(store: &dyn FixtureStore, version: Option<String>) -> VortexResult<(
 }
 
 /// Validate that manifests are additive-only across all versions.
-///
-/// For each consecutive pair of versions, checks that the newer version's manifest
-/// contains every fixture from the older version.
 fn run_validate_manifest(store: &dyn FixtureStore) -> VortexResult<()> {
     let versions = store.list_versions()?;
     if versions.is_empty() {
