@@ -8,34 +8,67 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::arrays::ChunkedArray;
 
-/// A pre-sliced, aligned pair of array chunks from two `ChunkedArray`s.
 pub(crate) struct AlignedPair {
     pub left: ArrayRef,
     pub right: ArrayRef,
     pub pos: Range<usize>,
 }
 
-/// An iterator that walks two equally-sized `ChunkedArray`s in lockstep,
-/// yielding aligned `(left, right)` slices at every chunk boundary of either
-/// input. Empty chunks are skipped automatically.
+/// Cursor over a chunk slice that maintains the invariant: `idx` always
+/// points at a non-empty chunk or is past the end.
+struct ChunkCursor<'a> {
+    chunks: &'a [ArrayRef],
+    idx: usize,
+    offset: usize,
+}
+
+impl<'a> ChunkCursor<'a> {
+    fn new(chunks: &'a [ArrayRef]) -> Self {
+        let mut cursor = Self {
+            chunks,
+            idx: 0,
+            offset: 0,
+        };
+        cursor.skip_empty();
+        cursor
+    }
+
+    fn skip_empty(&mut self) {
+        while self.idx < self.chunks.len()
+            && unsafe { self.chunks.get_unchecked(self.idx) }.is_empty()
+        {
+            self.idx += 1;
+        }
+    }
+
+    fn current_chunk(&self) -> Option<&'a ArrayRef> {
+        (self.idx < self.chunks.len()).then(|| unsafe { self.chunks.get_unchecked(self.idx) })
+    }
+
+    fn remaining(&self, chunk: &ArrayRef) -> usize {
+        chunk.len() - self.offset
+    }
+
+    fn take(&mut self, chunk: &ArrayRef, n: usize) -> VortexResult<ArrayRef> {
+        let slice = chunk.slice(self.offset..self.offset + n)?;
+        self.offset += n;
+        if self.offset == chunk.len() {
+            self.idx += 1;
+            self.offset = 0;
+            self.skip_empty();
+        }
+        Ok(slice)
+    }
+}
+
 pub(crate) struct PairedChunks<'a> {
-    left: &'a ChunkedArray,
-    right: &'a ChunkedArray,
-    lhs_idx: usize,
-    rhs_idx: usize,
-    lhs_offset: usize,
-    rhs_offset: usize,
+    left: ChunkCursor<'a>,
+    right: ChunkCursor<'a>,
     pos: usize,
     total_len: usize,
 }
 
 impl ChunkedArray {
-    /// Returns an iterator that walks `self` and `other` in lockstep, yielding
-    /// [`AlignedPair`]s sliced at every chunk boundary of either input.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self.len() != other.len()`.
     pub(crate) fn paired_chunks<'a>(&'a self, other: &'a ChunkedArray) -> PairedChunks<'a> {
         assert_eq!(
             self.len(),
@@ -43,12 +76,8 @@ impl ChunkedArray {
             "paired_chunks requires arrays of equal length"
         );
         PairedChunks {
-            left: self,
-            right: other,
-            lhs_idx: 0,
-            rhs_idx: 0,
-            lhs_offset: 0,
-            rhs_offset: 0,
+            left: ChunkCursor::new(&self.chunks),
+            right: ChunkCursor::new(&other.chunks),
             pos: 0,
             total_len: self.len(),
         }
@@ -59,47 +88,29 @@ impl Iterator for PairedChunks<'_> {
     type Item = VortexResult<AlignedPair>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Skip empty chunks on either side.
-        while self.lhs_idx < self.left.nchunks() && self.left.chunk(self.lhs_idx).is_empty() {
-            self.lhs_idx += 1;
-        }
-        while self.rhs_idx < self.right.nchunks() && self.right.chunk(self.rhs_idx).is_empty() {
-            self.rhs_idx += 1;
-        }
-
         if self.pos >= self.total_len {
             return None;
         }
 
-        let lhs_chunk = self.left.chunk(self.lhs_idx);
-        let rhs_chunk = self.right.chunk(self.rhs_idx);
+        let lhs_chunk = self.left.current_chunk()?;
+        let rhs_chunk = self.right.current_chunk()?;
 
-        let lhs_rem = lhs_chunk.len() - self.lhs_offset;
-        let rhs_rem = rhs_chunk.len() - self.rhs_offset;
-        let take = lhs_rem.min(rhs_rem);
+        let take = self
+            .left
+            .remaining(lhs_chunk)
+            .min(self.right.remaining(rhs_chunk));
 
-        let lhs_slice = match lhs_chunk.slice(self.lhs_offset..self.lhs_offset + take) {
+        let lhs_slice = match self.left.take(lhs_chunk, take) {
             Ok(s) => s,
             Err(e) => return Some(Err(e)),
         };
-        let rhs_slice = match rhs_chunk.slice(self.rhs_offset..self.rhs_offset + take) {
+        let rhs_slice = match self.right.take(rhs_chunk, take) {
             Ok(s) => s,
             Err(e) => return Some(Err(e)),
         };
 
         let start = self.pos;
         self.pos += take;
-        self.lhs_offset += take;
-        self.rhs_offset += take;
-
-        if self.lhs_offset == lhs_chunk.len() {
-            self.lhs_idx += 1;
-            self.lhs_offset = 0;
-        }
-        if self.rhs_offset == rhs_chunk.len() {
-            self.rhs_idx += 1;
-            self.rhs_offset = 0;
-        }
 
         Some(Ok(AlignedPair {
             left: lhs_slice,
@@ -181,9 +192,6 @@ mod tests {
         )?;
 
         let pairs = collect_pairs(&left, &right)?;
-        // Left:  [1,2] [3] [4,5]  →  boundaries at 0,2,3,5
-        // Right: [10]  [20,30] [40,50]  →  boundaries at 0,1,3,5
-        // Aligned at: 0,1,2,3,5
         assert_eq!(pairs.len(), 4);
         assert_eq!(pairs[0], (vec![1], vec![10], 0..1));
         assert_eq!(pairs[1], (vec![2], vec![20], 1..2));
@@ -252,7 +260,6 @@ mod tests {
         let right =
             ChunkedArray::try_new(vec![buffer![10i32, 20, 30].into_array()], i32_dtype()).unwrap();
 
-        // Should panic.
         drop(left.paired_chunks(&right).collect::<Vec<_>>());
     }
 }
