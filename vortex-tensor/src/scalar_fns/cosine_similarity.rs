@@ -138,22 +138,12 @@ impl ScalarFnVTable for CosineSimilarity {
         let lhs_storage = extension_storage(&lhs)?;
         let rhs_storage = extension_storage(&rhs)?;
 
-        // Extract the flat primitive elements from each tensor column. When an input is a
-        // `ConstantArray` (e.g., a literal query vector), we materialize only a single row
-        // instead of expanding it to the full row count.
-        let (lhs_elems, lhs_stride) = extract_flat_elements(&lhs_storage, list_size)?;
-        let (rhs_elems, rhs_stride) = extract_flat_elements(&rhs_storage, list_size)?;
+        let lhs_flat = extract_flat_elements(&lhs_storage, list_size)?;
+        let rhs_flat = extract_flat_elements(&rhs_storage, list_size)?;
 
-        match_each_float_ptype!(lhs_elems.ptype(), |T| {
-            let lhs_slice = lhs_elems.as_slice::<T>();
-            let rhs_slice = rhs_elems.as_slice::<T>();
-
+        match_each_float_ptype!(lhs_flat.ptype(), |T| {
             let result: PrimitiveArray = (0..row_count)
-                .map(|i| {
-                    let a = &lhs_slice[i * lhs_stride..i * lhs_stride + list_size];
-                    let b = &rhs_slice[i * rhs_stride..i * rhs_stride + list_size];
-                    cosine_similarity_row(a, b)
-                })
+                .map(|i| cosine_similarity_row(lhs_flat.row::<T>(i), rhs_flat.row::<T>(i)))
                 .collect();
 
             Ok(result.into_array())

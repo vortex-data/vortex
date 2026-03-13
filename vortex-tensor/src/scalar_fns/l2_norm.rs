@@ -116,16 +116,11 @@ impl ScalarFnVTable for L2Norm {
         let list_size = extension_list_size(ext)?;
 
         let storage = extension_storage(&input)?;
-        let (elems, stride) = extract_flat_elements(&storage, list_size)?;
+        let flat = extract_flat_elements(&storage, list_size)?;
 
-        match_each_float_ptype!(elems.ptype(), |T| {
-            let slice = elems.as_slice::<T>();
-
+        match_each_float_ptype!(flat.ptype(), |T| {
             let result: PrimitiveArray = (0..row_count)
-                .map(|i| {
-                    let v = &slice[i * stride..i * stride + list_size];
-                    l2_norm_row(v)
-                })
+                .map(|i| l2_norm_row(flat.row::<T>(i)))
                 .collect();
 
             Ok(result.into_array())

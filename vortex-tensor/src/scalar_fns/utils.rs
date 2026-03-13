@@ -8,6 +8,7 @@ use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::Extension;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::dtype::DType;
+use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::dtype::extension::ExtDTypeRef;
 use vortex::error::VortexResult;
@@ -60,28 +61,57 @@ pub(crate) fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
     Ok(ext.storage_array().clone())
 }
 
-// TODO(connor): it would be nicer if this took a generic parameter and a FnMut arg that we run
-// directly on the values without having to return this ugly stride.
+/// The flat primitive elements of a tensor storage array, with typed row access.
+///
+/// This struct hides the stride detail that arises from the [`ConstantArray`] optimization: a
+/// constant input materializes only a single row (stride=0), while a full array uses
+/// stride=list_size.
+pub(crate) struct FlatElements {
+    elems: PrimitiveArray,
+    stride: usize,
+    list_size: usize,
+}
+
+impl FlatElements {
+    /// Returns the [`PType`] of the underlying elements.
+    pub fn ptype(&self) -> PType {
+        self.elems.ptype()
+    }
+
+    /// Returns the `i`-th row as a typed slice of length `list_size`.
+    pub fn row<T: NativePType>(&self, i: usize) -> &[T] {
+        let slice = self.elems.as_slice::<T>();
+        &slice[i * self.stride..i * self.stride + self.list_size]
+    }
+}
+
 /// Extracts the flat primitive elements from a tensor storage array (FixedSizeList).
 ///
 /// When the input is a [`ConstantArray`] (e.g., a literal query vector), only a single row is
-/// materialized to avoid expanding it to the full column length. Returns `(elements, stride)`
-/// where `stride` is `list_size` for a full array and `0` for a constant.
+/// materialized to avoid expanding it to the full column length.
 pub(crate) fn extract_flat_elements(
     storage: &ArrayRef,
     list_size: usize,
-) -> VortexResult<(PrimitiveArray, usize)> {
+) -> VortexResult<FlatElements> {
     if let Some(constant) = storage.as_opt::<Constant>() {
         // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a huge
         // amount of data.
         let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();
         let fsl = single.to_canonical()?.into_fixed_size_list();
         let elems = fsl.elements().to_canonical()?.into_primitive();
-        return Ok((elems, 0));
+        return Ok(FlatElements {
+            elems,
+            stride: 0,
+            list_size,
+        });
     }
 
     // Otherwise we have to fully expand all of the data.
     let fsl = storage.to_canonical()?.into_fixed_size_list();
     let elems = fsl.elements().to_canonical()?.into_primitive();
-    Ok((elems, list_size))
+    Ok(FlatElements {
+        elems,
+        stride: list_size,
+        list_size,
+    })
 }
