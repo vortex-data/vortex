@@ -4,8 +4,8 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use vortex_fastlanes::bit_transpose::transpose_bits_scalar;
-use vortex_fastlanes::bit_transpose::untranspose_bits_scalar;
+use vortex_fastlanes::bit_transpose::scalar::transpose_bits_scalar;
+use vortex_fastlanes::bit_transpose::scalar::untranspose_bits_scalar;
 
 fn main() {
     divan::main();
