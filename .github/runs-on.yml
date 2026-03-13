@@ -1,1 +1,7 @@
 _extends: .github-private
+images:
+  ubuntu24-full-x64-pre:
+    platform: "linux"
+    arch: "x64"
+    name: "vortex-ci-x64-*"
+    owner: "245040174862"
