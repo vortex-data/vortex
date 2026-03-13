@@ -101,7 +101,6 @@ fn generate_test_data(seed: u8) -> [u8; 128] {
 
 #[cfg(test)]
 pub fn transpose_bits_baseline(input: &[u8; 128], output: &mut [u8; 128]) {
-    output.fill(0);
     for in_bit in 0..1024 {
         let out_bit = fastlanes::transpose(in_bit);
         let in_byte = in_bit / 8;
@@ -115,7 +114,6 @@ pub fn transpose_bits_baseline(input: &[u8; 128], output: &mut [u8; 128]) {
 
 #[cfg(test)]
 pub fn untranspose_bits_baseline(input: &[u8; 128], output: &mut [u8; 128]) {
-    output.fill(0);
     for out_bit in 0..1024 {
         let in_bit = fastlanes::transpose(out_bit);
         let in_byte = in_bit / 8;

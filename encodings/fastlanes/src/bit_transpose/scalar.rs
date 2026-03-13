@@ -21,7 +21,7 @@ pub fn transpose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
         let t = (x ^ (x >> 7)) & TRANSPOSE_2X2;
         x = x ^ t ^ (t << 7);
         // Step 2: Transpose 4x4 bit blocks
-        let t = (x ^ (x >> 14)) & TRANSPOSE_2X2;
+        let t = (x ^ (x >> 14)) & TRANSPOSE_4X4;
         x = x ^ t ^ (t << 14);
         // Step 3: Transpose 8x8 bit blocks
         let t = (x ^ (x >> 28)) & TRANSPOSE_8X8;
