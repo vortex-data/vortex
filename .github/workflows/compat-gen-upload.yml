@@ -20,6 +20,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -28,5 +32,5 @@ jobs:
 
       - name: Generate and publish fixtures
         run: >
-          cargo run -p vortex-compat --release --
+          python vortex-test/compat-gen/scripts/compat.py
           publish --version "${{ inputs.version }}"

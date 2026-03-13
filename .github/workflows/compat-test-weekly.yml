@@ -3,7 +3,7 @@ name: Compat Test
 on:
   schedule:
     - cron: "0 6 * * 1"  # Monday 6am UTC
-  workflow_dispatch: { }
+  workflow_dispatch: {}
 
 jobs:
   compat-test:
@@ -15,5 +15,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Run compat tests
-        run: cargo run -p vortex-compat --release -- check
+        run: >
+          python vortex-test/compat-gen/scripts/compat.py check

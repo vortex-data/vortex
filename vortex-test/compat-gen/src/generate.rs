@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::thread;
 
-use chrono::Utc;
+use serde::Serialize;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -12,33 +12,37 @@ use vortex_error::vortex_err;
 use crate::adapter;
 use crate::fixtures::Fixture;
 use crate::fixtures::all_fixtures;
-use crate::manifest::FixtureEntry;
-use crate::manifest::Manifest;
 
-/// Generate all fixtures into a local directory.
+#[derive(Serialize)]
+struct FixturesJson {
+    fixtures: Vec<FixtureInfo>,
+}
+
+#[derive(Serialize)]
+struct FixtureInfo {
+    name: String,
+    description: String,
+}
+
+/// Generate all fixtures into `output_dir`.
 ///
-/// Three-phase pipeline:
-/// 1. **Setup** (async I/O) — run each fixture's `setup()` concurrently via
-///    `tokio::spawn_blocking`. Downloads external data, prepares files in
-///    `tmp_dir`.
-/// 2. **Build** (CPU, parallel) — construct arrays in a thread pool via
-///    `std::thread::scope`.
-/// 3. **Write** — serialize `.vortex` files to disk.
+/// Three phases:
+/// 1. **Setup** — run each fixture's `setup()` concurrently (async I/O).
+/// 2. **Build** — construct arrays in parallel threads (CPU).
+/// 3. **Write** — serialize `.vortex` files and `fixtures.json` to disk.
 ///
-/// All fixtures are built before any are written, so a failure in one fixture
-/// does not leave a partial directory.
-pub fn generate(output_dir: &Path, version: &str) -> VortexResult<()> {
+/// All fixtures must build successfully before any are written.
+pub fn generate(output_dir: &Path) -> VortexResult<()> {
     let fixtures = all_fixtures();
 
-    // Create a shared tmp_dir for setup / scratch space.
     let tmp_dir = output_dir.join(".tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| vortex_err!("failed to create tmp dir: {e}"))?;
 
-    // Phase 1: Run setup for all fixtures concurrently.
+    // Phase 1: Setup (concurrent I/O).
     eprintln!("[1/3] Setting up {} fixtures...", fixtures.len());
     run_setup_async(&fixtures, &tmp_dir)?;
 
-    // Phase 2: Build all fixtures in parallel.
+    // Phase 2: Build (parallel CPU).
     eprintln!("[2/3] Building {} fixtures...", fixtures.len());
     let built = run_build_parallel(&fixtures, &tmp_dir)?;
 
@@ -47,34 +51,27 @@ pub fn generate(output_dir: &Path, version: &str) -> VortexResult<()> {
     std::fs::create_dir_all(output_dir)
         .map_err(|e| vortex_err!("failed to create output dir: {e}"))?;
 
-    let mut entries = Vec::with_capacity(built.len());
-    for (name, chunks) in built {
-        let path = output_dir.join(name);
-        adapter::write_file(&path, chunks)?;
-        entries.push(FixtureEntry {
-            name: name.to_string(),
-            since: version.to_string(),
+    let mut infos = Vec::with_capacity(built.len());
+    for (fixture, chunks) in &built {
+        let path = output_dir.join(fixture.name());
+        adapter::write_file(&path, chunks.clone())?;
+        infos.push(FixtureInfo {
+            name: fixture.name().to_string(),
+            description: fixture.description().to_string(),
         });
-        eprintln!("  wrote {name}");
+        eprintln!("  wrote {}", fixture.name());
     }
 
-    let manifest = Manifest {
-        version: version.to_string(),
-        generated_at: Utc::now(),
-        fixtures: entries,
-    };
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| vortex_err!("failed to serialize manifest: {e}"))?;
-    std::fs::write(
-        output_dir.join("manifest.json"),
-        format!("{manifest_json}\n"),
-    )
-    .map_err(|e| vortex_err!("failed to write manifest: {e}"))?;
-    eprintln!("  wrote manifest.json");
+    let fixtures_json = FixturesJson { fixtures: infos };
+    let json = serde_json::to_string_pretty(&fixtures_json)
+        .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;
+    std::fs::write(output_dir.join("fixtures.json"), format!("{json}\n"))
+        .map_err(|e| vortex_err!("failed to write fixtures.json: {e}"))?;
+    eprintln!("  wrote fixtures.json");
 
     eprintln!(
-        "\ndone: {} fixtures for v{version} in {}",
-        manifest.fixtures.len(),
+        "\ndone: {} fixtures in {}",
+        fixtures_json.fixtures.len(),
         output_dir.display()
     );
     Ok(())
@@ -130,8 +127,8 @@ fn run_setup_async(fixtures: &[Box<dyn Fixture>], tmp_dir: &Path) -> VortexResul
 fn run_build_parallel<'a>(
     fixtures: &'a [Box<dyn Fixture>],
     tmp_dir: &Path,
-) -> VortexResult<Vec<(&'a str, Vec<vortex_array::ArrayRef>)>> {
-    let build_results: Vec<VortexResult<(&str, Vec<vortex_array::ArrayRef>)>> =
+) -> VortexResult<Vec<(&'a dyn Fixture, Vec<vortex_array::ArrayRef>)>> {
+    let build_results: Vec<VortexResult<(&dyn Fixture, Vec<vortex_array::ArrayRef>)>> =
         thread::scope(|s| {
             let handles: Vec<_> = fixtures
                 .iter()
@@ -139,7 +136,7 @@ fn run_build_parallel<'a>(
                     let tmp = tmp_dir;
                     s.spawn(move || {
                         let chunks = fixture.build(tmp)?;
-                        Ok((fixture.name(), chunks))
+                        Ok((fixture.as_ref(), chunks))
                     })
                 })
                 .collect();
@@ -157,9 +154,9 @@ fn run_build_parallel<'a>(
     let mut errors = Vec::new();
     for result in build_results {
         match result {
-            Ok((name, chunks)) => {
-                eprintln!("  built {name}");
-                built.push((name, chunks));
+            Ok(pair) => {
+                eprintln!("  built {}", pair.0.name());
+                built.push(pair);
             }
             Err(e) => {
                 errors.push(e.to_string());
