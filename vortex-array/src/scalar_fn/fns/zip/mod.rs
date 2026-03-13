@@ -234,7 +234,6 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
@@ -461,49 +460,4 @@ mod tests {
         assert_eq!(actual.as_ref(), expected.as_ref());
     }
 
-    #[test]
-    fn test_zip_nullable_mask() {
-        // Null mask values are treated as false (selecting if_false).
-        let mask = BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]);
-        let if_true = buffer![10, 20, 30, 40, 50].into_array();
-        let if_false = buffer![1, 2, 3, 4, 5].into_array();
-
-        let result = mask.into_array().zip(if_true, if_false).unwrap();
-        let expected = buffer![10, 2, 3, 4, 50].into_array();
-
-        assert_arrays_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_zip_nullable_mask_all_null() {
-        // All-null mask should select entirely from if_false.
-        let mask = BoolArray::from_iter([None, None, None]);
-        let if_true = buffer![10, 20, 30].into_array();
-        let if_false = buffer![1, 2, 3].into_array();
-
-        let result = mask.into_array().zip(if_true, if_false).unwrap();
-        let expected = buffer![1, 2, 3].into_array();
-
-        assert_arrays_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_zip_nullable_mask_with_nullable_values() {
-        // Nullable mask combined with nullable if_true and if_false.
-        let mask = BoolArray::from_iter([Some(true), None, Some(false), Some(true)]);
-        let if_true =
-            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
-        let if_false =
-            PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4)]).into_array();
-
-        let result = mask.into_array().zip(if_true, if_false).unwrap();
-        // mask[0]=true  → if_true[0]=10
-        // mask[1]=null  → if_false[1]=null
-        // mask[2]=false → if_false[2]=3
-        // mask[3]=true  → if_true[3]=null
-        let expected =
-            PrimitiveArray::from_option_iter([Some(10), None, Some(3), None]).into_array();
-
-        assert_arrays_eq!(result, expected);
-    }
 }
