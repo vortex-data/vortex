@@ -316,7 +316,13 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
             exit(1);
         }
     };
-    if let Err(e) = bindings.write_to_file(crate_dir.join("src/cpp.rs")) {
+    let out_path = crate_dir.join("src/cpp.rs");
+    let new_contents = bindings.to_string();
+    let write = match fs::read_to_string(&out_path) {
+        Ok(existing) => existing != new_contents,
+        Err(_) => true,
+    };
+    if write && let Err(e) = fs::write(&out_path, new_contents) {
         println!("cargo:error=Failed to write Rust bindings: {e}");
         exit(1);
     }
