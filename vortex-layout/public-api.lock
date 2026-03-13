@@ -60,6 +60,44 @@ pub fn vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy::buffered_
 
 pub fn vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
+pub struct vortex_layout::layouts::chunked::Chunked
+
+impl core::fmt::Debug for vortex_layout::layouts::chunked::Chunked
+
+pub fn vortex_layout::layouts::chunked::Chunked::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::VTable for vortex_layout::layouts::chunked::Chunked
+
+pub type vortex_layout::layouts::chunked::Chunked::Encoding = vortex_layout::layouts::chunked::ChunkedLayoutEncoding
+
+pub type vortex_layout::layouts::chunked::Chunked::Layout = vortex_layout::layouts::chunked::ChunkedLayout
+
+pub type vortex_layout::layouts::chunked::Chunked::Metadata = vortex_array::metadata::EmptyMetadata
+
+pub fn vortex_layout::layouts::chunked::Chunked::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::chunked::Chunked::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::chunked::Chunked::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::chunked::Chunked::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::chunked::Chunked::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::chunked::Chunked::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::chunked::Chunked::metadata(_layout: &Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::chunked::Chunked::nchildren(layout: &Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::chunked::Chunked::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::chunked::Chunked::row_count(layout: &Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::chunked::Chunked::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::chunked::Chunked::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
 pub struct vortex_layout::layouts::chunked::ChunkedLayout
 
 impl vortex_layout::layouts::chunked::ChunkedLayout
@@ -109,44 +147,6 @@ impl core::ops::deref::Deref for vortex_layout::layouts::chunked::ChunkedLayoutE
 pub type vortex_layout::layouts::chunked::ChunkedLayoutEncoding::Target = dyn vortex_layout::LayoutEncoding
 
 pub fn vortex_layout::layouts::chunked::ChunkedLayoutEncoding::deref(&self) -> &Self::Target
-
-pub struct vortex_layout::layouts::chunked::ChunkedVTable
-
-impl core::fmt::Debug for vortex_layout::layouts::chunked::ChunkedVTable
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_layout::VTable for vortex_layout::layouts::chunked::ChunkedVTable
-
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Encoding = vortex_layout::layouts::chunked::ChunkedLayoutEncoding
-
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Layout = vortex_layout::layouts::chunked::ChunkedLayout
-
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Metadata = vortex_array::metadata::EmptyMetadata
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::metadata(_layout: &Self::Layout) -> Self::Metadata
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::nchildren(layout: &Self::Layout) -> usize
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::row_count(layout: &Self::Layout) -> u64
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
-
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 pub mod vortex_layout::layouts::collect
 
@@ -278,6 +278,44 @@ pub fn vortex_layout::layouts::dict::writer::DictStrategy::write_stream<'life0, 
 
 pub fn vortex_layout::layouts::dict::writer::dict_layout_supported(dtype: &vortex_array::dtype::DType) -> bool
 
+pub struct vortex_layout::layouts::dict::Dict
+
+impl core::fmt::Debug for vortex_layout::layouts::dict::Dict
+
+pub fn vortex_layout::layouts::dict::Dict::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::VTable for vortex_layout::layouts::dict::Dict
+
+pub type vortex_layout::layouts::dict::Dict::Encoding = vortex_layout::layouts::dict::DictLayoutEncoding
+
+pub type vortex_layout::layouts::dict::Dict::Layout = vortex_layout::layouts::dict::DictLayout
+
+pub type vortex_layout::layouts::dict::Dict::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::dict::DictLayoutMetadata>
+
+pub fn vortex_layout::layouts::dict::Dict::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::dict::Dict::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::dict::Dict::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::dict::Dict::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::dict::Dict::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::dict::Dict::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::dict::Dict::metadata(layout: &Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::dict::Dict::nchildren(_layout: &Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::dict::Dict::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::dict::Dict::row_count(layout: &Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::dict::Dict::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::dict::Dict::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
 pub struct vortex_layout::layouts::dict::DictLayout
 
 impl vortex_layout::layouts::dict::DictLayout
@@ -358,44 +396,6 @@ pub fn vortex_layout::layouts::dict::DictLayoutMetadata::clear(&mut self)
 
 pub fn vortex_layout::layouts::dict::DictLayoutMetadata::encoded_len(&self) -> usize
 
-pub struct vortex_layout::layouts::dict::DictVTable
-
-impl core::fmt::Debug for vortex_layout::layouts::dict::DictVTable
-
-pub fn vortex_layout::layouts::dict::DictVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_layout::VTable for vortex_layout::layouts::dict::DictVTable
-
-pub type vortex_layout::layouts::dict::DictVTable::Encoding = vortex_layout::layouts::dict::DictLayoutEncoding
-
-pub type vortex_layout::layouts::dict::DictVTable::Layout = vortex_layout::layouts::dict::DictLayout
-
-pub type vortex_layout::layouts::dict::DictVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::dict::DictLayoutMetadata>
-
-pub fn vortex_layout::layouts::dict::DictVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
-
-pub fn vortex_layout::layouts::dict::DictVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
-
-pub fn vortex_layout::layouts::dict::DictVTable::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
-
-pub fn vortex_layout::layouts::dict::DictVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::layouts::dict::DictVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
-
-pub fn vortex_layout::layouts::dict::DictVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
-
-pub fn vortex_layout::layouts::dict::DictVTable::metadata(layout: &Self::Layout) -> Self::Metadata
-
-pub fn vortex_layout::layouts::dict::DictVTable::nchildren(_layout: &Self::Layout) -> usize
-
-pub fn vortex_layout::layouts::dict::DictVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
-
-pub fn vortex_layout::layouts::dict::DictVTable::row_count(layout: &Self::Layout) -> u64
-
-pub fn vortex_layout::layouts::dict::DictVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
-
-pub fn vortex_layout::layouts::dict::DictVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
-
 pub mod vortex_layout::layouts::file_stats
 
 pub struct vortex_layout::layouts::file_stats::FileStatsAccumulator
@@ -443,6 +443,44 @@ impl vortex_layout::LayoutStrategy for vortex_layout::layouts::flat::writer::Fla
 pub fn vortex_layout::layouts::flat::writer::FlatLayoutStrategy::buffered_bytes(&self) -> u64
 
 pub fn vortex_layout::layouts::flat::writer::FlatLayoutStrategy::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, _eof: vortex_layout::sequence::SequencePointer, _handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
+pub struct vortex_layout::layouts::flat::Flat
+
+impl core::fmt::Debug for vortex_layout::layouts::flat::Flat
+
+pub fn vortex_layout::layouts::flat::Flat::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::VTable for vortex_layout::layouts::flat::Flat
+
+pub type vortex_layout::layouts::flat::Flat::Encoding = vortex_layout::layouts::flat::FlatLayoutEncoding
+
+pub type vortex_layout::layouts::flat::Flat::Layout = vortex_layout::layouts::flat::FlatLayout
+
+pub type vortex_layout::layouts::flat::Flat::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::flat::FlatLayoutMetadata>
+
+pub fn vortex_layout::layouts::flat::Flat::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, _children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::flat::Flat::child(_layout: &Self::Layout, _idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::flat::Flat::child_type(_layout: &Self::Layout, _idx: usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::flat::Flat::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::flat::Flat::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::flat::Flat::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::flat::Flat::metadata(layout: &Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::flat::Flat::nchildren(_layout: &Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::flat::Flat::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::flat::Flat::row_count(layout: &Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::flat::Flat::segment_ids(layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::flat::Flat::with_children(_layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 pub struct vortex_layout::layouts::flat::FlatLayout
 
@@ -521,44 +559,6 @@ impl prost::message::Message for vortex_layout::layouts::flat::FlatLayoutMetadat
 pub fn vortex_layout::layouts::flat::FlatLayoutMetadata::clear(&mut self)
 
 pub fn vortex_layout::layouts::flat::FlatLayoutMetadata::encoded_len(&self) -> usize
-
-pub struct vortex_layout::layouts::flat::FlatVTable
-
-impl core::fmt::Debug for vortex_layout::layouts::flat::FlatVTable
-
-pub fn vortex_layout::layouts::flat::FlatVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_layout::VTable for vortex_layout::layouts::flat::FlatVTable
-
-pub type vortex_layout::layouts::flat::FlatVTable::Encoding = vortex_layout::layouts::flat::FlatLayoutEncoding
-
-pub type vortex_layout::layouts::flat::FlatVTable::Layout = vortex_layout::layouts::flat::FlatLayout
-
-pub type vortex_layout::layouts::flat::FlatVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::flat::FlatLayoutMetadata>
-
-pub fn vortex_layout::layouts::flat::FlatVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, _children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
-
-pub fn vortex_layout::layouts::flat::FlatVTable::child(_layout: &Self::Layout, _idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
-
-pub fn vortex_layout::layouts::flat::FlatVTable::child_type(_layout: &Self::Layout, _idx: usize) -> vortex_layout::LayoutChildType
-
-pub fn vortex_layout::layouts::flat::FlatVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::layouts::flat::FlatVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
-
-pub fn vortex_layout::layouts::flat::FlatVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
-
-pub fn vortex_layout::layouts::flat::FlatVTable::metadata(layout: &Self::Layout) -> Self::Metadata
-
-pub fn vortex_layout::layouts::flat::FlatVTable::nchildren(_layout: &Self::Layout) -> usize
-
-pub fn vortex_layout::layouts::flat::FlatVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
-
-pub fn vortex_layout::layouts::flat::FlatVTable::row_count(layout: &Self::Layout) -> u64
-
-pub fn vortex_layout::layouts::flat::FlatVTable::segment_ids(layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
-
-pub fn vortex_layout::layouts::flat::FlatVTable::with_children(_layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 pub mod vortex_layout::layouts::repartition
 
@@ -660,6 +660,44 @@ pub fn vortex_layout::layouts::struct_::writer::StructStrategy::buffered_bytes(&
 
 pub fn vortex_layout::layouts::struct_::writer::StructStrategy::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
+pub struct vortex_layout::layouts::struct_::Struct
+
+impl core::fmt::Debug for vortex_layout::layouts::struct_::Struct
+
+pub fn vortex_layout::layouts::struct_::Struct::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::VTable for vortex_layout::layouts::struct_::Struct
+
+pub type vortex_layout::layouts::struct_::Struct::Encoding = vortex_layout::layouts::struct_::StructLayoutEncoding
+
+pub type vortex_layout::layouts::struct_::Struct::Layout = vortex_layout::layouts::struct_::StructLayout
+
+pub type vortex_layout::layouts::struct_::Struct::Metadata = vortex_array::metadata::EmptyMetadata
+
+pub fn vortex_layout::layouts::struct_::Struct::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::struct_::Struct::child(layout: &Self::Layout, index: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::struct_::Struct::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::struct_::Struct::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::struct_::Struct::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::struct_::Struct::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::struct_::Struct::metadata(_layout: &Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::struct_::Struct::nchildren(layout: &Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::struct_::Struct::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::struct_::Struct::row_count(layout: &Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::struct_::Struct::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::struct_::Struct::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
 pub struct vortex_layout::layouts::struct_::StructLayout
 
 impl vortex_layout::layouts::struct_::StructLayout
@@ -715,44 +753,6 @@ impl core::ops::deref::Deref for vortex_layout::layouts::struct_::StructLayoutEn
 pub type vortex_layout::layouts::struct_::StructLayoutEncoding::Target = dyn vortex_layout::LayoutEncoding
 
 pub fn vortex_layout::layouts::struct_::StructLayoutEncoding::deref(&self) -> &Self::Target
-
-pub struct vortex_layout::layouts::struct_::StructVTable
-
-impl core::fmt::Debug for vortex_layout::layouts::struct_::StructVTable
-
-pub fn vortex_layout::layouts::struct_::StructVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_layout::VTable for vortex_layout::layouts::struct_::StructVTable
-
-pub type vortex_layout::layouts::struct_::StructVTable::Encoding = vortex_layout::layouts::struct_::StructLayoutEncoding
-
-pub type vortex_layout::layouts::struct_::StructVTable::Layout = vortex_layout::layouts::struct_::StructLayout
-
-pub type vortex_layout::layouts::struct_::StructVTable::Metadata = vortex_array::metadata::EmptyMetadata
-
-pub fn vortex_layout::layouts::struct_::StructVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
-
-pub fn vortex_layout::layouts::struct_::StructVTable::child(layout: &Self::Layout, index: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
-
-pub fn vortex_layout::layouts::struct_::StructVTable::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
-
-pub fn vortex_layout::layouts::struct_::StructVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::layouts::struct_::StructVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
-
-pub fn vortex_layout::layouts::struct_::StructVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
-
-pub fn vortex_layout::layouts::struct_::StructVTable::metadata(_layout: &Self::Layout) -> Self::Metadata
-
-pub fn vortex_layout::layouts::struct_::StructVTable::nchildren(layout: &Self::Layout) -> usize
-
-pub fn vortex_layout::layouts::struct_::StructVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
-
-pub fn vortex_layout::layouts::struct_::StructVTable::row_count(layout: &Self::Layout) -> u64
-
-pub fn vortex_layout::layouts::struct_::StructVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
-
-pub fn vortex_layout::layouts::struct_::StructVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 pub mod vortex_layout::layouts::table
 
@@ -844,6 +844,44 @@ impl core::clone::Clone for vortex_layout::layouts::zoned::zone_map::ZoneMap
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::clone(&self) -> vortex_layout::layouts::zoned::zone_map::ZoneMap
 
+pub struct vortex_layout::layouts::zoned::Zoned
+
+impl core::fmt::Debug for vortex_layout::layouts::zoned::Zoned
+
+pub fn vortex_layout::layouts::zoned::Zoned::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::VTable for vortex_layout::layouts::zoned::Zoned
+
+pub type vortex_layout::layouts::zoned::Zoned::Encoding = vortex_layout::layouts::zoned::ZonedLayoutEncoding
+
+pub type vortex_layout::layouts::zoned::Zoned::Layout = vortex_layout::layouts::zoned::ZonedLayout
+
+pub type vortex_layout::layouts::zoned::Zoned::Metadata = vortex_layout::layouts::zoned::ZonedMetadata
+
+pub fn vortex_layout::layouts::zoned::Zoned::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &vortex_layout::layouts::zoned::ZonedMetadata, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::zoned::Zoned::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::zoned::Zoned::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::zoned::Zoned::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::zoned::Zoned::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::zoned::Zoned::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::zoned::Zoned::metadata(layout: &Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::zoned::Zoned::nchildren(_layout: &Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::zoned::Zoned::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::zoned::Zoned::row_count(layout: &Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::zoned::Zoned::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::zoned::Zoned::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
 pub struct vortex_layout::layouts::zoned::ZonedLayout
 
 impl vortex_layout::layouts::zoned::ZonedLayout
@@ -923,44 +961,6 @@ pub fn vortex_layout::layouts::zoned::ZonedMetadata::deserialize(metadata: &[u8]
 impl vortex_array::metadata::SerializeMetadata for vortex_layout::layouts::zoned::ZonedMetadata
 
 pub fn vortex_layout::layouts::zoned::ZonedMetadata::serialize(self) -> alloc::vec::Vec<u8>
-
-pub struct vortex_layout::layouts::zoned::ZonedVTable
-
-impl core::fmt::Debug for vortex_layout::layouts::zoned::ZonedVTable
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_layout::VTable for vortex_layout::layouts::zoned::ZonedVTable
-
-pub type vortex_layout::layouts::zoned::ZonedVTable::Encoding = vortex_layout::layouts::zoned::ZonedLayoutEncoding
-
-pub type vortex_layout::layouts::zoned::ZonedVTable::Layout = vortex_layout::layouts::zoned::ZonedLayout
-
-pub type vortex_layout::layouts::zoned::ZonedVTable::Metadata = vortex_layout::layouts::zoned::ZonedMetadata
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &vortex_layout::layouts::zoned::ZonedMetadata, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::metadata(layout: &Self::Layout) -> Self::Metadata
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::nchildren(_layout: &Self::Layout) -> usize
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::row_count(layout: &Self::Layout) -> u64
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
-
-pub fn vortex_layout::layouts::zoned::ZonedVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 pub const vortex_layout::layouts::zoned::MAX_IS_TRUNCATED: &str
 
@@ -1290,165 +1290,165 @@ pub fn vortex_layout::vtable::VTable::segment_ids(layout: &Self::Layout) -> allo
 
 pub fn vortex_layout::vtable::VTable::with_children(_layout: &mut Self::Layout, _children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::chunked::ChunkedVTable
+impl vortex_layout::VTable for vortex_layout::layouts::chunked::Chunked
 
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Encoding = vortex_layout::layouts::chunked::ChunkedLayoutEncoding
+pub type vortex_layout::layouts::chunked::Chunked::Encoding = vortex_layout::layouts::chunked::ChunkedLayoutEncoding
 
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Layout = vortex_layout::layouts::chunked::ChunkedLayout
+pub type vortex_layout::layouts::chunked::Chunked::Layout = vortex_layout::layouts::chunked::ChunkedLayout
 
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Metadata = vortex_array::metadata::EmptyMetadata
+pub type vortex_layout::layouts::chunked::Chunked::Metadata = vortex_array::metadata::EmptyMetadata
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::chunked::Chunked::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::chunked::Chunked::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::chunked::Chunked::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::chunked::Chunked::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::chunked::Chunked::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::chunked::Chunked::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::metadata(_layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::chunked::Chunked::metadata(_layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::nchildren(layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::chunked::Chunked::nchildren(layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::chunked::Chunked::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::chunked::Chunked::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::chunked::Chunked::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::chunked::Chunked::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::dict::DictVTable
+impl vortex_layout::VTable for vortex_layout::layouts::dict::Dict
 
-pub type vortex_layout::layouts::dict::DictVTable::Encoding = vortex_layout::layouts::dict::DictLayoutEncoding
+pub type vortex_layout::layouts::dict::Dict::Encoding = vortex_layout::layouts::dict::DictLayoutEncoding
 
-pub type vortex_layout::layouts::dict::DictVTable::Layout = vortex_layout::layouts::dict::DictLayout
+pub type vortex_layout::layouts::dict::Dict::Layout = vortex_layout::layouts::dict::DictLayout
 
-pub type vortex_layout::layouts::dict::DictVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::dict::DictLayoutMetadata>
+pub type vortex_layout::layouts::dict::Dict::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::dict::DictLayoutMetadata>
 
-pub fn vortex_layout::layouts::dict::DictVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::dict::Dict::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::dict::DictVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::dict::Dict::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::dict::DictVTable::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::dict::Dict::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::dict::DictVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::dict::Dict::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::dict::DictVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::dict::Dict::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::dict::DictVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::dict::Dict::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::dict::DictVTable::metadata(layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::dict::Dict::metadata(layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::dict::DictVTable::nchildren(_layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::dict::Dict::nchildren(_layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::dict::DictVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::dict::Dict::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::dict::DictVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::dict::Dict::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::dict::DictVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::dict::Dict::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::dict::DictVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::dict::Dict::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::flat::FlatVTable
+impl vortex_layout::VTable for vortex_layout::layouts::flat::Flat
 
-pub type vortex_layout::layouts::flat::FlatVTable::Encoding = vortex_layout::layouts::flat::FlatLayoutEncoding
+pub type vortex_layout::layouts::flat::Flat::Encoding = vortex_layout::layouts::flat::FlatLayoutEncoding
 
-pub type vortex_layout::layouts::flat::FlatVTable::Layout = vortex_layout::layouts::flat::FlatLayout
+pub type vortex_layout::layouts::flat::Flat::Layout = vortex_layout::layouts::flat::FlatLayout
 
-pub type vortex_layout::layouts::flat::FlatVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::flat::FlatLayoutMetadata>
+pub type vortex_layout::layouts::flat::Flat::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::flat::FlatLayoutMetadata>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, _children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::flat::Flat::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, _children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::child(_layout: &Self::Layout, _idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::flat::Flat::child(_layout: &Self::Layout, _idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::child_type(_layout: &Self::Layout, _idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::flat::Flat::child_type(_layout: &Self::Layout, _idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::flat::FlatVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::flat::Flat::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::flat::FlatVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::flat::Flat::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::flat::FlatVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::flat::Flat::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::flat::FlatVTable::metadata(layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::flat::Flat::metadata(layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::flat::FlatVTable::nchildren(_layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::flat::Flat::nchildren(_layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::flat::FlatVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::flat::Flat::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::flat::Flat::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::flat::FlatVTable::segment_ids(layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::flat::Flat::segment_ids(layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::with_children(_layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::flat::Flat::with_children(_layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::struct_::StructVTable
+impl vortex_layout::VTable for vortex_layout::layouts::struct_::Struct
 
-pub type vortex_layout::layouts::struct_::StructVTable::Encoding = vortex_layout::layouts::struct_::StructLayoutEncoding
+pub type vortex_layout::layouts::struct_::Struct::Encoding = vortex_layout::layouts::struct_::StructLayoutEncoding
 
-pub type vortex_layout::layouts::struct_::StructVTable::Layout = vortex_layout::layouts::struct_::StructLayout
+pub type vortex_layout::layouts::struct_::Struct::Layout = vortex_layout::layouts::struct_::StructLayout
 
-pub type vortex_layout::layouts::struct_::StructVTable::Metadata = vortex_array::metadata::EmptyMetadata
+pub type vortex_layout::layouts::struct_::Struct::Metadata = vortex_array::metadata::EmptyMetadata
 
-pub fn vortex_layout::layouts::struct_::StructVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::struct_::Struct::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::child(layout: &Self::Layout, index: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::struct_::Struct::child(layout: &Self::Layout, index: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::struct_::Struct::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::struct_::StructVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::struct_::Struct::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::struct_::StructVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::struct_::Struct::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::struct_::StructVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::struct_::Struct::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::struct_::StructVTable::metadata(_layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::struct_::Struct::metadata(_layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::struct_::StructVTable::nchildren(layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::struct_::Struct::nchildren(layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::struct_::StructVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::struct_::Struct::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::struct_::Struct::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::struct_::StructVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::struct_::Struct::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::struct_::Struct::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::zoned::ZonedVTable
+impl vortex_layout::VTable for vortex_layout::layouts::zoned::Zoned
 
-pub type vortex_layout::layouts::zoned::ZonedVTable::Encoding = vortex_layout::layouts::zoned::ZonedLayoutEncoding
+pub type vortex_layout::layouts::zoned::Zoned::Encoding = vortex_layout::layouts::zoned::ZonedLayoutEncoding
 
-pub type vortex_layout::layouts::zoned::ZonedVTable::Layout = vortex_layout::layouts::zoned::ZonedLayout
+pub type vortex_layout::layouts::zoned::Zoned::Layout = vortex_layout::layouts::zoned::ZonedLayout
 
-pub type vortex_layout::layouts::zoned::ZonedVTable::Metadata = vortex_layout::layouts::zoned::ZonedMetadata
+pub type vortex_layout::layouts::zoned::Zoned::Metadata = vortex_layout::layouts::zoned::ZonedMetadata
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &vortex_layout::layouts::zoned::ZonedMetadata, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::zoned::Zoned::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &vortex_layout::layouts::zoned::ZonedMetadata, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::zoned::Zoned::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::zoned::Zoned::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::zoned::Zoned::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::zoned::Zoned::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::zoned::Zoned::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::metadata(layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::zoned::Zoned::metadata(layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::nchildren(_layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::zoned::Zoned::nchildren(_layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::zoned::Zoned::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::zoned::Zoned::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::zoned::Zoned::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::zoned::Zoned::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 pub macro vortex_layout::vtable!
 
@@ -1794,165 +1794,165 @@ pub fn vortex_layout::VTable::segment_ids(layout: &Self::Layout) -> alloc::vec::
 
 pub fn vortex_layout::VTable::with_children(_layout: &mut Self::Layout, _children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::chunked::ChunkedVTable
+impl vortex_layout::VTable for vortex_layout::layouts::chunked::Chunked
 
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Encoding = vortex_layout::layouts::chunked::ChunkedLayoutEncoding
+pub type vortex_layout::layouts::chunked::Chunked::Encoding = vortex_layout::layouts::chunked::ChunkedLayoutEncoding
 
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Layout = vortex_layout::layouts::chunked::ChunkedLayout
+pub type vortex_layout::layouts::chunked::Chunked::Layout = vortex_layout::layouts::chunked::ChunkedLayout
 
-pub type vortex_layout::layouts::chunked::ChunkedVTable::Metadata = vortex_array::metadata::EmptyMetadata
+pub type vortex_layout::layouts::chunked::Chunked::Metadata = vortex_array::metadata::EmptyMetadata
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::chunked::Chunked::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::chunked::Chunked::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::chunked::Chunked::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::chunked::Chunked::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::chunked::Chunked::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::chunked::Chunked::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::metadata(_layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::chunked::Chunked::metadata(_layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::nchildren(layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::chunked::Chunked::nchildren(layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::chunked::Chunked::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::chunked::Chunked::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::chunked::Chunked::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::chunked::ChunkedVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::chunked::Chunked::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::dict::DictVTable
+impl vortex_layout::VTable for vortex_layout::layouts::dict::Dict
 
-pub type vortex_layout::layouts::dict::DictVTable::Encoding = vortex_layout::layouts::dict::DictLayoutEncoding
+pub type vortex_layout::layouts::dict::Dict::Encoding = vortex_layout::layouts::dict::DictLayoutEncoding
 
-pub type vortex_layout::layouts::dict::DictVTable::Layout = vortex_layout::layouts::dict::DictLayout
+pub type vortex_layout::layouts::dict::Dict::Layout = vortex_layout::layouts::dict::DictLayout
 
-pub type vortex_layout::layouts::dict::DictVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::dict::DictLayoutMetadata>
+pub type vortex_layout::layouts::dict::Dict::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::dict::DictLayoutMetadata>
 
-pub fn vortex_layout::layouts::dict::DictVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::dict::Dict::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::dict::DictVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::dict::Dict::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::dict::DictVTable::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::dict::Dict::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::dict::DictVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::dict::Dict::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::dict::DictVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::dict::Dict::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::dict::DictVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::dict::Dict::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::dict::DictVTable::metadata(layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::dict::Dict::metadata(layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::dict::DictVTable::nchildren(_layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::dict::Dict::nchildren(_layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::dict::DictVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::dict::Dict::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::dict::DictVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::dict::Dict::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::dict::DictVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::dict::Dict::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::dict::DictVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::dict::Dict::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::flat::FlatVTable
+impl vortex_layout::VTable for vortex_layout::layouts::flat::Flat
 
-pub type vortex_layout::layouts::flat::FlatVTable::Encoding = vortex_layout::layouts::flat::FlatLayoutEncoding
+pub type vortex_layout::layouts::flat::Flat::Encoding = vortex_layout::layouts::flat::FlatLayoutEncoding
 
-pub type vortex_layout::layouts::flat::FlatVTable::Layout = vortex_layout::layouts::flat::FlatLayout
+pub type vortex_layout::layouts::flat::Flat::Layout = vortex_layout::layouts::flat::FlatLayout
 
-pub type vortex_layout::layouts::flat::FlatVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::flat::FlatLayoutMetadata>
+pub type vortex_layout::layouts::flat::Flat::Metadata = vortex_array::metadata::ProstMetadata<vortex_layout::layouts::flat::FlatLayoutMetadata>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, _children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::flat::Flat::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, _children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::child(_layout: &Self::Layout, _idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::flat::Flat::child(_layout: &Self::Layout, _idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::child_type(_layout: &Self::Layout, _idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::flat::Flat::child_type(_layout: &Self::Layout, _idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::flat::FlatVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::flat::Flat::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::flat::FlatVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::flat::Flat::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::flat::FlatVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::flat::Flat::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::flat::FlatVTable::metadata(layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::flat::Flat::metadata(layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::flat::FlatVTable::nchildren(_layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::flat::Flat::nchildren(_layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::flat::FlatVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::flat::Flat::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::flat::Flat::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::flat::FlatVTable::segment_ids(layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::flat::Flat::segment_ids(layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::flat::FlatVTable::with_children(_layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::flat::Flat::with_children(_layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::struct_::StructVTable
+impl vortex_layout::VTable for vortex_layout::layouts::struct_::Struct
 
-pub type vortex_layout::layouts::struct_::StructVTable::Encoding = vortex_layout::layouts::struct_::StructLayoutEncoding
+pub type vortex_layout::layouts::struct_::Struct::Encoding = vortex_layout::layouts::struct_::StructLayoutEncoding
 
-pub type vortex_layout::layouts::struct_::StructVTable::Layout = vortex_layout::layouts::struct_::StructLayout
+pub type vortex_layout::layouts::struct_::Struct::Layout = vortex_layout::layouts::struct_::StructLayout
 
-pub type vortex_layout::layouts::struct_::StructVTable::Metadata = vortex_array::metadata::EmptyMetadata
+pub type vortex_layout::layouts::struct_::Struct::Metadata = vortex_array::metadata::EmptyMetadata
 
-pub fn vortex_layout::layouts::struct_::StructVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::struct_::Struct::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, row_count: u64, _metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::child(layout: &Self::Layout, index: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::struct_::Struct::child(layout: &Self::Layout, index: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::struct_::Struct::child_type(layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::struct_::StructVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::struct_::Struct::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::struct_::StructVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::struct_::Struct::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::struct_::StructVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::struct_::Struct::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::struct_::StructVTable::metadata(_layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::struct_::Struct::metadata(_layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::struct_::StructVTable::nchildren(layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::struct_::Struct::nchildren(layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::struct_::StructVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::struct_::Struct::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::struct_::Struct::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::struct_::StructVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::struct_::Struct::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::struct_::StructVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::struct_::Struct::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_layout::VTable for vortex_layout::layouts::zoned::ZonedVTable
+impl vortex_layout::VTable for vortex_layout::layouts::zoned::Zoned
 
-pub type vortex_layout::layouts::zoned::ZonedVTable::Encoding = vortex_layout::layouts::zoned::ZonedLayoutEncoding
+pub type vortex_layout::layouts::zoned::Zoned::Encoding = vortex_layout::layouts::zoned::ZonedLayoutEncoding
 
-pub type vortex_layout::layouts::zoned::ZonedVTable::Layout = vortex_layout::layouts::zoned::ZonedLayout
+pub type vortex_layout::layouts::zoned::Zoned::Layout = vortex_layout::layouts::zoned::ZonedLayout
 
-pub type vortex_layout::layouts::zoned::ZonedVTable::Metadata = vortex_layout::layouts::zoned::ZonedMetadata
+pub type vortex_layout::layouts::zoned::Zoned::Metadata = vortex_layout::layouts::zoned::ZonedMetadata
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &vortex_layout::layouts::zoned::ZonedMetadata, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+pub fn vortex_layout::layouts::zoned::Zoned::build(_encoding: &Self::Encoding, dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &vortex_layout::layouts::zoned::ZonedMetadata, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layouts::zoned::Zoned::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
+pub fn vortex_layout::layouts::zoned::Zoned::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::LayoutChildType
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+pub fn vortex_layout::layouts::zoned::Zoned::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
+pub fn vortex_layout::layouts::zoned::Zoned::encoding(_layout: &Self::Layout) -> vortex_layout::LayoutEncodingRef
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
+pub fn vortex_layout::layouts::zoned::Zoned::id(_encoding: &Self::Encoding) -> vortex_layout::LayoutId
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::metadata(layout: &Self::Layout) -> Self::Metadata
+pub fn vortex_layout::layouts::zoned::Zoned::metadata(layout: &Self::Layout) -> Self::Metadata
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::nchildren(_layout: &Self::Layout) -> usize
+pub fn vortex_layout::layouts::zoned::Zoned::nchildren(_layout: &Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::zoned::Zoned::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::row_count(layout: &Self::Layout) -> u64
+pub fn vortex_layout::layouts::zoned::Zoned::row_count(layout: &Self::Layout) -> u64
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+pub fn vortex_layout::layouts::zoned::Zoned::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
-pub fn vortex_layout::layouts::zoned::ZonedVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::zoned::Zoned::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_layout::layout_from_flatbuffer(flatbuffer: vortex_flatbuffers::FlatBuffer, dtype: &vortex_array::dtype::DType, layout_ctx: &vortex_session::registry::ReadContext, ctx: &vortex_session::registry::ReadContext, layouts: &vortex_layout::session::LayoutRegistry) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 

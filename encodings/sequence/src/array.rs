@@ -235,7 +235,7 @@ impl SequenceArray {
     }
 }
 
-impl VTable for SequenceVTable {
+impl VTable for Sequence {
     type Array = SequenceArray;
 
     type Metadata = SequenceMetadata;
@@ -403,7 +403,7 @@ impl VTable for SequenceVTable {
     }
 }
 
-impl OperationsVTable<SequenceVTable> for SequenceVTable {
+impl OperationsVTable<Sequence> for Sequence {
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
         Scalar::try_new(
             array.dtype().clone(),
@@ -412,16 +412,16 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
     }
 }
 
-impl ValidityVTable<SequenceVTable> for SequenceVTable {
+impl ValidityVTable<Sequence> for Sequence {
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
     }
 }
 
 #[derive(Debug)]
-pub struct SequenceVTable;
+pub struct Sequence;
 
-impl SequenceVTable {
+impl Sequence {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
 }
 

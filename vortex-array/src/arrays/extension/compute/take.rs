@@ -7,11 +7,11 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
 use crate::arrays::dict::TakeExecute;
 
-impl TakeExecute for ExtensionVTable {
+impl TakeExecute for Extension {
     fn take(
         array: &ExtensionArray,
         indices: &ArrayRef,

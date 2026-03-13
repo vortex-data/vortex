@@ -7,10 +7,10 @@ use vortex_array::arrays::filter::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-impl FilterReduce for DateTimePartsVTable {
+impl FilterReduce for DateTimeParts {
     fn filter(array: &DateTimePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             DateTimePartsArray::try_new(

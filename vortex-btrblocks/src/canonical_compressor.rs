@@ -327,9 +327,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ListVTable;
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
-    use vortex_array::arrays::ListViewVTable;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -365,9 +365,9 @@ mod tests {
         let array_ref = input.clone().into_array();
         let result = BtrBlocksCompressor::default().compress(&array_ref)?;
         if expect_list {
-            assert!(result.as_opt::<ListVTable>().is_some());
+            assert!(result.as_opt::<List>().is_some());
         } else {
-            assert!(result.as_opt::<ListViewVTable>().is_some());
+            assert!(result.as_opt::<ListView>().is_some());
         }
         assert_arrays_eq!(result, input);
         Ok(())

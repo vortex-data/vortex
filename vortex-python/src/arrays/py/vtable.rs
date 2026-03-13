@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use pyo3::Python;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -37,9 +36,9 @@ vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.
 #[derive(Debug)]
-pub struct PythonVTable;
+pub struct Python;
 
-impl VTable for PythonVTable {
+impl VTable for Python {
     type Array = PythonArray;
 
     type Metadata = RawMetadata;
@@ -101,7 +100,7 @@ impl VTable for PythonVTable {
     }
 
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
-        Python::attach(|py| {
+        pyo3::Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj
                 .hasattr(intern!(py, "metadata"))
@@ -161,13 +160,13 @@ impl VTable for PythonVTable {
     }
 }
 
-impl OperationsVTable<PythonVTable> for PythonVTable {
+impl OperationsVTable<Python> for Python {
     fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
         todo!()
     }
 }
 
-impl ValidityVTable<PythonVTable> for PythonVTable {
+impl ValidityVTable<Python> for Python {
     fn validity(_array: &PythonArray) -> VortexResult<Validity> {
         todo!()
     }

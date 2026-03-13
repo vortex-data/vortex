@@ -19,10 +19,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::FSST;
 use crate::FSSTArray;
-use crate::FSSTVTable;
 
-impl CompareKernel for FSSTVTable {
+impl CompareKernel for FSST {
     fn compare(
         lhs: &FSSTArray,
         rhs: &ArrayRef,

@@ -1,11 +1,1 @@
-images:
-  vortex-ci-amd64:
-    platform: "linux"
-    arch: "x64"
-    name: "vortex-ci-*"
-    owner: "245040174862"
-  vortex-ci-arm64:
-    platform: "linux"
-    arch: "arm64"
-    name: "vortex-ci-*"
-    owner: "245040174862"
+_extends: .github-private

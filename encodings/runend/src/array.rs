@@ -15,7 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -58,7 +58,7 @@ pub struct RunEndMetadata {
     pub offset: u64,
 }
 
-impl VTable for RunEndVTable {
+impl VTable for RunEnd {
     type Array = RunEndArray;
 
     type Metadata = ProstMetadata<RunEndMetadata>;
@@ -223,9 +223,9 @@ pub struct RunEndArrayParts {
 }
 
 #[derive(Debug)]
-pub struct RunEndVTable;
+pub struct RunEnd;
 
-impl RunEndVTable {
+impl RunEnd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
 }
 
@@ -407,7 +407,7 @@ impl RunEndArray {
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+        if let Some(parray) = array.as_opt::<Primitive>() {
             let (ends, values) = runend_encode(parray);
             // SAFETY: runend_encode handles this
             unsafe {
@@ -459,7 +459,7 @@ impl RunEndArray {
     }
 }
 
-impl ValidityVTable<RunEndVTable> for RunEndVTable {
+impl ValidityVTable<RunEnd> for RunEnd {
     fn validity(array: &RunEndArray) -> VortexResult<Validity> {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,

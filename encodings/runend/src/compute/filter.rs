@@ -19,13 +19,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 use crate::compute::take::take_indices_unchecked;
 
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
-impl FilterKernel for RunEndVTable {
+impl FilterKernel for RunEnd {
     fn filter(
         array: &RunEndArray,
         mask: &Mask,

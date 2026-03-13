@@ -8,10 +8,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::rle::RLE;
 use crate::rle::RLEArray;
-use crate::rle::RLEVTable;
 
-impl CastReduce for RLEVTable {
+impl CastReduce for RLE {
     fn cast(array: &RLEArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast RLE values.
         let casted_values = array.values().cast(dtype.clone())?;

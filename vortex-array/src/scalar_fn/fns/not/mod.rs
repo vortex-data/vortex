@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -102,7 +102,7 @@ impl ScalarFnVTable for Not {
         }
 
         // For boolean array
-        if let Some(bool) = child.as_opt::<BoolVTable>() {
+        if let Some(bool) = child.as_opt::<Bool>() {
             return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()?).into_array());
         }
 

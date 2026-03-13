@@ -15,9 +15,11 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -81,7 +83,7 @@ type ViewLen = u32;
 
 vtable!(Zstd);
 
-impl VTable for ZstdVTable {
+impl VTable for Zstd {
     type Array = ZstdArray;
 
     type Metadata = ProstMetadata<ZstdMetadata>;
@@ -274,7 +276,7 @@ impl VTable for ZstdVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         array
-            .decompress()?
+            .decompress(ctx)?
             .execute::<ArrayRef>(ctx)
             .map(ExecutionStep::Done)
     }
@@ -289,9 +291,9 @@ impl VTable for ZstdVTable {
 }
 
 #[derive(Debug)]
-pub struct ZstdVTable;
+pub struct Zstd;
 
-impl ZstdVTable {
+impl Zstd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
 }
 
@@ -702,14 +704,14 @@ impl ZstdArray {
         }
     }
 
-    pub fn decompress(&self) -> VortexResult<ArrayRef> {
+    pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
         let byte_width = self.byte_width();
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
-            .to_mask(self.unsliced_n_rows)
+            .execute_mask(self.unsliced_n_rows, ctx)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
         let slice_value_idx_start = slice_value_indices[0];
@@ -787,14 +789,14 @@ impl ZstdArray {
         //
         // We ensure that the validity of the decompressed array ALWAYS matches the validity
         // implied by the DType.
-        if !self.dtype().is_nullable() && slice_validity != Validity::NonNullable {
+        if !self.dtype().is_nullable() && !matches!(slice_validity, Validity::NonNullable) {
             assert!(
-                slice_validity.all_valid(slice_n_rows)?,
+                matches!(slice_validity, Validity::AllValid),
                 "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
 
             slice_validity = Validity::NonNullable;
-        } else if self.dtype.is_nullable() && slice_validity == Validity::NonNullable {
+        } else if self.dtype.is_nullable() && matches!(slice_validity, Validity::NonNullable) {
             slice_validity = Validity::AllValid;
         }
         //
@@ -817,7 +819,7 @@ impl ZstdArray {
                 Ok(primitive.into_array())
             }
             DType::Binary(_) | DType::Utf8(_) => {
-                match slice_validity.to_mask(slice_n_rows).indices() {
+                match slice_validity.execute_mask(slice_n_rows, ctx)?.indices() {
                     AllOr::All => {
                         // the decompressed buffer is a bunch of interleaved u32 lengths
                         // and strings of those lengths, we need to reconstruct the
@@ -935,8 +937,12 @@ impl ValiditySliceHelper for ZstdArray {
     }
 }
 
-impl OperationsVTable<ZstdVTable> for ZstdVTable {
+impl OperationsVTable<Zstd> for Zstd {
     fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        array
+            ._slice(index, index + 1)
+            .decompress(&mut ctx)?
+            .scalar_at(0)
     }
 }

@@ -8,8 +8,8 @@ use num_traits::AsPrimitive;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_integer_ptype;
@@ -44,7 +44,7 @@ pub(crate) fn new_exporter_with_flatten(
     // Grab the cache dictionary values.
     let values = array.values();
     let values_type: LogicalType = values.dtype().try_into()?;
-    if let Some(constant) = values.as_opt::<ConstantVTable>() {
+    if let Some(constant) = values.as_opt::<Constant>() {
         return constant::new_exporter_with_mask(
             ConstantArray::new(constant.scalar().clone(), array.codes().len()),
             array.codes().validity_mask()?,

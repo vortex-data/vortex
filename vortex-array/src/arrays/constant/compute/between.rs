@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
 
-impl BetweenReduce for ConstantVTable {
+impl BetweenReduce for Constant {
     fn between(
         array: &ConstantArray,
         lower: &ArrayRef,

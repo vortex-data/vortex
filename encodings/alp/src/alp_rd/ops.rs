@@ -7,10 +7,10 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::ALPRD;
 use crate::ALPRDArray;
-use crate::ALPRDVTable;
 
-impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
+impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(array: &ALPRDArray, index: usize) -> VortexResult<Scalar> {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.

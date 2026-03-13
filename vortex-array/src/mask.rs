@@ -13,7 +13,7 @@ use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Constant;
 use crate::columnar::Columnar;
 use crate::dtype::DType;
 
@@ -23,7 +23,7 @@ impl Executable for Mask {
             vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
         }
 
-        if let Some(constant) = array.as_opt::<ConstantVTable>() {
+        if let Some(constant) = array.as_opt::<Constant>() {
             let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
             return Ok(Mask::new(array.len(), mask_value));
         }

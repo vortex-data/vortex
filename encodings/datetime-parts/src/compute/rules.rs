@@ -4,10 +4,10 @@
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ConstantVTable;
+use vortex_array::arrays::Filter;
 use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
@@ -25,17 +25,17 @@ use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 use crate::timestamp;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(DateTimePartsVTable)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(DateTimePartsVTable)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimePartsVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimePartsVTable)),
+    ParentRuleSet::lift(&CastReduceAdaptor(DateTimeParts)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(DateTimeParts)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimeParts)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimeParts)),
 ]);
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
@@ -43,8 +43,8 @@ pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSe
 #[derive(Debug)]
 struct DTPFilterPushDownRule;
 
-impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
-    type Parent = FilterVTable;
+impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,
@@ -54,7 +54,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
 
-        if !child.seconds().is::<ConstantVTable>() || !child.subseconds().is::<ConstantVTable>() {
+        if !child.seconds().is::<Constant>() || !child.subseconds().is::<Constant>() {
             return Ok(None);
         }
 
@@ -89,7 +89,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
 #[derive(Debug)]
 struct DTPComparisonPushDownRule;
 
-impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
+impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
     type Parent = AnyScalarFn;
 
     fn reduce_parent(
@@ -174,7 +174,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
 /// Check if an array is a constant with value zero.
 fn is_constant_zero(array: &ArrayRef) -> bool {
     array
-        .as_opt::<ConstantVTable>()
+        .as_opt::<Constant>()
         .is_some_and(|c| c.scalar().is_zero() == Some(true))
 }
 
@@ -276,7 +276,7 @@ mod tests {
 
         // The result should be a ScalarFn over primitive days, not over DTP
         assert!(
-            !optimized.is::<DateTimePartsVTable>(),
+            !optimized.is::<DateTimeParts>(),
             "Expected pushdown to remove DTP from expression"
         );
 

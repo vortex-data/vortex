@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
@@ -129,10 +129,8 @@ pub(crate) fn execute_compare(
     }
 
     // Constant-constant fast path
-    if let (Some(lhs_const), Some(rhs_const)) = (
-        lhs.as_opt::<ConstantVTable>(),
-        rhs.as_opt::<ConstantVTable>(),
-    ) {
+    if let (Some(lhs_const), Some(rhs_const)) = (lhs.as_opt::<Constant>(), rhs.as_opt::<Constant>())
+    {
         let result = scalar_cmp(lhs_const.scalar(), rhs_const.scalar(), op);
         return Ok(ConstantArray::new(result, lhs.len()).into_array());
     }

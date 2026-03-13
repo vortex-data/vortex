@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "duckdb_vx.h"
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb/storage/object_cache.hpp"
+DUCKDB_INCLUDES_END
 
 #include <iostream>
 

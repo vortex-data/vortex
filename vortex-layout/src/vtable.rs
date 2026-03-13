@@ -90,14 +90,14 @@ macro_rules! vtable {
     ($V:ident) => {
         $crate::aliases::paste::paste! {
             #[derive(Debug)]
-            pub struct [<$V VTable>];
+            pub struct $V;
 
             impl AsRef<dyn $crate::Layout> for [<$V Layout>] {
                 fn as_ref(&self) -> &dyn $crate::Layout {
                     // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
                     // which guarantees identical memory layout. This cast is safe because
                     // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<$V>) }
                 }
             }
 
@@ -108,7 +108,7 @@ macro_rules! vtable {
                     // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
                     // which guarantees identical memory layout. This cast is safe because
                     // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<$V>) }
                 }
             }
 
@@ -117,7 +117,7 @@ macro_rules! vtable {
                     // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
                     // guaranteeing identical memory layout and alignment. The transmute is safe
                     // because both types have the same size and representation.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Layout>], $crate::LayoutAdapter::<[<$V VTable>]>>(self) })
+                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Layout>], $crate::LayoutAdapter::<$V>>(self) })
                 }
             }
 
@@ -133,7 +133,7 @@ macro_rules! vtable {
                     // SAFETY: LayoutEncodingAdapter is #[repr(transparent)] over the LayoutEncoding type,
                     // which guarantees identical memory layout. This cast is safe because
                     // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<$V>) }
                 }
             }
 
@@ -144,7 +144,7 @@ macro_rules! vtable {
                     // SAFETY: LayoutEncodingAdapter is #[repr(transparent)] over the LayoutEncoding type,
                     // which guarantees identical memory layout. This cast is safe because
                     // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<$V>) }
                 }
             }
         }

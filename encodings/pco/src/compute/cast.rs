@@ -7,10 +7,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::Pco;
 use crate::PcoArray;
-use crate::PcoVTable;
 
-impl CastReduce for PcoVTable {
+impl CastReduce for Pco {
     fn cast(array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable() || !array.all_valid()? {
             // TODO(joe): fixme

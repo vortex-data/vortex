@@ -3,14 +3,14 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::register_kernel;
 
 /// IsSorted implementation for [`FixedSizeListArray`].
-impl IsSortedKernel for FixedSizeListVTable {
+impl IsSortedKernel for FixedSizeList {
     fn is_sorted(&self, _array: &FixedSizeListArray) -> VortexResult<Option<bool>> {
         // This would require comparing lists lexicographically.
         Ok(None)
@@ -22,4 +22,4 @@ impl IsSortedKernel for FixedSizeListVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(FixedSizeListVTable).lift());
+register_kernel!(IsSortedKernelAdapter(FixedSizeList).lift());

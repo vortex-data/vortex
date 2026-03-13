@@ -5,12 +5,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
-impl CastReduce for ConstantVTable {
+impl CastReduce for Constant {
     fn cast(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         match array.scalar().cast(dtype) {
             Ok(scalar) => Ok(Some(ConstantArray::new(scalar, array.len()).into_array())),

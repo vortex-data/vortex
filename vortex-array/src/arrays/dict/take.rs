@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
@@ -83,7 +83,7 @@ impl<V> ArrayParentReduceRule<V> for TakeReduceAdaptor<V>
 where
     V: TakeReduce,
 {
-    type Parent = DictVTable;
+    type Parent = Dict;
 
     fn reduce_parent(
         &self,
@@ -113,7 +113,7 @@ impl<V> ExecuteParentKernel<V> for TakeExecuteAdaptor<V>
 where
     V: TakeExecute,
 {
-    type Parent = DictVTable;
+    type Parent = Dict;
 
     fn execute_parent(
         &self,

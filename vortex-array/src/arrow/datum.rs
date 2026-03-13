@@ -12,8 +12,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 
@@ -27,7 +27,7 @@ pub struct Datum {
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
     pub fn try_new(array: &ArrayRef) -> VortexResult<Self> {
-        if array.is::<ConstantVTable>() {
+        if array.is::<Constant>() {
             Ok(Self {
                 array: array.slice(0..1)?.into_arrow_preferred()?,
                 is_scalar: true,
@@ -53,7 +53,7 @@ impl Datum {
         array: &ArrayRef,
         target_datatype: &DataType,
     ) -> VortexResult<Self> {
-        if array.is::<ConstantVTable>() {
+        if array.is::<Constant>() {
             Ok(Self {
                 array: array.slice(0..1)?.into_arrow(target_datatype)?,
                 is_scalar: true,

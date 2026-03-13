@@ -8,13 +8,13 @@ use vortex_array::compute::min_max;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-impl MinMaxKernel for RunEndVTable {
+impl MinMaxKernel for RunEnd {
     fn min_max(&self, array: &RunEndArray) -> VortexResult<Option<MinMaxResult>> {
         min_max(array.values())
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(RunEndVTable).lift());
+register_kernel!(MinMaxKernelAdapter(RunEnd).lift());

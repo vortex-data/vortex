@@ -7,8 +7,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::builders::ArrayBuilder;
@@ -23,7 +23,7 @@ use crate::vtable::ValidityHelper;
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.
 
-impl TakeExecute for ListVTable {
+impl TakeExecute for List {
     /// Take implementation for [`ListArray`].
     ///
     /// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant

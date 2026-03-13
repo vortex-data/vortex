@@ -188,15 +188,20 @@ mod tests {
         let chunk_count = 10;
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .clone()
-            .append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
 
         let canon_into = builder.finish().to_bool();
         let into_canon = chunk.to_bool();
 
-        assert_eq!(canon_into.validity(), into_canon.validity());
+        assert!(
+            canon_into
+                .validity()
+                .mask_eq(into_canon.validity(), &mut ctx)?
+        );
         assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())
     }

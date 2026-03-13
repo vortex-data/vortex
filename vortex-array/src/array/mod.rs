@@ -31,19 +31,19 @@ use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
-use crate::arrays::BoolVTable;
-use crate::arrays::ConstantVTable;
+use crate::aggregate_fn::fns::sum::sum;
+use crate::arrays::Bool;
+use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
-use crate::arrays::NullVTable;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::Null;
+use crate::arrays::Primitive;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::SliceArray;
-use crate::arrays::VarBinVTable;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::compute;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
@@ -326,7 +326,7 @@ impl dyn DynArray + '_ {
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
-        self.as_opt::<ConstantVTable>().map(|a| a.scalar().clone())
+        self.as_opt::<Constant>().map(|a| a.scalar().clone())
     }
 
     /// Total size of the array in bytes, including all children and buffers.
@@ -342,11 +342,11 @@ impl dyn DynArray + '_ {
 
     /// Returns whether this array is an arrow encoding.
     pub fn is_arrow(&self) -> bool {
-        self.is::<NullVTable>()
-            || self.is::<BoolVTable>()
-            || self.is::<PrimitiveVTable>()
-            || self.is::<VarBinVTable>()
-            || self.is::<VarBinViewVTable>()
+        self.is::<Null>()
+            || self.is::<Bool>()
+            || self.is::<Primitive>()
+            || self.is::<VarBin>()
+            || self.is::<VarBinView>()
     }
 
     /// Whether the array is of a canonical encoding.
@@ -492,7 +492,7 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
             .optimize()?;
 
         // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<ConstantVTable>() {
+        if !sliced.is::<Constant>() {
             self.statistics().with_iter(|iter| {
                 sliced.statistics().inherit(iter.filter(|(stat, value)| {
                     matches!(
@@ -578,8 +578,9 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
             Validity::NonNullable | Validity::AllValid => self.len(),
             Validity::AllInvalid => 0,
             Validity::Array(a) => {
-                let sum = compute::sum(&a)?;
-                sum.as_primitive()
+                let array_sum = sum(&a)?;
+                array_sum
+                    .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("sum of validity array is null"))?
             }

@@ -16,11 +16,11 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
+use crate::array::DateTimeParts;
 use crate::array::DateTimePartsArray;
-use crate::array::DateTimePartsVTable;
 use crate::timestamp;
 
-impl CompareKernel for DateTimePartsVTable {
+impl CompareKernel for DateTimeParts {
     fn compare(
         lhs: &DateTimePartsArray,
         rhs: &ArrayRef,

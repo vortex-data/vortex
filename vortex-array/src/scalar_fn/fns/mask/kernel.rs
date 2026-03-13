@@ -6,7 +6,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::BoolVTable;
+use crate::arrays::Bool;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
@@ -74,7 +74,7 @@ where
         let mask_child = parent
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
-        if mask_child.as_opt::<BoolVTable>().is_none() {
+        if mask_child.as_opt::<Bool>().is_none() {
             return Ok(None);
         };
         <V as MaskReduce>::mask(array, &mask_child)

@@ -36,7 +36,7 @@ use crate::vtable::ValidityVTableFromChild;
 
 vtable!(Extension);
 
-impl VTable for ExtensionVTable {
+impl VTable for Extension {
     type Array = ExtensionArray;
 
     type Metadata = EmptyMetadata;
@@ -176,8 +176,8 @@ impl VTable for ExtensionVTable {
 }
 
 #[derive(Debug)]
-pub struct ExtensionVTable;
+pub struct Extension;
 
-impl ExtensionVTable {
+impl Extension {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
 }

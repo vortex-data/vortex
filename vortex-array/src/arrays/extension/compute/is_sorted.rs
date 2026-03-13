@@ -3,14 +3,14 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::compute::{self};
 use crate::register_kernel;
 
-impl IsSortedKernel for ExtensionVTable {
+impl IsSortedKernel for Extension {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<Option<bool>> {
         compute::is_sorted(array.storage_array())
     }
@@ -20,4 +20,4 @@ impl IsSortedKernel for ExtensionVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ExtensionVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Extension).lift());

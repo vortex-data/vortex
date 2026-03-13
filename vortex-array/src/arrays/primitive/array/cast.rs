@@ -171,7 +171,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
-        assert_eq!(result.validity, Validity::AllInvalid);
+        assert!(matches!(result.validity, Validity::AllInvalid));
     }
 
     #[rstest]
@@ -254,7 +254,7 @@ mod tests {
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
         let result2 = array2.narrow().unwrap();
         // Empty arrays should not have their validity changed
-        assert_eq!(result.validity, Validity::AllInvalid);
-        assert_eq!(result2.validity, Validity::NonNullable);
+        assert!(matches!(result.validity, Validity::AllInvalid));
+        assert!(matches!(result2.validity, Validity::NonNullable));
     }
 }

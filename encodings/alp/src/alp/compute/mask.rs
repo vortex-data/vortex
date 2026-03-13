@@ -10,10 +10,10 @@ use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
+use crate::ALP;
 use crate::ALPArray;
-use crate::ALPVTable;
 
-impl MaskReduce for ALPVTable {
+impl MaskReduce for ALP {
     fn mask(array: &ALPArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // Masking sparse patches requires reading indices, fall back to kernel.
         if array.patches().is_some() {
@@ -26,13 +26,13 @@ impl MaskReduce for ALPVTable {
     }
 }
 
-impl MaskKernel for ALPVTable {
+impl MaskKernel for ALP {
     fn mask(
         array: &ALPArray,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let vortex_mask = Validity::Array(mask.not()?).to_mask(array.len());
+        let vortex_mask = Validity::Array(mask.not()?).execute_mask(array.len(), ctx)?;
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         let masked_patches = array
             .patches()

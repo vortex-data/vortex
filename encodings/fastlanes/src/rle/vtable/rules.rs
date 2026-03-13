@@ -4,7 +4,7 @@
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 
-use crate::RLEVTable;
+use crate::RLE;
 
-pub(crate) const RULES: ParentRuleSet<RLEVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&CastReduceAdaptor(RLEVTable))]);
+pub(crate) const RULES: ParentRuleSet<RLE> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&CastReduceAdaptor(RLE))]);

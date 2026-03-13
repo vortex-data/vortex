@@ -11,7 +11,7 @@ pub(crate) mod compact;
 pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::VarBinViewVTable;
+pub use vtable::VarBinView;
 
 pub mod build_views;
 

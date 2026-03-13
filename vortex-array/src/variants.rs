@@ -12,9 +12,9 @@ use vortex_mask::Mask;
 
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::fns::sum::sum;
 use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::sum;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::PType;

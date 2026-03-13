@@ -1009,9 +1009,9 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
 fn test_slice_aggregate_consistency(array: &ArrayRef) {
+    use crate::aggregate_fn::fns::sum::sum;
     use crate::compute::min_max;
     use crate::compute::nan_count;
-    use crate::compute::sum;
     use crate::dtype::DType;
 
     let len = array.len();

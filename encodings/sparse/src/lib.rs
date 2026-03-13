@@ -73,7 +73,7 @@ pub struct ProstPatchesMetadata {
     patches: PatchesMetadata,
 }
 
-impl VTable for SparseVTable {
+impl VTable for Sparse {
     type Array = SparseArray;
 
     type Metadata = SparseMetadata;
@@ -269,9 +269,9 @@ pub struct SparseArray {
 }
 
 #[derive(Debug)]
-pub struct SparseVTable;
+pub struct Sparse;
 
-impl SparseVTable {
+impl Sparse {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
 }
 
@@ -465,7 +465,7 @@ impl SparseArray {
     }
 }
 
-impl ValidityVTable<SparseVTable> for SparseVTable {
+impl ValidityVTable<Sparse> for Sparse {
     fn validity(array: &SparseArray) -> VortexResult<Validity> {
         let patches = unsafe {
             Patches::new_unchecked(

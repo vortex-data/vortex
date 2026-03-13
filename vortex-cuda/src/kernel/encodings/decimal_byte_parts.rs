@@ -9,8 +9,8 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayParts;
-use vortex::encodings::decimal_byte_parts::DecimalBytePartsVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
@@ -30,7 +30,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let Ok(array) = array.try_into::<DecimalBytePartsVTable>() else {
+        let Ok(array) = array.try_into::<DecimalByteParts>() else {
             vortex_bail!("cannot downcast to DecimalBytePartsArray")
         };
 

@@ -10,10 +10,10 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-impl OperationsVTable<RunEndVTable> for RunEndVTable {
+impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
         array.values().scalar_at(array.find_physical_index(index)?)
     }

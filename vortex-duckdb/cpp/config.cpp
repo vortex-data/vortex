@@ -2,9 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "include/duckdb_vx/config.h"
+
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/config.hpp"
+DUCKDB_INCLUDES_END
+
 #include <string>
 #include <memory>
 #include <cstdlib>
@@ -41,16 +46,15 @@ duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char *key, d
         std::string key_str(key);
 
         // First check set_variable_defaults (the primary location for config values)
-        auto set_it = db_config->options.set_variable_defaults.find(key_str);
-        if (set_it != db_config->options.set_variable_defaults.end()) {
-            *out_value = reinterpret_cast<duckdb_value>(new Value(set_it->second));
+        if (db_config->options.set_variable_defaults.contains(key_str)) {
+            *out_value =
+                reinterpret_cast<duckdb_value>(new Value(db_config->options.set_variable_defaults[key_str]));
             return DuckDBSuccess;
         }
 
         // Then check user_options
-        auto user_it = db_config->options.user_options.find(key_str);
-        if (user_it != db_config->options.user_options.end()) {
-            *out_value = reinterpret_cast<duckdb_value>(new Value(user_it->second));
+        if (db_config->options.user_options.contains(key_str)) {
+            *out_value = reinterpret_cast<duckdb_value>(new Value(db_config->options.user_options[key_str]));
             return DuckDBSuccess;
         }
 
@@ -76,13 +80,12 @@ int duckdb_vx_config_has_key(duckdb_config config, const char *key) {
         std::string key_str(key);
 
         // Check if the key exists in set_variable_defaults (primary location)
-        if (db_config->options.set_variable_defaults.find(key_str) !=
-            db_config->options.set_variable_defaults.end()) {
+        if (db_config->options.set_variable_defaults.contains(key_str)) {
             return 1;
         }
 
         // Check if the key exists in user_options
-        if (db_config->options.user_options.find(key_str) != db_config->options.user_options.end()) {
+        if (db_config->options.user_options.contains(key_str)) {
             return 1;
         }
 

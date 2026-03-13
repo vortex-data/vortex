@@ -8,10 +8,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
+use crate::ALP;
 use crate::ALPArray;
-use crate::ALPVTable;
 
-impl TakeExecute for ALPVTable {
+impl TakeExecute for ALP {
     fn take(
         array: &ALPArray,
         indices: &ArrayRef,

@@ -8,10 +8,10 @@ use vortex_array::compute::is_constant_opts;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-impl IsConstantKernel for DateTimePartsVTable {
+impl IsConstantKernel for DateTimeParts {
     fn is_constant(
         &self,
         array: &DateTimePartsArray,
@@ -42,4 +42,4 @@ impl IsConstantKernel for DateTimePartsVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DateTimePartsVTable).lift());
+register_kernel!(IsConstantKernelAdapter(DateTimeParts).lift());

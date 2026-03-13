@@ -8,8 +8,8 @@ use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -81,7 +81,7 @@ impl FloatStats {
 }
 
 impl CompressorStats for FloatStats {
-    type ArrayVTable = PrimitiveVTable;
+    type ArrayVTable = Primitive;
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)

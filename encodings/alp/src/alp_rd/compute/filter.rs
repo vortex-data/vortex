@@ -8,10 +8,10 @@ use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ALPRD;
 use crate::ALPRDArray;
-use crate::ALPRDVTable;
 
-impl FilterKernel for ALPRDVTable {
+impl FilterKernel for ALPRD {
     fn filter(
         array: &ALPRDArray,
         mask: &Mask,

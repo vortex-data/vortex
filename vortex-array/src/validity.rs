@@ -21,12 +21,10 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::sum;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::optimizer::ArrayOptimizer;
@@ -122,34 +120,6 @@ impl Validity {
         }
     }
 
-    #[inline]
-    pub fn all_valid(&self, len: usize) -> VortexResult<bool> {
-        Ok(match self {
-            _ if len == 0 => true,
-            Validity::NonNullable | Validity::AllValid => true,
-            Validity::AllInvalid => false,
-            Validity::Array(array) => {
-                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
-                    .vortex_expect("sum must be a usize")
-                    == array.len()
-            }
-        })
-    }
-
-    #[inline]
-    pub fn all_invalid(&self, len: usize) -> VortexResult<bool> {
-        Ok(match self {
-            _ if len == 0 => true,
-            Validity::NonNullable | Validity::AllValid => false,
-            Validity::AllInvalid => true,
-            Validity::Array(array) => {
-                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
-                    .vortex_expect("sum must be a usize")
-                    == 0
-            }
-        })
-    }
-
     /// Returns whether the `index` item is valid.
     #[inline]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
@@ -234,21 +204,37 @@ impl Validity {
         }
     }
 
-    #[inline]
-    pub fn to_mask(&self, length: usize) -> Mask {
+    pub fn execute_mask(&self, length: usize, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
         match self {
-            Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
-            Self::AllInvalid => Mask::AllFalse(length),
-            Self::Array(is_valid) => {
+            Self::NonNullable | Self::AllValid => Ok(Mask::AllTrue(length)),
+            Self::AllInvalid => Ok(Mask::AllFalse(length)),
+            Self::Array(arr) => {
                 assert_eq!(
-                    is_valid.len(),
+                    arr.len(),
                     length,
                     "Validity::Array length must equal to_logical's argument: {}, {}.",
-                    is_valid.len(),
+                    arr.len(),
                     length,
                 );
-                is_valid.to_bool().to_mask()
+                // TODO(ngates): I'm not sure execution should take arrays by ownership.
+                //  If so we should fix call sites to clone and this function takes self.
+                arr.clone().execute::<Mask>(ctx)
             }
+        }
+    }
+
+    /// Compare two Validity values of the same length by executing them into masks if necessary.
+    pub fn mask_eq(&self, other: &Validity, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        match (self, other) {
+            (Validity::NonNullable, Validity::NonNullable) => Ok(true),
+            (Validity::AllValid, Validity::AllValid) => Ok(true),
+            (Validity::AllInvalid, Validity::AllInvalid) => Ok(true),
+            (Validity::Array(a), Validity::Array(b)) => {
+                let a = a.clone().execute::<Mask>(ctx)?;
+                let b = b.clone().execute::<Mask>(ctx)?;
+                Ok(a == b)
+            }
+            _ => Ok(false),
         }
     }
 
@@ -299,7 +285,7 @@ impl Validity {
             _ => {}
         };
 
-        let own_nullability = if self == Validity::NonNullable {
+        let own_nullability = if matches!(self, Validity::NonNullable) {
             Nullability::NonNullable
         } else {
             Nullability::Nullable
@@ -414,23 +400,6 @@ impl Validity {
             a.len().div_ceil(8)
         } else {
             0
-        }
-    }
-}
-
-impl PartialEq for Validity {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::NonNullable, Self::NonNullable) => true,
-            (Self::AllValid, Self::AllValid) => true,
-            (Self::AllInvalid, Self::AllInvalid) => true,
-            (Self::Array(a), Self::Array(b)) => {
-                let a = a.to_bool();
-                let b = b.to_bool();
-                a.to_bit_buffer() == b.to_bit_buffer()
-            }
-            _ => false,
         }
     }
 }
@@ -603,17 +572,21 @@ mod tests {
     ) {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
-        assert_eq!(
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        assert!(
             validity
                 .patch(
                     len,
                     0,
                     &indices,
                     &patches,
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut LEGACY_SESSION.create_execution_ctx(),
                 )
-                .unwrap(),
-            expected
+                .unwrap()
+                .mask_eq(&expected, &mut ctx)
+                .unwrap()
         );
     }
 
@@ -671,6 +644,13 @@ mod tests {
         #[case] indices: ArrayRef,
         #[case] expected: Validity,
     ) {
-        assert_eq!(validity.take(&indices).unwrap(), expected);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert!(
+            validity
+                .take(&indices)
+                .unwrap()
+                .mask_eq(&expected, &mut ctx)
+                .unwrap()
+        );
     }
 }

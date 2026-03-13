@@ -7,11 +7,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::slice::SliceReduce;
 
-impl SliceReduce for ConstantVTable {
+impl SliceReduce for Constant {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ConstantArray::new(array.scalar.clone(), range.len()).into_array(),

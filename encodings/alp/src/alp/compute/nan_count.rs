@@ -7,10 +7,10 @@ use vortex_array::compute::nan_count;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::ALP;
 use crate::ALPArray;
-use crate::ALPVTable;
 
-impl NaNCountKernel for ALPVTable {
+impl NaNCountKernel for ALP {
     fn nan_count(&self, array: &ALPArray) -> VortexResult<usize> {
         // NANs can only be in patches
         if let Some(patches) = array.patches() {
@@ -21,4 +21,4 @@ impl NaNCountKernel for ALPVTable {
     }
 }
 
-register_kernel!(NaNCountKernelAdapter(ALPVTable).lift());
+register_kernel!(NaNCountKernelAdapter(ALP).lift());
