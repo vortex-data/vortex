@@ -244,10 +244,12 @@ jobs:
           test -z "$(git status --porcelain)"
       - name: "Make sure rebuild is a no-op"
         run: |
-          output=$(${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private 2>&1)
-          if echo "$output" | grep -q "Compiling"; then
+          stale=$(${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private \
+            --message-format json 2>/dev/null \
+            | jq -r 'select(.reason == "compiler-artifact" and .fresh == false) | .target.name')
+          if [ -n "$stale" ]; then
             echo "ERROR: Second build recompiled crates that should have been cached:"
-            echo "$output" | grep "Compiling"
+            echo "$stale"
             exit 1
           fi
 
