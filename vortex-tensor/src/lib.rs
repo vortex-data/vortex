@@ -6,5 +6,6 @@
 //! similarity.
 
 pub mod fixed_shape;
+pub mod vector;
 
 pub mod scalar_fns;
