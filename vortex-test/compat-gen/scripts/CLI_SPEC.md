@@ -1,20 +1,30 @@
-# `compat.py` CLI Specification
+# `vortex-compat` CLI Specification
 
 ## Overview
 
-A single Python CLI that manages the full lifecycle of Vortex backward-compatibility
-testing: generating fixture files, publishing them to a fixture store, and validating
-that the current reader can still read all historical fixtures.
+A single Rust binary (`vortex-compat`) that manages the full lifecycle of Vortex
+backward-compatibility testing: generating fixture files, publishing them to a
+fixture store, and validating that the current reader can still read historical
+fixtures.
 
-### Core abstraction: the fixture store
+Consolidates the current `compat-gen`, `compat-validate` binaries, and `compat.py`
+orchestration script into one tool.
 
-A **fixture store** is a directory tree (local path or S3 bucket) with a fixed layout:
+```
+cargo run -p vortex-compat --release -- <COMMAND> [OPTIONS]
+```
+
+---
+
+## Core abstraction: the fixture store
+
+A **store** is a directory tree (local path or S3 bucket) with a fixed layout:
 
 ```
 <store>/
-├── versions.json            # ["0.62.0", "0.63.0", ...]
+├── versions.json
 ├── v0.62.0/
-│   ├── manifest.json        # {version, generated_at, fixtures: [{name, since}, ...]}
+│   ├── manifest.json
 │   ├── primitives.vortex
 │   ├── strings.vortex
 │   └── ...
@@ -23,30 +33,17 @@ A **fixture store** is a directory tree (local path or S3 bucket) with a fixed l
     └── ...
 ```
 
-All commands that read or write fixture data take a `--store` argument that can be
-either a local path or an S3 URL. The commands work identically regardless of which
-backend is used.
+All commands take `--store` to select the backend:
 
 | Syntax | Example | Description |
 |--------|---------|-------------|
-| local path | `/tmp/compat` | Local directory. Created automatically if needed. |
-| `s3://bucket` | `s3://vortex-compat-fixtures` | S3 bucket. Public reads via HTTPS; writes require AWS credentials. |
+| local path | `--store /tmp/compat` | Local directory, created if needed |
+| S3 URL | `--store s3://vortex-compat-fixtures` | S3 bucket. Public reads; writes need AWS creds |
 
-The default store (when `--store` is omitted) is `s3://vortex-compat-fixtures`.
+Default (when `--store` is omitted): `s3://vortex-compat-fixtures`.
 
-### Design principles
-
-- **Zero external Python dependencies.** Stdlib only (`argparse`, `json`, `urllib`,
-  `subprocess`). Heavy lifting stays in the Rust binaries.
-- **S3 and local are interchangeable.** Every command works the same way against
-  either backend. You can `generate` locally, `upload` to a local store for testing,
-  then `upload` the same directory to S3 when ready.
-- **The Python layer orchestrates; Rust does the work.** `compat.py` calls
-  `compat-gen` (Rust) for fixture generation and `compat-validate` (Rust) for
-  validation. Python handles manifest merging, version bookkeeping, and store I/O.
-- **Separate generation from publishing.** `generate` produces files into a plain
-  local directory. `upload` copies a versioned directory into a store. This lets you
-  inspect, tweak, or dry-run before committing to a store.
+Both backends expose the same operations and the commands work identically
+against either.
 
 ---
 
@@ -54,80 +51,37 @@ The default store (when `--store` is omitted) is `s3://vortex-compat-fixtures`.
 
 ### `generate`
 
-Build fixture files for a version into a local working directory.
+Build fixtures for a version and write them into a store.
 
 ```
-compat.py generate --version <VER> [--output <DIR>]
-```
-
-| Flag | Required | Default | Description |
-|------|----------|---------|-------------|
-| `--version <VER>` | yes | — | Semver version tag (e.g. `0.63.0`) |
-| `--output <DIR>` | no | `./compat-fixtures/v<VER>` | Local directory for generated files |
-
-#### What it does
-
-1. Runs `cargo run -p vortex-compat --release --bin compat-gen -- --version <VER> --output <DIR>`.
-2. Produces `<DIR>/<fixture>.vortex` files + `<DIR>/manifest.json`.
-3. This is a **local-only** operation. No store interaction, no manifest merging.
-   The manifest written by `compat-gen` has `since` set to `<VER>` for all fixtures
-   (the raw/naive manifest).
-
-#### Output
-
-```
-$ compat.py generate --version 0.63.0 --output /tmp/fixtures
-[1/1] Generating fixtures for v0.63.0...
-  wrote primitives.vortex
-  wrote strings.vortex
-  ...
-  wrote manifest.json
-done: 9 fixtures for v0.63.0 in /tmp/fixtures
-```
-
----
-
-### `upload`
-
-Publish a generated fixture directory into a store, merging manifests and enforcing
-the additive-only contract.
-
-```
-compat.py upload --version <VER> --from <DIR> [--store <STORE>] [--dry-run]
+vortex-compat generate --version <VER> [--store <STORE>] [--dry-run] [--skip-build]
 ```
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--version <VER>` | yes | — | Version being published |
-| `--from <DIR>` | yes | — | Local directory containing generated fixtures (output of `generate`) |
-| `--store <STORE>` | no | `s3://vortex-compat-fixtures` | Target store (local path or `s3://bucket`) |
-| `--dry-run` | no | `false` | Merge manifest and print results, but don't write to the store |
+| `--version <VER>` | yes | — | Semver tag (e.g. `0.63.0`) |
+| `--store <STORE>` | no | `s3://vortex-compat-fixtures` | Target store |
+| `--dry-run` | no | false | Generate + merge manifest locally, print result, don't write to store |
+| `--skip-build` | no | false | Skip fixture generation; use existing files in a temp/output dir |
 
-#### What it does
+#### Workflow
 
-1. **Read previous manifest** — fetches the manifest from the highest existing
-   version in the store (if any).
-2. **Merge manifest** — updates `<DIR>/manifest.json`:
-   - Carries forward `since` values for existing fixtures from the previous manifest.
-   - Sets `since` to `<VER>` for any new fixtures.
-   - **Enforces additive-only**: errors if any fixture from the previous manifest is
-     missing in `<DIR>`.
-3. **Copy to store** — copies `<DIR>/*` into `<store>/v<VER>/`.
-   - Local store: `cp`/`shutil.copytree`.
-   - S3 store: `aws s3 cp --recursive`.
-4. **Update `versions.json`** — appends `<VER>` to the store's version index.
-   - Local store: direct file write.
-   - S3 store: ETag-based optimistic locking with retry.
-
-If `--dry-run` is set, steps 3-4 are skipped and the merged manifest is printed.
+1. **Generate fixtures** into a temp directory.
+   Calls `all_fixtures()`, writes each as a `.vortex` file + naive `manifest.json`.
+2. **Fetch previous manifest** from the store (highest version < `<VER>`).
+3. **Merge manifest**:
+   - Carry forward `since` for existing fixtures.
+   - Set `since = <VER>` for new fixtures.
+   - **Error** if any fixture from the previous manifest is missing (additive-only).
+4. **Write to store**: copy `v<VER>/` into the store, update `versions.json`.
+   Skipped if `--dry-run`.
 
 #### Exit codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success (or dry-run completed) |
-| 1 | Additive-only violation (fixture removed) |
-| 1 | Store write failed after retries |
+| 0 | Success |
+| 1 | Additive-only violation / store write failure |
 
 ---
 
@@ -136,111 +90,156 @@ If `--dry-run` is set, steps 3-4 are skipped and the merged manifest is printed.
 Validate fixtures in a store against the current reader.
 
 ```
-compat.py check [--store <STORE>] [--versions <V1,V2,...>]
+vortex-compat check [--store <STORE>] [--versions <V1,V2,...>]
 ```
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--store <STORE>` | no | `s3://vortex-compat-fixtures` | Store to validate from |
-| `--versions <V1,V2,...>` | no | all | Comma-separated list of versions to validate |
+| `--versions <V1,V2,...>` | no | all | Comma-separated versions to validate |
 
-#### What it does
+#### Workflow
 
-Delegates to the Rust binary:
+1. Discover versions from `versions.json` (or directory listing for local stores).
+2. For each version, fetch `manifest.json` and each fixture file.
+3. Rebuild expected arrays from current `build()` methods.
+4. Compare stored vs expected with `assert_arrays_eq!`.
+5. Print per-version pass/fail/skip counts.
 
-```
-cargo run -p vortex-compat --release --bin compat-validate -- \
-  {--fixtures-url <HTTPS_URL> | --fixtures-dir <PATH>} \
-  [--versions <V1,V2,...>]
-```
-
-The Rust binary:
-1. Discovers versions from `versions.json` or directory listing.
-2. For each version, fetches `manifest.json` and each fixture file.
-3. Rebuilds expected arrays from current `build()` methods.
-4. Compares stored vs expected using `assert_arrays_eq!`.
-5. Reports per-version pass/fail/skip counts.
+This is the existing `validate_all()` logic, now behind a subcommand.
 
 #### Exit codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | All fixtures passed |
-| non-zero | One or more fixtures failed validation |
+| 0 | All passed |
+| 1 | One or more failures |
 
 ---
 
 ### `list`
 
-List versions and fixtures in a store.
+Inspect a store's contents.
 
 ```
-compat.py list [--store <STORE>] [--version <VER>]
+vortex-compat list [--store <STORE>] [--version <VER>]
 ```
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--store <STORE>` | no | `s3://vortex-compat-fixtures` | Store to inspect |
-| `--version <VER>` | no | — | Show detailed manifest for one version |
+| `--version <VER>` | no | — | Show one version's manifest in detail |
 
 #### Output
 
-**Without `--version`** — prints the version list:
-
+**All versions:**
 ```
-$ compat.py list
+$ vortex-compat list
 Versions (s3://vortex-compat-fixtures):
   0.62.0
   0.63.0
-  0.64.0
 ```
 
-**With `--version`** — prints that version's manifest:
-
+**Single version detail:**
 ```
-$ compat.py list --version 0.62.0
+$ vortex-compat list --version 0.62.0
 v0.62.0 (generated 2025-06-01T12:00:00Z):
-  primitives.vortex      (since 0.62.0)
-  strings.vortex         (since 0.62.0)
-  booleans.vortex        (since 0.62.0)
-  nullable.vortex        (since 0.62.0)
-  struct_nested.vortex   (since 0.62.0)
-  chunked.vortex         (since 0.62.0)
-  tpch_lineitem.vortex   (since 0.62.0)
-  tpch_orders.vortex     (since 0.62.0)
-  clickbench_hits_1k.vortex (since 0.62.0)
+  primitives.vortex         (since 0.62.0)
+  strings.vortex            (since 0.62.0)
+  tpch_lineitem.vortex      (since 0.62.0)
+  ...
 ```
 
 ---
 
-## Store abstraction
+## Store trait
 
-The store is selected by the `--store` argument and determines how files are
-read and written.
+```rust
+/// Abstraction over local filesystem and S3 fixture stores.
+trait FixtureStore {
+    /// Read a file's bytes. Returns None if not found.
+    fn read(&self, key: &str) -> VortexResult<Option<Vec<u8>>>;
 
-### Local store (`/path/to/dir`)
+    /// Write a file's bytes.
+    fn write(&self, key: &str, data: &[u8]) -> VortexResult<()>;
+
+    /// Write a file from a local path (for large fixture files).
+    fn write_from_path(&self, key: &str, local_path: &Path) -> VortexResult<()>;
+
+    /// List top-level prefixes matching `v*/manifest.json` (for version discovery).
+    fn list_versions(&self) -> VortexResult<Vec<String>>;
+
+    /// Read and parse versions.json.
+    fn read_versions_json(&self) -> VortexResult<Vec<String>>;
+
+    /// Write versions.json (with locking for S3).
+    fn write_versions_json(&self, versions: &[String]) -> VortexResult<()>;
+
+    /// Display name for user-facing output.
+    fn display_name(&self) -> &str;
+}
+```
+
+### `LocalStore`
 
 | Operation | Implementation |
 |-----------|---------------|
-| Read file | `open()` / `os.path.isfile()` |
-| Write file | `shutil.copy2()` / `os.makedirs()` |
-| List versions | `os.listdir()`, filter `v*` dirs with `manifest.json` |
-| Read `versions.json` | `json.load(open(...))` |
-| Write `versions.json` | `json.dump()` to file |
+| `read` | `std::fs::read()` |
+| `write` | `std::fs::write()` with `create_dir_all` |
+| `write_from_path` | `std::fs::copy()` |
+| `list_versions` | `std::fs::read_dir()`, filter `v*/manifest.json` |
+| `read_versions_json` | `std::fs::read()` + `serde_json` |
+| `write_versions_json` | `std::fs::write()` |
 
-### S3 store (`s3://bucket`)
+### `S3Store`
 
 | Operation | Implementation |
 |-----------|---------------|
-| Read file | `urllib.request.urlopen(https://<bucket>.s3.amazonaws.com/...)` |
-| Write file | `aws s3 cp --recursive` |
-| List versions | Fetch `versions.json` via HTTPS |
-| Read `versions.json` | HTTPS GET |
-| Write `versions.json` | `aws s3api put-object` with ETag-based optimistic locking + retry |
+| `read` | `reqwest::blocking::get(https://<bucket>.s3.amazonaws.com/<key>)` |
+| `write` | Shell out: `aws s3api put-object` |
+| `write_from_path` | Shell out: `aws s3 cp` |
+| `list_versions` | Fetch `versions.json` via HTTPS |
+| `read_versions_json` | HTTPS GET |
+| `write_versions_json` | `aws s3api put-object` with ETag optimistic locking + retry |
 
-The `check` command translates the store into the appropriate Rust CLI flag:
-- Local → `--fixtures-dir <path>`
-- S3 → `--fixtures-url https://<bucket>.s3.amazonaws.com`
+S3 reads use public HTTPS (no credentials needed). S3 writes shell out to `aws`
+CLI (credentials via environment / IAM role). This avoids pulling in the AWS SDK
+as a build dependency.
+
+---
+
+## Binary structure
+
+The crate keeps one binary entry point. The current two binaries (`compat-gen`,
+`compat-validate`) are removed.
+
+```toml
+[[bin]]
+name = "vortex-compat"
+path = "src/main.rs"
+```
+
+The existing library modules (`fixtures`, `manifest`, `adapter`, `validate`) stay
+as-is. The `validate` module's `FixtureSource` enum is replaced by the `FixtureStore`
+trait.
+
+### Module layout
+
+```
+src/
+├── main.rs          # clap CLI with generate/check/list subcommands
+├── lib.rs           # pub mod exports
+├── store.rs         # FixtureStore trait + LocalStore + S3Store
+├── generate.rs      # generate subcommand logic
+├── validate.rs      # check subcommand logic (existing, adapted)
+├── manifest.rs      # Manifest / FixtureEntry (existing, unchanged)
+├── adapter.rs       # read/write vortex files (existing, unchanged)
+└── fixtures/
+    ├── mod.rs       # Fixture trait + all_fixtures() (existing)
+    ├── synthetic.rs
+    ├── tpch.rs
+    └── clickbench.rs
+```
 
 ---
 
@@ -248,133 +247,82 @@ The `check` command translates the store into the appropriate Rust CLI flag:
 
 ### Fixture upload (`.github/workflows/compat-gen-upload.yml`)
 
-Manual dispatch with version input:
-
 ```yaml
-- name: Generate fixtures
+- name: Generate and upload fixtures
   run: >
-    python3 vortex-test/compat-gen/scripts/compat.py generate
-    --version "${{ inputs.version }}"
-    --output /tmp/fixtures
-
-- name: Upload fixtures to S3
-  run: >
-    python3 vortex-test/compat-gen/scripts/compat.py upload
-    --version "${{ inputs.version }}"
-    --from /tmp/fixtures
+    cargo run -p vortex-compat --release --
+    generate --version "${{ inputs.version }}"
 ```
 
 ### Weekly validation (`.github/workflows/compat-test-weekly.yml`)
 
-Scheduled Monday 6am UTC + manual dispatch:
-
 ```yaml
 - name: Run compat tests
-  run: python3 vortex-test/compat-gen/scripts/compat.py check
+  run: cargo run -p vortex-compat --release -- check
 ```
 
----
-
-## Implementation notes
-
-### Rust binaries (unchanged)
-
-The Python CLI orchestrates two existing Rust binaries. Their interfaces are stable
-and do not change as part of this spec.
-
-**`compat-gen`** — generates fixtures:
-```
-cargo run -p vortex-compat --release --bin compat-gen -- \
-  --version <VER> --output <DIR>
-```
-Produces: `<DIR>/<fixture>.vortex` files + `<DIR>/manifest.json`.
-
-**`compat-validate`** — validates fixtures:
-```
-cargo run -p vortex-compat --release --bin compat-validate -- \
-  {--fixtures-url <URL> | --fixtures-dir <PATH>} \
-  [--versions V1,V2,...]
-```
-
-### S3 specifics
-
-- **Bucket:** `vortex-compat-fixtures` (us-east-1, public read)
-- **Public URL:** `https://vortex-compat-fixtures.s3.amazonaws.com`
-- **Auth:** AWS CLI on PATH + valid credentials (CI uses OIDC role assumption)
-- **Optimistic locking:** `versions.json` updates use ETag-based compare-and-swap
-  with exponential backoff (up to 5 retries, delays capped at 30s)
-- **Upload method:** `aws s3 cp --recursive` for fixture files,
-  `aws s3api put-object` for `versions.json`
-
-### Manifest merging rules
-
-Merging happens in `upload`, not `generate`. The `generate` command writes a naive
-manifest where all fixtures have `since` set to the current version. The `upload`
-command then:
-
-1. Fetches the previous version's manifest from the store (highest version < current).
-2. For each fixture in the generated manifest:
-   - If it existed in the previous manifest, keep the old `since` value.
-   - If it's new, set `since` to the current version.
-3. **Additive-only enforcement:** if any fixture from the previous manifest is
-   missing in the generated output, abort with an error.
-4. Writes the merged manifest into the source directory before copying to the store.
+Both default to the S3 store. No Python, no extra scripts.
 
 ---
 
 ## Example workflows
 
-### Local development (no S3, no AWS credentials)
+### Local development
 
 ```bash
-# Generate fixtures into a working directory
-python3 compat.py generate --version 0.63.0 --output /tmp/fixtures
+# Generate into a local store
+cargo run -p vortex-compat --release -- \
+  generate --version 0.63.0 --store /tmp/store
 
-# Publish to a local store
-python3 compat.py upload --version 0.63.0 --from /tmp/fixtures --store /tmp/store
+# List what's there
+cargo run -p vortex-compat --release -- \
+  list --store /tmp/store
 
-# See what's in the store
-python3 compat.py list --store /tmp/store
-
-# Validate everything in the store
-python3 compat.py check --store /tmp/store
+# Validate
+cargo run -p vortex-compat --release -- \
+  check --store /tmp/store
 ```
 
 ### Dry-run before S3 upload
 
 ```bash
-python3 compat.py generate --version 0.63.0 --output /tmp/fixtures
+# See what the merged manifest looks like, don't touch S3
+cargo run -p vortex-compat --release -- \
+  generate --version 0.63.0 --dry-run
 
-# Preview what the merged manifest would look like
-python3 compat.py upload --version 0.63.0 --from /tmp/fixtures --dry-run
-
-# Looks good — upload for real
-python3 compat.py upload --version 0.63.0 --from /tmp/fixtures
+# Happy? Do it for real
+cargo run -p vortex-compat --release -- \
+  generate --version 0.63.0
 ```
 
-### Validate specific versions from S3
+### Check specific versions from S3
 
 ```bash
-python3 compat.py check --versions 0.62.0,0.63.0
-```
-
-### Inspect what's in S3
-
-```bash
-python3 compat.py list
-python3 compat.py list --version 0.62.0
+cargo run -p vortex-compat --release -- \
+  check --versions 0.62.0,0.63.0
 ```
 
 ### Test locally, then promote to S3
 
 ```bash
-# Generate
-python3 compat.py generate --version 0.63.0 --output /tmp/fixtures
+# Build and test in a local store
+cargo run -p vortex-compat --release -- \
+  generate --version 0.63.0 --store /tmp/store
+cargo run -p vortex-compat --release -- \
+  check --store /tmp/store
 
-# Test in a local store first
-python3 compat.py upload --version 0.63.0 --from /tmp/fixtures --store /tmp/store
-python3 compat.py check --store /tmp/store
-
-# All good — upload the same fixtures to S3
-python3 compat.py upload --version 0.63.0 --from /tmp/fixtures
+# Same version to S3
+cargo run -p vortex-compat --release -- \
+  generate --version 0.63.0
 ```
+
+---
+
+## Migration
+
+1. Merge `compat-gen` + `compat-validate` + `compat.py` into single `vortex-compat` binary.
+2. Replace `FixtureSource` enum with `FixtureStore` trait.
+3. Move manifest merging logic from Python into `generate.rs`.
+4. Update CI workflows to use `cargo run -p vortex-compat --release -- <subcommand>`.
+5. Delete `scripts/compat.py` and `scripts/upload.py` (already deleted).
+6. Update README.
