@@ -242,16 +242,9 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
-      - name: "Make sure rebuild is a no-op"
-        run: |
-          stale=$(${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private \
-            --message-format json 2>/dev/null \
-            | jq -r 'select(.reason == "compiler-artifact" and .fresh == false) | .target.name')
-          if [ -n "$stale" ]; then
-            echo "ERROR: Second build recompiled crates that should have been cached:"
-            echo "$stale"
-            exit 1
-          fi
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private"
 
   check-min-deps:
     name: "Check build with minimal dependencies"
@@ -301,6 +294,9 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "cargo clippy --locked --all-targets"
 
   cpp-lint:
     name: "C/C++ (lint)"
@@ -412,6 +408,9 @@ jobs:
         if: ${{ matrix.suite == 'tests' }}
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "cargo build --locked --workspace --all-features --all-targets"
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -524,6 +523,12 @@ jobs:
             -p gpu-scan-cli \
             -p vortex-test-e2e-cuda \
             -- -D warnings
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: >-
+            cargo build --locked --all-features --all-targets
+            -p vortex-cuda -p vortex-cub -p vortex-nvcomp
+            -p gpu-scan-cli -p vortex-test-e2e-cuda
 
   cuda-test:
     if: github.repository == 'vortex-data/vortex'
@@ -668,6 +673,10 @@ jobs:
         if: matrix.os != 'windows-x64'
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
+      - uses: ./.github/actions/check-rebuild
+        if: matrix.os != 'windows-x64'
+        with:
+          command: "cargo build --locked --workspace --all-features --all-targets --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -790,6 +799,9 @@ jobs:
           cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
           cmake --build vortex-cxx/examples/build --parallel $(nproc)
           vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "cargo build --locked -p vortex-cxx --all-targets"
 
   sqllogic-test:
     name: "SQL logic tests"
@@ -815,7 +827,9 @@ jobs:
         run: |
           ./vortex-sqllogictest/slt/tpch/generate_data.sh
           cargo test -p vortex-sqllogictest --test sqllogictests
-
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "cargo build --locked -p vortex-sqllogictest --all-targets"
 
   wasm-integration:
     name: "wasm-integration"
