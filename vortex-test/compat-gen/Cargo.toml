@@ -16,14 +16,11 @@ version = { workspace = true }
 workspace = true
 
 [[bin]]
-name = "compat-gen"
+name = "vortex-compat"
 path = "src/main.rs"
 
-[[bin]]
-name = "compat-validate"
-path = "src/validate_main.rs"
-
 [dependencies]
+tempfile = { workspace = true }
 # Vortex crates
 vortex = { workspace = true, features = ["files", "tokio"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }

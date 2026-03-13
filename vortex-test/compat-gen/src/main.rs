@@ -1,63 +1,201 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::PathBuf;
-
-use chrono::Utc;
 use clap::Parser;
-use vortex_compat::fixtures::all_fixtures;
-use vortex_compat::manifest::FixtureEntry;
-use vortex_compat::manifest::Manifest;
+use clap::Subcommand;
+use vortex_compat::generate::generate;
+use vortex_compat::store::DEFAULT_STORE;
+use vortex_compat::store::FixtureStore;
+use vortex_compat::store::parse_store;
+use vortex_compat::validate::run_check;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 #[derive(Parser)]
 #[command(
-    name = "compat-gen",
-    about = "Generate Vortex backward-compat fixture files"
+    name = "vortex-compat",
+    about = "Vortex backward-compatibility fixture management"
 )]
 struct Cli {
-    /// Version tag for this fixture set (e.g. "0.62.0").
-    #[arg(long)]
-    version: String,
+    #[command(subcommand)]
+    command: Commands,
+}
 
-    /// Output directory for generated fixture files.
-    #[arg(long)]
-    output: PathBuf,
+#[derive(Subcommand)]
+enum Commands {
+    /// Generate fixtures for a version and write them into a store.
+    Generate {
+        /// Version tag (e.g. "0.63.0").
+        #[arg(long)]
+        version: String,
+
+        /// Fixture store: local path or s3://bucket.
+        #[arg(long, default_value = DEFAULT_STORE)]
+        store: String,
+
+        /// Merge manifest and print it, but don't write to the store.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip fixture generation (use for re-uploading with manifest merge only).
+        #[arg(long)]
+        skip_build: bool,
+    },
+    /// Validate fixtures in a store against the current reader.
+    Check {
+        /// Fixture store: local path or s3://bucket.
+        #[arg(long, default_value = DEFAULT_STORE)]
+        store: String,
+
+        /// Comma-separated versions to validate (default: all).
+        #[arg(long, value_delimiter = ',')]
+        versions: Option<Vec<String>>,
+    },
+    /// List versions and fixtures in a store.
+    List {
+        /// Fixture store: local path or s3://bucket.
+        #[arg(long, default_value = DEFAULT_STORE)]
+        store: String,
+
+        /// Show detailed manifest for a specific version.
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Validate that manifests are additive-only across all versions.
+    ///
+    /// Checks that each version's manifest contains all fixtures from the
+    /// previous version (and possibly more). Does not read fixture files,
+    /// only manifests.
+    ValidateManifest {
+        /// Fixture store: local path or s3://bucket.
+        #[arg(long, default_value = DEFAULT_STORE)]
+        store: String,
+    },
 }
 
 fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
-    std::fs::create_dir_all(&cli.output)
-        .map_err(|e| vortex_error::vortex_err!("failed to create output dir: {e}"))?;
+    match cli.command {
+        Commands::Generate {
+            version,
+            store,
+            dry_run,
+            skip_build,
+        } => {
+            let store = parse_store(&store)?;
+            generate(store.as_ref(), &version, dry_run, skip_build)
+        }
+        Commands::Check { store, versions } => {
+            let store = parse_store(&store)?;
+            run_check(store.as_ref(), versions)
+        }
+        Commands::List { store, version } => {
+            let store = parse_store(&store)?;
+            run_list(store.as_ref(), version)
+        }
+        Commands::ValidateManifest { store } => {
+            let store = parse_store(&store)?;
+            run_validate_manifest(store.as_ref())
+        }
+    }
+}
 
-    let fixtures = all_fixtures();
-    let mut entries = Vec::with_capacity(fixtures.len());
+fn run_list(store: &dyn FixtureStore, version: Option<String>) -> VortexResult<()> {
+    if let Some(ver) = version {
+        let manifest = store.fetch_manifest(&ver)?;
+        eprintln!(
+            "v{} (generated {}):",
+            manifest.version, manifest.generated_at
+        );
+        for entry in &manifest.fixtures {
+            eprintln!("  {:<30} (since {})", entry.name, entry.since);
+        }
+    } else {
+        let versions = store.list_versions()?;
+        eprintln!("Versions ({}):", store.display_name());
+        if versions.is_empty() {
+            eprintln!("  (none)");
+        } else {
+            for v in &versions {
+                eprintln!("  {v}");
+            }
+        }
+    }
+    Ok(())
+}
 
-    for fixture in &fixtures {
-        let chunks = fixture.build()?;
-        let path = cli.output.join(fixture.name());
-        vortex_compat::adapter::write_file(&path, chunks)?;
-
-        entries.push(FixtureEntry {
-            name: fixture.name().to_string(),
-            since: cli.version.clone(),
-        });
-        eprintln!("  wrote {}", fixture.name());
+/// Validate that manifests are additive-only across all versions.
+///
+/// For each consecutive pair of versions, checks that the newer version's manifest
+/// contains every fixture from the older version.
+fn run_validate_manifest(store: &dyn FixtureStore) -> VortexResult<()> {
+    let versions = store.list_versions()?;
+    if versions.is_empty() {
+        eprintln!("no versions found in {}", store.display_name());
+        return Ok(());
     }
 
-    let manifest = Manifest {
-        version: cli.version.clone(),
-        generated_at: Utc::now(),
-        fixtures: entries,
-    };
-    let manifest_path = cli.output.join("manifest.json");
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| vortex_error::vortex_err!("failed to serialize manifest: {e}"))?;
-    std::fs::write(&manifest_path, manifest_json)
-        .map_err(|e| vortex_error::vortex_err!("failed to write manifest: {e}"))?;
-    eprintln!("  wrote manifest.json");
+    eprintln!(
+        "validating manifests for {} version(s) in {}...",
+        versions.len(),
+        store.display_name()
+    );
 
-    eprintln!("done: {} fixtures for v{}", fixtures.len(), cli.version);
-    Ok(())
+    let mut prev_fixtures: Option<(String, vortex_utils::aliases::hash_set::HashSet<String>)> =
+        None;
+    let mut errors = Vec::new();
+
+    for version in &versions {
+        let manifest = store.fetch_manifest(version)?;
+        let fixture_names: vortex_utils::aliases::hash_set::HashSet<String> =
+            manifest.fixtures.iter().map(|e| e.name.clone()).collect();
+
+        if let Some((prev_version, ref prev_names)) = prev_fixtures {
+            let missing: Vec<&String> = prev_names
+                .iter()
+                .filter(|name| !fixture_names.contains(name.as_str()))
+                .collect();
+
+            if missing.is_empty() {
+                let new_count = fixture_names.len() - prev_names.len();
+                if new_count > 0 {
+                    eprintln!(
+                        "  v{prev_version} -> v{version}: ok ({} fixtures, +{new_count} new)",
+                        fixture_names.len()
+                    );
+                } else {
+                    eprintln!(
+                        "  v{prev_version} -> v{version}: ok ({} fixtures)",
+                        fixture_names.len()
+                    );
+                }
+            } else {
+                let missing_list: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
+                eprintln!(
+                    "  v{prev_version} -> v{version}: FAIL — missing: {}",
+                    missing_list.join(", ")
+                );
+                errors.push(format!(
+                    "v{version} is missing fixtures from v{prev_version}: {}",
+                    missing_list.join(", ")
+                ));
+            }
+        } else {
+            eprintln!(
+                "  v{version}: {} fixtures (first version)",
+                fixture_names.len()
+            );
+        }
+
+        prev_fixtures = Some((version.clone(), fixture_names));
+    }
+
+    if errors.is_empty() {
+        eprintln!("\nall manifests are additive-only.");
+        Ok(())
+    } else {
+        eprintln!("\n{} error(s) found.", errors.len());
+        vortex_bail!("manifest validation failed:\n{}", errors.join("\n"));
+    }
 }

@@ -1,21 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::PathBuf;
-
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::adapter;
 use crate::fixtures::Fixture;
 use crate::fixtures::all_fixtures;
-use crate::manifest::Manifest;
+use crate::store::FixtureStore;
 
 /// Result of validating one version's fixtures.
 pub struct VersionResult {
@@ -27,7 +24,7 @@ pub struct VersionResult {
 
 /// Validate all versions' fixtures against the current reader.
 pub fn validate_all(
-    source: &FixtureSource,
+    store: &dyn FixtureStore,
     versions: &[String],
 ) -> VortexResult<Vec<VersionResult>> {
     let fixtures = all_fixtures();
@@ -36,18 +33,18 @@ pub fn validate_all(
 
     let mut results = Vec::new();
     for version in versions {
-        let result = validate_version(source, version, &fixture_map)?;
+        let result = validate_version(store, version, &fixture_map)?;
         results.push(result);
     }
     Ok(results)
 }
 
 fn validate_version(
-    source: &FixtureSource,
+    store: &dyn FixtureStore,
     version: &str,
     fixture_map: &HashMap<&str, &dyn Fixture>,
 ) -> VortexResult<VersionResult> {
-    let manifest = source.fetch_manifest(version)?;
+    let manifest = store.fetch_manifest(version)?;
     let mut passed = 0;
     let mut skipped = 0;
     let mut failed = Vec::new();
@@ -63,8 +60,8 @@ fn validate_version(
         };
 
         eprintln!("  checking {} from v{version}...", entry.name);
-        let bytes = source.fetch_fixture(version, &entry.name)?;
-        match validate_one(bytes, *fixture) {
+        let bytes = store.fetch_fixture(version, &entry.name)?;
+        match validate_one(ByteBuffer::from(bytes), *fixture) {
             Ok(()) => passed += 1,
             Err(e) => {
                 eprintln!("  FAIL: {} from v{version}: {e}", entry.name);
@@ -94,83 +91,59 @@ fn validate_one(bytes: ByteBuffer, fixture: &dyn Fixture) -> VortexResult<()> {
     Ok(())
 }
 
-/// Source for fetching fixture files — either HTTPS or local directory.
-pub enum FixtureSource {
-    Url(String),
-    Dir(PathBuf),
-}
-
-impl FixtureSource {
-    fn fetch_manifest(&self, version: &str) -> VortexResult<Manifest> {
-        let json = match self {
-            FixtureSource::Url(base) => {
-                let url = format!("{base}/v{version}/manifest.json");
-                http_get_bytes(&url)?
-            }
-            FixtureSource::Dir(dir) => {
-                let path = dir.join(format!("v{version}")).join("manifest.json");
-                std::fs::read(&path)
-                    .map_err(|e| vortex_err!("failed to read {}: {e}", path.display()))?
-            }
-        };
-        serde_json::from_slice(&json)
-            .map_err(|e| vortex_err!("failed to parse manifest for v{version}: {e}"))
-    }
-
-    fn fetch_fixture(&self, version: &str, name: &str) -> VortexResult<ByteBuffer> {
-        let bytes = match self {
-            FixtureSource::Url(base) => {
-                let url = format!("{base}/v{version}/{name}");
-                http_get_bytes(&url)?
-            }
-            FixtureSource::Dir(dir) => {
-                let path = dir.join(format!("v{version}")).join(name);
-                std::fs::read(&path)
-                    .map_err(|e| vortex_err!("failed to read {}: {e}", path.display()))?
-            }
-        };
-        Ok(ByteBuffer::from(bytes))
-    }
-}
-
-/// Discover versions from a versions.json file, or from local directory listing.
-pub fn discover_versions(source: &FixtureSource) -> VortexResult<Vec<String>> {
-    match source {
-        FixtureSource::Url(base) => {
-            let url = format!("{base}/versions.json");
-            let bytes = http_get_bytes(&url)?;
-            let versions: Vec<String> = serde_json::from_slice(&bytes)
-                .map_err(|e| vortex_err!("failed to parse versions.json: {e}"))?;
-            Ok(versions)
+/// Run validation and print results. Returns error if any fixture failed.
+pub fn run_check(
+    store: &dyn FixtureStore,
+    filter_versions: Option<Vec<String>>,
+) -> VortexResult<()> {
+    let versions = match filter_versions {
+        Some(v) => v,
+        None => {
+            eprintln!("discovering versions...");
+            store.list_versions()?
         }
-        FixtureSource::Dir(dir) => {
-            let mut versions = Vec::new();
-            for entry in std::fs::read_dir(dir)
-                .map_err(|e| vortex_err!("failed to read dir {}: {e}", dir.display()))?
-            {
-                let entry = entry.map_err(|e| vortex_err!("failed to read dir entry: {e}"))?;
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if let Some(version) = name.strip_prefix('v')
-                    && entry.path().join("manifest.json").exists()
-                {
-                    versions.push(version.to_string());
-                }
+    };
+
+    eprintln!(
+        "testing {} version(s): {}",
+        versions.len(),
+        versions.join(", ")
+    );
+
+    let results = validate_all(store, &versions)?;
+
+    let mut total_passed = 0;
+    let mut total_failed = 0;
+    let mut total_skipped = 0;
+
+    for r in &results {
+        total_passed += r.passed;
+        total_failed += r.failed.len();
+        total_skipped += r.skipped;
+        if r.failed.is_empty() {
+            eprintln!(
+                "  v{}: {} passed, {} skipped",
+                r.version, r.passed, r.skipped
+            );
+        } else {
+            eprintln!(
+                "  v{}: {} passed, {} FAILED, {} skipped",
+                r.version,
+                r.passed,
+                r.failed.len(),
+                r.skipped
+            );
+            for (name, err) in &r.failed {
+                eprintln!("    FAIL {name}: {err}");
             }
-            versions.sort();
-            Ok(versions)
         }
     }
-}
 
-fn http_get_bytes(url: &str) -> VortexResult<Vec<u8>> {
-    let response = reqwest::blocking::get(url)
-        .map_err(|e| vortex_err!("HTTP request failed for {url}: {e}"))?;
-    if !response.status().is_success() {
-        vortex_bail!("HTTP {} fetching {url}", response.status());
+    eprintln!("\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped");
+
+    if total_failed > 0 {
+        vortex_bail!("{total_failed} fixture(s) failed validation");
     }
-    response
-        .bytes()
-        .map(|b| b.to_vec())
-        .map_err(|e| vortex_err!("failed to read response body from {url}: {e}"))
+
+    Ok(())
 }
