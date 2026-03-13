@@ -41,21 +41,27 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Can a value of `other` be implicitly widened into this type?
     /// e.g. GeographyType might accept Point, LineString, etc.
-    fn can_coerce_from(&self, other: &DType) -> bool {
-        let _ = other;
+    ///
+    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to` — both
+    /// exist so that either side of the coercion can provide the logic.
+    fn can_coerce_from(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
+        let _ = (ext_dtype, other);
         false
     }
 
     /// Can this type be implicitly widened into `other`?
-    fn can_coerce_to(&self, other: &DType) -> bool {
-        let _ = other;
+    ///
+    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to` — both
+    /// exist so that either side of the coercion can provide the logic.
+    fn can_coerce_to(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
+        let _ = (ext_dtype, other);
         false
     }
 
     /// Given two types in a Uniform context, what is their least supertype?
     /// Return None if no supertype exists.
-    fn least_supertype(&self, other: &DType) -> Option<DType> {
-        let _ = other;
+    fn least_supertype(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
+        let _ = (ext_dtype, other);
         None
     }
 

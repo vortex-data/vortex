@@ -202,14 +202,14 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
     }
 
     fn coercion_can_coerce_from(&self, other: &DType) -> bool {
-        self.vtable.can_coerce_from(other)
+        self.vtable.can_coerce_from(self, other)
     }
 
     fn coercion_can_coerce_to(&self, other: &DType) -> bool {
-        self.vtable.can_coerce_to(other)
+        self.vtable.can_coerce_to(self, other)
     }
 
     fn coercion_least_supertype(&self, other: &DType) -> Option<DType> {
-        self.vtable.least_supertype(other)
+        self.vtable.least_supertype(self, other)
     }
 }
