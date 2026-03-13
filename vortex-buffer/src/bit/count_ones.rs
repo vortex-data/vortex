@@ -70,15 +70,15 @@ fn mask_byte(byte: u8, bit_offset: usize, bit_len: usize) -> u8 {
 fn count_ones_aligned(bytes: &[u8]) -> usize {
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("avx512f")
+        if bytes.len() >= 64
+            && is_x86_feature_detected!("avx512f")
             && is_x86_feature_detected!("avx512vpopcntdq")
-            && bytes.len() >= 64
         {
             // SAFETY: Runtime detection guarantees the required target features.
             return unsafe { count_ones_aligned_avx512(bytes) };
         }
 
-        if is_x86_feature_detected!("avx2") && bytes.len() >= 32 {
+        if bytes.len() >= 32 && is_x86_feature_detected!("avx2") {
             // SAFETY: Runtime detection guarantees the required target features.
             return unsafe { count_ones_aligned_avx2(bytes) };
         }
