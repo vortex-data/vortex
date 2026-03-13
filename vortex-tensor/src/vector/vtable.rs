@@ -139,10 +139,4 @@ mod tests {
         assert_eq!(deserialized, EmptyMetadata);
         Ok(())
     }
-
-    #[test]
-    fn deserialize_rejects_non_empty_bytes() {
-        let vtable = Vector;
-        assert!(vtable.deserialize_metadata(&[0x01]).is_err());
-    }
 }

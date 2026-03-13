@@ -9,12 +9,8 @@ use std::fmt::Formatter;
 
 use num_traits::Float;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::arrays::Constant;
-use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::Extension;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_float_ptype;
 use vortex::dtype::DType;
@@ -22,7 +18,6 @@ use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::extension::Matcher;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
@@ -34,9 +29,11 @@ use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
 
 use crate::matcher::AnyTensor;
+use crate::scalar_fns::utils::extension_element_ptype;
+use crate::scalar_fns::utils::extension_list_size;
+use crate::scalar_fns::utils::extension_storage;
+use crate::scalar_fns::utils::extract_flat_elements;
 
-// TODO(connor): We will want to add implementations for unit normalized vectors and also vectors
-// encoded in spherical coordinates.
 /// Cosine similarity between two columns.
 ///
 /// Computes `dot(a, b) / (||a|| * ||b||)` over the flat backing buffer of each tensor or vector.
@@ -101,33 +98,18 @@ impl ScalarFnVTable for CosineSimilarity {
         let lhs_ext = lhs.as_extension_opt().ok_or_else(|| {
             vortex_err!("cosine_similarity lhs must be an extension type, got {lhs}")
         })?;
+
         vortex_ensure!(
             AnyTensor::matches(lhs_ext),
             "cosine_similarity inputs must be an `AnyTensor`, got {lhs}"
         );
 
-        // Extract the element dtype from the storage FixedSizeList.
-        let element_dtype = lhs_ext
-            .storage_dtype()
-            .as_fixed_size_list_element_opt()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "cosine_similarity storage dtype must be a FixedSizeList, got {}",
-                    lhs_ext.storage_dtype()
-                )
-            })?;
-
-        // Element dtype must be a non-nullable float primitive.
+        let ptype = extension_element_ptype(lhs_ext)?;
         vortex_ensure!(
-            element_dtype.is_float(),
-            "cosine_similarity element dtype must be a float primitive, got {element_dtype}"
-        );
-        vortex_ensure!(
-            !element_dtype.is_nullable(),
-            "cosine_similarity element dtype must be non-nullable"
+            ptype.is_float(),
+            "cosine_similarity element dtype must be a float primitive, got {ptype}"
         );
 
-        let ptype = element_dtype.as_ptype();
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
     }
@@ -149,10 +131,7 @@ impl ScalarFnVTable for CosineSimilarity {
                 lhs.dtype()
             )
         })?;
-        let DType::FixedSizeList(_, list_size, _) = ext.storage_dtype() else {
-            vortex_bail!("expected FixedSizeList storage dtype");
-        };
-        let list_size = *list_size as usize;
+        let list_size = extension_list_size(ext)?;
 
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.
@@ -199,38 +178,6 @@ impl ScalarFnVTable for CosineSimilarity {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
-    }
-}
-
-/// Extracts the storage array from an extension array without canonicalizing.
-fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
-    let ext = array
-        .as_opt::<Extension>()
-        .ok_or_else(|| vortex_err!("cosine_similarity input must be an extension array"))?;
-    Ok(ext.storage_array().clone())
-}
-
-/// Extracts the flat primitive elements from a tensor storage array (FixedSizeList).
-///
-/// When the input is a [`ConstantArray`] (e.g., a literal query vector), only a single row is
-/// materialized to avoid expanding it to the full column length. Returns `(elements, stride)`
-/// where `stride` is `list_size` for a full array and `0` for a constant.
-fn extract_flat_elements(
-    storage: &ArrayRef,
-    list_size: usize,
-) -> VortexResult<(PrimitiveArray, usize)> {
-    if let Some(constant) = storage.as_opt::<Constant>() {
-        // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a
-        // huge amount of data.
-        let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();
-        let fsl = single.to_canonical()?.into_fixed_size_list();
-        let elems = fsl.elements().to_canonical()?.into_primitive();
-        Ok((elems, 0))
-    } else {
-        // Otherwise we have to fully expand all of the data.
-        let fsl = storage.to_canonical()?.into_fixed_size_list();
-        let elems = fsl.elements().to_canonical()?.into_primitive();
-        Ok((elems, list_size))
     }
 }
 
