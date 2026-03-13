@@ -542,20 +542,9 @@ def main() -> None:
     summary_fields: list[str] = []
 
     if verdict is not None:
-        summary_fields.append(f"**Summary**: {verdict['status']}")
-        summary_fields.append(f"**Confidence**: {verdict['confidence']}")
+        summary_fields.append(f"**Verdict**: {verdict['status']}")
         summary_fields.append(f"**Attributed Vortex impact**: {verdict['impact']}")
-        summary_fields.append(f"**Environment shift**: {verdict['environment_shift']}")
-
-        if statistical_analysis is not None:
-            residual_noise = format_ratio_change(statistical_analysis["residual_noise_ratio"])
-            summary_fields.append(f"**Residual noise**: {residual_noise}")
-
-            polish = statistical_analysis["median_polish"]
-            if polish is not None:
-                summary_fields.append(
-                    f"**Median polish overall**: {format_ratio_change(float(np.exp(polish.overall)))}"
-                )
+        summary_fields.append(f"**Confidence**: {verdict['confidence']}")
 
     summary_fields.append(f"**Overall**: {overall_performance}")
     if len(vortex_df) > 0:
@@ -574,6 +563,16 @@ def main() -> None:
             "parquet",
         )
         summary_fields.append(f"**Parquet**: {parquet_performance}")
+
+    if verdict is not None:
+        summary_fields.append(f"**Parquet shift (control)**: {verdict['environment_shift']}")
+
+        if statistical_analysis is not None:
+            polish = statistical_analysis["median_polish"]
+            if polish is not None:
+                summary_fields.append(
+                    f"**Overall shift (robust)**: {format_ratio_change(float(np.exp(polish.overall)))}"
+                )
 
     print("<br>".join(summary_fields))
     print("")
