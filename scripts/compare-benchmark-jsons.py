@@ -536,11 +536,29 @@ def main() -> None:
         else format_performance(geo_mean_ratio, improvement_threshold, regression_threshold, "overall")
     )
 
-    summary_lines = [
-        "## Summary",
-        "",
-        f"- **Overall**: {overall_performance}",
-    ]
+    statistical_analysis = build_statistical_analysis(df3, threshold_pct)
+    verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
+
+    heading = f"## Benchmarks: {benchmark_name}" if benchmark_name else "## Benchmarks"
+    summary_lines = [heading, ""]
+
+    if verdict is not None:
+        summary_lines.append(f"**Summary**: {verdict['status']}<br>")
+        summary_lines.append(f"**Confidence**: {verdict['confidence']}<br>")
+        summary_lines.append(f"**Attributed Vortex impact**: {verdict['impact']}<br>")
+        summary_lines.append(f"**Environment shift**: {verdict['environment_shift']}<br>")
+
+        if statistical_analysis is not None:
+            residual_noise = format_ratio_change(statistical_analysis["residual_noise_ratio"])
+            summary_lines.append(f"**Residual noise**: {residual_noise}<br>")
+
+            polish = statistical_analysis["median_polish"]
+            if polish is not None:
+                summary_lines.append(
+                    f"**Median polish overall**: {format_ratio_change(float(np.exp(polish.overall)))}<br>"
+                )
+
+    summary_lines.append(f"**Overall**: {overall_performance}<br>")
     if len(vortex_df) > 0:
         vortex_performance = format_performance(
             vortex_geo_mean_ratio,
@@ -548,7 +566,7 @@ def main() -> None:
             regression_threshold,
             "vortex",
         )
-        summary_lines.append(f"- **Vortex**: {vortex_performance}")
+        summary_lines.append(f"**Vortex**: {vortex_performance}<br>")
     if len(parquet_df) > 0:
         parquet_performance = format_performance(
             parquet_geo_mean_ratio,
@@ -556,41 +574,7 @@ def main() -> None:
             regression_threshold,
             "parquet",
         )
-        summary_lines.append(f"- **Parquet**: {parquet_performance}")
-
-    statistical_analysis = build_statistical_analysis(df3, threshold_pct)
-    verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
-    if verdict is not None:
-        summary_lines.extend(
-            [
-                "",
-                "## Verdict",
-                "",
-                f"**{verdict['status']}**",
-                f"- **Attributed Vortex impact**: {verdict['impact']}",
-                f"- **Confidence**: {verdict['confidence']}",
-                f"- **Environment shift**: {verdict['environment_shift']}",
-            ]
-        )
-
-    if statistical_analysis is not None:
-        systemic_shift = format_ratio_change(statistical_analysis["systemic_shift_ratio"])
-        control_sigma = format_ratio_change(float(np.exp(statistical_analysis["systemic_shift_std"])))
-        residual_noise = format_ratio_change(statistical_analysis["residual_noise_ratio"])
-        summary_lines.extend(
-            [
-                "",
-                "## Statistical Summary",
-                "",
-                f"- **Systemic shift ({CONTROL_FORMAT} controls)**: {systemic_shift}",
-                f"- **Control sigma**: {control_sigma}",
-                f"- **Residual noise**: {residual_noise}",
-            ]
-        )
-
-        polish = statistical_analysis["median_polish"]
-        if polish is not None:
-            summary_lines.append(f"- **Median polish overall**: {format_ratio_change(float(np.exp(polish.overall)))}")
+        summary_lines.append(f"**Parquet**: {parquet_performance}")
 
     print("\n".join(summary_lines))
     print("")
