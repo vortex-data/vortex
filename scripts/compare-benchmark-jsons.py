@@ -143,19 +143,6 @@ def ratio_stats(
     }
 
 
-def robust_scale(values: pd.Series | np.ndarray) -> float:
-    """Estimate spread with MAD so outliers do not dominate the noise estimate."""
-
-    array = np.asarray(values, dtype=float)
-    array = array[np.isfinite(array)]
-    if array.size == 0:
-        return float("nan")
-
-    median = np.median(array)
-    mad = np.median(np.abs(array - median))
-    return float(1.4826 * mad)
-
-
 def median_polish(table: pd.DataFrame, max_iterations: int = 10, tolerance: float = 1e-8) -> MedianPolishResult | None:
     """Estimate row and column effects for the log-ratio matrix."""
 
@@ -309,10 +296,9 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
         axis=1,
     )
 
-    # Median polish gives a robust overall shift plus residual-noise estimate.
+    # Median polish gives a robust overall shift estimate.
     log_ratio_table = detail_df.pivot(index="query", columns="combo", values="log_ratio")
     polish = median_polish(log_ratio_table)
-    residual_noise_log_scale = robust_scale(polish.residuals.to_numpy().ravel()) if polish is not None else float("nan")
 
     return {
         "detail_df": detail_df,
@@ -320,9 +306,6 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
         "systemic_shift_ratio": float(np.exp(systemic_shift_log_ratio)),
         "systemic_shift_std": systemic_shift_std,
         "median_polish": polish,
-        "residual_noise_ratio": float(np.exp(residual_noise_log_scale))
-        if np.isfinite(residual_noise_log_scale)
-        else float("nan"),
     }
 
 
@@ -527,14 +510,8 @@ def main() -> None:
     vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
     parquet_df = df3[df3["name"].str.contains("parquet", case=False, na=False)]
 
-    geo_mean_ratio = calculate_geo_mean(df3)
     vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
     parquet_geo_mean_ratio = calculate_geo_mean(parquet_df)
-    overall_performance = (
-        "no data"
-        if pd.isna(geo_mean_ratio)
-        else format_performance(geo_mean_ratio, improvement_threshold, regression_threshold, "overall")
-    )
 
     statistical_analysis = build_statistical_analysis(df3, threshold_pct)
     verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
@@ -542,11 +519,9 @@ def main() -> None:
     summary_fields: list[str] = []
 
     if verdict is not None:
-        summary_fields.append(f"**Verdict**: {verdict['status']}")
+        summary_fields.append(f"**Verdict**: {verdict['status']} ({verdict['confidence']} confidence)")
         summary_fields.append(f"**Attributed Vortex impact**: {verdict['impact']}")
-        summary_fields.append(f"**Confidence**: {verdict['confidence']}")
 
-    summary_fields.append(f"**Overall**: {overall_performance}")
     if len(vortex_df) > 0:
         vortex_performance = format_performance(
             vortex_geo_mean_ratio,
@@ -554,7 +529,7 @@ def main() -> None:
             regression_threshold,
             "vortex",
         )
-        summary_fields.append(f"**Vortex**: {vortex_performance}")
+        summary_fields.append(f"**Vortex (geomean)**: {vortex_performance}")
     if len(parquet_df) > 0:
         parquet_performance = format_performance(
             parquet_geo_mean_ratio,
@@ -562,17 +537,15 @@ def main() -> None:
             regression_threshold,
             "parquet",
         )
-        summary_fields.append(f"**Parquet**: {parquet_performance}")
+        summary_fields.append(f"**Parquet (geomean)**: {parquet_performance}")
 
     if verdict is not None:
-        summary_fields.append(f"**Parquet shift (control)**: {verdict['environment_shift']}")
-
+        shifts = f"Parquet (control) {verdict['environment_shift']}"
         if statistical_analysis is not None:
             polish = statistical_analysis["median_polish"]
             if polish is not None:
-                summary_fields.append(
-                    f"**Overall shift (robust)**: {format_ratio_change(float(np.exp(polish.overall)))}"
-                )
+                shifts += f" · Median polish {format_ratio_change(float(np.exp(polish.overall)))}"
+        summary_fields.append(f"**Shifts**: {shifts}")
 
     print("<br>".join(summary_fields))
     print("")
