@@ -268,7 +268,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre/tag=rust-lint', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -276,10 +276,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install protoc
+        uses: ./.github/actions/setup-protoc
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
       - name: Rust Lint - Format
@@ -624,7 +623,7 @@ jobs:
       matrix:
         include:
           - os: windows-x64
-            runner: runs-on=${{ github.run_id }}/pool=windows-x64
+            runner: runs-on=${{ github.run_id }}/pool=windows-x64-pre
             fallback_runner: windows-latest
           - os: linux-arm64
             runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre/tag=rust-test-linux-arm64
@@ -638,31 +637,13 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v5
-      - name: Install Visual Studio Build Tools (Windows)
+      - name: Setup (Windows)
         if: matrix.os == 'windows-x64'
         run: |
           $flags = '-C debuginfo=0'
           echo "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
-          choco install visualstudio2022buildtools --package-parameters `
-            "--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --passive" -y
-      - name: Setup Python (Windows)
-        if: matrix.os == 'windows-x64'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - id: setup-rust
-        if: matrix.os == 'windows-x64'
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install nextest
-        if: matrix.os == 'windows-x64'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-      - name: Setup Prebuild
-        if: matrix.os != 'windows-x64'
-        uses: ./.github/actions/setup-prebuild
+          echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
+      - uses: ./.github/actions/setup-prebuild
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
