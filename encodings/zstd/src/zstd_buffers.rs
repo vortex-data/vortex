@@ -28,11 +28,9 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ZstdBuffersMetadata;
@@ -401,27 +399,12 @@ impl VTable for ZstdBuffers {
         Some(format!("compressed_{idx}"))
     }
 
-    fn nchildren(array: &ZstdBuffersArray) -> usize {
-        array.slots.len()
-    }
-
-    fn child(array: &ZstdBuffersArray, idx: usize) -> ArrayRef {
-        array.slots[idx]
-            .as_ref()
-            .vortex_expect("ZstdBuffersArray child slot is None")
-            .clone()
-    }
-
-    fn child_name(_array: &ZstdBuffersArray, idx: usize) -> String {
-        format!("child_{idx}")
-    }
-
     fn slots(array: &ZstdBuffersArray) -> &[Option<ArrayRef>] {
         &array.slots
     }
 
     fn slot_name(_array: &ZstdBuffersArray, idx: usize) -> String {
-        vortex_panic!("ZstdBuffersArray slot names are dynamic, index {idx}")
+        format!("child_{idx}")
     }
 
     fn with_slots(array: &mut ZstdBuffersArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

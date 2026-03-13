@@ -106,17 +106,8 @@ impl VTable for ScalarFnVTable {
         vortex_panic!("ScalarFnArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ScalarFnArray, idx: usize) -> Option<String> {
-        vortex_panic!("ScalarFnArray buffer_name index {idx} out of bounds")
-    }
-
-    fn child_name(array: &ScalarFnArray, idx: usize) -> String {
-        array
-            .scalar_fn
-            .signature()
-            .child_name(idx)
-            .as_ref()
-            .to_string()
+    fn buffer_name(_array: &ScalarFnArray, _idx: usize) -> Option<String> {
+        None
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -179,8 +170,13 @@ impl VTable for ScalarFnVTable {
         &array.slots
     }
 
-    fn slot_name(_array: &ScalarFnArray, _idx: usize) -> String {
-        "child".to_string()
+    fn slot_name(array: &ScalarFnArray, idx: usize) -> String {
+        array
+            .scalar_fn
+            .signature()
+            .child_name(idx)
+            .as_ref()
+            .to_string()
     }
 
     fn with_slots(array: &mut ScalarFnArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
