@@ -115,7 +115,6 @@ impl ChunkedArray {
     #[inline]
     pub fn chunk(&self, idx: usize) -> &ArrayRef {
         assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
-
         self.slots[idx + 1]
             .as_ref()
             .vortex_expect("ChunkedArray chunk slot")

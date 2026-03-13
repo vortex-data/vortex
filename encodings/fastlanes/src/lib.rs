@@ -8,6 +8,7 @@ pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
 
+pub mod bit_transpose;
 mod bitpacking;
 mod delta;
 mod r#for;

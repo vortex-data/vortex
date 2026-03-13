@@ -1,5 +1,11 @@
 pub mod vortex_fastlanes
 
+pub mod vortex_fastlanes::bit_transpose
+
+pub fn vortex_fastlanes::bit_transpose::transpose_bits(input: &[u8; 128], output: &mut [u8; 128])
+
+pub fn vortex_fastlanes::bit_transpose::untranspose_bits(input: &[u8; 128], output: &mut [u8; 128])
+
 pub mod vortex_fastlanes::bitpack_compress
 
 pub fn vortex_fastlanes::bitpack_compress::bit_width_histogram(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<alloc::vec::Vec<usize>>
