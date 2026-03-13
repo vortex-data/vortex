@@ -123,6 +123,12 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     /// Formats an extension scalar value using the current dtype for metadata context.
     fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
     -> fmt::Result;
+    /// Can a value of `other` be implicitly coerced into this extension type?
+    fn coercion_can_coerce_from(&self, other: &DType) -> bool;
+    /// Can this extension type be implicitly coerced into `other`?
+    fn coercion_can_coerce_to(&self, other: &DType) -> bool;
+    /// Compute the least supertype of this extension type and another type.
+    fn coercion_least_supertype(&self, other: &DType) -> Option<DType>;
 }
 
 impl<V: ExtVTable> DynExtDType for ExtDType<V> {
@@ -193,5 +199,17 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
                 self.id()
             ),
         }
+    }
+
+    fn coercion_can_coerce_from(&self, other: &DType) -> bool {
+        self.vtable.can_coerce_from(other)
+    }
+
+    fn coercion_can_coerce_to(&self, other: &DType) -> bool {
+        self.vtable.can_coerce_to(other)
+    }
+
+    fn coercion_least_supertype(&self, other: &DType) -> Option<DType> {
+        self.vtable.least_supertype(other)
     }
 }

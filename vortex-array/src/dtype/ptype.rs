@@ -817,6 +817,101 @@ impl PType {
             other
         }
     }
+
+    /// Returns the least supertype (widest common type) of two primitive types,
+    /// or `None` if no lossless promotion exists.
+    ///
+    /// Rules:
+    /// - Same family (both unsigned, both signed, both float): pick the wider one.
+    /// - Unsigned + Signed crossover: promote to signed type one width-step wider.
+    /// - Int + Float: find the minimum float that losslessly represents the integer.
+    pub fn least_supertype(self, other: Self) -> Option<Self> {
+        if self == other {
+            return Some(self);
+        }
+
+        match (
+            self.is_unsigned_int(),
+            self.is_signed_int(),
+            self.is_float(),
+        ) {
+            // self is unsigned
+            (true, ..) => match (
+                other.is_unsigned_int(),
+                other.is_signed_int(),
+                other.is_float(),
+            ) {
+                // unsigned + unsigned => wider unsigned
+                (true, ..) => Some(self.max_unsigned_ptype(other)),
+                // unsigned + signed => signed one step wider than max of both
+                (_, true, _) => Self::unsigned_signed_supertype(self, other),
+                // unsigned + float => int-to-float promotion
+                (_, _, true) => Self::int_float_supertype(self, other),
+                _ => None,
+            },
+            // self is signed
+            (_, true, _) => match (
+                other.is_unsigned_int(),
+                other.is_signed_int(),
+                other.is_float(),
+            ) {
+                // signed + unsigned => signed one step wider than max of both
+                (true, ..) => Self::unsigned_signed_supertype(other, self),
+                // signed + signed => wider signed
+                (_, true, _) => Some(self.max_signed_ptype(other)),
+                // signed + float => int-to-float promotion
+                (_, _, true) => Self::int_float_supertype(self, other),
+                _ => None,
+            },
+            // self is float
+            (_, _, true) => match (
+                other.is_unsigned_int(),
+                other.is_signed_int(),
+                other.is_float(),
+            ) {
+                // float + unsigned/signed => int-to-float promotion
+                (true, ..) | (_, true, _) => Self::int_float_supertype(other, self),
+                // float + float => wider float
+                (_, _, true) => {
+                    if self.byte_width() >= other.byte_width() {
+                        Some(self)
+                    } else {
+                        Some(other)
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Promote unsigned + signed to a signed type one width-step wider than both.
+    fn unsigned_signed_supertype(unsigned: Self, signed: Self) -> Option<Self> {
+        let max_width = unsigned.byte_width().max(signed.byte_width());
+        match max_width {
+            1 => Some(Self::I16),
+            2 => Some(Self::I32),
+            4 => Some(Self::I64),
+            // U64 + I64 — no lossless 128-bit integer type
+            _ => None,
+        }
+    }
+
+    /// Promote integer + float to the minimum float that losslessly represents the integer.
+    fn int_float_supertype(int: Self, float: Self) -> Option<Self> {
+        let min_float = match int.byte_width() {
+            1 => Self::F16,   // f16 has 11 bits mantissa, enough for 8-bit ints
+            2 => Self::F32,   // f32 has 24 bits mantissa, enough for 16-bit ints
+            4 => Self::F64,   // f64 has 53 bits mantissa, enough for 32-bit ints
+            _ => return None, // no standard float for 64-bit ints
+        };
+        // Pick the wider of the required float and the given float
+        if float.byte_width() >= min_float.byte_width() {
+            Some(float)
+        } else {
+            Some(min_float)
+        }
+    }
 }
 
 impl Display for PType {
