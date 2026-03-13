@@ -268,7 +268,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre/tag=rust-lint', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -625,7 +625,7 @@ jobs:
       matrix:
         include:
           - os: windows-x64
-            runner: runs-on=${{ github.run_id }}/pool=windows-x64
+            runner: runs-on=${{ github.run_id }}/pool=windows-x64/image=windows25-full-x64-pre
             fallback_runner: windows-latest
           - os: linux-arm64
             runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre/tag=rust-test-linux-arm64
