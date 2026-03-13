@@ -73,7 +73,7 @@ jobs:
       matrix:
         machine_type:
           - id: x86
-            instance_name: c6id.8xlarge
+            instance_name: c8id.8xlarge
 # TODO(joe): support other arch
 #          - id: arm64
 #            instance_name: c6gd.8xlarge

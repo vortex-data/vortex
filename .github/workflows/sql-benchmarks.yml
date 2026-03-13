@@ -9,7 +9,7 @@ on:
       machine_type:
         required: false
         type: string
-        default: c6id.8xlarge
+        default: c8id.8xlarge
       benchmark_matrix:
         required: false
         type: string
@@ -107,7 +107,7 @@ jobs:
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/tag={1}{2}', github.run_id, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated-2/tag={1}{2}', github.run_id, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
