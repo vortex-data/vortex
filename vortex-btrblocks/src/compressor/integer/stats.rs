@@ -5,10 +5,11 @@ use std::hash::Hash;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::NativeValue;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
@@ -174,7 +175,7 @@ impl IntegerStats {
 }
 
 impl CompressorStats for IntegerStats {
-    type ArrayVTable = PrimitiveVTable;
+    type ArrayVTable = Primitive;
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
@@ -186,7 +187,8 @@ impl CompressorStats for IntegerStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(&self.src.to_array(), sample_size, sample_count).to_primitive();
+        let sampled =
+            sample(&self.src.clone().into_array(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }

@@ -4,15 +4,15 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::compute::NaNCountKernel;
 use crate::compute::NaNCountKernelAdapter;
 use crate::dtype::NativePType;
 use crate::match_each_float_ptype;
 use crate::register_kernel;
 
-impl NaNCountKernel for PrimitiveVTable {
+impl NaNCountKernel for Primitive {
     fn nan_count(&self, array: &PrimitiveArray) -> VortexResult<usize> {
         Ok(match_each_float_ptype!(array.ptype(), |F| {
             compute_nan_count_with_validity(array.as_slice::<F>(), array.validity_mask()?)
@@ -20,7 +20,7 @@ impl NaNCountKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(NaNCountKernelAdapter(PrimitiveVTable).lift());
+register_kernel!(NaNCountKernelAdapter(Primitive).lift());
 
 #[inline]
 fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask) -> usize {
@@ -40,6 +40,7 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::nan_count;
     use crate::validity::Validity;
@@ -58,6 +59,6 @@ mod tests {
             ],
             Validity::NonNullable,
         );
-        assert_eq!(nan_count(&p.to_array()).unwrap(), 2);
+        assert_eq!(nan_count(&p.into_array()).unwrap(), 2);
     }
 }

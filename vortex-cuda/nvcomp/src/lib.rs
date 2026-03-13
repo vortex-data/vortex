@@ -35,7 +35,6 @@ mod error;
 pub mod zstd;
 
 pub use error::NvcompError;
-use vortex_cuda_macros::cuda_tests;
 
 /// The loaded nvcomp library instance.
 static NVCOMP_LIB: OnceLock<Result<sys::NvcompLibrary, String>> = OnceLock::new();
@@ -66,13 +65,12 @@ pub fn nvcomp_library() -> Result<&'static sys::NvcompLibrary, NvcompError> {
         .as_ref()
         .map_err(|e| NvcompError::LibraryLoadError(e.clone()))
 }
-
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use crate::zstd;
 
     /// Test that we can call nvcompBatchedZstdDecompressGetTempSizeAsync.
-    #[test]
+    #[vortex_cuda_macros::test]
     fn test_get_decompress_temp_size() {
         let num_chunks = 10;
         let max_uncompressed_chunk_bytes = 65536; // 64KB recommended chunk size

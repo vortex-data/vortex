@@ -5,20 +5,20 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::SliceReduceAdaptor;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
-pub(crate) const RULES: ParentRuleSet<PrimitiveVTable> = ParentRuleSet::new(&[
+pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(PrimitiveVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(PrimitiveVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
 ]);
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
@@ -28,8 +28,8 @@ pub(crate) const RULES: ParentRuleSet<PrimitiveVTable> = ParentRuleSet::new(&[
 #[derive(Default, Debug)]
 pub struct PrimitiveMaskedValidityRule;
 
-impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
-    type Parent = MaskedVTable;
+impl ArrayParentReduceRule<Primitive> for PrimitiveMaskedValidityRule {
+    type Parent = Masked;
 
     fn reduce_parent(
         &self,

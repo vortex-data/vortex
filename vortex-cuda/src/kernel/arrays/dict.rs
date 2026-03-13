@@ -9,15 +9,16 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::DecimalArrayParts;
+use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
-use vortex::array::arrays::DictArrayParts;
-use vortex::array::arrays::DictVTable;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::dict::DictArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_integer_ptype;
@@ -28,7 +29,6 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -49,7 +49,7 @@ impl CudaExecute for DictExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let dict_array = array
-            .try_into::<DictVTable>()
+            .try_into::<Dict>()
             .ok()
             .vortex_expect("Array is not a Dict array");
 
@@ -99,7 +99,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         validity: values_validity,
         ..
     } = values.into_parts();
-    let output_validity = values_validity.take(&codes.to_array())?;
+    let output_validity = values_validity.take(&codes.clone().into_array())?;
     let PrimitiveArrayParts {
         buffer: codes_buffer,
         ..
@@ -184,7 +184,7 @@ async fn execute_dict_decimal_typed<
         validity: values_validity,
         ..
     } = values.into_parts();
-    let output_validity = values_validity.take(&codes.to_array())?;
+    let output_validity = values_validity.take(&codes.clone().into_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,
@@ -252,7 +252,7 @@ async fn execute_dict_varbinview(
         validity: values_validity,
         ..
     } = values_vbv.into_parts();
-    let output_validity = values_validity.take(&codes_prim.to_array())?;
+    let output_validity = values_validity.take(&codes_prim.clone().into_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,
@@ -300,7 +300,7 @@ async fn execute_dict_varbinview(
     }))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::DecimalArray;
@@ -328,7 +328,7 @@ mod tests {
         ))
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -348,7 +348,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -360,7 +360,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_u64_values_u16_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -383,7 +383,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -395,7 +395,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_i32_values_u32_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -415,7 +415,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -426,7 +426,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -446,7 +446,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -458,7 +458,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -490,7 +490,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -516,7 +516,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -527,7 +527,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -560,7 +560,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -571,7 +571,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -605,7 +605,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -616,7 +616,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -638,7 +638,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -659,7 +659,7 @@ mod tests {
         ))
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_decimal_i8_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -677,7 +677,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -687,7 +687,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_decimal_i16_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -705,7 +705,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -715,7 +715,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_decimal_i32_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -733,7 +733,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -743,7 +743,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_decimal_i64_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -764,7 +764,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -774,7 +774,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_decimal_i128_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -800,7 +800,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -818,7 +818,7 @@ mod tests {
             .into_varbinview())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_string_values_u8_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -833,7 +833,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -843,7 +843,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_string_values_u16_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -858,7 +858,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -868,7 +868,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_string_max_inlined_12_bytes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -885,7 +885,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -895,7 +895,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_string_outlined_views() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -915,7 +915,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -925,7 +925,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_string_empty_strings() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -940,7 +940,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -950,7 +950,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_string_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -966,7 +966,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -976,7 +976,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_string_outlined_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -999,7 +999,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -1009,7 +1009,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_dict_decimal_i256_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -1035,7 +1035,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();

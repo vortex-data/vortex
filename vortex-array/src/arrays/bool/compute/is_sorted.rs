@@ -4,14 +4,14 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::register_kernel;
 
-impl IsSortedKernel for BoolVTable {
+impl IsSortedKernel for Bool {
     fn is_sorted(&self, array: &BoolArray) -> VortexResult<Option<bool>> {
         match array.validity_mask()? {
             Mask::AllFalse(_) => Ok(Some(true)),
@@ -51,4 +51,4 @@ impl IsSortedKernel for BoolVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(BoolVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Bool).lift());

@@ -6,6 +6,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
+use crate::Precision;
 use crate::ToCanonical;
 use crate::array::DynArray;
 use crate::arrays::PrimitiveArray;
@@ -18,6 +19,7 @@ use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
+use crate::hash::ArrayEq;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -194,9 +196,13 @@ fn test_validity_preservation(#[case] validity: Validity) {
     .into_array();
     let temporal_array =
         TemporalArray::new_timestamp(milliseconds, TimeUnit::Milliseconds, Some("UTC".into()));
-    assert_eq!(
-        temporal_array.temporal_values().to_primitive().validity(),
-        &validity
+
+    assert!(
+        temporal_array
+            .temporal_values()
+            .to_primitive()
+            .validity()
+            .array_eq(&validity, Precision::Ptr)
     );
 }
 

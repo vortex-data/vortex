@@ -11,6 +11,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -41,7 +43,7 @@ use crate::vtable::ArrayId;
 
 vtable!(Primitive);
 
-impl VTable for PrimitiveVTable {
+impl VTable for Primitive {
     type Array = PrimitiveArray;
 
     type Metadata = EmptyMetadata;
@@ -197,8 +199,8 @@ impl VTable for PrimitiveVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(
@@ -220,8 +222,8 @@ impl VTable for PrimitiveVTable {
 }
 
 #[derive(Debug)]
-pub struct PrimitiveVTable;
+pub struct Primitive;
 
-impl PrimitiveVTable {
+impl Primitive {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.primitive");
 }

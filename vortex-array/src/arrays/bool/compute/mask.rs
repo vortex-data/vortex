@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for BoolVTable {
+impl MaskReduce for Bool {
     fn mask(array: &BoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             BoolArray::new(
@@ -30,6 +30,7 @@ impl MaskReduce for BoolVTable {
 mod test {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
@@ -40,6 +41,6 @@ mod test {
     #[case(BoolArray::from_iter([false, false]))]
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     fn test_mask_bool_conformance(#[case] array: BoolArray) {
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
     }
 }

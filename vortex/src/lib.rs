@@ -5,6 +5,8 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 // vortex::compute is deprecated and will be ported over to expressions.
+pub use vortex_array::aggregate_fn;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
@@ -165,6 +167,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
+            .with::<AggregateFnSession>()
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
@@ -183,7 +186,8 @@ mod test {
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
@@ -245,7 +249,7 @@ mod test {
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
-        let compressed = BtrBlocksCompressor::default().compress(&array.to_array())?;
+        let compressed = BtrBlocksCompressor::default().compress(&array.clone().into_array())?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
@@ -329,8 +333,15 @@ mod test {
             .await?;
 
         assert_eq!(recovered_array.len(), array.len());
-        let recovered_primitive = recovered_array.to_primitive();
-        assert_eq!(recovered_primitive.validity(), array.validity());
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
+        assert!(
+            recovered_primitive
+                .validity()
+                .mask_eq(array.validity(), &mut ctx)?
+        );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),
             array.to_buffer::<u64>()

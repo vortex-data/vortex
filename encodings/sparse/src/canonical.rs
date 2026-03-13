@@ -10,14 +10,13 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::build_views::BinaryView;
+use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::DecimalBuilder;
@@ -53,6 +52,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::ConstantArray;
 use crate::SparseArray;
 
 pub(super) fn execute_sparse(
@@ -646,7 +646,7 @@ mod test {
             struct_fields.clone(),
             4,
             Validity::Array(
-                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).to_array(),
+                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).into_array(),
             ),
         )
         .unwrap()
@@ -690,7 +690,7 @@ mod test {
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let actual = sparse_struct.to_struct();
         assert_arrays_eq!(actual, expected);
@@ -716,7 +716,7 @@ mod test {
             struct_fields.clone(),
             4,
             Validity::Array(
-                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).to_array(),
+                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).into_array(),
             ),
         )
         .unwrap()
@@ -757,7 +757,7 @@ mod test {
             Validity::from_mask(Mask::from_indices(10, vec![0, 1, 7]), Nullable),
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let actual = sparse_struct.to_struct();
         assert_arrays_eq!(actual, expected);
@@ -772,7 +772,7 @@ mod test {
             decimal_dtype,
             Validity::from_iter([true, true, true, false]),
         )
-        .to_array();
+        .into_array();
         let len = 10;
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
         let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
@@ -783,13 +783,13 @@ mod test {
             // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
-        .to_array()
+        .into_array()
         .into_arrow_preferred()
         .unwrap();
 
         let actual = sparse_struct
             .to_decimal()
-            .to_array()
+            .into_array()
             .into_arrow_preferred()
             .unwrap();
 

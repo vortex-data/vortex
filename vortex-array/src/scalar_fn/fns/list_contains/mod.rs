@@ -21,13 +21,12 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -125,7 +124,7 @@ impl ScalarFnVTable for ListContains {
         &self,
         _options: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let list_array = args.get(0)?;
         let value_array = args.get(1)?;
@@ -137,7 +136,7 @@ impl ScalarFnVTable for ListContains {
             return Ok(ConstantArray::new(result, args.row_count()).into_array());
         }
 
-        compute_list_contains(&list_array, &value_array)
+        compute_list_contains(&list_array, &value_array, ctx)
     }
 
     fn stat_falsification(
@@ -204,7 +203,11 @@ fn compute_contains_scalar(list: &Scalar, needle: &Scalar) -> VortexResult<Scala
     Ok(Scalar::bool(contains, nullability))
 }
 
-fn compute_list_contains(array: &ArrayRef, value: &ArrayRef) -> VortexResult<ArrayRef> {
+fn compute_list_contains(
+    array: &ArrayRef,
+    value: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let DType::List(elem_dtype, _) = array.dtype() else {
         vortex_bail!("Array must be of List type");
     };
@@ -227,7 +230,7 @@ fn compute_list_contains(array: &ArrayRef, value: &ArrayRef) -> VortexResult<Arr
     let nullability = array.dtype().nullability() | value.dtype().nullability();
 
     if let Some(value_scalar) = value.as_constant() {
-        list_contains_scalar(array, &value_scalar, nullability)
+        list_contains_scalar(array, &value_scalar, nullability, ctx)
     } else if let Some(list_scalar) = array.as_constant() {
         constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
     } else {
@@ -264,7 +267,7 @@ fn constant_list_scalar_contains(
         .into_iter()
         .try_reduce_balanced(|acc, res| acc.binary(res, Operator::Or))?;
 
-    Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).to_array()))
+    Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).into_array()))
 }
 
 /// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
@@ -272,14 +275,15 @@ fn list_contains_scalar(
     array: &ArrayRef,
     value: &Scalar,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
-    if array.len() > 1 && array.is::<ConstantVTable>() {
-        let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability)?;
+    if array.len() > 1 && array.is::<Constant>() {
+        let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability, ctx)?;
         return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
 
-    let list_array = array.to_listview();
+    let list_array = array.clone().execute::<ListViewArray>(ctx)?;
 
     let elems = list_array.elements();
     if elems.is_empty() {
@@ -288,9 +292,12 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements =
-        Binary.try_new_array(elems.len(), Operator::Eq, &[elems.clone(), rhs.to_array()])?;
-    let matches = matching_elements.to_bool();
+    let matching_elements = Binary.try_new_array(
+        elems.len(),
+        Operator::Eq,
+        &[elems.clone(), rhs.clone().into_array()],
+    )?;
+    let matches = matching_elements.execute::<BoolArray>(ctx)?;
 
     // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
@@ -316,14 +323,17 @@ fn list_contains_scalar(
             // All elements match, and all comparisons are valid (result in `true`).
             Some(true) => {
                 // True, unless the list itself is empty or NULL.
-                list_is_not_empty(&list_array, nullability)
+                list_is_not_empty(&list_array, nullability, ctx)
             }
         };
     }
 
     // Get the offsets and sizes as primitive arrays.
-    let offsets = list_array.offsets().to_primitive();
-    let sizes = list_array.sizes().to_primitive();
+    let offsets = list_array
+        .offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let sizes = list_array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
 
     // Process based on the offset and size types.
     let list_matches = match_each_integer_ptype!(offsets.ptype(), |O| {
@@ -407,6 +417,7 @@ fn list_false_or_null(
 fn list_is_not_empty(
     list_array: &ListViewArray,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
     if matches!(list_array.validity(), Validity::AllInvalid) {
@@ -417,7 +428,7 @@ fn list_is_not_empty(
         .into_array());
     }
 
-    let sizes = list_array.sizes().to_primitive();
+    let sizes = list_array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
     let buffer = match_each_integer_ptype!(sizes.ptype(), |S| {
         BitBuffer::from_iter(sizes.as_slice::<S>().iter().map(|&size| size != S::zero()))
     });
@@ -444,13 +455,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::ConstantVTable;
+    use crate::arrays::List;
     use crate::arrays::ListArray;
-    use crate::arrays::ListVTable;
-    use crate::arrays::ListViewArray;
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
@@ -473,6 +479,11 @@ mod tests {
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::list_contains::BoolArray;
+    use crate::scalar_fn::fns::list_contains::Constant;
+    use crate::scalar_fn::fns::list_contains::ConstantArray;
+    use crate::scalar_fn::fns::list_contains::ListViewArray;
+    use crate::scalar_fn::fns::list_contains::PrimitiveArray;
     use crate::validity::Validity;
 
     fn test_array() -> ArrayRef {
@@ -683,7 +694,7 @@ mod tests {
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
-            .as_::<ListVTable>()
+            .as_::<List>()
             .to_listview()
             .into_array()
     }
@@ -789,7 +800,7 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<ConstantVTable>(), "Expected constant result");
+        assert!(contains.is::<Constant>(), "Expected constant result");
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected);
     }
@@ -807,7 +818,7 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<ConstantVTable>(), "Expected constant result");
+        assert!(contains.is::<Constant>(), "Expected constant result");
 
         let expected = BoolArray::new(
             [false, false, false, false, false].into_iter().collect(),

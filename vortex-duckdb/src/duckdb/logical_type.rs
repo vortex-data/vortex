@@ -166,6 +166,10 @@ impl LogicalType {
     pub fn timestamp_tz() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ)
     }
+
+    pub fn date() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_DATE)
+    }
 }
 
 impl LogicalTypeRef {
@@ -180,6 +184,10 @@ impl LogicalTypeRef {
                 duckdb_decimal_scale(self.as_ptr()),
             )
         }
+    }
+
+    pub fn is_decimal(&self) -> bool {
+        matches!(self.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL)
     }
 
     pub fn array_child_type(&self) -> LogicalType {

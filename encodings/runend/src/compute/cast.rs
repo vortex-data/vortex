@@ -8,10 +8,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-impl CastReduce for RunEndVTable {
+impl CastReduce for RunEnd {
     fn cast(array: &RunEndArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast the values array to the target type
         let casted_values = array.values().cast(dtype.clone())?;
@@ -155,6 +155,6 @@ mod tests {
         BoolArray::from_iter(vec![true, false, true, false, true]).into_array()
     ).unwrap())]
     fn test_cast_runend_conformance(#[case] array: RunEndArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

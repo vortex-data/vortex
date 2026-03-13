@@ -13,6 +13,8 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
@@ -49,7 +51,7 @@ pub struct DecimalMetadata {
     pub(super) values_type: i32,
 }
 
-impl VTable for DecimalVTable {
+impl VTable for Decimal {
     type Array = DecimalArray;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
@@ -205,8 +207,8 @@ impl VTable for DecimalVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(
@@ -228,9 +230,9 @@ impl VTable for DecimalVTable {
 }
 
 #[derive(Debug)]
-pub struct DecimalVTable;
+pub struct Decimal;
 
-impl DecimalVTable {
+impl Decimal {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal");
 }
 
@@ -238,12 +240,13 @@ impl DecimalVTable {
 mod tests {
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_session::registry::ReadContext;
 
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
-    use crate::arrays::DecimalVTable;
     use crate::dtype::DecimalDType;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
@@ -272,7 +275,9 @@ mod tests {
         let concat = concat.freeze();
 
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, 5, &ctx, &LEGACY_SESSION).unwrap();
-        assert!(decoded.is::<DecimalVTable>());
+        let decoded = parts
+            .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
+            .unwrap();
+        assert!(decoded.is::<Decimal>());
     }
 }

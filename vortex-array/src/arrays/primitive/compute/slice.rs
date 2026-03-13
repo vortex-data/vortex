@@ -7,14 +7,14 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::vtable::ValidityHelper;
 
-impl SliceReduce for PrimitiveVTable {
+impl SliceReduce for Primitive {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_native_ptype!(array.ptype(), |T| {
             PrimitiveArray::from_buffer_handle(

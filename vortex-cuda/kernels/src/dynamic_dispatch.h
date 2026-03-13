@@ -44,11 +44,13 @@ union SourceParams {
     /// Unpack bit-packed data using FastLanes layout.
     struct BitunpackParams {
         uint8_t bit_width;
+        uint32_t element_offset; // Sub-byte offset
     } bitunpack;
 
     /// Copy elements verbatim from global memory to shared memory.
+    /// The input pointer is pre-adjusted on the host to account for slicing.
     struct LoadParams {
-        uint8_t _padding;
+        uint8_t _placeholder;
     } load;
 
     /// Decode run-end encoding using ends and values already in shared memory.

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::Canonical;
 use vortex_array::DynArray;
-use vortex_array::arrays::varbin_scalar;
+use vortex_array::arrays::varbin::varbin_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
@@ -91,7 +91,8 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             Scalar::struct_(array.dtype().clone(), field_scalars)
         }
         Canonical::Extension(array) => {
-            let storage_scalar = scalar_at_canonical_array(array.storage().to_canonical()?, index)?;
+            let storage_scalar =
+                scalar_at_canonical_array(array.storage_array().to_canonical()?, index)?;
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
     })

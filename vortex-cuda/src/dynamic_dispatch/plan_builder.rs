@@ -10,22 +10,27 @@
 use futures::executor::block_on;
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
-use vortex::array::arrays::DictVTable;
-use vortex::array::arrays::PrimitiveArrayParts;
-use vortex::array::arrays::PrimitiveVTable;
+use vortex::array::ExecutionCtx;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::Primitive;
+use vortex::array::arrays::Slice;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
+use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPFloat;
-use vortex::encodings::alp::ALPVTable;
+use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayParts;
-use vortex::encodings::fastlanes::BitPackedVTable;
-use vortex::encodings::fastlanes::FoRVTable;
+use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayParts;
-use vortex::encodings::runend::RunEndVTable;
-use vortex::encodings::zigzag::ZigZagVTable;
+use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::session::VortexSession;
 
 use super::DynamicDispatchPlan;
 use super::MAX_SCALAR_OPS;
@@ -77,14 +82,13 @@ struct Pipeline {
 /// - `ALPArray` → recurse + `ALP` scalar op (f32 only, no patches)
 /// - `DictArray` → input stage for values + recurse codes + `DICT` scalar op
 /// - `RunEndArray` → input stages for ends/values + `RUNEND` source
+/// - `SliceArray` → resolve via child's slice reduce/kernel
 ///
 /// # Limitations
 ///
 /// **Nullability**: validity bitmaps are silently ignored. All output elements
 /// receive a value regardless of whether the input was null. Only arrays with
 /// `NonNullable` or `AllValid` validity produce correct results.
-///
-/// **Slicing**: Not supported.
 ///
 /// **Patches**: `BitPackedArray` with patches and `ALPArray` with patches are
 /// not supported and will return an error.
@@ -138,20 +142,22 @@ impl PlanBuilderState<'_> {
     fn walk(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let id = array.encoding_id();
 
-        if id == BitPackedVTable::ID {
+        if id == BitPacked::ID {
             self.walk_bitpacked(array)
-        } else if id == FoRVTable::ID {
+        } else if id == FoR::ID {
             self.walk_for(array)
-        } else if id == ZigZagVTable::ID {
+        } else if id == ZigZag::ID {
             self.walk_zigzag(array)
-        } else if id == ALPVTable::ID {
+        } else if id == ALP::ID {
             self.walk_alp(array)
-        } else if id == DictVTable::ID {
+        } else if id == Dict::ID {
             self.walk_dict(array)
-        } else if id == RunEndVTable::ID {
+        } else if id == RunEnd::ID {
             self.walk_runend(array)
-        } else if id == PrimitiveVTable::ID {
+        } else if id == Primitive::ID {
             self.walk_primitive(array)
+        } else if id == Slice::ID {
+            self.walk_slice(array)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",
@@ -160,7 +166,34 @@ impl PlanBuilderState<'_> {
         }
     }
 
+    /// SliceArray → resolve the slice via reduce/execute rules.
+    ///
+    /// When the plan builder encounters a `SliceArray`, it resolves the slice
+    /// by invoking the child's `reduce_parent`, `execute_parent`.
+    fn walk_slice(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+        let slice_arr = array.as_::<Slice>();
+        let child = slice_arr.child().clone();
+
+        // reduce_parent: (for types with SliceReduceAdaptor, like FoR/ZigZag)
+        if let Some(reduced) = child.vtable().reduce_parent(&child, &array, 0)? {
+            return self.walk(reduced);
+        }
+
+        // execute_parent: (for types with SliceExecuteAdaptor/SliceKernel, like BitPacked)
+        let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
+        if let Some(executed) = child.vtable().execute_parent(&child, &array, 0, &mut ctx)? {
+            return self.walk(executed);
+        }
+
+        vortex_bail!(
+            "Cannot resolve SliceArray wrapping {:?} in dynamic dispatch plan builder",
+            child.encoding_id()
+        )
+    }
+
     /// Canonical primitive array → LOAD source op.
+    ///
+    /// The device pointer accounts for buffer slicing, so no offset parameter is needed.
     fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let prim = array.to_canonical()?.into_primitive();
         let PrimitiveArrayParts { buffer, .. } = prim.into_parts();
@@ -170,14 +203,17 @@ impl PlanBuilderState<'_> {
         Ok(Pipeline {
             source: SourceOp::load(),
             scalar_ops: vec![],
-            input_ptr: ptr,
+            input_ptr: ptr as u64,
         })
     }
 
     /// BitPackedArray → BITUNPACK source op.
+    ///
+    /// The sub-byte element offset (0..=1023) is passed as a kernel parameter
+    /// as it cannot be expressed as pointer arithmetic on the device pointer.
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let bp = array
-            .try_into::<BitPackedVTable>()
+            .try_into::<BitPacked>()
             .map_err(|_| vortex_err!("Expected BitPackedArray"))?;
         let BitPackedArrayParts {
             offset,
@@ -187,11 +223,6 @@ impl PlanBuilderState<'_> {
             ..
         } = bp.into_parts();
 
-        if offset != 0 {
-            vortex_bail!(
-                "Dynamic dispatch does not support sliced BitPackedArray (offset={offset})"
-            );
-        }
         if patches.is_some() {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
@@ -200,16 +231,16 @@ impl PlanBuilderState<'_> {
         let ptr = device_buf.cuda_device_ptr()?;
         self.device_buffers.push(device_buf);
         Ok(Pipeline {
-            source: SourceOp::bitunpack(bit_width),
+            source: SourceOp::bitunpack(bit_width, offset),
             scalar_ops: vec![],
-            input_ptr: ptr,
+            input_ptr: ptr as u64,
         })
     }
 
     /// FoRArray → recurse into encoded child, add FoR scalar op.
     fn walk_for(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let for_arr = array
-            .try_into::<FoRVTable>()
+            .try_into::<FoR>()
             .map_err(|_| vortex_err!("Expected FoRArray"))?;
         let ref_u64 = extract_for_reference(&for_arr)?;
         let encoded = for_arr.encoded().clone();
@@ -222,7 +253,7 @@ impl PlanBuilderState<'_> {
     /// ZigZagArray → recurse into encoded child, add ZigZag scalar op.
     fn walk_zigzag(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let zz = array
-            .try_into::<ZigZagVTable>()
+            .try_into::<ZigZag>()
             .map_err(|_| vortex_err!("Expected ZigZagArray"))?;
         let encoded = zz.encoded().clone();
 
@@ -234,7 +265,7 @@ impl PlanBuilderState<'_> {
     /// ALPArray → recurse into encoded child, add ALP scalar op (f32 only).
     fn walk_alp(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let alp = array
-            .try_into::<ALPVTable>()
+            .try_into::<ALP>()
             .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
         if alp.patches().is_some() {
@@ -262,7 +293,7 @@ impl PlanBuilderState<'_> {
     /// DictArray → add input stage for values, recurse into codes, add DICT scalar op.
     fn walk_dict(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let dict = array
-            .try_into::<DictVTable>()
+            .try_into::<Dict>()
             .map_err(|_| vortex_err!("Expected DictArray"))?;
         let values = dict.values().clone();
         let codes = dict.codes().clone();
@@ -277,7 +308,7 @@ impl PlanBuilderState<'_> {
     /// RunEndArray → add input stages for ends and values, RUNEND source op.
     fn walk_runend(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let re = array
-            .try_into::<RunEndVTable>()
+            .try_into::<RunEnd>()
             .map_err(|_| vortex_err!("Expected RunEndArray"))?;
         let offset = re.offset() as u64;
         let RunEndArrayParts { ends, values } = re.into_parts();
@@ -313,7 +344,7 @@ impl PlanBuilderState<'_> {
 }
 
 /// Extract a FoR reference scalar as u64 bits.
-fn extract_for_reference(for_arr: &vortex::encodings::fastlanes::FoRArray) -> VortexResult<u64> {
+fn extract_for_reference(for_arr: &FoRArray) -> VortexResult<u64> {
     if let Ok(v) = u32::try_from(for_arr.reference_scalar()) {
         Ok(v as u64)
     } else if let Ok(v) = i32::try_from(for_arr.reference_scalar()) {

@@ -277,7 +277,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 216020
+    /// 215972
     /// ```
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.

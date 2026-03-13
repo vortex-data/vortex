@@ -14,10 +14,10 @@ use std::process::Command;
 
 use fastlanes::FastLanes;
 
-use crate::cuda_kernel_generator::IndentedWriter;
-use crate::cuda_kernel_generator::generate_cuda_unpack_for_width;
+use crate::bit_unpack_gen::generate_cuda_unpack;
 
-pub mod cuda_kernel_generator;
+#[path = "src/bit_unpack_gen.rs"]
+pub mod bit_unpack_gen;
 
 fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
@@ -43,12 +43,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PROFILE");
 
     // Regenerate bit_unpack kernels only when the generator changes
-    for entry in std::fs::read_dir(Path::new(&manifest_dir).join("cuda_kernel_generator"))
-        .expect("Failed to read cuda_kernel_generator directory")
-        .flatten()
-    {
-        println!("cargo:rerun-if-changed={}", entry.path().display());
-    }
+    println!(
+        "cargo:rerun-if-changed={}",
+        Path::new(&manifest_dir)
+            .join("src/bit_unpack_gen.rs")
+            .display()
+    );
     generate_unpack::<u8>(&kernels_src, 32).expect("Failed to generate unpack for u8");
     generate_unpack::<u16>(&kernels_src, 32).expect("Failed to generate unpack for u16");
     generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32");
@@ -96,8 +96,7 @@ fn main() {
 fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {
     let path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
     let mut cu_file = File::create(&path)?;
-    let mut cu_writer = IndentedWriter::new(&mut cu_file);
-    generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)?;
+    generate_cuda_unpack::<T>(&mut cu_file, thread_count)?;
     Ok(path)
 }
 
@@ -139,7 +138,7 @@ fn nvcc_compile_ptx(
         .join(cu_path.file_name().unwrap())
         .with_extension("ptx");
 
-    cmd.arg("-std=c++17")
+    cmd.arg("-std=c++20")
         .arg("-arch=native")
         // Flags forwarded to Clang.
         .arg("--compiler-options=-Wall -Wextra -Wpedantic -Werror")

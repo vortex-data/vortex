@@ -48,16 +48,14 @@ jobs:
 
   python-lint:
     name: "Python (lint)"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=python-lint
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=python-lint', github.run_id)
+          || 'ubuntu-latest' }}
     timeout-minutes: 120
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -82,19 +80,17 @@ jobs:
 
   python-test:
     name: "Python (test)"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=python-test
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/tag=python-test', github.run_id)
+          || 'ubuntu-latest' }}
     timeout-minutes: 120
     env:
       RUST_LOG: "info,uv=debug"
       MATURIN_PEP517_ARGS: "--profile dev"
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -114,9 +110,12 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+
       - name: Pytest Benchmarks - Vortex
         run: |
-          uv run --all-packages pytest --benchmark-only benchmark/
+          bash ../scripts/bench-taskset.sh uv run --all-packages pytest --benchmark-only benchmark/
         working-directory: vortex-python/
 
       - name: Doctest - PyVortex
@@ -173,15 +172,13 @@ jobs:
   rust-docs:
     name: "Rust (docs)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-docs
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-small/tag=rust-docs', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -197,13 +194,10 @@ jobs:
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=${{ matrix.config.name }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner={1}/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
+          || 'ubuntu-latest' }}
     env:
       # disable lints for build, they will be caught in Rust lint job.
       RUSTFLAGS: "-A warnings"
@@ -212,19 +206,24 @@ jobs:
       matrix:
         config:
           - name: "all-features"
+            runner: amd64-medium
             args: "--all-features --all-targets"
           - name: "default features"
+            runner: amd64-medium
             args: "--all-targets"
           - name: "with tokio dispatcher"
+            runner: amd64-small
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
+            runner: amd64-medium
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest"
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -247,15 +246,13 @@ jobs:
   check-min-deps:
     name: "Check build with minimal dependencies"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-min-deps
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=rust-min-deps', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -269,15 +266,13 @@ jobs:
   rust-lint:
     name: "Rust (lint)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-lint
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/tag=rust-lint', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -314,15 +309,13 @@ jobs:
   rust-lint-no-default:
     name: "Rust (lint, no default)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-lint-no-default
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=rust-lint-no-default', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -340,15 +333,13 @@ jobs:
   public-api:
     name: "Public API lock files"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=public-api
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-xsmall/tag=public-api', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -383,15 +374,10 @@ jobs:
       matrix:
         include:
           - suite: tests
-            cpu: 32
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=${{ matrix.cpu }}
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-coverage
-      - tag=suite-${{ matrix.suite }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
+          || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
       CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
@@ -399,6 +385,7 @@ jobs:
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -441,13 +428,10 @@ jobs:
   rust-test:
     name: "Rust tests (sanitizer)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-test-sanitizer
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=rust-test-sanitizer', github.run_id)
+          || 'ubuntu-latest' }}
     env:
       # Add debug symbols and enable ASAN/LSAN with better output
       ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
@@ -462,6 +446,7 @@ jobs:
       VORTEX_SKIP_SLOW_TESTS: "1"
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -500,16 +485,11 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
-  cuda-build:
-    name: "CUDA build"
+  cuda-build-lint:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA build & lint"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=g5+g4dn+g6
-      - cpu=8
-      - image=ubuntu24-gpu-x64
-      - extras=s3-cache
-      - tag=cuda-build
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-build
     steps:
       - uses: runs-on/action@v2
         with:
@@ -526,25 +506,6 @@ jobs:
             -p vortex-nvcomp \
             -p gpu-scan-cli \
             -p vortex-test-e2e-cuda
-
-  cuda-lint:
-    name: "CUDA (lint)"
-    timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=g5+g4dn+g6
-      - cpu=8
-      - image=ubuntu24-gpu-x64
-      - extras=s3-cache
-      - tag=cuda-lint
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Clippy CUDA crates
         run: |
           cargo clippy --locked --all-features --all-targets \
@@ -556,15 +517,10 @@ jobs:
             -- -D warnings
 
   cuda-test:
+    if: github.repository == 'vortex-data/vortex'
     name: "CUDA tests"
-    timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=g5+g4dn+g6
-      - cpu=8
-      - image=ubuntu24-gpu-x64
-      - extras=s3-cache
-      - tag=cuda-tests
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-tests
     steps:
       - uses: runs-on/action@v2
         with:
@@ -599,15 +555,10 @@ jobs:
             --verbose
 
   cuda-test-sanitizer:
+    if: github.repository == 'vortex-data/vortex'
     name: "CUDA tests (sanitizer)"
-    timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=g5+g4dn+g6
-      - cpu=8
-      - image=ubuntu24-gpu-x64
-      - extras=s3-cache
-      - tag=cuda-test-sanitizer
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
     steps:
       - uses: runs-on/action@v2
         with:
@@ -640,15 +591,10 @@ jobs:
         run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
 
   cuda-test-cudf:
+    if: github.repository == 'vortex-data/vortex'
     name: "CUDA tests (cudf)"
-    timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=g5+g4dn+g6
-      - cpu=8
-      - image=ubuntu24-gpu-x64
-      - extras=s3-cache
-      - tag=cuda-test-cudf
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-cudf
     steps:
       - uses: runs-on/action@v2
         with:
@@ -678,18 +624,17 @@ jobs:
       matrix:
         include:
           - os: windows-x64
-            runner: runs-on=${{ github.run_id }}/pool=windows-x64/extras=s3-cache
+            runner: runs-on=${{ github.run_id }}/pool=windows-x64
+            fallback_runner: windows-latest
           - os: linux-arm64
-            runner:
-              - runs-on=${{ github.run_id }}
-              - family=m7g
-              - cpu=8
-              - image=ubuntu24-full-arm64
-              - extras=s3-cache
-              - tag=rust-test-linux-arm64
-    runs-on: ${{ matrix.runner }}
+            runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre/tag=rust-test-linux-arm64
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && matrix.runner
+          || matrix.fallback_runner }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v5
@@ -706,13 +651,18 @@ jobs:
         with:
           python-version: "3.11"
       - id: setup-rust
+        if: matrix.os == 'windows-x64'
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install nextest
+        if: matrix.os == 'windows-x64'
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
+      - name: Setup Prebuild
+        if: matrix.os != 'windows-x64'
+        uses: ./.github/actions/setup-prebuild
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
@@ -738,16 +688,14 @@ jobs:
 
   build-java:
     name: "Java"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=java
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=java', github.run_id)
+          || 'ubuntu-latest' }}
     timeout-minutes: 120
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -775,23 +723,24 @@ jobs:
           - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
-      - extras=s3-cache
-      - image=ubuntu24-full-x64
-      - tag=bench-codspeed-${{ matrix.shard }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/system-info
       - name: Install Codspeed
-        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
         with:
           tool: cargo-codspeed
       - name: Build benchmarks
@@ -799,9 +748,9 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
+        uses: CodSpeedHQ/action@281164b0f014a4e7badd2c02cecad9b595b70537
         with:
-          run: cargo codspeed run
+          run: bash scripts/bench-taskset.sh cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
@@ -825,15 +774,13 @@ jobs:
   cxx-test:
     name: "C++ build"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=cxx-build
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=cxx-build', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -855,15 +802,13 @@ jobs:
 
   sqllogic-test:
     name: "SQL logic tests"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=sql-logic-test
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/tag=sql-logic-test', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -871,8 +816,13 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
       - name: Run sqllogictest tests
         run: |
+          ./vortex-sqllogictest/slt/tpch/generate_data.sh
           cargo test -p vortex-sqllogictest --test sqllogictests
 
 
@@ -979,15 +929,13 @@ jobs:
   rust-publish-dry-run:
     name: "Rust publish dry-run"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-publish-dry-run
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-xsmall/tag=rust-publish-dry-run', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
@@ -996,7 +944,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
         with:
           tool: cargo-edit
       - name: Set Version

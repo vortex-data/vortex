@@ -97,7 +97,7 @@ pub fn decode_to_temporal(
     Ok(TemporalArray::new_timestamp(
         PrimitiveArray::new(
             values.freeze(),
-            Validity::copy_from_array(&array.to_array())?,
+            Validity::copy_from_array(&array.clone().into_array())?,
         )
         .into_array(),
         options.unit,
@@ -110,7 +110,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
@@ -148,18 +147,17 @@ mod test {
         ))
         .unwrap();
 
-        assert_eq!(
-            date_times.validity_mask().unwrap(),
-            validity.to_mask(date_times.len())
-        );
-
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+        assert!(date_times.validity()?.mask_eq(&validity, &mut ctx)?);
+
         let primitive_values = decode_to_temporal(&date_times, &mut ctx)?
             .temporal_values()
-            .to_primitive();
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
-        assert_eq!(primitive_values.validity(), &validity);
+        assert!(primitive_values.validity().mask_eq(&validity, &mut ctx)?);
         Ok(())
     }
 }

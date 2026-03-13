@@ -3,19 +3,19 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
 
-impl LikeReduce for DictVTable {
+impl LikeReduce for Dict {
     fn like(
         array: &DictArray,
         pattern: &ArrayRef,
@@ -55,10 +55,10 @@ mod tests {
 
     use crate::IntoArray;
     use crate::arrays::BoolArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;
-    use crate::arrays::ScalarFnArrayExt;
     use crate::arrays::VarBinArray;
+    use crate::arrays::dict::compute::like::ConstantArray;
+    use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar_fn::fns::like::Like;

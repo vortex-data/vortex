@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
@@ -14,7 +14,7 @@ use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::register_kernel;
 
-impl IsSortedKernel for DecimalVTable {
+impl IsSortedKernel for Decimal {
     fn is_sorted(&self, array: &DecimalArray) -> VortexResult<Option<bool>> {
         is_decimal_sorted(array, false)
     }
@@ -24,7 +24,7 @@ impl IsSortedKernel for DecimalVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(DecimalVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Decimal).lift());
 
 fn is_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<Option<bool>> {
     match_each_decimal_value_type!(array.values_type, |S| {
@@ -71,6 +71,7 @@ mod tests {
     use arrow_cast::parse::parse_decimal;
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
@@ -91,8 +92,8 @@ mod tests {
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
         let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
 
-        assert!(is_sorted(&sorted_array.to_array()).unwrap().unwrap());
-        assert!(!is_sorted(&unsorted_array.to_array()).unwrap().unwrap());
+        assert!(is_sorted(&sorted_array.into_array()).unwrap().unwrap());
+        assert!(!is_sorted(&unsorted_array.into_array()).unwrap().unwrap());
     }
 
     #[test]
@@ -114,10 +115,14 @@ mod tests {
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
 
         assert!(
-            is_strict_sorted(&strict_sorted_array.to_array())
+            is_strict_sorted(&strict_sorted_array.into_array())
                 .unwrap()
                 .unwrap()
         );
-        assert!(!is_strict_sorted(&sorted_array.to_array()).unwrap().unwrap());
+        assert!(
+            !is_strict_sorted(&sorted_array.into_array())
+                .unwrap()
+                .unwrap()
+        );
     }
 }

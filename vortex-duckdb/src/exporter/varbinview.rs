@@ -4,12 +4,11 @@
 use std::ffi::c_char;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::BinaryView;
-use vortex::array::arrays::Inlined;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::varbinview::BinaryView;
+use vortex::array::arrays::varbinview::Inlined;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
@@ -45,19 +44,14 @@ pub(crate) fn new_exporter(
         return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
-    let buffers = buffers
-        .iter()
-        .cloned()
-        .map(|b| b.unwrap_host())
-        .collect_vec();
-
+    let buffers: Vec<_> = buffers.iter().cloned().map(|b| b.unwrap_host()).collect();
     let buffers: Arc<[ByteBuffer]> = Arc::from(buffers);
 
     Ok(validity::new_exporter(
         validity,
         Box::new(VarBinViewExporter {
             views: Buffer::<BinaryView>::from_byte_buffer(views.unwrap_host()),
-            vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect_vec(),
+            vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect(),
             buffers,
         }),
     ))

@@ -4,15 +4,15 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::FilterKernel;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl FilterKernel for SparseVTable {
+impl FilterKernel for Sparse {
     fn filter(
         array: &SparseArray,
         mask: &Mask,
@@ -130,7 +130,7 @@ mod tests {
                 null_fill_value,
             )
             .unwrap()
-            .to_array(),
+            .into_array(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
@@ -142,7 +142,7 @@ mod tests {
                 ten_fill_value,
             )
             .unwrap()
-            .to_array(),
+            .into_array(),
         )
     }
 }

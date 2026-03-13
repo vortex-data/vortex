@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -16,17 +16,13 @@ use crate::vtable::ValidityHelper;
 ///
 /// Recursively casts the inner elements array to the target element type while preserving the list
 /// structure.
-impl CastReduce for FixedSizeListVTable {
+impl CastReduce for FixedSizeList {
     fn cast(array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_fixed_size_list_element_opt() else {
             return Ok(None);
         };
 
-        let elements = array
-            .elements()
-            .cast((**target_element_type).clone())?
-            .to_canonical()?
-            .into_array();
+        let elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()
             .clone()
@@ -43,7 +39,7 @@ impl CastReduce for FixedSizeListVTable {
                     array.len(),
                 )
             }
-            .to_array(),
+            .into_array(),
         ))
     }
 }

@@ -51,28 +51,31 @@ pub use kernel::zstd_kernel_prepare;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PinnedPoolStats;
 pub use pinned::PooledPinnedBuffer;
+pub use pooled_read_at::PooledByteBufferReadAt;
 pub use pooled_read_at::PooledFileReadAt;
 pub use pooled_read_at::PooledObjectStoreReadAt;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
 pub use stream::VortexCudaStream;
 pub use stream_pool::VortexCudaStreamPool;
-use vortex::array::arrays::ConstantVTable;
-use vortex::array::arrays::DictVTable;
-use vortex::array::arrays::FilterVTable;
-use vortex::array::arrays::SharedVTable;
-use vortex::array::arrays::SliceVTable;
-use vortex::encodings::alp::ALPVTable;
-use vortex::encodings::datetime_parts::DateTimePartsVTable;
-use vortex::encodings::decimal_byte_parts::DecimalBytePartsVTable;
-use vortex::encodings::fastlanes::BitPackedVTable;
-use vortex::encodings::fastlanes::FoRVTable;
-use vortex::encodings::runend::RunEndVTable;
-use vortex::encodings::sequence::SequenceVTable;
-use vortex::encodings::zigzag::ZigZagVTable;
+use vortex::array::arrays::Constant;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::Filter;
+use vortex::array::arrays::Shared;
+use vortex::array::arrays::Slice;
+use vortex::encodings::alp::ALP;
+use vortex::encodings::datetime_parts::DateTimeParts;
+use vortex::encodings::decimal_byte_parts::DecimalByteParts;
+use vortex::encodings::fastlanes::BitPacked;
+use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::runend::RunEnd;
+use vortex::encodings::sequence::Sequence;
+use vortex::encodings::zigzag::ZigZag;
+use vortex::encodings::zstd::Zstd;
 #[cfg(feature = "unstable_encodings")]
-use vortex::encodings::zstd::ZstdBuffersVTable;
-use vortex::encodings::zstd::ZstdVTable;
+use vortex::encodings::zstd::ZstdBuffers;
+#[cfg(test)]
+use vortex_cuda_macros::test;
 pub use vortex_nvcomp as nvcomp;
 
 use crate::kernel::SequenceExecutor;
@@ -89,22 +92,22 @@ pub fn cuda_available() -> bool {
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
     info!("Registering CUDA kernels");
-    session.register_kernel(ALPVTable::ID, &ALPExecutor);
-    session.register_kernel(BitPackedVTable::ID, &BitPackedExecutor);
-    session.register_kernel(ConstantVTable::ID, &ConstantNumericExecutor);
-    session.register_kernel(DateTimePartsVTable::ID, &DateTimePartsExecutor);
-    session.register_kernel(DecimalBytePartsVTable::ID, &DecimalBytePartsExecutor);
-    session.register_kernel(DictVTable::ID, &DictExecutor);
-    session.register_kernel(SharedVTable::ID, &SharedExecutor);
-    session.register_kernel(FoRVTable::ID, &FoRExecutor);
-    session.register_kernel(RunEndVTable::ID, &RunEndExecutor);
-    session.register_kernel(SequenceVTable::ID, &SequenceExecutor);
-    session.register_kernel(ZigZagVTable::ID, &ZigZagExecutor);
-    session.register_kernel(ZstdVTable::ID, &ZstdExecutor);
+    session.register_kernel(ALP::ID, &ALPExecutor);
+    session.register_kernel(BitPacked::ID, &BitPackedExecutor);
+    session.register_kernel(Constant::ID, &ConstantNumericExecutor);
+    session.register_kernel(DateTimeParts::ID, &DateTimePartsExecutor);
+    session.register_kernel(DecimalByteParts::ID, &DecimalBytePartsExecutor);
+    session.register_kernel(Dict::ID, &DictExecutor);
+    session.register_kernel(Shared::ID, &SharedExecutor);
+    session.register_kernel(FoR::ID, &FoRExecutor);
+    session.register_kernel(RunEnd::ID, &RunEndExecutor);
+    session.register_kernel(Sequence::ID, &SequenceExecutor);
+    session.register_kernel(ZigZag::ID, &ZigZagExecutor);
+    session.register_kernel(Zstd::ID, &ZstdExecutor);
     #[cfg(feature = "unstable_encodings")]
-    session.register_kernel(ZstdBuffersVTable::ID, &ZstdBuffersExecutor);
+    session.register_kernel(ZstdBuffers::ID, &ZstdBuffersExecutor);
 
     // Operation kernels
-    session.register_kernel(FilterVTable::ID, &FilterExecutor);
-    session.register_kernel(SliceVTable::ID, &SliceExecutor);
+    session.register_kernel(Filter::ID, &FilterExecutor);
+    session.register_kernel(Slice::ID, &SliceExecutor);
 }

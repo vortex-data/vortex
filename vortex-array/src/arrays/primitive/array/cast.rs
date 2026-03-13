@@ -6,6 +6,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
@@ -66,7 +67,7 @@ impl PrimitiveArray {
             return Ok(self.clone());
         }
 
-        let Some(min_max) = min_max(&self.to_array())? else {
+        let Some(min_max) = min_max(&self.clone().into_array())? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 self.validity.clone(),
@@ -94,21 +95,24 @@ impl PrimitiveArray {
             // Signed
             if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
                 return Ok(self
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .cast(DType::Primitive(PType::I8, self.dtype().nullability()))?
                     .to_primitive());
             }
 
             if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
                 return Ok(self
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .cast(DType::Primitive(PType::I16, self.dtype().nullability()))?
                     .to_primitive());
             }
 
             if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
                 return Ok(self
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .cast(DType::Primitive(PType::I32, self.dtype().nullability()))?
                     .to_primitive());
             }
@@ -116,21 +120,24 @@ impl PrimitiveArray {
             // Unsigned
             if max <= u8::MAX as i64 {
                 return Ok(self
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .cast(DType::Primitive(PType::U8, self.dtype().nullability()))?
                     .to_primitive());
             }
 
             if max <= u16::MAX as i64 {
                 return Ok(self
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .cast(DType::Primitive(PType::U16, self.dtype().nullability()))?
                     .to_primitive());
             }
 
             if max <= u32::MAX as i64 {
                 return Ok(self
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .cast(DType::Primitive(PType::U32, self.dtype().nullability()))?
                     .to_primitive());
             }
@@ -164,7 +171,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
-        assert_eq!(result.validity, Validity::AllInvalid);
+        assert!(matches!(result.validity, Validity::AllInvalid));
     }
 
     #[rstest]
@@ -247,7 +254,7 @@ mod tests {
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
         let result2 = array2.narrow().unwrap();
         // Empty arrays should not have their validity changed
-        assert_eq!(result.validity, Validity::AllInvalid);
-        assert_eq!(result2.validity, Validity::NonNullable);
+        assert!(matches!(result.validity, Validity::AllInvalid));
+        assert!(matches!(result2.validity, Validity::NonNullable));
     }
 }

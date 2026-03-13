@@ -5,7 +5,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructArrayParts;
+use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 
@@ -45,7 +45,11 @@ pub(crate) fn new_exporter(
         .map(|child| {
             if validity.to_bit_buffer().true_count() != validity.len() {
                 // TODO(joe): use new mask.
-                new_array_exporter(child.clone().mask(validity.to_array())?, cache, ctx)
+                new_array_exporter(
+                    child.clone().mask(validity.clone().into_array())?,
+                    cache,
+                    ctx,
+                )
             } else {
                 new_array_exporter(child.clone().into_array(), cache, ctx)
             }

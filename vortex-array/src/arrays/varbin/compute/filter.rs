@@ -15,9 +15,9 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinVTable;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinArray;
 use crate::arrays::filter::FilterKernel;
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -25,7 +25,7 @@ use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl FilterKernel for VarBinVTable {
+impl FilterKernel for VarBin {
     fn filter(
         array: &VarBinArray,
         mask: &Mask,
@@ -209,7 +209,7 @@ mod test {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::VarBinArray;
     use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_index;
     use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_slice;
     use crate::assert_arrays_eq;
@@ -355,12 +355,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(NonNullable),
         );
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullable),
         );
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
     }
 }

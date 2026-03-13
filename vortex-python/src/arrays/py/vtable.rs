@@ -4,12 +4,12 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use pyo3::Python;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::ExecutionStep;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
@@ -36,9 +36,9 @@ vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.
 #[derive(Debug)]
-pub struct PythonVTable;
+pub struct Python;
 
-impl VTable for PythonVTable {
+impl VTable for Python {
     type Array = PythonArray;
 
     type Metadata = RawMetadata;
@@ -100,7 +100,7 @@ impl VTable for PythonVTable {
     }
 
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
-        Python::attach(|py| {
+        pyo3::Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj
                 .hasattr(intern!(py, "metadata"))
@@ -155,18 +155,18 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         todo!()
     }
 }
 
-impl OperationsVTable<PythonVTable> for PythonVTable {
+impl OperationsVTable<Python> for Python {
     fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
         todo!()
     }
 }
 
-impl ValidityVTable<PythonVTable> for PythonVTable {
+impl ValidityVTable<Python> for Python {
     fn validity(_array: &PythonArray) -> VortexResult<Validity> {
         todo!()
     }

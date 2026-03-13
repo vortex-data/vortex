@@ -6,10 +6,9 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
@@ -25,8 +24,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use crate::Sequence;
 use crate::SequenceArray;
-use crate::SequenceVTable;
 
 fn take_inner<T: IntegerPType, S: NativePType>(
     mul: S,
@@ -73,14 +72,14 @@ fn take_inner<T: IntegerPType, S: NativePType>(
     }
 }
 
-impl TakeExecute for SequenceVTable {
+impl TakeExecute for Sequence {
     fn take(
         array: &SequenceArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let mask = indices.validity_mask()?;
-        let indices = indices.to_primitive();
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 
         match_each_integer_ptype!(indices.ptype(), |T| {
@@ -105,8 +104,10 @@ impl TakeExecute for SequenceVTable {
 mod test {
     use rstest::rstest;
     use vortex_array::Canonical;
+    use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::Nullability;
 
     use crate::SequenceArray;
@@ -162,16 +163,16 @@ mod test {
     ).unwrap())]
     fn test_take_conformance(#[case] sequence: SequenceArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(&sequence.to_array());
+        test_take_conformance(&sequence.into_array());
     }
 
     #[test]
     #[should_panic(expected = "out of bounds")]
     fn test_bounds_check() {
         let array = SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
-        let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);
+        let indices = PrimitiveArray::from_iter([0i32, 20]);
         let _array = array
-            .take(indices.to_array())
+            .take(indices.into_array())
             .unwrap()
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();

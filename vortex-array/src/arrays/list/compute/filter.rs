@@ -17,9 +17,9 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::FilterKernel;
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
+use crate::arrays::filter::FilterKernel;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
@@ -92,7 +92,7 @@ fn process_element_range(
     }
 }
 
-impl FilterKernel for ListVTable {
+impl FilterKernel for List {
     fn filter(
         array: &ListArray,
         mask: &Mask,

@@ -228,8 +228,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::array::DynArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

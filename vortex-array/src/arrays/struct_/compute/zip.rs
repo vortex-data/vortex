@@ -9,21 +9,22 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl ZipKernel for StructVTable {
+impl ZipKernel for Struct {
     fn zip(
         if_true: &StructArray,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<StructVTable>() else {
+        let Some(if_false) = if_false.as_opt::<Struct>() else {
             return Ok(None);
         };
         assert_eq!(
@@ -46,8 +47,8 @@ impl ZipKernel for StructVTable {
 
             (v1, v2) => {
                 let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;
-                let v1m = v1.to_mask(if_true.len());
-                let v2m = v2.to_mask(if_false.len());
+                let v1m = v1.execute_mask(if_true.len(), ctx)?;
+                let v2m = v2.execute_mask(if_false.len(), ctx)?;
 
                 let combined = (v1m.bitand(&mask_mask)).bitor(&v2m.bitand(&mask_mask.not()));
                 Validity::from_mask(
@@ -59,7 +60,7 @@ impl ZipKernel for StructVTable {
 
         Ok(Some(
             StructArray::try_new(if_true.names().clone(), fields, if_true.len(), validity)?
-                .to_array(),
+                .into_array(),
         ))
     }
 }

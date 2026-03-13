@@ -3,10 +3,36 @@
 
 # Tests the _schema_for_substrait workaround in vortex/arrow/expression.py
 
+from typing import TYPE_CHECKING, Literal, TypeAlias
+
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 from vortex.arrow.expression import _schema_for_substrait, arrow_to_vortex  # pyright: ignore[reportPrivateUsage]
+
+import vortex as vx
+import vortex.expr as ve
+from vortex import substrait as vx_substrait
+
+if TYPE_CHECKING:
+    from substrait.algebra_pb2 import Expression
+    from substrait.type_pb2 import Type
+else:
+    try:
+        from substrait.algebra_pb2 import Expression
+        from substrait.type_pb2 import Type
+    except ImportError:
+        from substrait.gen.proto.algebra_pb2 import Expression
+        from substrait.gen.proto.type_pb2 import Type
+
+UIntWidth: TypeAlias = Literal[8, 16, 32, 64]
+UnsignedNullCase: TypeAlias = tuple[pa.DataType, UIntWidth]
+UNSIGNED_NULL_CASES: list[UnsignedNullCase] = [
+    (pa.uint8(), 8),
+    (pa.uint16(), 16),
+    (pa.uint32(), 32),
+    (pa.uint64(), 64),
+]
 
 
 class TestSchemaForSubstrait:
@@ -100,3 +126,29 @@ class TestArrowToVortexWithViews:
         expr = pc.field("col") == value  # pyright: ignore[reportUnknownVariableType]
         vortex_expr = arrow_to_vortex(expr, schema)  # pyright: ignore[reportUnknownArgumentType]
         assert vortex_expr is not None
+
+    def test_null_literal_expression(self):
+        schema = pa.schema([("id", pa.int64())])
+        expr = pc.field("id") == pa.scalar(None, type=pa.int64())
+        vortex_expr = arrow_to_vortex(expr, schema)
+        assert vortex_expr is not None
+
+    @pytest.mark.parametrize(("arrow_type", "width"), UNSIGNED_NULL_CASES)
+    def test_unsigned_null_literal_expression(self, arrow_type: pa.DataType, width: UIntWidth):
+        schema = pa.schema([("u", arrow_type)])
+        expr = pc.field("u") == pa.scalar(None, type=arrow_type)
+
+        actual = arrow_to_vortex(expr, schema)
+        expected = ve.column("u") == ve.literal(vx.uint(width, nullable=True), None)
+
+        assert str(actual) == str(expected)
+
+
+def test_substrait_typed_null_literal():
+    literal: Expression.Literal = Expression.Literal()
+    literal.null.i64.nullability = Type.NULLABILITY_NULLABLE
+
+    actual = vx_substrait.literal(literal)
+    expected = ve.literal(vx.int_(64, nullable=True), None)
+
+    assert str(actual) == str(expected)

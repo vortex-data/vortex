@@ -8,6 +8,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -61,7 +62,7 @@ pub struct BitPackedMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
-impl VTable for BitPackedVTable {
+impl VTable for BitPacked {
     type Array = BitPackedArray;
 
     type Metadata = ProstMetadata<BitPackedMetadata>;
@@ -353,8 +354,8 @@ impl VTable for BitPackedVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(unpack_array(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(unpack_array(array, ctx)?.into_array()))
     }
 
     fn execute_parent(
@@ -368,8 +369,8 @@ impl VTable for BitPackedVTable {
 }
 
 #[derive(Debug)]
-pub struct BitPackedVTable;
+pub struct BitPacked;
 
-impl BitPackedVTable {
+impl BitPacked {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
 }

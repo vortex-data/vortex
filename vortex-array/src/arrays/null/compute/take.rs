@@ -7,14 +7,14 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::Null;
 use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
-use crate::arrays::TakeReduce;
-use crate::arrays::TakeReduceAdaptor;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::dict::TakeReduceAdaptor;
 use crate::match_each_integer_ptype;
 use crate::optimizer::rules::ParentRuleSet;
 
-impl TakeReduce for NullVTable {
+impl TakeReduce for Null {
     #[allow(clippy::cast_possible_truncation)]
     fn take(array: &NullArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
@@ -32,7 +32,7 @@ impl TakeReduce for NullVTable {
     }
 }
 
-impl NullVTable {
+impl Null {
     pub const TAKE_RULES: ParentRuleSet<Self> =
         ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
 }

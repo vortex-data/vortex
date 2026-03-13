@@ -4,12 +4,12 @@
 use vortex_error::VortexResult;
 
 use crate::DynArray;
-use crate::arrays::struct_::StructArray;
-use crate::arrays::struct_::StructVTable;
+use crate::arrays::Struct;
+use crate::arrays::StructArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<StructVTable> for StructVTable {
+impl OperationsVTable<Struct> for Struct {
     fn scalar_at(array: &StructArray, index: usize) -> VortexResult<Scalar> {
         let field_scalars: VortexResult<Vec<Scalar>> = array
             .unmasked_fields()

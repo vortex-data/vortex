@@ -17,9 +17,9 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::TakeExecute;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -80,7 +80,7 @@ impl TakeImpl for TakeKernelScalar {
     }
 }
 
-impl TakeExecute for PrimitiveVTable {
+impl TakeExecute for Primitive {
     fn take(
         array: &PrimitiveArray,
         indices: &ArrayRef,
@@ -100,7 +100,9 @@ impl TakeExecute for PrimitiveVTable {
                 .execute::<PrimitiveArray>(ctx)?
         };
 
-        let validity = array.validity().take(&unsigned_indices.to_array())?;
+        let validity = array
+            .validity()
+            .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
         PRIMITIVE_TAKE_KERNEL
             .take(array, &unsigned_indices, validity)
@@ -166,7 +168,7 @@ mod test {
             buffer![0, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = values.take(indices.to_array()).unwrap();
+        let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
             actual.scalar_at(0).vortex_expect("no fail"),
             Scalar::from(Some(1))
@@ -195,6 +197,6 @@ mod test {
     ))]
     #[case(PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]))]
     fn test_take_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }

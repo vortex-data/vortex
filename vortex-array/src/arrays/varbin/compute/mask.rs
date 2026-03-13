@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::VarBinVTable;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for VarBinVTable {
+impl MaskReduce for VarBin {
     fn mask(array: &VarBinArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             VarBinArray::try_new(
@@ -30,6 +30,7 @@ impl MaskReduce for VarBinVTable {
 
 #[cfg(test)]
 mod test {
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;
@@ -41,12 +42,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(Nullability::NonNullable),
         );
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullability::Nullable),
         );
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
     }
 }

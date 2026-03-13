@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for VarBinViewVTable {
+impl MaskReduce for VarBinView {
     fn mask(array: &VarBinViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         unsafe {
@@ -33,13 +33,14 @@ impl MaskReduce for VarBinViewVTable {
 
 #[cfg(test)]
 mod tests {
+    use crate::IntoArray;
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
     #[test]
     fn take_mask_var_bin_view_array() {
         test_mask_conformance(
-            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).to_array(),
+            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
         );
 
         test_mask_conformance(
@@ -50,7 +51,7 @@ mod tests {
                 Some("four"),
                 Some("five"),
             ])
-            .to_array(),
+            .into_array(),
         );
     }
 }

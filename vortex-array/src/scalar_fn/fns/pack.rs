@@ -170,12 +170,12 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::expr::col;
     use crate::expr::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -231,18 +231,18 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert_eq!(actual_array.validity(), &Validity::NonNullable);
+        assert!(matches!(actual_array.validity(), Validity::NonNullable));
 
         assert_arrays_eq!(
-            primitive_field(&actual_array.to_array(), &["one"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.to_array(), &["two"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.to_array(), &["three"]).unwrap(),
+            primitive_field(&actual_array.into_array(), &["three"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
     }
@@ -272,19 +272,19 @@ mod tests {
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
         assert_arrays_eq!(
-            primitive_field(&actual_array.to_array(), &["one"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.to_array(), &["two", "two_one"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["two", "two_one"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.to_array(), &["two", "two_two"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["two", "two_two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.to_array(), &["three"]).unwrap(),
+            primitive_field(&actual_array.into_array(), &["three"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
     }
@@ -302,7 +302,7 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert_eq!(actual_array.validity(), &Validity::AllValid);
+        assert!(matches!(actual_array.validity(), Validity::AllValid));
     }
 
     #[test]

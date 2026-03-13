@@ -9,6 +9,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -47,7 +48,7 @@ pub struct DeltaMetadata {
     offset: u32, // must be <1024
 }
 
-impl VTable for DeltaVTable {
+impl VTable for Delta {
     type Array = DeltaArray;
 
     type Metadata = ProstMetadata<DeltaMetadata>;
@@ -189,15 +190,17 @@ impl VTable for DeltaVTable {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(delta_decompress(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            delta_decompress(array, ctx)?.into_array(),
+        ))
     }
 }
 
 #[derive(Debug)]
-pub struct DeltaVTable;
+pub struct Delta;
 
-impl DeltaVTable {
+impl Delta {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
 }
 

@@ -34,13 +34,10 @@ env:
 jobs:
   minimize:
     name: "Minimize ${{ inputs.fuzz_target }}"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=${{ inputs.family }}
-      - image=${{ inputs.image }}
-      - disk=large
-      - extras=s3-cache
-      - tag=${{ inputs.fuzz_target }}-minimize
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-medium/disk=large/tag={1}-minimize', github.run_id, inputs.fuzz_target)
+          || 'ubuntu-latest' }}
     steps:
       - name: Bail if not on develop
         if: github.ref != 'refs/heads/develop'
@@ -49,6 +46,7 @@ jobs:
           exit 1
 
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
 
@@ -60,7 +58,7 @@ jobs:
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
 
       - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
         with:
           tool: cargo-fuzz
 

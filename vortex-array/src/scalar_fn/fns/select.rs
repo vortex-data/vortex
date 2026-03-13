@@ -307,7 +307,6 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
@@ -320,6 +319,7 @@ mod tests {
     use crate::expr::select_exclude;
     use crate::expr::test_harness;
     use crate::scalar_fn::fns::select::Select;
+    use crate::scalar_fn::fns::select::StructArray;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -333,7 +333,7 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        let selected = st.to_array().apply(&select).unwrap().to_struct();
+        let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
     }
@@ -342,7 +342,7 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        let selected = st.to_array().apply(&select).unwrap().to_struct();
+        let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);
     }

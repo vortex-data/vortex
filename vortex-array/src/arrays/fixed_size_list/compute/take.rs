@@ -10,10 +10,10 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
+use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
@@ -25,7 +25,7 @@ use crate::vtable::ValidityHelper;
 /// Unlike `ListView`, `FixedSizeListArray` must rebuild the elements array because it requires
 /// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
 /// into element indices and push them down to the child elements array.
-impl TakeExecute for FixedSizeListVTable {
+impl TakeExecute for FixedSizeList {
     fn take(
         array: &FixedSizeListArray,
         indices: &ArrayRef,
@@ -115,7 +115,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = array.elements().take(elements_indices_array.to_array())?;
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // Both inputs are non-nullable, so the result is non-nullable.
@@ -182,7 +182,7 @@ fn take_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = array.elements().take(elements_indices_array.to_array())?;
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // At least one input was nullable, so the result is nullable.

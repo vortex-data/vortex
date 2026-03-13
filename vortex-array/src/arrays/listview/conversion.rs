@@ -16,9 +16,9 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -261,10 +261,11 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
             }
         }
         Canonical::Extension(ext_array) => {
-            let converted_storage = recursive_list_from_list_view(ext_array.storage().clone())?;
+            let converted_storage =
+                recursive_list_from_list_view(ext_array.storage_array().clone())?;
 
             // Avoid cloning if elements didn't change.
-            if !Arc::ptr_eq(&converted_storage, ext_array.storage()) {
+            if !Arc::ptr_eq(&converted_storage, ext_array.storage_array()) {
                 ExtensionArray::new(ext_array.ext_dtype().clone(), converted_storage).into_array()
             } else {
                 ext_array.into_array()
@@ -286,8 +287,10 @@ mod tests {
     use super::super::tests::common::create_nullable_listview;
     use super::super::tests::common::create_overlapping_listview;
     use super::recursive_list_from_list_view;
+    use crate::ArrayEq;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::Precision;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeListArray;
@@ -295,8 +298,9 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
-    use crate::arrays::list_from_list_view;
-    use crate::arrays::list_view_from_list;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::listview::list_from_list_view;
+    use crate::arrays::listview::list_view_from_list;
     use crate::assert_arrays_eq;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
@@ -308,7 +312,7 @@ mod tests {
         let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
         let offsets = buffer![0u32, 3, 5, 7, 10].into_array();
         let list_array =
-            ListArray::try_new(elements.clone(), offsets.clone(), Validity::NonNullable).unwrap();
+            ListArray::try_new(elements.clone(), offsets.clone(), Validity::NonNullable)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list_view = list_view_from_list(list_array.clone(), &mut ctx)?;
@@ -354,8 +358,7 @@ mod tests {
         let empty_elements = PrimitiveArray::from_iter::<[i32; 0]>([]).into_array();
         let empty_offsets = buffer![0u32].into_array();
         let empty_list =
-            ListArray::try_new(empty_elements.clone(), empty_offsets, Validity::NonNullable)
-                .unwrap();
+            ListArray::try_new(empty_elements.clone(), empty_offsets, Validity::NonNullable)?;
 
         // This conversion will create an empty ListViewArray.
         // Note: list_view_from_list handles the empty case specially.
@@ -379,13 +382,17 @@ mod tests {
         let offsets = buffer![0u32, 2, 4, 5].into_array();
         let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
         let nullable_list =
-            ListArray::try_new(elements.clone(), offsets.clone(), validity.clone()).unwrap();
+            ListArray::try_new(elements.clone(), offsets.clone(), validity.clone())?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let nullable_list_view = list_view_from_list(nullable_list.clone(), &mut ctx)?;
 
         // Verify validity is preserved.
-        assert_eq!(nullable_list_view.validity(), &validity);
+        assert!(
+            nullable_list_view
+                .validity()
+                .array_eq(&validity, Precision::Ptr)
+        );
         assert_eq!(nullable_list_view.len(), 3);
 
         // Round-trip conversion.
@@ -438,8 +445,7 @@ mod tests {
         let elements = buffer![1i32, 2, 3, 4, 5].into_array();
         let i32_offsets = buffer![0i32, 2, 5].into_array();
         let list_i32 =
-            ListArray::try_new(elements.clone(), i32_offsets.clone(), Validity::NonNullable)
-                .unwrap();
+            ListArray::try_new(elements.clone(), i32_offsets.clone(), Validity::NonNullable)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list_view_i32 = list_view_from_list(list_i32.clone(), &mut ctx)?;
@@ -449,8 +455,7 @@ mod tests {
         // Test with i64 offsets.
         let i64_offsets = buffer![0i64, 2, 5].into_array();
         let list_i64 =
-            ListArray::try_new(elements.clone(), i64_offsets.clone(), Validity::NonNullable)
-                .unwrap();
+            ListArray::try_new(elements.clone(), i64_offsets.clone(), Validity::NonNullable)?;
 
         let list_view_i64 = list_view_from_list(list_i64.clone(), &mut ctx)?;
         assert_eq!(list_view_i64.offsets().dtype(), i64_offsets.dtype());
@@ -493,7 +498,7 @@ mod tests {
         let elements = buffer![100i32, 200, 300].into_array();
         let offsets = buffer![0u32, 1, 2, 3].into_array();
         let single_elem_list =
-            ListArray::try_new(elements.clone(), offsets, Validity::NonNullable).unwrap();
+            ListArray::try_new(elements.clone(), offsets, Validity::NonNullable)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list_view = list_view_from_list(single_elem_list.clone(), &mut ctx)?;
@@ -515,7 +520,7 @@ mod tests {
         let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let offsets = buffer![0u32, 2, 2, 3, 3, 6].into_array();
         let mixed_list =
-            ListArray::try_new(elements.clone(), offsets.clone(), Validity::NonNullable).unwrap();
+            ListArray::try_new(elements.clone(), offsets.clone(), Validity::NonNullable)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list_view = list_view_from_list(mixed_list.clone(), &mut ctx)?;
@@ -585,8 +590,7 @@ mod tests {
             vec![listview_field, primitive_field],
             4,
             Validity::NonNullable,
-        )
-        .unwrap();
+        )?;
 
         let result = recursive_list_from_list_view(struct_array.clone().into_array())?;
 
@@ -625,8 +629,7 @@ mod tests {
 
         let dtype = lv1.dtype().clone();
         let chunked_listviews =
-            crate::arrays::ChunkedArray::try_new(vec![lv1.into_array(), lv2.into_array()], dtype)
-                .unwrap();
+            crate::arrays::ChunkedArray::try_new(vec![lv1.into_array(), lv2.into_array()], dtype)?;
 
         let fixed_list =
             FixedSizeListArray::new(chunked_listviews.into_array(), 1, Validity::NonNullable, 2);
@@ -658,8 +661,7 @@ mod tests {
             vec![innermost_listview.into_array()],
             2,
             Validity::NonNullable,
-        )
-        .unwrap();
+        )?;
 
         let outer_offsets = buffer![0u32, 1].into_array();
         let outer_sizes = buffer![1u32, 1].into_array();
@@ -700,13 +702,32 @@ mod tests {
             vec![listview.into_array(), list.into_array()],
             4,
             Validity::NonNullable,
-        )
-        .unwrap();
+        )?;
 
         let result = recursive_list_from_list_view(struct_array.clone().into_array())?;
 
         assert_eq!(result.len(), 4);
         assert_arrays_eq!(struct_array.into_array(), result);
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/6882>.
+    ///
+    /// An empty `ListViewArray` constructed via `try_new` has `is_zero_copy_to_list: false`.
+    /// `list_from_list_view` should still succeed because empty arrays are trivially
+    /// zero-copyable.
+    #[test]
+    fn test_empty_listview_to_list_without_zctl_flag() -> VortexResult<()> {
+        let elements = VarBinViewArray::from_iter_str(Vec::<&str>::new()).into_array();
+        let offsets = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();
+        let sizes = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();
+        let list_view = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)?;
+
+        // `try_new` sets `is_zero_copy_to_list: false`.
+        assert!(!list_view.is_zero_copy_to_list());
+
+        let list_array = list_from_list_view(list_view)?;
+        assert_eq!(list_array.len(), 0);
         Ok(())
     }
 }

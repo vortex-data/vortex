@@ -99,7 +99,7 @@ impl ArrayBuilder for ExtensionBuilder {
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let ext_array = array.to_extension();
-        self.storage.extend_from_array(ext_array.storage())
+        self.storage.extend_from_array(ext_array.storage_array())
     }
 
     fn reserve_exact(&mut self, capacity: usize) {

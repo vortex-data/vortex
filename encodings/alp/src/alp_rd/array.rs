@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -63,7 +64,7 @@ pub struct ALPRDMetadata {
     patches: Option<PatchesMetadata>,
 }
 
-impl VTable for ALPRDVTable {
+impl VTable for ALPRD {
     type Array = ALPRDArray;
 
     type Metadata = ProstMetadata<ALPRDMetadata>;
@@ -295,7 +296,7 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
         let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -334,7 +335,7 @@ impl VTable for ALPRDVTable {
             )
         };
 
-        Ok(decoded_array.into_array())
+        Ok(ExecutionStep::Done(decoded_array.into_array()))
     }
 
     fn reduce_parent(
@@ -367,9 +368,9 @@ pub struct ALPRDArray {
 }
 
 #[derive(Debug)]
-pub struct ALPRDVTable;
+pub struct ALPRD;
 
-impl ALPRDVTable {
+impl ALPRD {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
 }
 
@@ -502,7 +503,7 @@ impl ALPRDArray {
     }
 }
 
-impl ValidityChild<ALPRDVTable> for ALPRDVTable {
+impl ValidityChild<ALPRD> for ALPRD {
     fn validity_child(array: &ALPRDArray) -> &ArrayRef {
         array.left_parts()
     }

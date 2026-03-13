@@ -22,7 +22,7 @@ use vortex::array::DynArray;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::ConstantVTable;
+use vortex::array::arrays::Constant;
 use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
@@ -64,6 +64,7 @@ use vortex::scalar::ScalarTruncation;
 use vortex::scalar::lower_bound;
 use vortex::scalar::upper_bound;
 use vortex::session::VortexSession;
+use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
 
 /// A buffer inlined into layout metadata for host-side access.
@@ -94,7 +95,7 @@ pub struct CudaFlatLayout {
     row_count: u64,
     dtype: DType,
     segment_id: SegmentId,
-    ctx: ArrayContext,
+    ctx: ReadContext,
     array_tree: ByteBuffer,
     /// Small buffers kept on host, keyed by global buffer index.
     host_buffers: Arc<HashMap<u32, ByteBuffer>>,
@@ -107,7 +108,7 @@ impl CudaFlatLayout {
     }
 
     #[inline]
-    pub fn array_ctx(&self) -> &ArrayContext {
+    pub fn array_ctx(&self) -> &ReadContext {
         &self.ctx
     }
 
@@ -122,7 +123,7 @@ impl CudaFlatLayout {
     }
 }
 
-impl VTable for CudaFlatVTable {
+impl VTable for CudaFlat {
     type Layout = CudaFlatLayout;
     type Encoding = CudaFlatLayoutEncoding;
     type Metadata = ProstMetadata<CudaFlatLayoutMetadata>;
@@ -195,7 +196,7 @@ impl VTable for CudaFlatVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
-        ctx: &ArrayContext,
+        ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("CudaFlatLayout must have exactly one segment ID");
@@ -535,7 +536,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             row_count,
             dtype: stream.dtype().clone(),
             segment_id,
-            ctx: ctx.clone(),
+            ctx: ReadContext::new(ctx.to_ids()),
             array_tree,
             host_buffers: Arc::new(host_buffer_map),
         }
@@ -551,7 +552,7 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     let mut buffer_idx = 0u32;
     for array in chunk.depth_first_traversal() {
         let n = array.nbuffers();
-        if array.encoding_id() == ConstantVTable::ID {
+        if array.encoding_id() == Constant::ID {
             for buf in array.buffers() {
                 result.push(InlinedBuffer {
                     buffer_index: buffer_idx,

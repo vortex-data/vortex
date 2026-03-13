@@ -11,15 +11,15 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for PrimitiveVTable {
+impl CastKernel for Primitive {
     fn cast(
         array: &PrimitiveArray,
         dtype: &DType,
@@ -115,6 +115,7 @@ mod test {
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn cast_u32_u8() {
         let arr = buffer![0u32, 10, 200].into_array();
@@ -122,11 +123,11 @@ mod test {
         // cast from u32 to u8
         let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
 
         // to nullable
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
             .to_primitive();
@@ -134,20 +135,20 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid)
         );
-        assert_eq!(p.validity(), &Validity::AllValid);
+        assert!(matches!(p.validity(), Validity::AllValid));
 
         // back to non-nullable
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
 
         // to nullable u32
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
             .to_primitive();
@@ -155,16 +156,16 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid)
         );
-        assert_eq!(p.validity(), &Validity::AllValid);
+        assert!(matches!(p.validity(), Validity::AllValid));
 
         // to non-nullable u8
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
     }
 
     #[test]
@@ -189,7 +190,7 @@ mod test {
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
         let err = arr
-            .to_array()
+            .into_array()
             .cast(PType::I32.into())
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
             .unwrap_err();
@@ -208,7 +209,7 @@ mod test {
             Validity::from_iter([false, true, true]),
         );
         let p = arr
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
             .to_primitive();

@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/common/insertion_order_preserving_map.hpp"
+#include "duckdb/function/table_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
-#include "duckdb/function/table_function.hpp"
-#include "duckdb/common/insertion_order_preserving_map.hpp"
+#include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+DUCKDB_INCLUDES_END
 
 #include "duckdb_vx.h"
-#include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "duckdb_vx/data.hpp"
 #include "duckdb_vx/error.hpp"
 
@@ -180,8 +184,8 @@ void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &ou
     }
 }
 
-void c_pushdown_complex_filter(ClientContext &context,
-                               LogicalGet &get,
+void c_pushdown_complex_filter(ClientContext & /*context*/,
+                               LogicalGet & /*get*/,
                                FunctionData *bind_data,
                                vector<unique_ptr<Expression>> &filters) {
     if (filters.empty()) {
@@ -200,22 +204,18 @@ void c_pushdown_complex_filter(ClientContext &context,
             throw BinderException(IntoErrString(error_out));
         }
 
-        if (pushed) {
-            // If the pushdown complex filter returns true, we can remove the filter from the list.
-            iter = filters.erase(iter);
-        } else {
-            ++iter;
-        }
+        // If the pushdown complex filter returns true, we can remove the filter from the list.
+        iter = pushed ? filters.erase(iter) : std::next(iter);
     }
 }
 
-unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionData *bind_data) {
+unique_ptr<NodeStatistics> c_cardinality(ClientContext & /*context*/, const FunctionData *bind_data) {
     auto &bind = bind_data->Cast<CTableBindData>();
 
     duckdb_vx_node_statistics node_stats_out = {
         .estimated_cardinality = 0,
-        .has_estimated_cardinality = false,
         .max_cardinality = 0,
+        .has_estimated_cardinality = false,
         .has_max_cardinality = false,
     };
     bind.info->vtab.cardinality(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(), &node_stats_out);
@@ -253,11 +253,10 @@ extern "C" duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx
     }
     const auto info = reinterpret_cast<TableFunctionBindInput *>(ffi_input);
 
-    auto t = info->named_parameters.find(name);
-    if (t == info->named_parameters.end()) {
+    if (!info->named_parameters.contains(name)) {
         return nullptr;
     }
-    auto value = duckdb::make_uniq<Value>(t->second);
+    auto value = duckdb::make_uniq<Value>(info->named_parameters.at(name));
     return reinterpret_cast<duckdb_value>(value.release());
 }
 
@@ -275,7 +274,8 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     result->return_types.emplace_back(*logical_type);
 }
 
-virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
+virtual_column_map_t c_get_virtual_columns(ClientContext & /*context*/,
+                                           optional_ptr<FunctionData> bind_data) {
     auto &bind = bind_data->Cast<CTableBindData>();
 
     auto result = virtual_column_map_t();
@@ -301,7 +301,8 @@ extern "C" void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_col
     result->emplace(column_idx, std::move(table_col));
 }
 
-OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunctionGetPartitionInput &input) {
+OperatorPartitionData c_get_partition_data(ClientContext & /*context*/,
+                                           TableFunctionGetPartitionInput &input) {
     if (input.partition_info.RequiresPartitionColumns()) {
         throw InternalException("TableScan::GetPartitionData: partition columns not supported");
     }

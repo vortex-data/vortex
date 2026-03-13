@@ -9,9 +9,10 @@ use super::BetweenOptions;
 use super::precondition;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::ExactScalarFn;
-use crate::arrays::ScalarFnArrayView;
+use crate::IntoArray;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
@@ -67,7 +68,7 @@ where
         let children = scalar_fn_array.children();
         let lower = &children[1];
         let upper = &children[2];
-        let arr = array.to_array();
+        let arr = array.clone().into_array();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }
@@ -102,7 +103,7 @@ where
         let children = scalar_fn_array.children();
         let lower = &children[1];
         let upper = &children[2];
-        let arr = array.to_array();
+        let arr = array.clone().into_array();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }

@@ -16,6 +16,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true, features = ["executor"] }
 tokio = { workspace = true, features = ["macros", "full"] }
 tracing = { workspace = true, features = ["std", "attributes"] }

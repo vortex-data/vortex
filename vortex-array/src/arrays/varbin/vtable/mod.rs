@@ -10,10 +10,11 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -50,7 +51,7 @@ pub struct VarBinMetadata {
     pub(crate) offsets_ptype: i32,
 }
 
-impl VTable for VarBinVTable {
+impl VTable for VarBin {
     type Array = VarBinArray;
 
     type Metadata = ProstMetadata<VarBinMetadata>;
@@ -218,14 +219,16 @@ impl VTable for VarBinVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(varbin_to_canonical(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            varbin_to_canonical(array, ctx)?.into_array(),
+        ))
     }
 }
 
 #[derive(Debug)]
-pub struct VarBinVTable;
+pub struct VarBin;
 
-impl VarBinVTable {
+impl VarBin {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.varbin");
 }

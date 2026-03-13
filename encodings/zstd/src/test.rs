@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
+use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -29,7 +32,8 @@ fn test_zstd_compress_decompress() {
     assert!(compressed.dictionary.is_none());
 
     // check full decompression works
-    let decompressed = compressed.decompress().unwrap();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let decompressed = compressed.decompress(&mut ctx).unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
@@ -64,7 +68,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     validity[177] = true;
     let array = PrimitiveArray::new(
         Buffer::from(data),
-        Validity::Array(BoolArray::from_iter(validity).to_array()),
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
     );
 
     let compressed = ZstdArray::from_primitive(&array, 0, 30).unwrap();
@@ -74,11 +78,17 @@ fn test_zstd_with_validity_and_multi_frame() {
     assert_nth_scalar!(compressed, 10, None::<i32>);
     assert_nth_scalar!(compressed, 177, 177);
 
-    let decompressed = compressed.decompress().unwrap().to_primitive();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let decompressed = compressed.decompress(&mut ctx).unwrap().to_primitive();
     let decompressed_values = decompressed.as_slice::<i32>();
     assert_eq!(decompressed_values[3], 3);
     assert_eq!(decompressed_values[177], 177);
-    assert_eq!(decompressed.validity(), array.validity());
+    assert!(
+        decompressed
+            .validity()
+            .mask_eq(array.validity(), &mut ctx)
+            .unwrap()
+    );
 
     // check slicing works
     let slice = compressed.slice(176..179).unwrap();
@@ -87,9 +97,14 @@ fn test_zstd_with_validity_and_multi_frame() {
         i32::try_from(&primitive.scalar_at(1).unwrap()).unwrap(),
         177
     );
-    assert_eq!(
-        primitive.validity(),
-        &Validity::Array(BoolArray::from_iter(vec![false, true, false]).to_array())
+    assert!(
+        primitive
+            .validity()
+            .mask_eq(
+                &Validity::Array(BoolArray::from_iter(vec![false, true, false]).into_array()),
+                &mut ctx
+            )
+            .unwrap()
     );
 }
 
@@ -106,7 +121,8 @@ fn test_zstd_with_dict() {
     assert_nth_scalar!(compressed, 0, 0);
     assert_nth_scalar!(compressed, 199, 199);
 
-    let decompressed = compressed.decompress().unwrap().to_primitive();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let decompressed = compressed.decompress(&mut ctx).unwrap().to_primitive();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
@@ -120,7 +136,7 @@ fn test_validity_vtable() {
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
         (0..5).collect::<Buffer<_>>(),
-        Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
+        Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
     assert_eq!(
@@ -176,7 +192,9 @@ fn test_zstd_decompress_var_bin_view() {
     assert_nth_scalar!(compressed, 2, None::<String>);
     assert_nth_scalar!(compressed, 3, "Lorem ipsum dolor sit amet");
     assert_nth_scalar!(compressed, 4, "baz");
-    let decompressed = compressed.decompress().unwrap().to_varbinview();
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let decompressed = compressed.decompress(&mut ctx).unwrap().to_varbinview();
     assert_nth_scalar!(decompressed, 0, "foo");
     assert_nth_scalar!(decompressed, 1, "bar");
     assert_nth_scalar!(decompressed, 2, None::<String>);

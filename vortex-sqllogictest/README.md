@@ -6,9 +6,10 @@ Different test files might run in parallel, but within the same file, the file w
 
 ## Running tests
 
-In order to run the tests, the current command is:
+In order to run the tests, you first need to generate TPC-H data (scale factor 0.1), the commands are:
 
 ```shell
+./vortex-sqllogictest/slt/tpch/generate_data.sh
 cargo test -p vortex-sqllogictest --test sqllogictests
 ```
 

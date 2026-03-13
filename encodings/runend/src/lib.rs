@@ -13,6 +13,7 @@ mod array;
 mod arrow;
 pub mod compress;
 mod compute;
+pub mod decompress_bool;
 mod iter;
 mod kernel;
 mod ops;
@@ -30,7 +31,7 @@ use vortex_session::VortexSession;
 
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(RunEndVTable::ID, RunEndVTable);
+    session.arrays().register(RunEnd::ID, RunEnd);
 }
 
 #[cfg(test)]

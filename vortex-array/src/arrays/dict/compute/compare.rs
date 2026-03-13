@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
@@ -16,7 +16,7 @@ use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
-impl CompareKernel for DictVTable {
+impl CompareKernel for Dict {
     fn compare(
         lhs: &DictArray,
         rhs: &ArrayRef,
@@ -31,7 +31,7 @@ impl CompareKernel for DictVTable {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = lhs.values().to_array().binary(
-                ConstantArray::new(rhs, lhs.values().len()).to_array(),
+                ConstantArray::new(rhs, lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;
 

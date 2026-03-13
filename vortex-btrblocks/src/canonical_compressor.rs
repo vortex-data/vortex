@@ -5,9 +5,12 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::CanonicalValidity;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -15,7 +18,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
-use vortex_array::arrays::list_from_list_view;
+use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::compute::Cost;
 use vortex_array::compute::IsConstantOpts;
 use vortex_array::compute::is_constant_opts;
@@ -113,7 +116,11 @@ impl BtrBlocksCompressor {
     /// First canonicalizes and compacts the array, then applies optimal compression schemes.
     pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         // Canonicalize the array
-        let canonical = array.to_canonical()?;
+        // TODO(joe): receive `ctx` and use it.
+        let canonical = array
+            .clone()
+            .execute::<CanonicalValidity>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .0;
 
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
@@ -271,11 +278,11 @@ impl CanonicalCompressor for BtrBlocksCompressor {
             }
             Canonical::Extension(ext_array) => {
                 // We compress Timestamp-level arrays with DateTimeParts compression
-                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
+                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.clone().into_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
                     if is_constant_opts(
-                        &ext_array.to_array(),
+                        &ext_array.clone().into_array(),
                         &IsConstantOpts {
                             cost: Cost::Canonicalize,
                         },
@@ -292,7 +299,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 }
 
                 // Compress the underlying storage array.
-                let compressed_storage = self.compress(ext_array.storage())?;
+                let compressed_storage = self.compress(ext_array.storage_array())?;
 
                 Ok(
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
@@ -320,9 +327,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ListVTable;
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
-    use vortex_array::arrays::ListViewVTable;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -358,9 +365,9 @@ mod tests {
         let array_ref = input.clone().into_array();
         let result = BtrBlocksCompressor::default().compress(&array_ref)?;
         if expect_list {
-            assert!(result.as_opt::<ListVTable>().is_some());
+            assert!(result.as_opt::<List>().is_some());
         } else {
-            assert!(result.as_opt::<ListViewVTable>().is_some());
+            assert!(result.as_opt::<ListView>().is_some());
         }
         assert_arrays_eq!(result, input);
         Ok(())

@@ -8,6 +8,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
@@ -39,7 +40,7 @@ mod validity;
 
 vtable!(FoR);
 
-impl VTable for FoRVTable {
+impl VTable for FoR {
     type Array = FoRArray;
 
     type Metadata = Scalar;
@@ -165,8 +166,8 @@ impl VTable for FoRVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(decompress(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(decompress(array, ctx)?.into_array()))
     }
 
     fn execute_parent(
@@ -180,8 +181,8 @@ impl VTable for FoRVTable {
 }
 
 #[derive(Debug)]
-pub struct FoRVTable;
+pub struct FoR;
 
-impl FoRVTable {
+impl FoR {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
 }

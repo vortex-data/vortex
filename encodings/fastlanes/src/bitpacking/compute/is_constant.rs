@@ -6,9 +6,9 @@ use std::ops::Range;
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::IS_CONST_LANE_WIDTH;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::compute_is_constant;
+use vortex_array::arrays::primitive::IS_CONST_LANE_WIDTH;
+use vortex_array::arrays::primitive::compute_is_constant;
 use vortex_array::compute::IsConstantKernel;
 use vortex_array::compute::IsConstantKernelAdapter;
 use vortex_array::compute::IsConstantOpts;
@@ -18,11 +18,11 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
-use crate::unpack_iter::BitPacked;
+use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
-impl IsConstantKernel for BitPackedVTable {
+impl IsConstantKernel for BitPacked {
     fn is_constant(
         &self,
         array: &BitPackedArray,
@@ -38,9 +38,9 @@ impl IsConstantKernel for BitPackedVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(BitPackedVTable).lift());
+register_kernel!(IsConstantKernelAdapter(BitPacked).lift());
 
-fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
+fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
@@ -131,7 +131,7 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     Ok(true)
 }
 
-fn apply_patches<T: BitPacked>(
+fn apply_patches<T: BitPackedUnpack>(
     values: &mut [T],
     values_range: Range<usize>,
     patch_indices: &PrimitiveArray,
@@ -149,7 +149,7 @@ fn apply_patches<T: BitPacked>(
     });
 }
 
-fn apply_patches_idx_typed<T: BitPacked, I: IntegerPType>(
+fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
     values: &mut [T],
     values_range: Range<usize>,
     patch_indices: &[I],
@@ -178,6 +178,6 @@ mod tests {
     #[test]
     fn is_constant_with_patches() {
         let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
-        assert!(is_constant(&array.to_array()).unwrap().unwrap());
+        assert!(is_constant(&array.into_array()).unwrap().unwrap());
     }
 }

@@ -15,23 +15,22 @@ use tracing::debug;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::BinaryView;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
+use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
 use vortex::encodings::zstd::ZstdArrayParts;
 use vortex::encodings::zstd::ZstdMetadata;
-use vortex::encodings::zstd::ZstdVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::mask::AllOr;
-use vortex_cuda_macros::cuda_tests;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 
@@ -185,7 +184,7 @@ pub(crate) struct ZstdExecutor;
 
 impl ZstdExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
-        array.as_opt::<ZstdVTable>().cloned()
+        array.as_opt::<Zstd>().cloned()
     }
 }
 
@@ -206,7 +205,7 @@ impl CudaExecute for ZstdExecutor {
                     dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
-                zstd.decompress()?.to_canonical()
+                zstd.decompress(ctx.execution_ctx())?.to_canonical()
             }
         }
     }
@@ -314,14 +313,17 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         .await?;
 
     let slice_value_indices = validity
-        .to_mask(n_rows)
+        .execute_mask(n_rows, ctx.execution_ctx())?
         .valid_counts_for_indices(&[slice_start, slice_stop]);
     let slice_value_idx_start = slice_value_indices[0];
     let slice_value_idx_stop = slice_value_indices[1];
 
     let sliced_validity = validity.slice(slice_start..slice_stop)?;
 
-    match sliced_validity.to_mask(slice_stop - slice_start).indices() {
+    match sliced_validity
+        .execute_mask(slice_stop - slice_start, ctx.execution_ctx())?
+        .indices()
+    {
         AllOr::All => {
             let all_views = vortex::encodings::zstd::reconstruct_views(&host_buffer);
             let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
@@ -341,7 +343,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     }
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinViewArray;
@@ -353,7 +355,7 @@ mod tests {
     use super::*;
     use crate::session::CudaSession;
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_decompression_utf8() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -369,7 +371,9 @@ mod tests {
 
         let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 0)?;
 
-        let cpu_result = zstd_array.decompress()?.to_canonical()?;
+        let cpu_result = zstd_array
+            .decompress(cuda_ctx.execution_ctx())?
+            .to_canonical()?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -378,7 +382,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_decompression_multiple_frames() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -404,7 +408,9 @@ mod tests {
         // 14 strings and 3 values per frame = ceil(14/3) = 5 frames.
         let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 3)?;
 
-        let cpu_result = zstd_array.decompress()?.to_canonical()?;
+        let cpu_result = zstd_array
+            .decompress(cuda_ctx.execution_ctx())?
+            .to_canonical()?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -413,7 +419,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_decompression_sliced() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

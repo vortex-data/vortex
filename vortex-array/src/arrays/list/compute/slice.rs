@@ -7,12 +7,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 use crate::vtable::ValidityHelper;
 
-impl SliceReduce for ListVTable {
+impl SliceReduce for List {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ListArray::new(

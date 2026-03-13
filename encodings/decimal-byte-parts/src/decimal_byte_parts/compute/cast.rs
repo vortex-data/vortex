@@ -9,10 +9,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
-use crate::DecimalBytePartsVTable;
 
-impl CastReduce for DecimalBytePartsVTable {
+impl CastReduce for DecimalByteParts {
     fn cast(array: &DecimalBytePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // DecimalBytePartsArray can only have Decimal dtype, so we only handle decimal-to-decimal casts
         let DType::Decimal(target_decimal, target_nullability) = dtype else {
@@ -65,7 +65,7 @@ mod tests {
 
         // Cast to nullable decimal
         let casted = array
-            .to_array()
+            .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -89,7 +89,7 @@ mod tests {
 
         // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
         let result = array
-            .to_array()
+            .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
@@ -118,6 +118,6 @@ mod tests {
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

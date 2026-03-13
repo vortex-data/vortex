@@ -11,6 +11,8 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -30,7 +32,7 @@ pub(crate) mod compute;
 
 vtable!(Null);
 
-impl VTable for NullVTable {
+impl VTable for Null {
     type Array = NullArray;
 
     type Metadata = EmptyMetadata;
@@ -130,8 +132,8 @@ impl VTable for NullVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 }
 
@@ -169,9 +171,9 @@ pub struct NullArray {
 }
 
 #[derive(Debug)]
-pub struct NullVTable;
+pub struct Null;
 
-impl NullVTable {
+impl Null {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
 }
 
@@ -183,13 +185,13 @@ impl NullArray {
         }
     }
 }
-impl OperationsVTable<NullVTable> for NullVTable {
+impl OperationsVTable<Null> for Null {
     fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }
 
-impl ValidityVTable<NullVTable> for NullVTable {
+impl ValidityVTable<Null> for Null {
     fn validity(_array: &NullArray) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)
     }

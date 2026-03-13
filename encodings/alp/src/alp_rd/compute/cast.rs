@@ -8,10 +8,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::alp_rd::ALPRD;
 use crate::alp_rd::ALPRDArray;
-use crate::alp_rd::ALPRDVTable;
 
-impl CastReduce for ALPRDVTable {
+impl CastReduce for ALPRD {
     fn cast(array: &ALPRDArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ALPRDArray stores floating-point values, so only cast between float types
         // or if just changing nullability
@@ -48,6 +48,7 @@ impl CastReduce for ALPRDVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -66,7 +67,7 @@ mod tests {
         let alprd = encoder.encode(&arr);
 
         let casted = alprd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -91,13 +92,14 @@ mod tests {
 
         // Cast to NonNullable should fail since we have nulls
         let result = alprd
-            .to_array()
+            .clone()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
         assert!(result.is_err());
 
         // Cast to same type with Nullable should succeed
         let casted = alprd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -138,6 +140,6 @@ mod tests {
         encoder.encode(&arr)
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
-        test_cast_conformance(&alprd.to_array());
+        test_cast_conformance(&alprd.into_array());
     }
 }

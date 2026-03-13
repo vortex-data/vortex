@@ -12,6 +12,8 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
@@ -47,7 +49,7 @@ pub struct BoolMetadata {
     pub offset: u32,
 }
 
-impl VTable for BoolVTable {
+impl VTable for Bool {
     type Array = BoolArray;
 
     type Metadata = ProstMetadata<BoolMetadata>;
@@ -183,8 +185,8 @@ impl VTable for BoolVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(
@@ -206,8 +208,8 @@ impl VTable for BoolVTable {
 }
 
 #[derive(Debug)]
-pub struct BoolVTable;
+pub struct Bool;
 
-impl BoolVTable {
+impl Bool {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
 }

@@ -12,16 +12,16 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
-use crate::arrays::VarBinVTable;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinArray;
+use crate::arrays::dict::TakeExecute;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
-impl TakeExecute for VarBinVTable {
+impl TakeExecute for VarBin {
     fn take(
         array: &VarBinArray,
         indices: &ArrayRef,
@@ -252,9 +252,9 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbin::compute::take::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
@@ -268,14 +268,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            arr.take(idx1.to_array()).unwrap().dtype(),
+            arr.take(idx1.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            arr.take(idx2.to_array()).unwrap().dtype(),
+            arr.take(idx2.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }
@@ -295,7 +295,7 @@ mod tests {
     ))]
     #[case(VarBinArray::from_iter(["single"].map(Some), DType::Utf8(Nullability::NonNullable)))]
     fn test_take_varbin_conformance(#[case] array: VarBinArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 
     #[test]

@@ -67,6 +67,7 @@ tabled = { workspace = true, optional = true, default-features = false, features
 ] }
 termtree = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
@@ -125,6 +126,11 @@ harness = false
 [[bench]]
 name = "expr_large_struct_pack"
 path = "benches/expr/large_struct_pack.rs"
+harness = false
+
+[[bench]]
+name = "expr_case_when"
+path = "benches/expr/case_when_bench.rs"
 harness = false
 
 [[bench]]

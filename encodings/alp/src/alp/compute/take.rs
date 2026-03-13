@@ -5,13 +5,13 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
+use crate::ALP;
 use crate::ALPArray;
-use crate::ALPVTable;
 
-impl TakeExecute for ALPVTable {
+impl TakeExecute for ALP {
     fn take(
         array: &ALPArray,
         indices: &ArrayRef,
@@ -55,6 +55,6 @@ mod test {
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_take_conformance(&alp.to_array());
+        test_take_conformance(&alp.into_array());
     }
 }

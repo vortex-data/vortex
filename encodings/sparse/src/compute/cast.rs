@@ -8,10 +8,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl CastReduce for SparseVTable {
+impl CastReduce for Sparse {
     fn cast(array: &SparseArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast both the patches values and the fill value
         let casted_fill = array.fill_scalar().cast(dtype)?;
@@ -54,7 +54,7 @@ mod tests {
         .unwrap();
 
         let casted = sparse
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -77,7 +77,7 @@ mod tests {
         .unwrap();
 
         let casted = sparse
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -112,6 +112,6 @@ mod tests {
         Scalar::from(0u8)
     ).unwrap())]
     fn test_cast_sparse_conformance(#[case] array: SparseArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

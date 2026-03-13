@@ -11,10 +11,10 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewArrayParts;
-use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewArrayParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -28,7 +28,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     // Check for Vortex ListViewArray and convert directly.
-    let array = match array.try_into::<ListViewVTable>() {
+    let array = match array.try_into::<ListView>() {
         Ok(array) => return list_view_to_list_view::<O>(array, elements_field, ctx),
         Err(array) => array,
     };
@@ -89,9 +89,9 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::arrays::ListViewArray;
-    use crate::arrays::PrimitiveArray;
     use crate::arrow::IntoArrowArray;
+    use crate::arrow::executor::list_view::ListViewArray;
+    use crate::arrow::executor::list_view::PrimitiveArray;
     use crate::validity::Validity;
 
     #[test]

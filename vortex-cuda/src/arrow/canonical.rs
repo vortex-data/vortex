@@ -6,11 +6,11 @@ use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::BoolArrayParts;
-use vortex::array::arrays::DecimalArrayParts;
-use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructArrayParts;
+use vortex::array::arrays::bool::BoolArrayParts;
+use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::DecimalType;
@@ -18,7 +18,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::extension::datetime::AnyTemporal;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaExecutionCtx;
 use crate::arrow::ArrowArray;
@@ -117,7 +116,7 @@ fn export_canonical(
                     vortex_bail!("only support temporal extension types currently");
                 }
 
-                let values = extension.storage().to_primitive();
+                let values = extension.storage_array().to_primitive();
                 let len = extension.len();
 
                 let PrimitiveArrayParts {
@@ -275,8 +274,7 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     }
 }
 
-#[cuda_tests]
-#[allow(clippy::unwrap_used)]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -308,7 +306,7 @@ mod tests {
     #[case::i64(PrimitiveArray::from_iter(0i64..10).into_array(), 10)]
     #[case::f32(PrimitiveArray::from_iter([1.0f32, 2.0, 3.0]).into_array(), 3)]
     #[case::f64(PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array(), 3)]
-    #[tokio::test]
+    #[crate::test]
     async fn test_export_primitive(
         #[case] array: vortex::array::ArrayRef,
         #[case] expected_len: i64,
@@ -330,7 +328,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_export_null() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -346,7 +344,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_export_decimal() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -365,7 +363,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_export_temporal() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -388,7 +386,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_export_varbinview() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -413,7 +411,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_export_struct() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

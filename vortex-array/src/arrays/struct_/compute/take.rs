@@ -6,15 +6,15 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
-use crate::arrays::TakeReduce;
+use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl TakeReduce for StructVTable {
+impl TakeReduce for Struct {
     fn take(array: &StructArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // If the struct array is empty then the indices must be all null, otherwise it will access
         // an out of bounds element.

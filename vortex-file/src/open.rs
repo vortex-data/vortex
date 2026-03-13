@@ -32,6 +32,7 @@ use crate::EOF_SIZE;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VortexFile;
 use crate::footer::Footer;
+use crate::segments::BufferSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
 use crate::segments::RequestMetrics;
@@ -161,9 +162,36 @@ impl VortexOpenOptions {
     }
 
     /// Open a Vortex file from an in-memory buffer.
+    ///
+    /// This uses a `BufferSegmentSource` that resolves segments synchronously
+    /// by slicing the buffer directly, bypassing the async I/O pipeline.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
-        // We know this is in memory, so we can open it synchronously.
-        block_on(self.with_initial_read_size(0).open_read(buffer.into()))
+        let buffer: ByteBuffer = buffer.into();
+
+        if self.segment_cache.is_some() {
+            tracing::warn!("segment cache is ignored for in-memory `open_buffer`");
+        }
+        if self.metrics_registry.is_some() {
+            tracing::warn!("metrics registry is ignored for in-memory `open_buffer`");
+        }
+
+        let mut opts = self.with_initial_read_size(0);
+
+        let footer = match opts.footer.take() {
+            Some(footer) => footer,
+            None => block_on(opts.read_footer(&buffer))?,
+        };
+
+        let segment_source = Arc::new(BufferSegmentSource::new(
+            buffer,
+            footer.segment_map().clone(),
+        ));
+
+        Ok(VortexFile {
+            footer,
+            segment_source,
+            session: opts.session,
+        })
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.

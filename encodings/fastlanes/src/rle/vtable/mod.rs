@@ -8,6 +8,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -53,7 +54,7 @@ pub struct RLEMetadata {
     pub offset: u64,
 }
 
-impl VTable for RLEVTable {
+impl VTable for RLE {
     type Array = RLEArray;
 
     type Metadata = ProstMetadata<RLEMetadata>;
@@ -230,15 +231,17 @@ impl VTable for RLEVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(rle_decompress(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            rle_decompress(array, ctx)?.into_array(),
+        ))
     }
 }
 
 #[derive(Debug)]
-pub struct RLEVTable;
+pub struct RLE;
 
-impl RLEVTable {
+impl RLE {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
 }
 

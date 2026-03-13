@@ -4,8 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
@@ -14,10 +14,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::Sequence;
 use crate::SequenceArray;
-use crate::SequenceVTable;
 
-impl FilterKernel for SequenceVTable {
+impl FilterKernel for Sequence {
     fn filter(
         array: &SequenceArray,
         mask: &Mask,
@@ -47,6 +47,7 @@ fn filter_impl<T: NativePType>(mul: T, base: T, mask: &Mask, validity: Validity)
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::compute::conformance::filter::LARGE_SIZE;
     use vortex_array::compute::conformance::filter::MEDIUM_SIZE;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -68,6 +69,6 @@ mod tests {
     #[case(SequenceArray::try_new_typed(0u32, 5, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
     #[case(SequenceArray::try_new_typed(0u64, 1, Nullability::NonNullable, LARGE_SIZE).unwrap())]
     fn test_filter_sequence_conformance(#[case] array: SequenceArray) {
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
     }
 }

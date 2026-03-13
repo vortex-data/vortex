@@ -6,13 +6,13 @@ use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceReduce;
+use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::DeltaArray;
-use crate::delta::vtable::DeltaVTable;
+use crate::delta::vtable::Delta;
 
-impl SliceReduce for DeltaVTable {
+impl SliceReduce for Delta {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let physical_start = range.start + array.offset();
         let physical_stop = range.end + array.offset();

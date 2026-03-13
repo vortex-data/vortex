@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastReduce for VarBinViewVTable {
+impl CastReduce for VarBinView {
     fn cast(array: &VarBinViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
@@ -43,6 +43,7 @@ impl CastReduce for VarBinViewVTable {
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -69,7 +70,7 @@ mod tests {
     fn try_cast_varbin_nullable(#[case] source: DType, #[case] target: DType) {
         let varbin = VarBinViewArray::from_iter(vec![Some("a"), Some("b"), Some("c")], source);
 
-        let res = varbin.to_array().cast(target.clone());
+        let res = varbin.into_array().cast(target.clone());
         assert_eq!(res.unwrap().dtype(), &target);
     }
 
@@ -81,7 +82,7 @@ mod tests {
     fn try_cast_varbin_fail(#[case] source: DType) {
         let non_nullable_source = source.as_nonnullable();
         let varbin = VarBinViewArray::from_iter(vec![Some("a"), Some("b"), None], source);
-        varbin.to_array().cast(non_nullable_source).unwrap();
+        varbin.into_array().cast(non_nullable_source).unwrap();
     }
 
     #[rstest]
@@ -92,6 +93,6 @@ mod tests {
     #[case(VarBinViewArray::from_iter(vec![Some("single")], DType::Utf8(Nullability::NonNullable)))]
     #[case(VarBinViewArray::from_iter(vec![Some("very long string that exceeds the inline size to test view functionality with multiple buffers")], DType::Utf8(Nullability::NonNullable)))]
     fn test_cast_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

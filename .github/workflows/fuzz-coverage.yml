@@ -16,14 +16,13 @@ jobs:
       matrix:
         fuzz_target: [array_ops, file_io, compress_roundtrip]
     timeout-minutes: 60
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.large
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-medium/disk=large', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
 
@@ -51,7 +50,7 @@ jobs:
           echo "Found llvm-profdata at $LLVM_PROFDATA"
 
       - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
         with:
           tool: cargo-fuzz
 

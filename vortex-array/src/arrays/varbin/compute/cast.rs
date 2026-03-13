@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastReduce for VarBinVTable {
+impl CastReduce for VarBin {
     fn cast(array: &VarBinArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
@@ -39,6 +39,7 @@ impl CastReduce for VarBinVTable {
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -65,7 +66,7 @@ mod tests {
     fn try_cast_varbin_nullable(#[case] source: DType, #[case] target: DType) {
         let varbin = VarBinArray::from_iter(vec![Some("a"), Some("b"), Some("c")], source);
 
-        let res = varbin.to_array().cast(target.clone());
+        let res = varbin.into_array().cast(target.clone());
         assert_eq!(res.unwrap().dtype(), &target);
     }
 
@@ -77,7 +78,7 @@ mod tests {
     fn try_cast_varbin_fail(#[case] source: DType) {
         let non_nullable_source = source.as_nonnullable();
         let varbin = VarBinArray::from_iter(vec![Some("a"), Some("b"), None], source);
-        varbin.to_array().cast(non_nullable_source).unwrap();
+        varbin.into_array().cast(non_nullable_source).unwrap();
     }
 
     #[rstest]
@@ -87,6 +88,6 @@ mod tests {
     #[case(VarBinArray::from_iter(vec![Some(b"test".as_slice()), None], DType::Binary(Nullability::Nullable)))]
     #[case(VarBinArray::from_iter(vec![Some("single")], DType::Utf8(Nullability::NonNullable)))]
     fn test_cast_varbin_conformance(#[case] array: VarBinArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

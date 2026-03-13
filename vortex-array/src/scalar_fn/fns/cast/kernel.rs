@@ -5,8 +5,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::ExactScalarFn;
-use crate::arrays::ScalarFnArrayView;
+use crate::IntoArray;
+use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
@@ -57,7 +58,7 @@ where
     ) -> VortexResult<Option<ArrayRef>> {
         let dtype = parent.options;
         if array.dtype() == dtype {
-            return Ok(Some(array.to_array()));
+            return Ok(Some(array.clone().into_array()));
         }
         <V as CastReduce>::cast(array, dtype)
     }
@@ -82,7 +83,7 @@ where
     ) -> VortexResult<Option<ArrayRef>> {
         let dtype = parent.options;
         if array.dtype() == dtype {
-            return Ok(Some(array.to_array()));
+            return Ok(Some(array.clone().into_array()));
         }
         <V as CastKernel>::cast(array, dtype, ctx)
     }

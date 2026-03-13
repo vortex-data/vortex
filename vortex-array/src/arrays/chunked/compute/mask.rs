@@ -6,14 +6,14 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
-use crate::arrays::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskKernel;
 
-impl MaskKernel for ChunkedVTable {
+impl MaskKernel for Chunked {
     fn mask(
         array: &ChunkedArray,
         mask: &ArrayRef,
@@ -56,15 +56,15 @@ mod test {
         vec![
             buffer![0u64, 1].into_array(),
             buffer![2_u64].into_array(),
-            PrimitiveArray::empty::<u64>(Nullability::NonNullable).to_array(),
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array(),
             buffer![3_u64, 4].into_array(),
         ],
         DType::Primitive(PType::U64, Nullability::NonNullable),
     ).unwrap())]
     #[case(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).to_array(),
-            PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).to_array(),
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
+            PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).into_array(),
         ],
         DType::Primitive(PType::I32, Nullability::Nullable),
     ).unwrap())]
@@ -79,6 +79,6 @@ mod test {
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_mask_conformance(&chunked.to_array());
+        test_mask_conformance(&chunked.into_array());
     }
 }

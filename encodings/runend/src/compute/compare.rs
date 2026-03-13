@@ -5,24 +5,25 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
-use crate::compress::runend_decode_bools;
+use crate::decompress_bool::runend_decode_bools;
 
-impl CompareKernel for RunEndVTable {
+impl CompareKernel for RunEnd {
     fn compare(
         lhs: &RunEndArray,
         rhs: &ArrayRef,
         operator: CompareOperator,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
@@ -30,13 +31,13 @@ impl CompareKernel for RunEndVTable {
                 ConstantArray::new(const_scalar, lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;
-            let decoded = runend_decode_bools(
-                lhs.ends().to_primitive(),
-                values.to_bool(),
+            return runend_decode_bools(
+                lhs.ends().clone().execute::<PrimitiveArray>(ctx)?,
+                values.execute::<BoolArray>(ctx)?,
                 lhs.offset(),
                 lhs.len(),
-            )?;
-            return Ok(Some(decoded.into_array()));
+            )
+            .map(Some);
         }
 
         // Otherwise, fall back
@@ -67,7 +68,7 @@ mod test {
     fn compare_run_end() {
         let arr = ree_array();
         let res = arr
-            .to_array()
+            .into_array()
             .binary(ConstantArray::new(5, 12).into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([

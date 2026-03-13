@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -46,7 +47,7 @@ use crate::alp::rules::RULES;
 
 vtable!(ALP);
 
-impl VTable for ALPVTable {
+impl VTable for ALP {
     type Array = ALPArray;
 
     type Metadata = ProstMetadata<ALPMetadata>;
@@ -234,9 +235,11 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         // TODO(joe): take by value
-        Ok(execute_decompress(array.clone(), ctx)?.into_array())
+        Ok(ExecutionStep::Done(
+            execute_decompress(array.clone(), ctx)?.into_array(),
+        ))
     }
 
     fn reduce_parent(
@@ -267,9 +270,9 @@ pub struct ALPArray {
 }
 
 #[derive(Debug)]
-pub struct ALPVTable;
+pub struct ALP;
 
-impl ALPVTable {
+impl ALP {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
 }
 
@@ -480,7 +483,7 @@ impl ALPArray {
     }
 }
 
-impl ValidityChild<ALPVTable> for ALPVTable {
+impl ValidityChild<ALP> for ALP {
     fn validity_child(array: &ALPArray) -> &ArrayRef {
         array.encoded()
     }
@@ -526,7 +529,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -551,7 +558,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -582,7 +593,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -611,7 +626,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -643,7 +662,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =

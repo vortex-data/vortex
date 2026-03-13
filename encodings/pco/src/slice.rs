@@ -5,12 +5,12 @@ use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceReduce;
+use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
-use crate::PcoVTable;
+use crate::Pco;
 
-impl SliceReduce for PcoVTable {
+impl SliceReduce for Pco {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(array._slice(range.start, range.end).into_array()))
     }

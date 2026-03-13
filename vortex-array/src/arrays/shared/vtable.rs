@@ -12,8 +12,9 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::Precision;
-use crate::arrays::shared::SharedArray;
+use crate::arrays::SharedArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
@@ -32,13 +33,13 @@ vtable!(Shared);
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.
 #[derive(Debug)]
-pub struct SharedVTable;
+pub struct Shared;
 
-impl SharedVTable {
+impl Shared {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.shared");
 }
 
-impl VTable for SharedVTable {
+impl VTable for Shared {
     type Array = SharedArray;
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
@@ -144,17 +145,19 @@ impl VTable for SharedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        array.get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        array
+            .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
+            .map(ExecutionStep::Done)
     }
 }
-impl OperationsVTable<SharedVTable> for SharedVTable {
+impl OperationsVTable<Shared> for Shared {
     fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
         array.current_array_ref().scalar_at(index)
     }
 }
 
-impl ValidityVTable<SharedVTable> for SharedVTable {
+impl ValidityVTable<Shared> for Shared {
     fn validity(array: &SharedArray) -> VortexResult<Validity> {
         array.current_array_ref().validity()
     }

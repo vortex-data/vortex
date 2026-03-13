@@ -2,15 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
+use crate::Zstd;
 use crate::ZstdArray;
-use crate::ZstdVTable;
 
-impl CastReduce for ZstdVTable {
+impl CastReduce for Zstd {
     fn cast(array: &ZstdArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.eq_ignore_nullability(array.dtype()) {
             // Type changes can't be handled in ZSTD, need to decode and tweak.
@@ -25,7 +27,9 @@ impl CastReduce for ZstdVTable {
             // Same type case. This should be handled in the layer above but for
             // completeness of the match arms we also handle it here.
             (Nullability::Nullable, Nullability::Nullable)
-            | (Nullability::NonNullable, Nullability::NonNullable) => Ok(Some(array.to_array())),
+            | (Nullability::NonNullable, Nullability::NonNullable) => {
+                Ok(Some(array.clone().into_array()))
+            }
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
                 Ok(Some(
@@ -42,11 +46,10 @@ impl CastReduce for ZstdVTable {
             }
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
-                let sliced_len = array.slice_stop() - array.slice_start();
-                let has_nulls = !array
-                    .unsliced_validity
-                    .slice(array.slice_start()..array.slice_stop())?
-                    .all_valid(sliced_len)?;
+                let has_nulls = !matches!(
+                    array.validity()?,
+                    Validity::AllValid | Validity::NonNullable
+                );
 
                 // We don't attempt to handle casting when there are nulls.
                 if has_nulls {
@@ -73,6 +76,7 @@ impl CastReduce for ZstdVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -92,7 +96,7 @@ mod tests {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -110,7 +114,7 @@ mod tests {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -182,6 +186,6 @@ mod tests {
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
-        test_cast_conformance(&zstd.to_array());
+        test_cast_conformance(&zstd.into_array());
     }
 }

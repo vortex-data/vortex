@@ -18,7 +18,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -1229,7 +1229,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         Nullability::Nullable,
     );
 
-    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).to_array();
+    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).into_array();
 
     let array = StructArray::try_new(
         ["struct"].into(),
@@ -1257,7 +1257,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
 
-    let result = round_trip(&array.to_array(), |scan| {
+    let result = round_trip(&array.clone().into_array(), |scan| {
         Ok(scan.with_projection(Pack.new_expr(
             PackOptions {
                 names: Default::default(),
@@ -1320,10 +1320,10 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let read_array = file.scan()?.into_array_stream()?.read_all().await?;
 
     let dict = read_array
-        .as_opt::<DictVTable>()
+        .as_opt::<Dict>()
         .expect("expected root to be dictionary");
     assert!(
-        !dict.codes().is::<DictVTable>(),
+        !dict.codes().is::<Dict>(),
         "dictionary codes should not be dictionary encoded"
     );
     Ok(())

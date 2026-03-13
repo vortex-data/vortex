@@ -207,10 +207,10 @@ impl ArrayBuilder for StructBuilder {
 mod tests {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::struct_::StructArray;
     use crate::builders::struct_::StructBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

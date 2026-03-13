@@ -8,12 +8,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BinaryView;
-use crate::arrays::SliceReduce;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::slice::SliceReduce;
+use crate::arrays::varbinview::BinaryView;
 
-impl SliceReduce for VarBinViewVTable {
+impl SliceReduce for VarBinView {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             VarBinViewArray::new_handle(

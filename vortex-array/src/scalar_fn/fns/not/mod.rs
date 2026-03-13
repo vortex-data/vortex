@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -102,7 +102,7 @@ impl ScalarFnVTable for Not {
         }
 
         // For boolean array
-        if let Some(bool) = child.as_opt::<BoolVTable>() {
+        if let Some(bool) = child.as_opt::<Bool>() {
             return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()?).into_array());
         }
 
@@ -121,8 +121,8 @@ impl ScalarFnVTable for Not {
 
 #[cfg(test)]
 mod tests {
+    use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::BoolArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::col;
@@ -130,6 +130,7 @@ mod tests {
     use crate::expr::not;
     use crate::expr::root;
     use crate::expr::test_harness;
+    use crate::scalar_fn::fns::not::BoolArray;
 
     #[test]
     fn invert_booleans() {
@@ -137,7 +138,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             bools
-                .to_array()
+                .into_array()
                 .apply(&not_expr)
                 .unwrap()
                 .to_bool()

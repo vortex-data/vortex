@@ -3,16 +3,16 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::VarBinVTable;
+use vortex_array::arrays::VarBin;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::FSST;
 use crate::FSSTArray;
-use crate::FSSTVTable;
 
-impl CastReduce for FSSTVTable {
+impl CastReduce for FSST {
     fn cast(array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FSST is a string compression encoding.
         // For nullability changes, we can cast the codes and symbols arrays
@@ -20,7 +20,8 @@ impl CastReduce for FSSTVTable {
             // Cast codes array to handle nullability
             let new_codes = array
                 .codes()
-                .to_array()
+                .clone()
+                .into_array()
                 .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
@@ -28,7 +29,7 @@ impl CastReduce for FSSTVTable {
                     dtype.clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
-                    new_codes.as_::<VarBinVTable>().clone(),
+                    new_codes.as_::<VarBin>().clone(),
                     array.uncompressed_lengths().clone(),
                 )?
                 .into_array(),
@@ -42,6 +43,7 @@ impl CastReduce for FSSTVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -63,7 +65,7 @@ mod tests {
 
         // Cast to nullable
         let casted = fsst
-            .to_array()
+            .into_array()
             .cast(DType::Utf8(Nullability::Nullable))
             .unwrap();
         assert_eq!(casted.dtype(), &DType::Utf8(Nullability::Nullable));
@@ -85,6 +87,6 @@ mod tests {
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
         let compressor = fsst_train_compressor(&array);
         let fsst = fsst_compress(&array, &compressor);
-        test_cast_conformance(&fsst.to_array());
+        test_cast_conformance(&fsst.into_array());
     }
 }

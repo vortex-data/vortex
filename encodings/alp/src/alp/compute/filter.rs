@@ -3,14 +3,15 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::FilterKernel;
+use vortex_array::IntoArray;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ALP;
 use crate::ALPArray;
-use crate::ALPVTable;
 
-impl FilterKernel for ALPVTable {
+impl FilterKernel for ALP {
     fn filter(
         array: &ALPArray,
         mask: &Mask,
@@ -31,7 +32,7 @@ impl FilterKernel for ALPVTable {
                     patches,
                     array.dtype().clone(),
                 )
-                .to_array(),
+                .into_array(),
             ))
         }
     }
@@ -60,6 +61,6 @@ mod test {
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_filter_conformance(&alp.to_array());
+        test_filter_conformance(&alp.into_array());
     }
 }

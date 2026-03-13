@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
@@ -12,7 +12,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
-impl CastReduce for DictVTable {
+impl CastReduce for Dict {
     fn cast(array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
@@ -52,8 +52,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::Dict;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::dict::DictVTable;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builtins::ArrayBuiltins;
@@ -68,7 +68,7 @@ mod tests {
         let dict = dict_encode(&values).unwrap();
 
         let casted = dict
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -84,10 +84,10 @@ mod tests {
     fn test_cast_dict_nullable() {
         let values =
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(10), None]);
-        let dict = dict_encode(&values.to_array()).unwrap();
+        let dict = dict_encode(&values.into_array()).unwrap();
 
         let casted = dict
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -111,7 +111,8 @@ mod tests {
 
         // Cast to NonNullable (should be identity since already NonNullable)
         let non_nullable = dict
-            .to_array()
+            .clone()
+            .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -120,7 +121,7 @@ mod tests {
         );
 
         // Check that codes and values are still NonNullable
-        let non_nullable_dict = non_nullable.as_::<DictVTable>();
+        let non_nullable_dict = non_nullable.as_::<Dict>();
         assert_eq!(
             non_nullable_dict.codes().dtype().nullability(),
             Nullability::NonNullable
@@ -140,7 +141,7 @@ mod tests {
         );
 
         // Check that both codes and values are now Nullable
-        let nullable_dict = nullable.as_::<DictVTable>();
+        let nullable_dict = nullable.as_::<Dict>();
         assert_eq!(
             nullable_dict.codes().dtype().nullability(),
             Nullability::NonNullable
@@ -160,7 +161,7 @@ mod tests {
         );
 
         // Check that both codes and values are NonNullable again
-        let back_dict = back_to_non_nullable.as_::<DictVTable>();
+        let back_dict = back_to_non_nullable.as_::<Dict>();
         assert_eq!(
             back_dict.codes().dtype().nullability(),
             Nullability::NonNullable
@@ -187,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_cast_dict_with_unreferenced_null_values_to_nonnullable() {
-        use crate::arrays::dict::DictArray;
+        use crate::arrays::DictArray;
         use crate::validity::Validity;
 
         // Create a dict with nullable values that have unreferenced null entries.
@@ -209,7 +210,7 @@ mod tests {
 
         // Casting to NonNullable should succeed since all logical values are non-null.
         let result = dict
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
         assert!(
             result.is_ok(),

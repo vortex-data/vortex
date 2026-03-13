@@ -2,20 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::ffi::CString;
 use std::ffi::c_void;
 use std::ptr;
 
 use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
+use vortex::array::dtype::Nullability;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_err;
+use vortex::mask::Mask;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_error;
@@ -28,7 +27,14 @@ use crate::duckdb::ValueRef;
 use crate::duckdb::VectorBufferRef;
 use crate::lifetime_wrapper;
 
-pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+/// Returns the internal vector size used by DuckDB at runtime.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "DuckDB vector size always fits in usize"
+)]
+pub fn duckdb_vector_size() -> usize {
+    unsafe { cpp::duckdb_vector_size() as usize }
+}
 
 lifetime_wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
@@ -89,20 +95,6 @@ impl VectorRef {
     // length only its capacity).
     pub fn set_dictionary_len(&mut self, len: u32) {
         unsafe { cpp::duckdb_vx_set_dictionary_vector_length(self.as_ptr(), len) }
-    }
-
-    // A operator-scoped id to assert dictionary vector value uniqueness
-    pub fn set_dictionary_id(&mut self, dict_id: String) {
-        let dict_id = CString::new(dict_id)
-            .map_err(|e| vortex_err!("cstr creation error {e}"))
-            .vortex_expect("dictionary ID should be valid C string");
-        unsafe {
-            cpp::duckdb_vx_set_dictionary_vector_id(
-                self.as_ptr(),
-                dict_id.as_ptr(),
-                dict_id.as_bytes().len().as_u32(),
-            )
-        }
     }
 
     pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {
@@ -331,23 +323,29 @@ impl ValidityRef<'_> {
         (validity_entry & (1u64 << idx_in_entry)) != 0
     }
 
-    /// Creates a Validity directly from the DuckDB validity mask for optimal performance.
-    pub fn to_validity(&self) -> Validity {
+    /// Creates a mask directly from the DuckDB validity mask for optimal performance.
+    pub fn to_mask(&self) -> Mask {
         let Some(validity) = self.validity else {
             // All values are valid
-            return Validity::AllValid;
+            return Mask::AllTrue(self.len);
         };
 
-        Validity::from(BitBuffer::new(
+        Mask::from_buffer(BitBuffer::new(
             Buffer::<u64>::copy_from(validity).into_byte_buffer(),
             self.len,
         ))
+    }
+
+    pub fn to_validity(&self) -> Validity {
+        Validity::from_mask(self.to_mask(), Nullability::Nullable)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex::mask::Mask;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
@@ -361,9 +359,8 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(
-            validity,
-            Validity::AllValid,
+        assert!(
+            matches!(validity, Validity::AllValid),
             "Expected None for all-valid vector"
         );
     }
@@ -383,8 +380,9 @@ mod tests {
         let validity = validity.to_validity();
         assert_eq!(validity.maybe_len(), Some(len));
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_eq!(
-            validity.to_mask(len),
+            validity.execute_mask(len, &mut ctx).unwrap(),
             Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
         );
     }
@@ -424,7 +422,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(validity, Validity::AllValid);
+        assert!(matches!(validity, Validity::AllValid));
     }
 
     #[test]
@@ -440,7 +438,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(validity, Validity::AllInvalid);
+        assert!(matches!(validity, Validity::AllInvalid));
     }
 
     #[test]

@@ -16,11 +16,10 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
+use vortex::encodings::zstd::ZstdBuffers;
 use vortex::encodings::zstd::ZstdBuffersArray;
-use vortex::encodings::zstd::ZstdBuffersVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex_cuda_macros::cuda_tests;
 use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
@@ -42,7 +41,7 @@ impl CudaExecute for ZstdBuffersExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let zstd_buffers = array
-            .try_into::<ZstdBuffersVTable>()
+            .try_into::<ZstdBuffers>()
             .map_err(|_| vortex_err!("expected zstd buffers array"))?;
         decode_zstd_buffers(zstd_buffers, ctx).await
     }
@@ -218,7 +217,7 @@ async fn validate_decompress_results(
     Ok(())
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -233,7 +232,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_primitive() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -252,7 +251,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_varbinview() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

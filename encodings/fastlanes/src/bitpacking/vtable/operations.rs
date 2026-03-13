@@ -5,11 +5,11 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
 use crate::bitpack_decompress;
 
-impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
+impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
@@ -49,8 +49,8 @@ mod test {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
 
+    use crate::BitPacked;
     use crate::BitPackedArray;
-    use crate::BitPackedVTable;
 
     static SESSION: LazyLock<vortex_session::VortexSession> =
         LazyLock::new(|| vortex_session::VortexSession::empty().with::<ArraySession>());
@@ -58,21 +58,17 @@ mod test {
     fn slice_via_kernel(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
         let slice_array = SliceArray::new(array.clone().into_array(), range);
         let mut ctx = SESSION.create_execution_ctx();
-        let sliced = <BitPackedVTable as VTable>::execute_parent(
-            array,
-            &slice_array.into_array(),
-            0,
-            &mut ctx,
-        )
-        .expect("execute_parent failed")
-        .expect("expected slice kernel to execute");
-        sliced.as_::<BitPackedVTable>().clone()
+        let sliced =
+            <BitPacked as VTable>::execute_parent(array, &slice_array.into_array(), 0, &mut ctx)
+                .expect("execute_parent failed")
+                .expect("expected slice kernel to execute");
+        sliced.as_::<BitPacked>().clone()
     }
 
     #[test]
     pub fn slice_block() {
         let arr = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -86,7 +82,7 @@ mod test {
     #[test]
     pub fn slice_within_block() {
         let arr = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -100,7 +96,7 @@ mod test {
     #[test]
     fn slice_within_block_u8s() {
         let packed = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).to_array(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
         .unwrap();
@@ -113,7 +109,7 @@ mod test {
     #[test]
     fn slice_block_boundary_u8s() {
         let packed = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).to_array(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
         .unwrap();
@@ -126,7 +122,7 @@ mod test {
     #[test]
     fn double_slice_within_block() {
         let arr = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -162,7 +158,7 @@ mod test {
         // Check that our take implementation respects the offsets applied after slicing.
 
         let array = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((63u32..).take(3072)).to_array(),
+            &PrimitiveArray::from_iter((63u32..).take(3072)).into_array(),
             6,
         )
         .unwrap();
@@ -197,7 +193,7 @@ mod test {
                         8,
                         0,
                         buffer![1u32].into_array(),
-                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
                         None,
                     )
                     .unwrap(),

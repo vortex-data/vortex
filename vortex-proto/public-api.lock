@@ -810,6 +810,42 @@ pub fn vortex_proto::expr::BinaryOpts::clear(&mut self)
 
 pub fn vortex_proto::expr::BinaryOpts::encoded_len(&self) -> usize
 
+pub struct vortex_proto::expr::CaseWhenOpts
+
+pub vortex_proto::expr::CaseWhenOpts::num_children: u32
+
+impl core::clone::Clone for vortex_proto::expr::CaseWhenOpts
+
+pub fn vortex_proto::expr::CaseWhenOpts::clone(&self) -> vortex_proto::expr::CaseWhenOpts
+
+impl core::cmp::Eq for vortex_proto::expr::CaseWhenOpts
+
+impl core::cmp::PartialEq for vortex_proto::expr::CaseWhenOpts
+
+pub fn vortex_proto::expr::CaseWhenOpts::eq(&self, other: &vortex_proto::expr::CaseWhenOpts) -> bool
+
+impl core::default::Default for vortex_proto::expr::CaseWhenOpts
+
+pub fn vortex_proto::expr::CaseWhenOpts::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::CaseWhenOpts
+
+pub fn vortex_proto::expr::CaseWhenOpts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::CaseWhenOpts
+
+pub fn vortex_proto::expr::CaseWhenOpts::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::CaseWhenOpts
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::CaseWhenOpts
+
+impl prost::message::Message for vortex_proto::expr::CaseWhenOpts
+
+pub fn vortex_proto::expr::CaseWhenOpts::clear(&mut self)
+
+pub fn vortex_proto::expr::CaseWhenOpts::encoded_len(&self) -> usize
+
 pub struct vortex_proto::expr::CastOpts
 
 pub vortex_proto::expr::CastOpts::target: core::option::Option<vortex_proto::dtype::DType>

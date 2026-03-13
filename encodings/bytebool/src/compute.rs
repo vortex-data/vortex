@@ -6,7 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -15,10 +15,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
+use super::ByteBool;
 use super::ByteBoolArray;
-use super::ByteBoolVTable;
 
-impl CastReduce for ByteBoolVTable {
+impl CastReduce for ByteBool {
     fn cast(array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
@@ -41,7 +41,7 @@ impl CastReduce for ByteBoolVTable {
     }
 }
 
-impl MaskReduce for ByteBoolVTable {
+impl MaskReduce for ByteBool {
     fn mask(array: &ByteBoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ByteBoolArray::new(
@@ -56,7 +56,7 @@ impl MaskReduce for ByteBoolVTable {
     }
 }
 
-impl TakeExecute for ByteBoolVTable {
+impl TakeExecute for ByteBool {
     fn take(
         array: &ByteBoolArray,
         indices: &ArrayRef,
@@ -66,7 +66,7 @@ impl TakeExecute for ByteBoolVTable {
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices
-        let validity = array.validity().take(&indices.to_array())?;
+        let validity = array.validity().take(&indices.clone().into_array())?;
 
         let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
             indices
@@ -109,7 +109,7 @@ mod tests {
         let sliced_arr = vortex_arr.slice(1..4).unwrap();
 
         let expected = ByteBoolArray::from(vec![Some(true), None, Some(false)]);
-        assert_arrays_eq!(sliced_arr, expected.to_array());
+        assert_arrays_eq!(sliced_arr, expected.into_array());
     }
 
     #[test]
@@ -117,10 +117,13 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let arr = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
 
         let expected = ByteBoolArray::from(vec![true; 5]);
-        assert_arrays_eq!(arr, expected.to_array());
+        assert_arrays_eq!(arr, expected.into_array());
     }
 
     #[test]
@@ -128,10 +131,13 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![false; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let arr = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
 
         let expected = ByteBoolArray::from(vec![false; 5]);
-        assert_arrays_eq!(arr, expected.to_array());
+        assert_arrays_eq!(arr, expected.into_array());
     }
 
     #[test]
@@ -139,30 +145,35 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
 
-        let arr = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let arr = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
 
         let expected =
             ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
-        assert_arrays_eq!(arr, expected.to_array());
+        assert_arrays_eq!(arr, expected.into_array());
     }
 
     #[test]
     fn test_mask_byte_bool() {
         test_mask_conformance(
-            &ByteBoolArray::from(vec![true, false, true, true, false]).to_array(),
+            &ByteBoolArray::from(vec![true, false, true, true, false]).into_array(),
         );
         test_mask_conformance(
-            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).to_array(),
+            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None])
+                .into_array(),
         );
     }
 
     #[test]
     fn test_filter_byte_bool() {
         test_filter_conformance(
-            &ByteBoolArray::from(vec![true, false, true, true, false]).to_array(),
+            &ByteBoolArray::from(vec![true, false, true, true, false]).into_array(),
         );
         test_filter_conformance(
-            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).to_array(),
+            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None])
+                .into_array(),
         );
     }
 
@@ -172,14 +183,14 @@ mod tests {
     #[case(ByteBoolArray::from(vec![true, false]))]
     #[case(ByteBoolArray::from(vec![true]))]
     fn test_take_byte_bool_conformance(#[case] array: ByteBoolArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 
     #[test]
     fn test_cast_bytebool_to_nullable() {
         let array = ByteBoolArray::from(vec![true, false, true, false]);
         let casted = array
-            .to_array()
+            .into_array()
             .cast(DType::Bool(Nullability::Nullable))
             .unwrap();
         assert_eq!(casted.dtype(), &DType::Bool(Nullability::Nullable));
@@ -193,7 +204,7 @@ mod tests {
     #[case(ByteBoolArray::from(vec![true]))]
     #[case(ByteBoolArray::from(vec![Some(true), None]))]
     fn test_cast_bytebool_conformance(#[case] array: ByteBoolArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[rstest]
@@ -206,6 +217,6 @@ mod tests {
     #[case::single_null(ByteBoolArray::from(vec![None]))]
     #[case::mixed_with_nulls(ByteBoolArray::from(vec![Some(true), None, Some(false), None, Some(true)]))]
     fn test_bytebool_consistency(#[case] array: ByteBoolArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 }

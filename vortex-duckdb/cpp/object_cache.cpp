@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "duckdb_vx.h"
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb/storage/object_cache.hpp"
+DUCKDB_INCLUDES_END
 
 #include <iostream>
 
@@ -12,10 +16,16 @@ namespace vortex {
 class OpaqueWrapper : public duckdb::ObjectCacheEntry {
 public:
     duckdb::unique_ptr<void, duckdb_vx_deleter_fn> ptr;
+    duckdb::optional_idx estimated_size;
 
-    explicit OpaqueWrapper(void *p, duckdb_vx_deleter_fn del) : ptr(p, del) {
+    explicit OpaqueWrapper(void *p, duckdb::optional_idx estimated_size, duckdb_vx_deleter_fn del)
+        : ptr(p, del), estimated_size(estimated_size) {
     }
     ~OpaqueWrapper() override = default;
+
+    duckdb::optional_idx GetEstimatedCacheMemory() const override {
+        return estimated_size;
+    }
 
     duckdb::string GetObjectType() override {
         return "vortex_opaque_wrapper";
@@ -32,9 +42,11 @@ public:
 extern "C" void duckdb_vx_object_cache_put(duckdb_vx_object_cache cache,
                                            const char *key,
                                            void *value,
+                                           uint64_t estimated_size,
                                            duckdb_vx_deleter_fn deleter) {
     auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
-    auto wrapper = duckdb::make_shared_ptr<vortex::OpaqueWrapper>(value, deleter);
+    auto wrapper =
+        duckdb::make_shared_ptr<vortex::OpaqueWrapper>(value, duckdb::optional_idx(estimated_size), deleter);
     object_cache->Put(std::string(key), wrapper);
 }
 

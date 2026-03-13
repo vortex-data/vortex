@@ -8,10 +8,9 @@ pub use arbitrary::ArbitraryConstantArray;
 
 mod array;
 pub use array::ConstantArray;
-pub(crate) use vtable::canonical::constant_canonicalize;
 
 pub(crate) mod compute;
 
 mod vtable;
 
-pub use vtable::ConstantVTable;
+pub use vtable::Constant;

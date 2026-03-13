@@ -9,10 +9,10 @@ use vortex_array::compute::is_strict_sorted;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-impl IsSortedKernel for RunEndVTable {
+impl IsSortedKernel for RunEnd {
     fn is_sorted(&self, array: &RunEndArray) -> VortexResult<Option<bool>> {
         is_sorted(array.values())
     }
@@ -22,4 +22,4 @@ impl IsSortedKernel for RunEndVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(RunEndVTable).lift());
+register_kernel!(IsSortedKernelAdapter(RunEnd).lift());

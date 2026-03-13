@@ -8,6 +8,9 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::RecursiveCanonical;
+use crate::VortexSessionExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::MinMaxResult;
 use crate::compute::min_max;
@@ -18,7 +21,11 @@ use crate::scalar::Scalar;
 
 /// Cast and force execution via `to_canonical`, returning the canonical array.
 fn cast_and_execute(array: &ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
-    array.cast(dtype)?.to_canonical().map(|c| c.into_array())
+    Ok(array
+        .cast(dtype)?
+        .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+        .0
+        .into_array())
 }
 
 /// Test conformance of the cast compute function for an array.
@@ -347,19 +354,19 @@ mod tests {
     #[test]
     fn test_cast_conformance_nullable() {
         let array = PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]);
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
     fn test_cast_conformance_bool() {
         let array = BoolArray::from_iter(vec![true, false, true, false]);
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
     fn test_cast_conformance_null() {
         let array = NullArray::new(5);
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -368,7 +375,7 @@ mod tests {
             vec![Some("hello"), None, Some("world")],
             DType::Utf8(Nullability::Nullable),
         );
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -377,7 +384,7 @@ mod tests {
             vec![Some(b"data".as_slice()), None, Some(b"bytes".as_slice())],
             DType::Binary(Nullability::Nullable),
         );
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -394,7 +401,7 @@ mod tests {
         let array =
             StructArray::try_new(names, vec![a, b], 3, crate::validity::Validity::NonNullable)
                 .unwrap();
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -404,6 +411,6 @@ mod tests {
 
         let array =
             ListArray::try_new(data, offsets, crate::validity::Validity::NonNullable).unwrap();
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

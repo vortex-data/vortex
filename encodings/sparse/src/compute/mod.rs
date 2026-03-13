@@ -107,7 +107,7 @@ mod test {
                 null_fill_value,
             )
             .unwrap()
-            .to_array(),
+            .into_array(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
@@ -119,7 +119,7 @@ mod test {
                 ten_fill_value,
             )
             .unwrap()
-            .to_array(),
+            .into_array(),
         )
     }
 }
@@ -202,7 +202,7 @@ mod tests {
     })]
 
     fn test_sparse_consistency(#[case] array: SparseArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 
     #[rstest]

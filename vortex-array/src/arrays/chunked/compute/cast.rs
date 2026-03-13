@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
-impl CastReduce for ChunkedVTable {
+impl CastReduce for Chunked {
     fn cast(array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let mut cast_chunks = Vec::new();
         for chunk in array.chunks() {
@@ -33,8 +33,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;

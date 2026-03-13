@@ -81,8 +81,6 @@ mod private {
     }
 }
 
-// Get it back out as a View of u8
-
 impl CudaDeviceBuffer {
     /// Creates a new CUDA device buffer from a [`CudaSlice<T>`].
     ///
@@ -99,6 +97,16 @@ impl CudaDeviceBuffer {
             device_ptr,
             alignment: Alignment::of::<T>(),
         }
+    }
+
+    /// Returns the byte offset within the allocated buffer.
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Returns the adjusted device pointer accounting for the offset.
+    pub fn offset_ptr(&self) -> sys::CUdeviceptr {
+        self.device_ptr + self.offset as u64
     }
 
     /// Returns a [`CudaView`] to the CUDA device buffer.
@@ -159,7 +167,7 @@ impl CudaBufferExt for BufferHandle {
             .as_any()
             .downcast_ref::<CudaDeviceBuffer>()
             .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
-            .device_ptr;
+            .offset_ptr();
 
         Ok(ptr)
     }
@@ -281,7 +289,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
 
     /// Slices the CUDA device buffer to a subrange.
     ///
-    /// **IMPORTANT**: this is a byte range, not elements range, due to the DeviceBuffer interface.
+    /// This is a byte range, not elements range, due to the DeviceBuffer interface.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
         assert!(
             range.end <= self.len,

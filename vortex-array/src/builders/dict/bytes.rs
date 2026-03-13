@@ -21,11 +21,11 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::BinaryView;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinVTable;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::varbinview::build_views::BinaryView;
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -168,9 +168,9 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
         );
 
         let len = array.len();
-        if let Some(varbinview) = array.as_opt::<VarBinViewVTable>() {
+        if let Some(varbinview) = array.as_opt::<VarBinView>() {
             self.encode_bytes(varbinview, len)
-        } else if let Some(varbin) = array.as_opt::<VarBinVTable>() {
+        } else if let Some(varbin) = array.as_opt::<VarBin>() {
             self.encode_bytes(varbin, len)
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
@@ -206,6 +206,7 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 mod test {
     use std::str;
 
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinArray;
@@ -214,7 +215,7 @@ mod test {
     #[test]
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
-        let dict = dict_encode(&arr.to_array()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
@@ -243,7 +244,7 @@ mod test {
         ]
         .into_iter()
         .collect();
-        let dict = dict_encode(&arr.to_array()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 2, 0, 1, 3, 2, 1]
@@ -260,7 +261,7 @@ mod test {
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
-        let dict = dict_encode(&arr.to_array()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
         dict.values().to_varbinview().with_iterator(|iter| {
             assert_eq!(
                 iter.flatten()

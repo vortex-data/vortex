@@ -11,6 +11,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
@@ -72,7 +73,7 @@ pub struct ProstPatchesMetadata {
     patches: PatchesMetadata,
 }
 
-impl VTable for SparseVTable {
+impl VTable for Sparse {
     type Array = SparseArray;
 
     type Metadata = SparseMetadata;
@@ -255,8 +256,8 @@ impl VTable for SparseVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        execute_sparse(array, ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        execute_sparse(array, ctx).map(ExecutionStep::Done)
     }
 }
 
@@ -268,9 +269,9 @@ pub struct SparseArray {
 }
 
 #[derive(Debug)]
-pub struct SparseVTable;
+pub struct Sparse;
 
-impl SparseVTable {
+impl Sparse {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
 }
 
@@ -464,7 +465,7 @@ impl SparseArray {
     }
 }
 
-impl ValidityVTable<SparseVTable> for SparseVTable {
+impl ValidityVTable<Sparse> for Sparse {
     fn validity(array: &SparseArray) -> VortexResult<Validity> {
         let patches = unsafe {
             Patches::new_unchecked(

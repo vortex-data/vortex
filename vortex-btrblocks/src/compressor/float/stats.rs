@@ -6,10 +6,11 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::NativeValue;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
@@ -80,7 +81,7 @@ impl FloatStats {
 }
 
 impl CompressorStats for FloatStats {
-    type ArrayVTable = PrimitiveVTable;
+    type ArrayVTable = Primitive;
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
@@ -92,7 +93,8 @@ impl CompressorStats for FloatStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(&self.src.to_array(), sample_size, sample_count).to_primitive();
+        let sampled =
+            sample(&self.src.clone().into_array(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }

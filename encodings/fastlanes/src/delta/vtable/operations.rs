@@ -6,10 +6,10 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
-use super::DeltaVTable;
+use super::Delta;
 use crate::DeltaArray;
 
-impl OperationsVTable<DeltaVTable> for DeltaVTable {
+impl OperationsVTable<Delta> for Delta {
     fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
         let decompressed = array.slice(index..index + 1)?.to_primitive();
         decompressed.scalar_at(0)
@@ -228,7 +228,7 @@ mod tests {
     // Single element
     #[case::delta_single(DeltaArray::try_from_vec(vec![42u32]).unwrap())]
     fn test_delta_consistency(#[case] array: DeltaArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 
     #[rstest]

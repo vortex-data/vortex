@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -70,7 +71,7 @@ impl DateTimePartsMetadata {
     }
 }
 
-impl VTable for DateTimePartsVTable {
+impl VTable for DateTimeParts {
     type Array = DateTimePartsArray;
 
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
@@ -221,8 +222,10 @@ impl VTable for DateTimePartsVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(decode_to_temporal(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            decode_to_temporal(array, ctx)?.into_array(),
+        ))
     }
 
     fn reduce_parent(
@@ -261,9 +264,9 @@ pub struct DateTimePartsArrayParts {
 }
 
 #[derive(Debug)]
-pub struct DateTimePartsVTable;
+pub struct DateTimeParts;
 
-impl DateTimePartsVTable {
+impl DateTimeParts {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.datetimeparts");
 }
 
@@ -344,7 +347,7 @@ impl DateTimePartsArray {
     }
 }
 
-impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
+impl ValidityChild<DateTimeParts> for DateTimeParts {
     fn validity_child(array: &DateTimePartsArray) -> &ArrayRef {
         array.days()
     }

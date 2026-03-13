@@ -15,6 +15,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
@@ -42,13 +43,13 @@ mod validity;
 vtable!(Chunked);
 
 #[derive(Debug)]
-pub struct ChunkedVTable;
+pub struct Chunked;
 
-impl ChunkedVTable {
+impl Chunked {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.chunked");
 }
 
-impl VTable for ChunkedVTable {
+impl VTable for Chunked {
     type Array = ChunkedArray;
 
     type Metadata = EmptyMetadata;
@@ -112,7 +113,7 @@ impl VTable for ChunkedVTable {
 
     fn child(array: &ChunkedArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.chunk_offsets.to_array(),
+            0 => array.chunk_offsets.clone().into_array(),
             n => array.chunks()[n - 1].clone(),
         }
     }
@@ -239,8 +240,8 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(_canonicalize(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

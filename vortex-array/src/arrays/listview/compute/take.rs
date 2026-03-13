@@ -7,10 +7,10 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
-use crate::arrays::ListViewVTable;
-use crate::arrays::TakeReduce;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
@@ -41,7 +41,7 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 ///
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.
-impl TakeReduce for ListViewVTable {
+impl TakeReduce for ListView {
     fn take(array: &ListViewArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let elements = array.elements();
         let offsets = array.offsets();

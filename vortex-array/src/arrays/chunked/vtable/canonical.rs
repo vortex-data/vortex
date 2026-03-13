@@ -10,11 +10,11 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::chunked::vtable::ChunkedArray;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -38,7 +38,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 array.chunks(),
-                Validity::copy_from_array(&array.to_array())?,
+                Validity::copy_from_array(&array.clone().into_array())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -46,7 +46,7 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             array.chunks(),
-            Validity::copy_from_array(&array.to_array())?,
+            Validity::copy_from_array(&array.clone().into_array())?,
             elem_dtype,
             ctx,
         )?),
@@ -219,7 +219,7 @@ mod tests {
         let dtype = struct_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![
-                ChunkedArray::try_new(vec![struct_array.to_array()], dtype.clone())
+                ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
                     .unwrap()
                     .into_array(),
             ],

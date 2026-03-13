@@ -13,6 +13,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -44,13 +45,13 @@ mod validity;
 vtable!(Constant);
 
 #[derive(Debug)]
-pub struct ConstantVTable;
+pub struct Constant;
 
-impl ConstantVTable {
+impl Constant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
 }
 
-impl VTable for ConstantVTable {
+impl VTable for Constant {
     type Array = ConstantArray;
 
     type Metadata = Scalar;
@@ -177,8 +178,10 @@ impl VTable for ConstantVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(constant_canonicalize(array)?.into_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            constant_canonicalize(array)?.into_array(),
+        ))
     }
 
     fn append_to_builder(

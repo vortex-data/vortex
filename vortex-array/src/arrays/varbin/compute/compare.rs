@@ -16,8 +16,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
-use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
@@ -31,7 +31,7 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::vtable::ValidityHelper;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
-impl CompareKernel for VarBinVTable {
+impl CompareKernel for VarBin {
     fn compare(
         lhs: &VarBinArray,
         rhs: &ArrayRef,
@@ -83,7 +83,7 @@ impl CompareKernel for VarBinVTable {
                 ));
             }
 
-            let lhs = Datum::try_new(&lhs.to_array())?;
+            let lhs = Datum::try_new(&lhs.clone().into_array())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())
@@ -115,14 +115,15 @@ impl CompareKernel for VarBinVTable {
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
-        } else if !rhs.is::<VarBinVTable>() {
+        } else if !rhs.is::<VarBin>() {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             return Ok(Some(
-                lhs.to_array()
+                lhs.clone()
+                    .into_array()
                     .execute::<VarBinViewArray>(ctx)?
-                    .to_array()
+                    .into_array()
                     .binary(rhs.to_array(), Operator::from(operator))?,
             ));
         } else {
@@ -146,6 +147,7 @@ mod test {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBuffer;
 
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
@@ -163,13 +165,13 @@ mod test {
             DType::Binary(Nullability::Nullable),
         );
         let result = array
-            .to_array()
+            .into_array()
             .binary(
                 ConstantArray::new(
                     Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
                     3,
                 )
-                .to_array(),
+                .into_array(),
                 Operator::Eq,
             )
             .unwrap()
@@ -196,8 +198,8 @@ mod test {
             DType::Binary(Nullability::Nullable),
         );
         let result = array
-            .to_array()
-            .binary(vbv.to_array(), Operator::Eq)
+            .into_array()
+            .binary(vbv.into_array(), Operator::Eq)
             .unwrap()
             .to_bool();
 
@@ -215,6 +217,7 @@ mod test {
 #[cfg(test)]
 mod tests {
     use crate::DynArray;
+    use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::builtins::ArrayBuiltins;
@@ -230,8 +233,8 @@ mod tests {
         let const_ = ConstantArray::new(Scalar::utf8("", Nullability::Nullable), 1);
 
         assert_eq!(
-            arr.to_array()
-                .binary(const_.to_array(), Operator::Eq)
+            arr.into_array()
+                .binary(const_.into_array(), Operator::Eq)
                 .unwrap()
                 .dtype(),
             &DType::Bool(Nullability::Nullable)

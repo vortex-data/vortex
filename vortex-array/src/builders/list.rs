@@ -12,6 +12,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListArray;
@@ -298,6 +299,10 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_list().into_array()
     }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::List(self.finish_into_list().to_listview())
+    }
 }
 
 #[cfg(test)]
@@ -309,18 +314,20 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
     use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::list::ListArray;
     use crate::builders::list::ListBuilder;
     use crate::dtype::DType;
     use crate::dtype::IntegerPType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
+    use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
@@ -431,8 +438,9 @@ mod tests {
         .unwrap();
         assert_eq!(list.len(), 3);
 
-        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
+        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
         builder.extend_from_array(&list);
         builder.extend_from_array(&list);
         builder.extend_from_array(&list.slice(0..0).unwrap());
@@ -460,7 +468,12 @@ mod tests {
 
         assert_arrays_eq!(actual.offsets(), expected.offsets());
 
-        assert_eq!(actual.validity(), expected.validity())
+        assert!(
+            actual
+                .validity()
+                .mask_eq(expected.validity(), &mut ctx)
+                .unwrap(),
+        );
     }
 
     #[test]

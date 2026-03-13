@@ -6,7 +6,7 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
@@ -15,16 +15,16 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
 fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
-    let taken_days = array.days().take(indices.to_array())?;
-    let taken_seconds = array.seconds().take(indices.to_array())?;
-    let taken_subseconds = array.subseconds().take(indices.to_array())?;
+    let taken_days = array.days().take(indices.clone().into_array())?;
+    let taken_seconds = array.seconds().take(indices.clone().into_array())?;
+    let taken_subseconds = array.subseconds().take(indices.clone().into_array())?;
 
     // Update the dtype if the nullability changed due to nullable indices
     let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
@@ -85,7 +85,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     )
 }
 
-impl TakeExecute for DateTimePartsVTable {
+impl TakeExecute for DateTimeParts {
     fn take(
         array: &DateTimePartsArray,
         indices: &ArrayRef,
@@ -136,6 +136,6 @@ mod tests {
         Some("UTC".into())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }

@@ -13,6 +13,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -57,7 +58,7 @@ pub struct DecimalBytesPartsMetadata {
     lower_part_count: u32,
 }
 
-impl VTable for DecimalBytePartsVTable {
+impl VTable for DecimalByteParts {
     type Array = DecimalBytePartsArray;
 
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
@@ -189,8 +190,8 @@ impl VTable for DecimalBytePartsVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        to_canonical_decimal(array, ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        to_canonical_decimal(array, ctx).map(ExecutionStep::Done)
     }
 
     fn execute_parent(
@@ -270,9 +271,9 @@ impl DecimalBytePartsArray {
 }
 
 #[derive(Debug)]
-pub struct DecimalBytePartsVTable;
+pub struct DecimalByteParts;
 
-impl DecimalBytePartsVTable {
+impl DecimalByteParts {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
 }
 
@@ -300,7 +301,7 @@ fn to_canonical_decimal(
     }))
 }
 
-impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index)?;
@@ -316,7 +317,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     }
 }
 
-impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+impl ValidityChild<DecimalByteParts> for DecimalByteParts {
     fn validity_child(array: &DecimalBytePartsArray) -> &ArrayRef {
         // validity stored in 0th child
         &array.msp
@@ -326,6 +327,7 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 #[cfg(test)]
 mod tests {
     use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
@@ -346,13 +348,13 @@ mod tests {
         let array = DecimalBytePartsArray::try_new(
             PrimitiveArray::new(
                 buffer![100i32, 200i32, 400i32],
-                Validity::Array(BoolArray::from_iter(vec![false, true, true]).to_array()),
+                Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array()),
             )
-            .to_array(),
+            .into_array(),
             decimal_dtype,
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
         assert_eq!(

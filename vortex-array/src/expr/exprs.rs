@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::dtype::DType;
@@ -20,6 +21,8 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::case_when::CaseWhen;
+use crate::scalar_fn::fns::case_when::CaseWhenOptions;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
@@ -107,6 +110,60 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
     GetItem.new_expr(field.into(), vec![child])
+}
+
+// ---- CaseWhen ----
+
+/// Creates a CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
+pub fn case_when(
+    condition: Expression,
+    then_value: Expression,
+    else_value: Expression,
+) -> Expression {
+    let options = CaseWhenOptions {
+        num_when_then_pairs: 1,
+        has_else: true,
+    };
+    CaseWhen.new_expr(options, [condition, then_value, else_value])
+}
+
+/// Creates a CASE WHEN expression with one WHEN/THEN pair and no ELSE value.
+pub fn case_when_no_else(condition: Expression, then_value: Expression) -> Expression {
+    let options = CaseWhenOptions {
+        num_when_then_pairs: 1,
+        has_else: false,
+    };
+    CaseWhen.new_expr(options, [condition, then_value])
+}
+
+/// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+pub fn nested_case_when(
+    when_then_pairs: Vec<(Expression, Expression)>,
+    else_value: Option<Expression>,
+) -> Expression {
+    assert!(
+        !when_then_pairs.is_empty(),
+        "nested_case_when requires at least one when/then pair"
+    );
+
+    let has_else = else_value.is_some();
+    let mut children = Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(has_else));
+    for (condition, then_value) in &when_then_pairs {
+        children.push(condition.clone());
+        children.push(then_value.clone());
+    }
+    if let Some(else_expr) = else_value {
+        children.push(else_expr);
+    }
+
+    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
+        vortex_panic!("nested_case_when has too many when/then pairs");
+    };
+    let options = CaseWhenOptions {
+        num_when_then_pairs,
+        has_else,
+    };
+    CaseWhen.new_expr(options, children)
 }
 
 // ---- Binary operators ----

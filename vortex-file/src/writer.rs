@@ -45,6 +45,7 @@ use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::Footer;
 use crate::MAGIC_BYTES;
@@ -211,7 +212,7 @@ impl VortexWriteOptions {
                     &dtype,
                 ))
             },
-            ctx,
+            ReadContext::new(ctx.to_ids()),
         );
 
         // Emit the footer buffers and EOF.

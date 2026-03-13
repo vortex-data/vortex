@@ -10,7 +10,6 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -30,6 +29,7 @@ use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
+use crate::executor::ExecutionStep;
 use crate::expr::Expression;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
@@ -45,7 +45,7 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
-vtable!(ScalarFn);
+vtable!(ScalarFn, ScalarFnVTable);
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnVTable;
@@ -194,10 +194,10 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = VecExecutionArgs::new(array.children.clone(), array.len);
-        array.scalar_fn.execute(&args, ctx)
+        array.scalar_fn.execute(&args, ctx).map(ExecutionStep::Done)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -272,18 +272,11 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
 
     fn try_match(array: &dyn DynArray) -> Option<Self::Match<'_>> {
         let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
-        let scalar_fn_vtable = scalar_fn_array
-            .scalar_fn
-            .vtable_ref::<F>()
-            .vortex_expect("ScalarFn VTable type mismatch in ExactScalarFn matcher");
-        let scalar_fn_options = scalar_fn_array
-            .scalar_fn
-            .as_opt::<F>()
-            .vortex_expect("ScalarFn options type mismatch in ExactScalarFn matcher");
+        let scalar_fn = scalar_fn_array.scalar_fn.downcast_ref::<F>()?;
         Some(ScalarFnArrayView {
             array,
-            vtable: scalar_fn_vtable,
-            options: scalar_fn_options,
+            vtable: scalar_fn.vtable(),
+            options: scalar_fn.options(),
         })
     }
 }

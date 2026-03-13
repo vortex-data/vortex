@@ -5,12 +5,12 @@
 
 use divan::Bencher;
 use itertools::repeat_n;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::validity::Validity;
@@ -36,12 +36,6 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (100_000, 256),
     (100_000, 1024),
     (100_000, 4096),
-    (1_000_000, 4),
-    (1_000_000, 16),
-    (1_000_000, 256),
-    (1_000_000, 1024),
-    (1_000_000, 4096),
-    (1_000_000, 8192),
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -73,11 +67,15 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
         .into_array();
 
     let run_end_array = RunEndArray::new(ends, values);
-    let array = run_end_array.to_array();
+    let array = run_end_array.into_array();
 
     bencher
-        .with_inputs(|| &array)
-        .bench_refs(|array| array.to_canonical());
+        .with_inputs(|| (array.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut execution_ctx)| {
+            array
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -95,7 +93,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let (ends, values) = runend_encode(&values);
     let runend_array = RunEndArray::try_new(ends.into_array(), values)
         .unwrap()
-        .to_array();
+        .into_array();
 
     bencher
         .with_inputs(|| {
@@ -110,6 +108,29 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
                 .take(indices.to_array())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
+                .unwrap()
+        });
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
+    let num_runs = length.div_ceil(run_step);
+    let ends = (0..num_runs)
+        .map(|i| ((i + 1) * run_step).min(length) as u64)
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let values = VarBinViewArray::from_iter_str((0..num_runs).map(|i| format!("run_value_{i}")))
+        .into_array();
+
+    let run_end_array = RunEndArray::new(ends, values);
+    let array = run_end_array.into_array();
+
+    bencher
+        .with_inputs(|| (array.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut execution_ctx)| {
+            array
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         });
 }

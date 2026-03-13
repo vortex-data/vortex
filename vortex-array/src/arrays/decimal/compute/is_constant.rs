@@ -4,15 +4,15 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::match_each_decimal_value_type;
 use crate::register_kernel;
 
-impl IsConstantKernel for DecimalVTable {
+impl IsConstantKernel for Decimal {
     fn is_constant(
         &self,
         array: &DecimalArray,
@@ -25,12 +25,13 @@ impl IsConstantKernel for DecimalVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DecimalVTable).lift());
+register_kernel!(IsConstantKernelAdapter(Decimal).lift());
 
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::is_constant;
     use crate::dtype::DecimalDType;
@@ -44,7 +45,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(!is_constant(&array.to_array()).unwrap().unwrap());
+        assert!(!is_constant(&array.into_array()).unwrap().unwrap());
 
         let array = DecimalArray::new(
             buffer![100i128, 100i128, 100i128],
@@ -52,6 +53,6 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(is_constant(&array.to_array()).unwrap().unwrap());
+        assert!(is_constant(&array.into_array()).unwrap().unwrap());
     }
 }

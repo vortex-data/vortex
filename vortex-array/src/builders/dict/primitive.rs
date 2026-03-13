@@ -18,8 +18,8 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::NativeValue;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -160,9 +160,9 @@ mod test {
 
     use crate::DynArray;
     use crate::IntoArray as _;
-    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
+    use crate::builders::dict::primitive::PrimitiveArray;
 
     #[test]
     fn encode_primitive() {
@@ -188,7 +188,7 @@ mod test {
             Some(3),
             None,
         ]);
-        let dict = dict_encode(&arr.to_array()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);

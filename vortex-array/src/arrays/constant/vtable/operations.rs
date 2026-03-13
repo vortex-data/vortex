@@ -3,12 +3,12 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Constant;
+use crate::arrays::constant::vtable::ConstantArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<ConstantVTable> for ConstantVTable {
+impl OperationsVTable<Constant> for Constant {
     fn scalar_at(array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
         Ok(array.scalar.clone())
     }

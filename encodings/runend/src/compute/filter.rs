@@ -8,9 +8,8 @@ use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
-use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
@@ -20,17 +19,17 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 use crate::compute::take::take_indices_unchecked;
 
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
-impl FilterKernel for RunEndVTable {
+impl FilterKernel for RunEnd {
     fn filter(
         array: &RunEndArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let mask_values = mask
             .values()
@@ -45,7 +44,7 @@ impl FilterKernel for RunEndVTable {
                 &Validity::NonNullable,
             )?))
         } else {
-            let primitive_run_ends = array.ends().to_primitive();
+            let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
             let (run_ends, values_mask) =
                 match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
                     filter_run_end_primitive(

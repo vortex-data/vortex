@@ -14,11 +14,10 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_native_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
+use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sequence::SequenceArrayParts;
-use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
@@ -37,7 +36,7 @@ impl CudaExecute for SequenceExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let array = array
-            .try_into::<SequenceVTable>()
+            .try_into::<Sequence>()
             .map_err(|_| vortex_err!("SequenceExecutor can only accept SequenceArray"))?;
 
         let SequenceArrayParts {
@@ -82,7 +81,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use futures::executor::block_on;
     use rstest::rstest;
@@ -104,6 +103,7 @@ mod tests {
     #[case::u16(10u16, 2u16, 100)]
     #[case::u32(10u32, 2u32, 1000)]
     #[case::u64(100u64, 20u64, 500)]
+    #[crate::test]
     fn test_sequence<T: NativePType + Into<PValue>>(
         #[case] base: T,
         #[case] multiplier: T,

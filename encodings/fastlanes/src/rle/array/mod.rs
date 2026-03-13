@@ -218,7 +218,9 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -229,6 +231,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
+    use vortex_session::registry::ReadContext;
 
     use crate::RLEArray;
     use crate::test::SESSION;
@@ -396,7 +399,12 @@ mod tests {
         let sliced_array = rle_array.slice(1..4).unwrap();
         let validity_mask = sliced_array.validity_mask().unwrap();
 
-        let expected_mask = Validity::from_iter([false, true, false]).to_mask(3);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let expected_mask = Validity::from_iter([false, true, false])
+            .execute_mask(3, &mut ctx)
+            .unwrap();
+        assert_eq!(validity_mask.len(), expected_mask.len());
+        assert_eq!(validity_mask, expected_mask);
         assert_eq!(validity_mask.len(), expected_mask.len());
         assert_eq!(validity_mask, expected_mask);
     }
@@ -443,7 +451,7 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let serialized = rle_array
-            .to_array()
+            .into_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
@@ -458,7 +466,7 @@ mod tests {
             .decode(
                 &DType::Primitive(PType::U32, Nullability::NonNullable),
                 2048,
-                &ctx,
+                &ReadContext::new(ctx.to_ids()),
                 &SESSION,
             )
             .unwrap();
@@ -485,7 +493,8 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let serialized = sliced
-            .to_array()
+            .clone()
+            .into_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
@@ -497,7 +506,12 @@ mod tests {
 
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts
-            .decode(sliced.dtype(), sliced.len(), &ctx, &SESSION)
+            .decode(
+                sliced.dtype(),
+                sliced.len(),
+                &ReadContext::new(ctx.to_ids()),
+                &SESSION,
+            )
             .unwrap();
 
         let original_data = sliced.to_primitive();

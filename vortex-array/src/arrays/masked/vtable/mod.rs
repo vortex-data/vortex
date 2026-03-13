@@ -19,12 +19,13 @@ use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
-use crate::arrays::masked::MaskedArray;
+use crate::arrays::MaskedArray;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
+use crate::executor::ExecutionStep;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
@@ -40,13 +41,13 @@ use crate::vtable::validity_to_child;
 vtable!(Masked);
 
 #[derive(Debug)]
-pub struct MaskedVTable;
+pub struct Masked;
 
-impl MaskedVTable {
+impl Masked {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
 }
 
-impl VTable for MaskedVTable {
+impl VTable for Masked {
     type Array = MaskedArray;
 
     type Metadata = EmptyMetadata;
@@ -160,15 +161,15 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
-            return Ok(
+            return Ok(ExecutionStep::Done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
-            );
+            ));
         }
 
         // NB: We intentionally do NOT have a fast path for `validity_mask.all_true()`.
@@ -178,7 +179,9 @@ impl VTable for MaskedVTable {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        Ok(mask_validity_canonical(child, &validity_mask, ctx)?.into_array())
+        Ok(ExecutionStep::Done(
+            mask_validity_canonical(child, &validity_mask, ctx)?.into_array(),
+        ))
     }
 
     fn reduce_parent(
@@ -217,14 +220,15 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexError;
+    use vortex_session::registry::ReadContext;
 
     use crate::ArrayContext;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::arrays::Masked;
     use crate::arrays::MaskedArray;
-    use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
     use crate::serde::ArrayParts;
@@ -256,7 +260,8 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let serialized = array
-            .to_array()
+            .clone()
+            .into_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
@@ -268,9 +273,16 @@ mod tests {
         let concat = concat.freeze();
 
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, len, &ctx, &LEGACY_SESSION).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
 
-        assert!(decoded.is::<MaskedVTable>());
+        assert!(decoded.is::<Masked>());
         assert_eq!(
             array.as_ref().display_values().to_string(),
             decoded.display_values().to_string()

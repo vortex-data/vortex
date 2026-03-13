@@ -7,15 +7,18 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 
-impl SliceReduce for ExtensionVTable {
+impl SliceReduce for Extension {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range)?)
-                .into_array(),
+            ExtensionArray::new(
+                array.ext_dtype().clone(),
+                array.storage_array().slice(range)?,
+            )
+            .into_array(),
         ))
     }
 }

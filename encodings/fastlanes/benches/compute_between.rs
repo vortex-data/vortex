@@ -99,14 +99,16 @@ mod primitive {
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 let gte = arr
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .binary(
                         ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
                     .vortex_expect("");
                 let lt = arr
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .binary(
                         ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,
@@ -135,7 +137,8 @@ mod primitive {
         bencher
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
-                arr.to_array()
+                arr.clone()
+                    .into_array()
                     .between(
                         ConstantArray::new(min, arr.len()).into_array(),
                         ConstantArray::new(max, arr.len()).into_array(),

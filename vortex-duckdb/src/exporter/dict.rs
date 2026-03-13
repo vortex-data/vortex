@@ -4,16 +4,12 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
-use parking_lot::Mutex;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
+use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_integer_ptype;
@@ -22,8 +18,8 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::LogicalType;
+use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
-use crate::duckdb::Vector;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
@@ -33,11 +29,9 @@ use crate::exporter::new_array_exporter;
 
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
-    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
-    values_len: u32,
+    values: ReusableDict,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
-    value_id: usize,
 }
 
 pub(crate) fn new_exporter_with_flatten(
@@ -50,7 +44,7 @@ pub(crate) fn new_exporter_with_flatten(
     // Grab the cache dictionary values.
     let values = array.values();
     let values_type: LogicalType = values.dtype().try_into()?;
-    if let Some(constant) = values.as_opt::<ConstantVTable>() {
+    if let Some(constant) = values.as_opt::<Constant>() {
         return constant::new_exporter_with_mask(
             ConstantArray::new(constant.scalar().clone(), array.codes().len()),
             array.codes().validity_mask()?,
@@ -72,9 +66,9 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_key = Arc::as_ptr(values).addr();
-    let codes = array.codes().to_primitive();
+    let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
-    let exporter_values = if flatten {
+    let reusable_dict = if flatten {
         let canonical = cache
             .canonical_cache
             .get(&values_key)
@@ -99,41 +93,37 @@ pub(crate) fn new_exporter_with_flatten(
         );
     } else {
         // Check if we have a cached vector and extract it if we do.
-        let cached_vector = cache
-            .values_cache
+        let reusable_dict = cache
+            .dict_cache
             .get(&values_key)
             .map(|entry| entry.value().1.clone());
 
-        match cached_vector {
-            Some(vector) => vector,
+        match reusable_dict {
+            Some(reusable_dict) => reusable_dict,
             None => {
-                // Create a new DuckDB vector for the values.
-                let values_type: LogicalType = values.dtype().try_into()?;
-                let mut vector = Vector::with_capacity(&values_type, values.len());
+                // Create a new reusable dictionary for the values.
+                let mut reusable_dict = ReusableDict::new(values.dtype().try_into()?, values.len());
                 new_array_exporter(values.clone(), cache, ctx)?.export(
                     0,
                     values.len(),
-                    &mut vector,
+                    reusable_dict.vector(),
                     ctx,
                 )?;
 
-                let vector = Arc::new(Mutex::new(vector));
                 cache
-                    .values_cache
-                    .insert(values_key, (values.clone(), vector.clone()));
+                    .dict_cache
+                    .insert(values_key, (values.clone(), reusable_dict.clone()));
 
-                vector
+                reusable_dict
             }
         }
     };
 
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
-            values_vector: exporter_values,
-            values_len: values.len().as_u32(),
+            values: reusable_dict,
             codes,
             codes_type: PhantomData::<I>,
-            value_id: values_key,
         }))
     })
 }
@@ -157,22 +147,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             *dst = src
         }
 
-        // DuckDB requires the value vector which references the data to be
-        // unique. Otherwise, DuckDB races on the values vector passed to the
-        // dictionary.
-        let new_values_vector = {
-            let values_vector = self.values_vector.lock();
-            let mut new_values_vector = Vector::new(&values_vector.logical_type());
-            // Shares the underlying data which determines the vectors length.
-            new_values_vector.reference(&values_vector);
-            new_values_vector
-        };
-
-        vector.dictionary(&new_values_vector, self.values_len as usize, &sel_vec, len);
-
-        // Use a unique id for each dictionary data array -- telling duckdb that
-        // the dict value vector is the same as reuse the hash in a join.
-        vector.set_dictionary_id(format!("{}", self.value_id));
+        vector.reuse_dictionary(&self.values, &sel_vec);
 
         Ok(())
     }
@@ -208,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn test_constant_dict() {
+    fn test_constant_dict() -> VortexResult<()> {
         let arr = DictArray::new(
             PrimitiveArray::from_option_iter([None, Some(0u32)]).into_array(),
             ConstantArray::new(10, 1).into_array(),
@@ -228,15 +203,17 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 2 = [ NULL, 10]
 "#
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_constant_dict_null() {
+    fn test_constant_dict_null() -> VortexResult<()> {
         let arr = DictArray::new(
             PrimitiveArray::from_option_iter([None::<u32>, None]).into_array(),
             ConstantArray::new(10, 1).into_array(),
@@ -252,15 +229,17 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - CONSTANT INTEGER: 2 = [ NULL]
 "#
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_nullable_dict() {
+    fn test_nullable_dict() -> VortexResult<()> {
         let arr = DictArray::new(
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(1)]).into_array(),
             PrimitiveArray::from_option_iter([Some(10), None]).into_array(),
@@ -281,7 +260,7 @@ mod tests {
 
         // some-invalid codes cannot be exported as a dictionary.
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
@@ -298,16 +277,18 @@ mod tests {
         flat_chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*flat_chunk).unwrap()),
+            format!("{}", String::try_from(&*flat_chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
-        )
+        );
+
+        Ok(())
     }
 
     #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
     #[test]
-    fn test_export_empty_dict() {
+    fn test_export_empty_dict() -> VortexResult<()> {
         let arr = DictArray::new(
             Buffer::<u32>::empty().into_array(),
             Buffer::<u32>::empty().into_array(),
@@ -327,10 +308,12 @@ mod tests {
         chunk.set_len(0);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 0 = [ ]
 "#
         );
+
+        Ok(())
     }
 }

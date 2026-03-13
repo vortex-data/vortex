@@ -17,12 +17,13 @@ use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::VarBinVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
@@ -73,7 +74,7 @@ impl FSSTMetadata {
     }
 }
 
-impl VTable for FSSTVTable {
+impl VTable for FSST {
     type Array = FSSTArray;
 
     type Metadata = ProstMetadata<FSSTMetadata>;
@@ -193,7 +194,13 @@ impl VTable for FSSTVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            builder.extend_from_array(&array.to_array().execute::<Canonical>(ctx)?.into_array());
+            builder.extend_from_array(
+                &array
+                    .clone()
+                    .into_array()
+                    .execute::<Canonical>(ctx)?
+                    .into_array(),
+            );
             return Ok(());
         };
 
@@ -222,7 +229,7 @@ impl VTable for FSSTVTable {
             }
             let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
             let codes = codes
-                .as_opt::<VarBinVTable>()
+                .as_opt::<VarBin>()
                 .ok_or_else(|| {
                     vortex_err!(
                         "Expected VarBinArray for codes, got {}",
@@ -314,7 +321,7 @@ impl VTable for FSSTVTable {
             .ok_or_else(|| vortex_err!("FSSTArray with_children missing codes"))?;
 
         let codes = codes
-            .as_opt::<VarBinVTable>()
+            .as_opt::<VarBin>()
             .ok_or_else(|| {
                 vortex_err!(
                     "Expected VarBinArray for codes, got {}",
@@ -332,8 +339,8 @@ impl VTable for FSSTVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        canonicalize_fsst(array, ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        canonicalize_fsst(array, ctx).map(ExecutionStep::Done)
     }
 
     fn execute_parent(
@@ -383,9 +390,9 @@ impl Debug for FSSTArray {
 }
 
 #[derive(Debug)]
-pub struct FSSTVTable;
+pub struct FSST;
 
-impl FSSTVTable {
+impl FSST {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
 }
 
@@ -451,7 +458,7 @@ impl FSSTArray {
             Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
         })
             as Box<dyn Fn() -> Compressor + Send>));
-        let codes_array = codes.to_array();
+        let codes_array = codes.clone().into_array();
 
         Self {
             dtype,
@@ -509,7 +516,7 @@ impl FSSTArray {
     }
 }
 
-impl ValidityChild<FSSTVTable> for FSSTVTable {
+impl ValidityChild<FSST> for FSST {
     fn validity_child(array: &FSSTArray) -> &ArrayRef {
         &array.codes_array
     }
@@ -535,7 +542,7 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
 
-    use crate::FSSTVTable;
+    use crate::FSST;
     use crate::array::FSSTMetadata;
     use crate::fsst_compress_iter;
 
@@ -592,7 +599,7 @@ mod test {
             fsst_array.uncompressed_lengths().clone(),
         ];
 
-        let fsst = FSSTVTable::build(
+        let fsst = FSST::build(
             &DType::Utf8(Nullability::NonNullable),
             2,
             &ProstMetadata(FSSTMetadata {

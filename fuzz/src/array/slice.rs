@@ -111,7 +111,7 @@ pub fn slice_canonical_array(
                         validity,
                     )
                 })
-                .to_array(),
+                .into_array(),
             )
         }
         d @ (DType::Null | DType::Extension(_)) => {

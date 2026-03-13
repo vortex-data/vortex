@@ -8,18 +8,18 @@ use futures::future::try_join_all;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
 use vortex::array::IntoArray;
-use vortex::array::arrays::BinaryView;
 use vortex::array::arrays::BoolArray;
-use vortex::array::arrays::BoolArrayParts;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::DecimalArrayParts;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructArrayParts;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::bool::BoolArrayParts;
+use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::arrays::varbinview::BinaryView;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
@@ -133,7 +133,7 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Extension(ext) => {
                 // Copy the storage array to host and rewrap in ExtensionArray.
                 let host_storage = ext
-                    .storage()
+                    .storage_array()
                     .to_canonical()?
                     .into_host()
                     .await?

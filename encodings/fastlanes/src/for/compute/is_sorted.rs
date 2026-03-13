@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::compute::IsSortedKernel;
 use vortex_array::compute::IsSortedKernelAdapter;
@@ -9,8 +10,8 @@ use vortex_array::compute::is_strict_sorted;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
 /// FoR can express sortedness directly on its encoded form.
 ///
@@ -70,13 +71,13 @@ use crate::FoRVTable;
 /// Addition is order-preserving, so all the wrapped values preserve their order and they're all
 /// represented as unsigned values larger than 127 so they also preserve their order with the
 /// unwrapped values.
-impl IsSortedKernel for FoRVTable {
+impl IsSortedKernel for FoR {
     fn is_sorted(&self, array: &FoRArray) -> VortexResult<Option<bool>> {
         let encoded = array.encoded().to_primitive();
         is_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())
-                .to_array(),
+                .into_array(),
         )
     }
 
@@ -85,12 +86,12 @@ impl IsSortedKernel for FoRVTable {
         is_strict_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())
-                .to_array(),
+                .into_array(),
         )
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(FoRVTable).lift());
+register_kernel!(IsSortedKernelAdapter(FoR).lift());
 
 #[cfg(test)]
 mod test {
