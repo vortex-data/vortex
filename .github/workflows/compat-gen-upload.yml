@@ -1,34 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Compat Fixture Upload
+# Reusable workflow: generate compat fixtures, attest, and upload to S3.
 #
-# Three modes:
-#   1. Pre-release check (prereleased): generate + validate fixtures, no upload.
-#      Fires when a GitHub pre-release (RC) is created.
-#   2. Post-release push (published): generate + attest + upload to S3.
-#      Fires when the final release is published.
-#   3. Manual hotfix (workflow_dispatch): generate + attest + upload to S3.
-#      For backfilling past versions. Infers tag from version input.
-#      Requires environment approval.
+# Called by:
+#   - compat-gen-find-release.yml (manual hotfix with approval)
+#   - publish.yml (post-release)
 
 name: Compat Fixture Upload
 
 on:
-  release:
-    types: [prereleased, published]
-  workflow_dispatch:
+  workflow_call:
     inputs:
       version:
         description: "Version to generate fixtures for (e.g. 0.62.0)"
         required: true
+        type: string
 
 env:
-  VERSION: ${{ inputs.version || github.event.release.tag_name }}
+  VERSION: ${{ inputs.version }}
 
 jobs:
   generate-fixtures:
-    name: "Generate fixtures (v${{ inputs.version || github.event.release.tag_name }})"
+    name: "Generate fixtures (v${{ inputs.version }})"
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -37,9 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Manual dispatch: infer tag from version input
-          # Release events: use the release tag directly
-          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
+          ref: "v${{ inputs.version }}"
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -60,39 +52,32 @@ jobs:
             --dry-run
 
       - name: Create fixture archive
-        if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
         run: |
           tar -czf "/tmp/compat-fixtures-${VERSION}.tar.gz" \
             -C /tmp/compat-fixtures .
 
       - name: Attest build provenance
-        if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: /tmp/compat-fixtures-${{ env.VERSION }}.tar.gz
+          subject-path: /tmp/compat-fixtures-${{ inputs.version }}.tar.gz
 
       - name: Upload fixture artifact
-        if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: compat-fixtures-${{ env.VERSION }}
-          path: /tmp/compat-fixtures-${{ env.VERSION }}.tar.gz
+          name: compat-fixtures-${{ inputs.version }}
+          path: /tmp/compat-fixtures-${{ inputs.version }}.tar.gz
 
   upload-to-s3:
-    name: "Upload to S3 (v${{ inputs.version || github.event.release.tag_name }})"
+    name: "Upload to S3 (v${{ inputs.version }})"
     needs: [generate-fixtures]
-    # Only upload on published release or manual dispatch (not pre-release)
-    if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Manual hotfix requires approval; release publish uses the same gate
-    environment: compat-upload
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
+          ref: "v${{ inputs.version }}"
 
       - uses: dtolnay/rust-toolchain@stable
 

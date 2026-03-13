@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Manual hotfix workflow for uploading compat fixtures for past releases.
+#
+# 1. find-release: validates the tag v<version> exists
+# 2. approve: gates on the compat-upload environment (requires reviewer)
+# 3. upload: calls the reusable compat-gen-upload workflow
+
+name: Compat Fixture Find Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to generate fixtures for (e.g. 0.62.0)"
+        required: true
+
+jobs:
+  find-release:
+    name: "Find release v${{ inputs.version }}"
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      commit: ${{ steps.validate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag exists
+        id: validate
+        run: |
+          TAG="v${{ inputs.version }}"
+          if ! git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${TAG} does not exist"
+            exit 1
+          fi
+          COMMIT=$(git rev-list -n 1 "refs/tags/${TAG}")
+          echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "Found tag ${TAG} at commit ${COMMIT}"
+
+  approve:
+    name: "Approve upload v${{ inputs.version }}"
+    needs: [find-release]
+    runs-on: ubuntu-latest
+    environment: compat-upload
+    steps:
+      - name: Approved
+        run: |
+          echo "Upload approved for v${{ needs.find-release.outputs.version }}"
+          echo "  commit: ${{ needs.find-release.outputs.commit }}"
+
+  upload:
+    needs: [approve, find-release]
+    uses: ./.github/workflows/compat-gen-upload.yml
+    with:
+      version: ${{ needs.find-release.outputs.version }}
+    secrets: inherit

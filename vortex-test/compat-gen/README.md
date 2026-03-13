@@ -183,39 +183,42 @@ aws iam put-role-policy \
 
 ## CI Workflows
 
-### Fixture upload (`.github/workflows/compat-gen-upload.yml`)
+### Fixture upload (reusable) (`.github/workflows/compat-gen-upload.yml`)
 
-This workflow operates in three modes:
+Reusable `workflow_call` workflow that generates fixtures, attests them with
+Sigstore/SLSA provenance, and uploads to S3. Not triggered directly — called
+by the workflows below.
 
-#### 1. Pre-release check (`release: prereleased`)
+Steps:
 
-Fires automatically when a GitHub pre-release (e.g. RC) is created. Generates
-fixtures and validates the manifest merge (dry-run) but **does not upload** to
-S3. This catches fixture generation failures before the final release.
+1. Checks out tag `v<version>`
+2. Builds and runs `compat-gen` to produce fixtures
+3. Validates the manifest merge (additive-only dry-run check)
+4. Creates a fixture archive and signs it with `actions/attest-build-provenance`
+5. Uploads archive as a GitHub Actions artifact
+6. Runs `scripts/upload.py` to push fixtures to S3
 
-#### 2. Post-release push (`release: published`)
+### Post-release upload (via `publish.yml`)
 
-Fires automatically when the final release is published. Generates fixtures,
-creates a signed attestation via `actions/attest-build-provenance`, archives
-the fixtures as a GitHub Actions artifact, then uploads to S3. Requires
-approval via the `compat-upload` GitHub Environment.
+When a release is published, `publish.yml` calls `compat-gen-upload.yml`
+automatically alongside the Rust/Python/Java publish jobs. No manual
+intervention required — fixtures are generated and uploaded as part of the
+normal release flow.
 
-#### 3. Manual hotfix (`workflow_dispatch`)
+### Manual hotfix upload (`.github/workflows/compat-gen-find-release.yml`)
 
 For backfilling past versions or regenerating fixtures from an older tag.
-Takes a `version` input (e.g. `0.62.0`) and infers the git tag as
-`v<version>`. Requires approval via the `compat-upload` GitHub Environment.
+Triggered via **manual dispatch** with a `version` input (e.g. `0.62.0`).
 
-All three modes share the same generate step:
-
-1. Checks out the inferred tag (`v<version>` for manual, release tag for events)
-2. Builds and runs `compat-gen` to produce fixtures
-3. Validates the manifest merge (additive-only check)
-4. (Modes 2 & 3 only) Attests and uploads to S3 via `scripts/upload.py`
+1. **find-release**: validates that tag `v<version>` exists, outputs the
+   version and commit SHA
+2. **approve**: gates on the `compat-upload` GitHub Environment (requires
+   a maintainer to approve before proceeding)
+3. **upload**: calls `compat-gen-upload.yml` with the validated version
 
 #### Attestation & verification
 
-Post-release and manual hotfix uploads produce a Sigstore-backed SLSA
+All uploads (post-release and manual hotfix) produce a Sigstore-backed SLSA
 provenance attestation. Verify any fixture archive with:
 
 ```bash
@@ -225,8 +228,7 @@ gh attestation verify compat-fixtures-0.63.0.tar.gz --repo vortex-data/vortex
 #### GitHub Environment setup
 
 Create a `compat-upload` environment (Settings → Environments) with required
-reviewers to gate S3 uploads. This applies to both post-release and manual
-hotfix uploads.
+reviewers to gate manual hotfix uploads.
 
 ### Weekly compat test (`.github/workflows/compat-test-weekly.yml`)
 

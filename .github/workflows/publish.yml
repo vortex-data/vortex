@@ -18,6 +18,12 @@ jobs:
       version: ${{ github.event.release.tag_name }}
     secrets: inherit
 
+  compat-upload:
+    uses: ./.github/workflows/compat-gen-upload.yml
+    with:
+      version: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
   publish-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 120
