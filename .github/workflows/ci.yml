@@ -642,7 +642,7 @@ jobs:
         run: |
           $flags = '-C debuginfo=0'
           echo "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
-          echo "C:\Users\Administrator\.cargo\bin" >> $env:GITHUB_PATH
+          echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
       - uses: ./.github/actions/setup-prebuild
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
