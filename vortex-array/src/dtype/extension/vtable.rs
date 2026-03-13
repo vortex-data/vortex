@@ -7,6 +7,8 @@ use std::hash::Hash;
 
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
+use crate::arrays::extension::ExtArray;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
@@ -96,4 +98,26 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>>;
+
+    /// Cast an array into this extension DType.
+    ///
+    /// Returns `None` if the cast is not possible.
+    fn cast_into_ext(
+        &self,
+        array: &ArrayRef,
+        target: &ExtDType<Self>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let _ = (array, target);
+        Ok(None)
+    }
+
+    /// Cast an array of this extension DType into another DType.
+    fn cast_from_ext(
+        &self,
+        array: &ExtArray<Self>,
+        target: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let _ = (array, target);
+        Ok(None)
+    }
 }

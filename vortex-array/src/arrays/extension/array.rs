@@ -5,8 +5,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::arrays::extension::view::ExtArray;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtVTable;
 use crate::stats::ArrayStats;
 
 /// An extension array that wraps another array with additional type information.
@@ -124,5 +126,9 @@ impl ExtensionArray {
 
     pub fn storage_array(&self) -> &ArrayRef {
         &self.storage_array
+    }
+
+    pub fn downcast_ref<V: ExtVTable>(&self) -> Option<ExtArray<'_, V>> {
+        ExtArray::try_new(self)
     }
 }

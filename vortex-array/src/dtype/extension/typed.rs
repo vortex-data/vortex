@@ -15,7 +15,10 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
+use crate::ArrayRef;
+use crate::arrays::ExtensionArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
@@ -129,6 +132,18 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn coercion_can_coerce_to(&self, other: &DType) -> bool;
     /// Compute the least supertype of this extension type and another type.
     fn coercion_least_supertype(&self, other: &DType) -> Option<DType>;
+    /// Attempt to cast an array into this extension dtype.
+    fn cast_into_ext(
+        &self,
+        array: &ArrayRef,
+        target: &ExtDTypeRef,
+    ) -> VortexResult<Option<ArrayRef>>;
+    /// Attempt to cast this extension array into a target dtype.
+    fn cast_from_ext(
+        &self,
+        array: &ExtensionArray,
+        target: &DType,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
 impl<V: ExtVTable> DynExtDType for ExtDType<V> {
@@ -211,5 +226,31 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
     fn coercion_least_supertype(&self, other: &DType) -> Option<DType> {
         self.vtable.least_supertype(self, other)
+    }
+
+    fn cast_into_ext(
+        &self,
+        array: &ArrayRef,
+        target: &ExtDTypeRef,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.vtable.cast_into_ext(
+            array,
+            target
+                .downcast_ref()
+                .ok_or_else(|| vortex_err!("Target is not an extension dtype"))?,
+        )
+    }
+
+    fn cast_from_ext(
+        &self,
+        array: &ExtensionArray,
+        target: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.vtable.cast_from_ext(
+            &array
+                .downcast_ref()
+                .ok_or_else(|| vortex_err!("Array is not an extension array of this type"))?,
+            target,
+        )
     }
 }

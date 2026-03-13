@@ -9,10 +9,12 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
+use arrow_array::ArrayRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::arrays::ExtensionArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDType;
@@ -114,6 +116,25 @@ impl ExtDTypeRef {
     pub fn least_supertype(&self, other: &DType) -> Option<DType> {
         self.0.coercion_least_supertype(other)
     }
+
+    /// Attempt to cast the extension array to the target dtype.
+    pub fn cast_into_ext(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        self.0.cast_into_ext(array, self)
+    }
+
+    /// Attempt to cast the extension array to the target dtype.
+    pub fn cast_from_ext(
+        &self,
+        array: &ExtensionArray,
+        target: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(ext_dtype) = array.dtype().as_extension_opt() {
+            if ext_dtype != self {
+                return Ok(None);
+            }
+        };
+        self.0.cast_from_ext(array, target)
+    }
 }
 
 /// Methods for downcasting type-erased extension dtypes.
@@ -165,6 +186,11 @@ impl ExtDTypeRef {
                 )
             })
             .vortex_expect("Failed to downcast ExtDTypeRef")
+    }
+
+    /// Downcast to the concrete [`ExtDType`].
+    pub fn downcast_ref<V: ExtVTable>(&self) -> Option<&ExtDType<V>> {
+        self.0.as_any().downcast_ref::<ExtDType<V>>()
     }
 }
 

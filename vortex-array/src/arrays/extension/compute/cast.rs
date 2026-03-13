@@ -11,28 +11,24 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {
-        if !array.dtype().eq_ignore_nullability(dtype) {
-            return Ok(None);
+        // Try casting the internal storage of the extension array.
+        if array.dtype().eq_ignore_nullability(dtype) {
+            let DType::Extension(ext_dtype) = dtype else {
+                unreachable!("Already verified we have an extension dtype");
+            };
+
+            if let Some(new_storage) = array
+                .storage_array()
+                .cast(ext_dtype.storage_dtype().clone())?
+            {
+                return Ok(Some(
+                    ExtensionArray::new(ext_dtype.clone(), new_storage).into_array(),
+                ));
+            };
         }
 
-        let DType::Extension(ext_dtype) = dtype else {
-            unreachable!("Already verified we have an extension dtype");
-        };
-
-        let new_storage = match array
-            .storage_array()
-            .cast(ext_dtype.storage_dtype().clone())
-        {
-            Ok(arr) => arr,
-            Err(e) => {
-                tracing::warn!("Failed to cast storage array: {e}");
-                return Ok(None);
-            }
-        };
-
-        Ok(Some(
-            ExtensionArray::new(ext_dtype.clone(), new_storage).into_array(),
-        ))
+        // Otherwise we defer to the extension vtable.
+        array.ext_dtype().cast_from_ext(array, dtype)
     }
 }
 
