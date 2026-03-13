@@ -54,14 +54,14 @@ pub fn transpose_bits(input: &[u8; 128], output: &mut [u8; 128]) {
             return;
         }
         // Fall back to scalar
-        transpose_bits_scalar(input, output);
+        scalar::transpose_bits_scalar(input, output);
     }
     #[cfg(target_arch = "aarch64")]
     {
         unsafe { aarch64::transpose_bits_neon(input, output) };
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    transpose_bits_scalar(input, output);
+    scalar::transpose_bits_scalar(input, output);
 }
 
 /// Dispatch untranspose to the best available implementation at runtime.
@@ -79,14 +79,14 @@ pub fn untranspose_bits(input: &[u8; 128], output: &mut [u8; 128]) {
             return;
         }
         // Fall back to scalar
-        untranspose_bits_scalar(input, output);
+        scalar::untranspose_bits_scalar(input, output);
     }
     #[cfg(target_arch = "aarch64")]
     {
         unsafe { aarch64::untranspose_bits_neon(input, output) };
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    untranspose_bits_scalar(input, output);
+    scalar::untranspose_bits_scalar(input, output);
 }
 
 #[cfg(test)]
