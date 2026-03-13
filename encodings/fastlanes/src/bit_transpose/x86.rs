@@ -250,6 +250,7 @@ pub unsafe fn untranspose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
         output[base + 112] = (val >> 56) as u8;
     }
 
+    output.fill(0);
     // Masks for each bit position
     let m0: u64 = 0x0101_0101_0101_0101;
     let m1: u64 = 0x0202_0202_0202_0202;

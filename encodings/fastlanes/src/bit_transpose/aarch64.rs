@@ -141,6 +141,7 @@ unsafe fn bit_transpose_8x8_neon(mut v: uint64x2_t) -> uint64x2_t {
 #[allow(unsafe_op_in_unsafe_fn)]
 #[inline(never)]
 pub unsafe fn transpose_bits_neon(input: &[u8; 128], output: &mut [u8; 128]) {
+    output.fill(0);
     // Load all 128 input bytes into two uint8x16x4_t tables (64 bytes each)
     let tbl_lo = vld1q_u8_x4(input.as_ptr());
     let tbl_hi = vld1q_u8_x4(input.as_ptr().add(64));
