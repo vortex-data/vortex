@@ -100,12 +100,12 @@ impl Iterator for PairedChunks<'_> {
             .remaining(lhs_chunk)
             .min(self.right.remaining(rhs_chunk));
 
-        let lhs_slice = match self.left.take(lhs_chunk, take) {
-            Ok(s) => s,
-            Err(e) => return Some(Err(e)),
-        };
-        let rhs_slice = match self.right.take(rhs_chunk, take) {
-            Ok(s) => s,
+        let (lhs_slice, rhs_slice) = match self
+            .left
+            .take(lhs_chunk, take)
+            .and_then(|l| self.right.take(rhs_chunk, take).map(|r| (l, r)))
+        {
+            Ok(pair) => pair,
             Err(e) => return Some(Err(e)),
         };
 
