@@ -36,10 +36,6 @@ pub fn has_vbmi() -> bool {
     is_x86_feature_detected!("avx512vbmi")
 }
 
-// ========================================================================
-// BMI2 implementation using PEXT/PDEP
-// ========================================================================
-
 /// Transpose 1024 bits using BMI2 PEXT instruction.
 ///
 /// PEXT extracts bits at positions specified by a mask into contiguous low bits.
@@ -447,10 +443,6 @@ pub unsafe fn untranspose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
         | _pdep_u64(input[127] as u64, m7);
     scatter(output, 15, v);
 }
-
-// ========================================================================
-// AVX-512 VBMI implementation with vectorized gather
-// ========================================================================
 
 // Static permutation tables for VBMI gather operations
 static GATHER_FIRST: [u8; 64] = [

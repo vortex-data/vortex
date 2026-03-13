@@ -24,10 +24,6 @@ use crate::bit_transpose::TRANSPOSE_2X2;
 use crate::bit_transpose::TRANSPOSE_4X4;
 use crate::bit_transpose::TRANSPOSE_8X8;
 
-// ========================================================================
-// Static permutation tables for TBL-based gather/scatter
-// ========================================================================
-
 /// Gather indices for the first half from input[0..64].
 /// Each group needs 4 bytes at stride 16 (the low half of the stride pattern).
 /// Layout: [`g0_from_lo(4` bytes), pad(4 bytes), `g1_from_lo(4` bytes), pad(4 bytes), ...]
@@ -132,10 +128,6 @@ unsafe fn bit_transpose_8x8_neon(mut v: uint64x2_t) -> uint64x2_t {
     let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<28>(v)), mask3);
     veorq_u64(veorq_u64(v, t), vshlq_n_u64::<28>(t))
 }
-
-// ========================================================================
-// TBL-based NEON implementation (vectorized gather/scatter)
-// ========================================================================
 
 /// Transpose 1024 bits using ARM NEON with TBL-based vectorized gather and scatter.
 ///
