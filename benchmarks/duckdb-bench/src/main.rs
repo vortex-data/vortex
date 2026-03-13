@@ -166,6 +166,7 @@ fn main() -> anyhow::Result<()> {
     } else {
         BenchmarkMode::Run {
             iterations: args.iterations,
+            validate: std::env::var("CI").is_ok(),
         }
     };
 

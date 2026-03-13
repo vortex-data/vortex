@@ -27,7 +27,8 @@ use crate::validation::rows_to_normalized_tsv;
 /// Controls whether queries are benchmarked or explained.
 pub enum BenchmarkMode {
     /// Run each query `iterations` times, collecting timing.
-    Run { iterations: usize },
+    /// When `validate` is true, also compare results against reference files.
+    Run { iterations: usize, validate: bool },
     /// Prepend `EXPLAIN` to each query, print the result, skip timing.
     Explain,
     /// Run each query once and compare results against reference files.
@@ -132,11 +133,14 @@ impl SqlBenchmarkRunner {
     /// Run a synchronous query benchmark.
     ///
     /// Executes the query function `iterations` times, collecting timing information.
-    /// The function should return `(Option<Duration>, R)` where:
-    /// - `Option<Duration>` can be `Some(Duration)` if the callback wants to report its own timing
-    ///   (e.g., DuckDB's internal timing), or `None` to use external wall-clock measurement
-    /// - `R` implements `BenchmarkQueryResult` for row count and display
-    fn run_query<R, F>(&mut self, query_idx: usize, format: Format, iterations: usize, mut f: F)
+    /// Returns the result from the last iteration so callers can validate it.
+    fn run_query<R, F>(
+        &mut self,
+        query_idx: usize,
+        format: Format,
+        iterations: usize,
+        mut f: F,
+    ) -> R
     where
         R: BenchmarkQueryResult,
         F: FnMut() -> (Option<Duration>, R),
@@ -144,21 +148,20 @@ impl SqlBenchmarkRunner {
         self.start_query();
 
         let mut runs = Vec::with_capacity(iterations);
-        let mut row_count = None;
+        let mut last_result: Option<R> = None;
 
         for _ in 0..iterations {
             let start = Instant::now();
             let (timing, result) = f();
             let elapsed = timing.unwrap_or_else(|| start.elapsed());
             runs.push(elapsed);
-
-            if row_count.is_none() {
-                row_count = Some(result.row_count());
-            }
+            last_result = Some(result);
         }
 
-        let row_count = row_count.expect("iterations must be > 0");
+        let result = last_result.expect("iterations must be > 0");
+        let row_count = result.row_count();
         self.record_query(query_idx, format, runs, row_count);
+        result
     }
 
     /// Record the results of running a query.
@@ -363,7 +366,10 @@ impl SqlBenchmarkRunner {
         E: FnMut(&mut Ctx, usize, Format, &str) -> anyhow::Result<(Option<Duration>, R)>,
     {
         match mode {
-            BenchmarkMode::Run { iterations } => {
+            BenchmarkMode::Run {
+                iterations,
+                validate,
+            } => {
                 let bar_length = queries.len() * self.formats.len();
                 let progress_bar = if self.hide_progress_bar || bar_length == 0 {
                     ProgressBar::hidden()
@@ -371,13 +377,15 @@ impl SqlBenchmarkRunner {
                     ProgressBar::new(bar_length as u64)
                 };
 
+                let mut validation_failures = Vec::new();
+
                 for format in self.formats.clone() {
                     let mut ctx = setup(format)?;
 
                     for (query_idx, query) in queries.iter() {
                         let query_idx = *query_idx;
                         tracing::debug!(%format, query_idx, "Running query");
-                        self.run_query(query_idx, format, iterations, || {
+                        let result = self.run_query(query_idx, format, iterations, || {
                             execute(&mut ctx, query_idx, format, query.as_str()).unwrap_or_else(
                                 |err| {
                                     vortex_panic!("query {query_idx} failed: {err}");
@@ -385,11 +393,32 @@ impl SqlBenchmarkRunner {
                             )
                         });
 
+                        // Validate the last iteration's result against the reference file.
+                        if validate && self.expected_results_dir.is_some() {
+                            let (cols, mut rows) = result.normalized_result();
+                            let tsv = rows_to_normalized_tsv(&cols, &mut rows);
+                            if !self.validate_query_result(query_idx, &tsv) {
+                                validation_failures.push((query_idx, format));
+                            }
+                        }
+
                         progress_bar.inc(1);
                     }
                 }
 
                 progress_bar.finish();
+
+                if !validation_failures.is_empty() {
+                    let failed: Vec<String> = validation_failures
+                        .iter()
+                        .map(|(q, f)| format!("q{q}:{f}"))
+                        .collect();
+                    anyhow::bail!(
+                        "Result validation failed for {engine}: {failed}",
+                        engine = self.engine,
+                        failed = failed.join(", "),
+                    );
+                }
             }
             BenchmarkMode::Explain => {
                 for format in self.formats.clone() {
@@ -473,13 +502,18 @@ impl SqlBenchmarkRunner {
         >,
     {
         match mode {
-            BenchmarkMode::Run { iterations } => {
+            BenchmarkMode::Run {
+                iterations,
+                validate,
+            } => {
                 let bar_length = queries.len() * self.formats.len();
                 let progress_bar = if self.hide_progress_bar || bar_length == 0 {
                     ProgressBar::hidden()
                 } else {
                     ProgressBar::new(bar_length as u64)
                 };
+
+                let mut validation_failures = Vec::new();
 
                 for format in self.formats.clone() {
                     let ctx = setup(format).await?;
@@ -490,7 +524,7 @@ impl SqlBenchmarkRunner {
                         self.start_query();
 
                         let mut runs = Vec::with_capacity(iterations);
-                        let mut row_count = None;
+                        let mut last_result: Option<R> = None;
 
                         tracing::debug!(%format, query_idx, "Running query");
 
@@ -503,20 +537,39 @@ impl SqlBenchmarkRunner {
                                 });
                             let elapsed = timing.unwrap_or_else(|| start.elapsed());
                             runs.push(elapsed);
-
-                            if row_count.is_none() {
-                                row_count = Some(result.row_count());
-                            }
+                            last_result = Some(result);
                         }
 
-                        let row_count = row_count.expect("iterations must be > 0");
+                        let result = last_result.expect("iterations must be > 0");
+                        let row_count = result.row_count();
                         self.record_query(query_idx, format, runs, row_count);
+
+                        // Validate the last iteration's result against the reference file.
+                        if validate && self.expected_results_dir.is_some() {
+                            let (cols, mut rows) = result.normalized_result();
+                            let tsv = rows_to_normalized_tsv(&cols, &mut rows);
+                            if !self.validate_query_result(query_idx, &tsv) {
+                                validation_failures.push((query_idx, format));
+                            }
+                        }
 
                         progress_bar.inc(1);
                     }
                 }
 
                 progress_bar.finish();
+
+                if !validation_failures.is_empty() {
+                    let failed: Vec<String> = validation_failures
+                        .iter()
+                        .map(|(q, f)| format!("q{q}:{f}"))
+                        .collect();
+                    anyhow::bail!(
+                        "Result validation failed for {engine}: {failed}",
+                        engine = self.engine,
+                        failed = failed.join(", "),
+                    );
+                }
             }
             BenchmarkMode::Explain => {
                 for format in self.formats.clone() {

@@ -103,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
             &filtered_queries,
             BenchmarkMode::Run {
                 iterations: args.iterations,
+                validate: false,
             },
             |_format| async {
                 let session = SessionContext::new();
@@ -164,6 +165,10 @@ impl BenchmarkQueryResult for LanceQueryResult {
         lance::deps::datafusion::arrow::util::pretty::pretty_format_batches(&self.0)
             .map(|d| d.to_string())
             .unwrap_or_else(|e| format!("<error: {e}>"))
+    }
+
+    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
+        unimplemented!("Lance benchmarks do not support result validation")
     }
 }
 
