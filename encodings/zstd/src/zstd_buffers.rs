@@ -420,7 +420,7 @@ impl VTable for ZstdBuffers {
         &array.slots
     }
 
-    fn slot_name(_array: &ZstdBuffersArray, idx: usize) -> &str {
+    fn slot_name(_array: &ZstdBuffersArray, idx: usize) -> String {
         vortex_panic!("ZstdBuffersArray slot names are dynamic, index {idx}")
     }
 

@@ -233,8 +233,8 @@ impl VTable for Pco {
         &array.slots
     }
 
-    fn slot_name(_array: &PcoArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &PcoArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut PcoArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

@@ -118,7 +118,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
             .enumerate()
             .filter(|(_, s)| s.is_some())
             .nth(idx)
-            .map(|(slot_idx, _)| Self::slot_name(array, slot_idx).to_string())
+            .map(|(slot_idx, _)| Self::slot_name(array, slot_idx))
             .vortex_expect("child_name index out of bounds")
     }
 
@@ -210,7 +210,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// # Panics
     /// Panics if `idx >= slots(array).len()`.
-    fn slot_name(array: &Self::Array, idx: usize) -> &str;
+    fn slot_name(array: &Self::Array, idx: usize) -> String;
 
     /// Replaces the slots in `array` with `slots`.
     fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;

@@ -167,8 +167,8 @@ impl VTable for List {
         &array.slots
     }
 
-    fn slot_name(_array: &ListArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &ListArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut ListArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

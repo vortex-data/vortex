@@ -193,7 +193,7 @@ impl VTable for VarBinView {
         &array.slots
     }
 
-    fn slot_name(_array: &VarBinViewArray, idx: usize) -> &str {
+    fn slot_name(_array: &VarBinViewArray, idx: usize) -> String {
         let _ = SLOT_NAMES;
         vortex_panic!("VarBinViewArray has no slots, requested index {idx}")
     }

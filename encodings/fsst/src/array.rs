@@ -289,8 +289,8 @@ impl VTable for FSST {
         &array.slots
     }
 
-    fn slot_name(_array: &FSSTArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &FSSTArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut FSSTArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

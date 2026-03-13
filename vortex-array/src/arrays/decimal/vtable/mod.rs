@@ -173,7 +173,7 @@ impl VTable for Decimal {
         &array.slots
     }
 
-    fn slot_name(_array: &DecimalArray, idx: usize) -> &str {
+    fn slot_name(_array: &DecimalArray, idx: usize) -> String {
         let _ = SLOT_NAMES;
         vortex_panic!("DecimalArray has no slots, requested index {idx}")
     }

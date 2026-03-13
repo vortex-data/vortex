@@ -227,8 +227,8 @@ impl VTable for ALPRD {
         &array.slots
     }
 
-    fn slot_name(_array: &ALPRDArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &ALPRDArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut ALPRDArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

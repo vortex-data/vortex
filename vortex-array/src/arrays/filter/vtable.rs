@@ -95,8 +95,8 @@ impl VTable for Filter {
         &array.slots
     }
 
-    fn slot_name(_array: &Self::Array, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &Self::Array, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {

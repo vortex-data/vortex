@@ -179,8 +179,8 @@ impl VTable for ScalarFnVTable {
         &array.slots
     }
 
-    fn slot_name(_array: &ScalarFnArray, _idx: usize) -> &str {
-        "child"
+    fn slot_name(_array: &ScalarFnArray, _idx: usize) -> String {
+        "child".to_string()
     }
 
     fn with_slots(array: &mut ScalarFnArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

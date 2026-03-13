@@ -138,7 +138,7 @@ impl VTable for Python {
         &[]
     }
 
-    fn slot_name(_array: &PythonArray, idx: usize) -> &str {
+    fn slot_name(_array: &PythonArray, idx: usize) -> String {
         vortex_panic!("PythonArray has no slots, requested index {idx}")
     }
 

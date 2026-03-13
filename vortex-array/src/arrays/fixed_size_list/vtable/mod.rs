@@ -179,8 +179,8 @@ impl VTable for FixedSizeList {
         &array.slots
     }
 
-    fn slot_name(_array: &FixedSizeListArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &FixedSizeListArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(

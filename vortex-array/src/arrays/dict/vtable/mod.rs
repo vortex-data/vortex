@@ -163,8 +163,8 @@ impl VTable for Dict {
         &array.slots
     }
 
-    fn slot_name(_array: &DictArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &DictArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut DictArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

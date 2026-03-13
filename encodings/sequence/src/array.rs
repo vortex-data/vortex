@@ -368,7 +368,7 @@ impl VTable for Sequence {
         &array.slots
     }
 
-    fn slot_name(_array: &SequenceArray, idx: usize) -> &str {
+    fn slot_name(_array: &SequenceArray, idx: usize) -> String {
         let _ = SLOT_NAMES;
         vortex_panic!("SequenceArray has no slots, requested index {idx}")
     }

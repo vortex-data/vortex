@@ -125,8 +125,8 @@ impl VTable for ZigZag {
         &array.slots
     }
 
-    fn slot_name(_array: &ZigZagArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &ZigZagArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut ZigZagArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

@@ -205,8 +205,8 @@ impl VTable for Sparse {
         &array.slots
     }
 
-    fn slot_name(_array: &SparseArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &SparseArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut SparseArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

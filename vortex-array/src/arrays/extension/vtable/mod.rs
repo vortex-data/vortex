@@ -92,8 +92,8 @@ impl VTable for Extension {
         &array.slots
     }
 
-    fn slot_name(_array: &ExtensionArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &ExtensionArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {

@@ -152,11 +152,11 @@ impl VTable for Struct {
         &array.slots
     }
 
-    fn slot_name(array: &StructArray, idx: usize) -> &str {
+    fn slot_name(array: &StructArray, idx: usize) -> String {
         if idx == VALIDITY_SLOT {
-            "validity"
+            "validity".to_string()
         } else {
-            array.names()[idx - FIELDS_OFFSET].as_ref()
+            array.names()[idx - FIELDS_OFFSET].to_string()
         }
     }
 

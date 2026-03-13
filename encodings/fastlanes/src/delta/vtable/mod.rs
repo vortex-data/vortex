@@ -114,8 +114,8 @@ impl VTable for Delta {
         &array.slots
     }
 
-    fn slot_name(_array: &DeltaArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &DeltaArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut DeltaArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

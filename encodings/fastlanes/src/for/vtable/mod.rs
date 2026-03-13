@@ -92,8 +92,8 @@ impl VTable for FoR {
         &array.slots
     }
 
-    fn slot_name(_array: &FoRArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &FoRArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut FoRArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

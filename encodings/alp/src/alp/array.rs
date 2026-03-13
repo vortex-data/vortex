@@ -96,8 +96,8 @@ impl VTable for ALP {
         &array.slots
     }
 
-    fn slot_name(_array: &ALPArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &ALPArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut ALPArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

@@ -112,7 +112,7 @@ impl VTable for Constant {
         &array.slots
     }
 
-    fn slot_name(_array: &ConstantArray, idx: usize) -> &str {
+    fn slot_name(_array: &ConstantArray, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 

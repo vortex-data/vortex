@@ -221,10 +221,10 @@ impl VTable for Chunked {
         &array.slots
     }
 
-    fn slot_name(_array: &ChunkedArray, idx: usize) -> &str {
+    fn slot_name(_array: &ChunkedArray, idx: usize) -> String {
         match idx {
-            0 => "chunk_offsets",
-            _ => "chunk",
+            0 => "chunk_offsets".to_string(),
+            _ => "chunk".to_string(),
         }
     }
 

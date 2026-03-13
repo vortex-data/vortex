@@ -81,7 +81,7 @@ impl VTable for Null {
         &array.slots
     }
 
-    fn slot_name(_array: &NullArray, idx: usize) -> &str {
+    fn slot_name(_array: &NullArray, idx: usize) -> String {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 

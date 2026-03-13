@@ -122,8 +122,8 @@ impl VTable for RLE {
         &array.slots
     }
 
-    fn slot_name(_array: &RLEArray, idx: usize) -> &str {
-        crate::rle::array::SLOT_NAMES[idx]
+    fn slot_name(_array: &RLEArray, idx: usize) -> String {
+        crate::rle::array::SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut RLEArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

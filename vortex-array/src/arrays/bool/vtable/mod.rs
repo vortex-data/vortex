@@ -156,7 +156,7 @@ impl VTable for Bool {
         &array.slots
     }
 
-    fn slot_name(_array: &BoolArray, idx: usize) -> &str {
+    fn slot_name(_array: &BoolArray, idx: usize) -> String {
         let _ = SLOT_NAMES;
         vortex_panic!("BoolArray has no slots, requested index {idx}")
     }

@@ -169,7 +169,7 @@ impl VTable for Primitive {
         &array.slots
     }
 
-    fn slot_name(_array: &PrimitiveArray, idx: usize) -> &str {
+    fn slot_name(_array: &PrimitiveArray, idx: usize) -> String {
         let _ = SLOT_NAMES;
         vortex_panic!("PrimitiveArray has no slots, requested index {idx}")
     }

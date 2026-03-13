@@ -163,8 +163,8 @@ impl VTable for VarBin {
         &array.slots
     }
 
-    fn slot_name(_array: &VarBinArray, idx: usize) -> &str {
-        SLOT_NAMES[idx]
+    fn slot_name(_array: &VarBinArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut VarBinArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
