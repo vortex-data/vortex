@@ -11,6 +11,7 @@ use clap::Parser;
 use crate::generate_fbs::generate_fbs;
 use crate::generate_proto::generate_proto;
 use crate::java_test_files::java_test_files;
+use crate::public_api::check_backcompat;
 use crate::public_api::public_api;
 
 #[derive(clap::Parser)]
@@ -33,6 +34,9 @@ enum Commands {
     /// Regenerate public-api.lock files for all published crates.
     #[command(name = "public-api")]
     PublicApi,
+    /// Check for backward-incompatible API changes against the latest release.
+    #[command(name = "check-backcompat")]
+    CheckBackcompat,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -42,6 +46,7 @@ fn main() -> anyhow::Result<()> {
         Commands::GenerateProto => generate_proto()?,
         Commands::JavaTestFiles => java_test_files()?,
         Commands::PublicApi => public_api()?,
+        Commands::CheckBackcompat => check_backcompat()?,
     }
     Ok(())
 }
