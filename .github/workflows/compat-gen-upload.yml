@@ -1,20 +1,98 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Compat Fixture Upload
+#
+# Three modes:
+#   1. Pre-release check (prereleased): generate + validate fixtures, no upload.
+#      Fires when a GitHub pre-release (RC) is created.
+#   2. Post-release push (published): generate + attest + upload to S3.
+#      Fires when the final release is published.
+#   3. Manual hotfix (workflow_dispatch): generate + attest + upload to S3.
+#      For backfilling past versions. Infers tag from version input.
+#      Requires environment approval.
+
 name: Compat Fixture Upload
 
 on:
+  release:
+    types: [prereleased, published]
   workflow_dispatch:
     inputs:
       version:
         description: "Version to generate fixtures for (e.g. 0.62.0)"
         required: true
 
+env:
+  VERSION: ${{ inputs.version || github.event.release.tag_name }}
+
 jobs:
-  upload-fixtures:
+  generate-fixtures:
+    name: "Generate fixtures (v${{ inputs.version || github.event.release.tag_name }})"
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Manual dispatch: infer tag from version input
+          # Release events: use the release tag directly
+          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate fixtures
+        run: |
+          cargo run -p vortex-compat --release --bin compat-gen -- \
+            --version "$VERSION" \
+            --output /tmp/compat-fixtures/
+
+      - name: Validate manifest (dry-run merge)
+        run: |
+          python3 vortex-test/compat-gen/scripts/upload.py \
+            --version "$VERSION" \
+            --output /tmp/compat-fixtures/ \
+            --skip-build \
+            --dry-run
+
+      - name: Create fixture archive
+        if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
+        run: |
+          tar -czf "/tmp/compat-fixtures-${VERSION}.tar.gz" \
+            -C /tmp/compat-fixtures .
+
+      - name: Attest build provenance
+        if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: /tmp/compat-fixtures-${{ env.VERSION }}.tar.gz
+
+      - name: Upload fixture artifact
+        if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-fixtures-${{ env.VERSION }}
+          path: /tmp/compat-fixtures-${{ env.VERSION }}.tar.gz
+
+  upload-to-s3:
+    name: "Upload to S3 (v${{ inputs.version || github.event.release.tag_name }})"
+    needs: [generate-fixtures]
+    # Only upload on published release or manual dispatch (not pre-release)
+    if: github.event.action == 'published' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Manual hotfix requires approval; release publish uses the same gate
+    environment: compat-upload
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -23,10 +101,10 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          role-to-assume: "arn:aws:iam::245040174862:role/GitHubBenchmarkRole"
           aws-region: us-east-1
 
       - name: Generate and upload fixtures
-        run: >
-          python3 vortex-test/compat-gen/scripts/upload.py
-          --version "${{ inputs.version }}"
+        run: |
+          python3 vortex-test/compat-gen/scripts/upload.py \
+            --version "$VERSION"

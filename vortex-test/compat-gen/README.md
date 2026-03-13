@@ -185,16 +185,48 @@ aws iam put-role-policy \
 
 ### Fixture upload (`.github/workflows/compat-gen-upload.yml`)
 
-Triggered via **manual dispatch** with a required `version` input (e.g. `0.62.0`).
-Will be updated to also trigger on release tag pushes once the workflow is proven.
+This workflow operates in three modes:
 
-1. Checks out the current branch
-2. Runs `scripts/upload.py --version <input>` which:
-   - Builds and runs `compat-gen` to generate fixtures
-   - Fetches the previous version's manifest and merges `since` values
-   - Enforces additive-only (no fixtures removed)
-   - Uploads fixtures to `s3://vortex-compat-fixtures/v<version>/`
-   - Updates `versions.json` with ETag-based optimistic locking
+#### 1. Pre-release check (`release: prereleased`)
+
+Fires automatically when a GitHub pre-release (e.g. RC) is created. Generates
+fixtures and validates the manifest merge (dry-run) but **does not upload** to
+S3. This catches fixture generation failures before the final release.
+
+#### 2. Post-release push (`release: published`)
+
+Fires automatically when the final release is published. Generates fixtures,
+creates a signed attestation via `actions/attest-build-provenance`, archives
+the fixtures as a GitHub Actions artifact, then uploads to S3. Requires
+approval via the `compat-upload` GitHub Environment.
+
+#### 3. Manual hotfix (`workflow_dispatch`)
+
+For backfilling past versions or regenerating fixtures from an older tag.
+Takes a `version` input (e.g. `0.62.0`) and infers the git tag as
+`v<version>`. Requires approval via the `compat-upload` GitHub Environment.
+
+All three modes share the same generate step:
+
+1. Checks out the inferred tag (`v<version>` for manual, release tag for events)
+2. Builds and runs `compat-gen` to produce fixtures
+3. Validates the manifest merge (additive-only check)
+4. (Modes 2 & 3 only) Attests and uploads to S3 via `scripts/upload.py`
+
+#### Attestation & verification
+
+Post-release and manual hotfix uploads produce a Sigstore-backed SLSA
+provenance attestation. Verify any fixture archive with:
+
+```bash
+gh attestation verify compat-fixtures-0.63.0.tar.gz --repo vortex-data/vortex
+```
+
+#### GitHub Environment setup
+
+Create a `compat-upload` environment (Settings → Environments) with required
+reviewers to gate S3 uploads. This applies to both post-release and manual
+hotfix uploads.
 
 ### Weekly compat test (`.github/workflows/compat-test-weekly.yml`)
 
