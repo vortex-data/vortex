@@ -6,10 +6,6 @@ on:
       mode:
         required: true
         type: string
-      machine_type:
-        required: false
-        type: string
-        default: c8id.8xlarge
       benchmark_matrix:
         required: false
         type: string

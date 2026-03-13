@@ -22,7 +22,6 @@ jobs:
     secrets: inherit
     with:
       mode: "develop"
-      machine_type: ${{ matrix.machine_type.instance_name }}
       # datafusion:vortex uses a lot of memory
       benchmark_matrix: |
         [
@@ -67,13 +66,3 @@ jobs:
             "scale_factor": "100.0"
           },
         ]
-    strategy:
-      # A single run not should kill the others
-      fail-fast: false
-      matrix:
-        machine_type:
-          - id: x86
-            instance_name: c8id.8xlarge
-# TODO(joe): support other arch
-#          - id: arm64
-#            instance_name: c6gd.8xlarge
