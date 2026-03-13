@@ -33,9 +33,8 @@ fn transpose_scalar(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&input, [0u8; 128]))
-        .bench_local_values(|(input, mut output)| {
-            transpose_bits_scalar(input, &mut output);
-            output
+        .bench_refs(|(input, output)| {
+            transpose_bits_scalar(input, output);
         });
 }
 
@@ -49,11 +48,10 @@ fn transpose_scalar_throughput(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-        .bench_local_values(|(inputs, mut outputs)| {
+        .bench_refs(|(inputs, outputs)| {
             for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                 transpose_bits_scalar(input, output);
             }
-            outputs
         });
 }
 
@@ -67,9 +65,8 @@ fn untranspose_scalar(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&input, [0u8; 128]))
-        .bench_local_values(|(input, mut output)| {
-            untranspose_bits_scalar(input, &mut output);
-            output
+        .bench_refs(|(input, output)| {
+            untranspose_bits_scalar(input, output);
         });
 }
 
@@ -83,11 +80,10 @@ fn untranspose_scalar_throughput(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-        .bench_local_values(|(inputs, mut outputs)| {
+        .bench_refs(|(inputs, outputs)| {
             for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                 untranspose_bits_scalar(input, output);
             }
-            outputs
         });
 }
 
@@ -120,9 +116,8 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&input, [0u8; 128]))
-            .bench_local_values(|(input, mut output)| {
-                unsafe { transpose_bits_bmi2(input, &mut output) };
-                output
+            .bench_refs(|(input, output)| {
+                unsafe { transpose_bits_bmi2(input, output) };
             });
     }
 
@@ -136,9 +131,8 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&input, [0u8; 128]))
-            .bench_local_values(|(input, mut output)| {
-                unsafe { transpose_bits_vbmi(input, &mut output) };
-                output
+            .bench_refs(|(input, output)| {
+                unsafe { transpose_bits_vbmi(input, output) };
             });
     }
 
@@ -154,9 +148,8 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&input, [0u8; 128]))
-            .bench_local_values(|(input, mut output)| {
-                unsafe { untranspose_bits_bmi2(input, &mut output) };
-                output
+            .bench_refs(|(input, output)| {
+                unsafe { untranspose_bits_bmi2(input, output) };
             });
     }
 
@@ -170,9 +163,8 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&input, [0u8; 128]))
-            .bench_local_values(|(input, mut output)| {
-                unsafe { untranspose_bits_vbmi(input, &mut output) };
-                output
+            .bench_refs(|(input, output)| {
+                unsafe { untranspose_bits_vbmi(input, output) };
             });
     }
 
@@ -188,11 +180,10 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-            .bench_local_values(|(inputs, mut outputs)| {
+            .bench_refs(|(inputs, outputs)| {
                 for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                     unsafe { transpose_bits_bmi2(input, output) };
                 }
-                outputs
             });
     }
 
@@ -206,11 +197,10 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-            .bench_local_values(|(inputs, mut outputs)| {
+            .bench_refs(|(inputs, outputs)| {
                 for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                     unsafe { transpose_bits_vbmi(input, output) };
                 }
-                outputs
             });
     }
 
@@ -226,11 +216,10 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-            .bench_local_values(|(inputs, mut outputs)| {
+            .bench_refs(|(inputs, outputs)| {
                 for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                     unsafe { untranspose_bits_bmi2(input, output) };
                 }
-                outputs
             });
     }
 
@@ -244,11 +233,10 @@ mod x86 {
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-            .bench_local_values(|(inputs, mut outputs)| {
+            .bench_refs(|(inputs, outputs)| {
                 for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                     unsafe { untranspose_bits_vbmi(input, output) };
                 }
-                outputs
             });
     }
 }
@@ -274,9 +262,8 @@ mod aarch64 {
 
         bencher
             .with_inputs(|| (&input, [0u8; 128]))
-            .bench_local_values(|(input, mut output)| {
-                unsafe { transpose_bits_neon(input, &mut output) };
-                output
+            .bench_refs(|(input, output)| {
+                unsafe { transpose_bits_neon(input, output) };
             });
     }
 
@@ -288,9 +275,8 @@ mod aarch64 {
 
         bencher
             .with_inputs(|| (&input, [0u8; 128]))
-            .bench_local_values(|(input, mut output)| {
-                unsafe { untranspose_bits_neon(input, &mut output) };
-                output
+            .bench_refs(|(input, output)| {
+                unsafe { untranspose_bits_neon(input, output) };
             });
     }
 
@@ -302,11 +288,10 @@ mod aarch64 {
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-            .bench_local_values(|(inputs, mut outputs)| {
+            .bench_refs(|(inputs, outputs)| {
                 for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                     unsafe { transpose_bits_neon(input, output) };
                 }
-                outputs
             });
     }
 
@@ -318,11 +303,10 @@ mod aarch64 {
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
-            .bench_local_values(|(inputs, mut outputs)| {
+            .bench_refs(|(inputs, outputs)| {
                 for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
                     unsafe { untranspose_bits_neon(input, output) };
                 }
-                outputs
             });
     }
 }
