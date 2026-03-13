@@ -75,6 +75,11 @@ impl AggregateFnRef {
         AggregateFnOptions { inner: &*self.0 }
     }
 
+    /// Coerce the input type for this aggregate function.
+    pub fn coerce_args(&self, input_dtype: &DType) -> VortexResult<DType> {
+        self.0.coerce_args(input_dtype)
+    }
+
     /// Compute the return [`DType`] per group given the input element type.
     pub fn return_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
         self.0.return_dtype(input_dtype)
