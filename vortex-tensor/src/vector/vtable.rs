@@ -27,12 +27,7 @@ impl ExtVTable for Vector {
         Ok(Vec::new())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "Vector metadata must be empty, got {} bytes",
-            metadata.len()
-        );
+    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
