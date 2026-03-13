@@ -16,6 +16,8 @@ use super::Fixture;
 const CLICKBENCH_URL: &str =
     "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_0.parquet";
 
+const PARQUET_FILENAME: &str = "clickbench_hits_0.parquet";
+
 pub struct ClickBenchHits1kFixture;
 
 impl Fixture for ClickBenchHits1kFixture {
@@ -23,20 +25,27 @@ impl Fixture for ClickBenchHits1kFixture {
         "clickbench_hits_1k.vortex"
     }
 
-    fn build(&self, tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
-        let parquet_path = tmp_dir.join("clickbench_hits_0.parquet");
+    fn description(&self) -> &str {
+        "First 1000 rows of ClickBench hits_0 partition (wide real-world schema)"
+    }
 
-        // Download if not already cached in tmp_dir.
-        if !parquet_path.exists() {
-            eprintln!("    downloading ClickBench parquet...");
-            let bytes = reqwest::blocking::get(CLICKBENCH_URL)
-                .map_err(|e| vortex_err!("failed to download ClickBench parquet: {e}"))?
-                .bytes()
-                .map_err(|e| vortex_err!("failed to read ClickBench response body: {e}"))?;
-            std::fs::write(&parquet_path, &bytes)
-                .map_err(|e| vortex_err!("failed to write parquet to tmp_dir: {e}"))?;
+    fn setup(&self, tmp_dir: &Path) -> VortexResult<()> {
+        let parquet_path = tmp_dir.join(PARQUET_FILENAME);
+        if parquet_path.exists() {
+            return Ok(());
         }
+        eprintln!("    downloading ClickBench parquet...");
+        let bytes = reqwest::blocking::get(CLICKBENCH_URL)
+            .map_err(|e| vortex_err!("failed to download ClickBench parquet: {e}"))?
+            .bytes()
+            .map_err(|e| vortex_err!("failed to read ClickBench response body: {e}"))?;
+        std::fs::write(&parquet_path, &bytes)
+            .map_err(|e| vortex_err!("failed to write parquet to tmp_dir: {e}"))?;
+        Ok(())
+    }
 
+    fn build(&self, tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
+        let parquet_path = tmp_dir.join(PARQUET_FILENAME);
         let file_bytes = std::fs::read(&parquet_path)
             .map_err(|e| vortex_err!("failed to read cached parquet: {e}"))?;
 

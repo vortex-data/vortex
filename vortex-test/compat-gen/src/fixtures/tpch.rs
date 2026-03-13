@@ -30,6 +30,10 @@ impl Fixture for TpchLineitemFixture {
         "tpch_lineitem.vortex"
     }
 
+    fn description(&self) -> &str {
+        "TPC-H lineitem table at scale factor 0.01"
+    }
+
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let generator = LineItemGenerator::new(SCALE_FACTOR, 1, 1);
         let arrow_iter = tpchgen_arrow::LineItemArrow::new(generator).with_batch_size(65_536);
@@ -42,6 +46,10 @@ pub struct TpchOrdersFixture;
 impl Fixture for TpchOrdersFixture {
     fn name(&self) -> &str {
         "tpch_orders.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "TPC-H orders table at scale factor 0.01"
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {

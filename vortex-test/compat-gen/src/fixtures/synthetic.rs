@@ -23,6 +23,10 @@ impl Fixture for PrimitivesFixture {
         "primitives.vortex"
     }
 
+    fn description(&self) -> &str {
+        "All primitive types (u8–u64, i32, i64, f32, f64) at boundary values"
+    }
+
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let arr = StructArray::try_new(
             FieldNames::from(["u8", "u16", "u32", "u64", "i32", "i64", "f32", "f64"]),
@@ -63,6 +67,10 @@ impl Fixture for StringsFixture {
         "strings.vortex"
     }
 
+    fn description(&self) -> &str {
+        "UTF-8 strings: empty, ASCII, multibyte (Japanese), and emoji"
+    }
+
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let strings = VarBinArray::from(vec!["", "hello", "こんにちは", "\u{1f980}"]);
         let arr = StructArray::try_new(
@@ -82,6 +90,10 @@ impl Fixture for BooleansFixture {
         "booleans.vortex"
     }
 
+    fn description(&self) -> &str {
+        "Boolean column with mixed true/false values"
+    }
+
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let bools = BoolArray::from_iter([true, false, true, true, false]);
         let arr = StructArray::try_new(
@@ -99,6 +111,10 @@ pub struct NullableFixture;
 impl Fixture for NullableFixture {
     fn name(&self) -> &str {
         "nullable.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Nullable int and string columns with interspersed nulls"
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
@@ -121,6 +137,10 @@ pub struct StructNestedFixture;
 impl Fixture for StructNestedFixture {
     fn name(&self) -> &str {
         "struct_nested.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Nested struct-in-struct with primitive and string leaf columns"
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
@@ -152,6 +172,10 @@ pub struct ChunkedFixture;
 impl Fixture for ChunkedFixture {
     fn name(&self) -> &str {
         "chunked.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Multi-chunk file: 3 chunks of 1000 rows with deterministic values"
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {

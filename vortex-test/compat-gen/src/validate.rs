@@ -88,6 +88,7 @@ fn validate_one(
     tmp_dir: &std::path::Path,
 ) -> VortexResult<()> {
     let actual = adapter::read_file(bytes)?;
+    fixture.setup(tmp_dir)?;
     let expected = fixture.build(tmp_dir)?;
 
     let actual_dtype = actual[0].dtype().clone();
