@@ -279,6 +279,8 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install protoc
+        uses: ./.github/actions/setup-protoc
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
       - name: Rust Lint - Format
