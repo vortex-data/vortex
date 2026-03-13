@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
@@ -46,8 +47,20 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         dtype: DType,
         session: VortexSession,
     ) -> VortexResult<Self> {
-        let return_dtype = vtable.return_dtype(&options, &dtype)?;
-        let partial_dtype = vtable.partial_dtype(&options, &dtype)?;
+        let return_dtype = vtable.return_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
+        let partial_dtype = vtable.partial_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
         let partial = vtable.empty_partial(&options, &dtype)?;
         let aggregate_fn = AggregateFn::new(vtable.clone(), options).erased();
 

@@ -39,8 +39,8 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
     fn id(&self) -> AggregateFnId;
     fn options_any(&self) -> &dyn Any;
 
-    fn return_dtype(&self, input_dtype: &DType) -> VortexResult<DType>;
-    fn state_dtype(&self, input_dtype: &DType) -> VortexResult<DType>;
+    fn return_dtype(&self, input_dtype: &DType) -> Option<DType>;
+    fn state_dtype(&self, input_dtype: &DType) -> Option<DType>;
     fn accumulator(
         &self,
         input_dtype: &DType,
@@ -84,11 +84,11 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
         &self.options
     }
 
-    fn return_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
         V::return_dtype(&self.vtable, &self.options, input_dtype)
     }
 
-    fn state_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+    fn state_dtype(&self, input_dtype: &DType) -> Option<DType> {
         V::partial_dtype(&self.vtable, &self.options, input_dtype)
     }
 

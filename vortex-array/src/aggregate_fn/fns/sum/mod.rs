@@ -27,6 +27,8 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::MAX_PRECISION;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
@@ -78,25 +80,55 @@ impl AggregateFnVTable for Sum {
         AggregateFnId::new_ref("vortex.sum")
     }
 
-    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
-        Stat::Sum
-            .dtype(input_dtype)
-            .ok_or_else(|| vortex_err!("Cannot sum {}", input_dtype))
+    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        // When a sum overflows, we return a sum _value_ of null. Therefore, we all return dtypes
+        // are nullable.
+        use Nullability::Nullable;
+
+        Some(match input_dtype {
+            DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
+            DType::Primitive(ptype, _) => match ptype {
+                PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
+                    DType::Primitive(PType::U64, Nullable)
+                }
+                PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
+                    DType::Primitive(PType::I64, Nullable)
+                }
+                PType::F16 | PType::F32 | PType::F64 => {
+                    // Float sums cannot overflow, but all null floats still end up as null
+                    DType::Primitive(PType::F64, Nullable)
+                }
+            },
+            DType::Extension(ext_dtype) => {
+                self.return_dtype(_options, ext_dtype.storage_dtype())?
+            }
+            DType::Decimal(decimal_dtype, _) => {
+                // Both Spark and DataFusion use this heuristic.
+                // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
+                // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
+                let precision = u8::min(MAX_PRECISION, decimal_dtype.precision() + 10);
+                DType::Decimal(
+                    DecimalDType::new(precision, decimal_dtype.scale()),
+                    Nullable,
+                )
+            }
+            // Unsupported types
+            _ => return None,
+        })
     }
 
-    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         self.return_dtype(options, input_dtype)
     }
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
-        let return_dtype = Stat::Sum
-            .dtype(input_dtype)
-            .ok_or_else(|| vortex_err!("Cannot sum {}", input_dtype))?;
-
+        let return_dtype = self
+            .return_dtype(options, input_dtype)
+            .ok_or_else(|| vortex_err!("Unsupported sum dtype: {}", input_dtype))?;
         let initial = make_zero_state(&return_dtype);
 
         Ok(SumPartial {

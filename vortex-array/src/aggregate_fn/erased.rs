@@ -76,12 +76,16 @@ impl AggregateFnRef {
     }
 
     /// Compute the return [`DType`] per group given the input element type.
-    pub fn return_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+    ///
+    /// Returns `None` if the input dtype is not supported by the aggregate function.
+    pub fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
         self.0.return_dtype(input_dtype)
     }
 
     /// DType of the intermediate accumulator state.
-    pub fn state_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+    ///
+    /// Returns `None` if the input dtype is not supported by the aggregate function.
+    pub fn state_dtype(&self, input_dtype: &DType) -> Option<DType> {
         self.0.state_dtype(input_dtype)
     }
 

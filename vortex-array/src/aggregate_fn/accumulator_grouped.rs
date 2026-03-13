@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -70,8 +71,20 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         session: VortexSession,
     ) -> VortexResult<Self> {
         let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
-        let return_dtype = vtable.return_dtype(&options, &dtype)?;
-        let partial_dtype = vtable.partial_dtype(&options, &dtype)?;
+        let return_dtype = vtable.return_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
+        let partial_dtype = vtable.partial_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
 
         Ok(Self {
             vtable,

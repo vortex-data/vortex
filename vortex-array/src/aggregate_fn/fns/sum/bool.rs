@@ -115,7 +115,9 @@ mod tests {
 
     #[test]
     fn sum_bool_return_dtype() -> VortexResult<()> {
-        let dtype = Sum.return_dtype(&EmptyOptions, &DType::Bool(Nullability::NonNullable))?;
+        let dtype = Sum
+            .return_dtype(&EmptyOptions, &DType::Bool(Nullability::NonNullable))
+            .unwrap();
         assert_eq!(dtype, DType::Primitive(PType::U64, Nullability::Nullable));
         Ok(())
     }
