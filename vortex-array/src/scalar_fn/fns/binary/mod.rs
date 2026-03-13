@@ -102,7 +102,9 @@ impl ScalarFnVTable for Binary {
         let lhs = &args[0];
         let rhs = &args[1];
         if operator.is_arithmetic() || operator.is_comparison() {
-            let supertype = lhs.least_supertype(rhs)?;
+            let supertype = lhs.least_supertype(rhs).ok_or_else(|| {
+                vortex_error::vortex_err!("No common supertype for {} and {}", lhs, rhs)
+            })?;
             Ok(vec![supertype.clone(), supertype])
         } else {
             // Boolean And/Or: no coercion
