@@ -1019,6 +1019,10 @@ mod tests {
         Ok(result.into_bool())
     }
 
+    fn like(array: FSSTArray, pattern: &str) -> VortexResult<BoolArray> {
+        run_like(array, pattern, LikeOptions::default())
+    }
+
     #[test]
     fn test_like_prefix() -> VortexResult<()> {
         let fsst = make_fsst(
@@ -1031,7 +1035,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let result = run_like(fsst, "http%", LikeOptions::default())?;
+        let result = like(fsst, "http%")?;
         assert_arrays_eq!(
             &result,
             &BoolArray::from_iter([true, true, false, true, false])
@@ -1045,7 +1049,7 @@ mod tests {
             &[Some("hello"), None, Some("help"), None, Some("goodbye")],
             Nullability::Nullable,
         );
-        let result = run_like(fsst, "hel%", LikeOptions::default())?;
+        let result = like(fsst, "hel%")?; // spellchecker:disable-line
         assert_arrays_eq!(
             &result,
             &BoolArray::from_iter([Some(true), None, Some(true), None, Some(false)])
@@ -1064,7 +1068,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let result = run_like(fsst, "%hello%", LikeOptions::default())?;
+        let result = like(fsst, "%hello%")?;
         assert_arrays_eq!(&result, &BoolArray::from_iter([true, true, false, true]));
         Ok(())
     }
@@ -1080,7 +1084,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let result = run_like(fsst, "%lazy dog%", LikeOptions::default())?;
+        let result = like(fsst, "%lazy dog%")?;
         assert_arrays_eq!(&result, &BoolArray::from_iter([true, false, true, false]));
         Ok(())
     }
@@ -1106,7 +1110,7 @@ mod tests {
             &[Some("abc"), Some(""), Some("xyz")],
             Nullability::NonNullable,
         );
-        let result = run_like(fsst, "%", LikeOptions::default())?;
+        let result = like(fsst, "%")?;
         assert_arrays_eq!(&result, &BoolArray::from_iter([true, true, true]));
         Ok(())
     }
