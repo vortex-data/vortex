@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -36,8 +35,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
@@ -120,25 +117,6 @@ impl VTable for VarBinView {
             Some("views".to_string())
         } else {
             vortex_panic!("VarBinViewArray buffer_name index {idx} out of bounds")
-        }
-    }
-
-    fn nchildren(array: &VarBinViewArray) -> usize {
-        validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &VarBinViewArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("VarBinViewArray validity child out of bounds"),
-            _ => vortex_panic!("VarBinViewArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &VarBinViewArray, idx: usize) -> String {
-        match idx {
-            0 => "validity".to_string(),
-            _ => vortex_panic!("VarBinViewArray child_name index {idx} out of bounds"),
         }
     }
 

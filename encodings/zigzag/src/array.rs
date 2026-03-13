@@ -85,24 +85,6 @@ impl VTable for ZigZag {
         vortex_panic!("ZigZagArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &ZigZagArray) -> usize {
-        1
-    }
-
-    fn child(array: &ZigZagArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.encoded().clone(),
-            _ => vortex_panic!("ZigZagArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &ZigZagArray, idx: usize) -> String {
-        match idx {
-            0 => "encoded".to_string(),
-            _ => vortex_panic!("ZigZagArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }

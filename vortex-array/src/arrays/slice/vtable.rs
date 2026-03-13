@@ -90,30 +90,12 @@ impl VTable for Slice {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        1
-    }
-
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.child().clone(),
-            _ => vortex_panic!("SliceArray child index {idx} out of bounds"),
-        }
-    }
-
     fn slots(array: &Self::Array) -> &[Option<ArrayRef>] {
         &array.slots
     }
 
     fn slot_name(_array: &Self::Array, idx: usize) -> &str {
         SLOT_NAMES[idx]
-    }
-
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "child".to_string(),
-            _ => vortex_panic!("SliceArray child_name index {idx} out of bounds"),
-        }
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {

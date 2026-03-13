@@ -128,28 +128,6 @@ impl VTable for DateTimeParts {
         vortex_panic!("DateTimePartsArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &DateTimePartsArray) -> usize {
-        3
-    }
-
-    fn child(array: &DateTimePartsArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.days().clone(),
-            1 => array.seconds().clone(),
-            2 => array.subseconds().clone(),
-            _ => vortex_panic!("DateTimePartsArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &DateTimePartsArray, idx: usize) -> String {
-        match idx {
-            0 => "days".to_string(),
-            1 => "seconds".to_string(),
-            2 => "subseconds".to_string(),
-            _ => vortex_panic!("DateTimePartsArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DateTimePartsMetadata {
             days_ptype: PType::try_from(array.days().dtype())? as i32,

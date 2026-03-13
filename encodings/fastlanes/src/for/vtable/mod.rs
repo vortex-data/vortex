@@ -88,24 +88,6 @@ impl VTable for FoR {
         None
     }
 
-    fn nchildren(_array: &FoRArray) -> usize {
-        1
-    }
-
-    fn child(array: &FoRArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.encoded().clone(),
-            _ => vortex_panic!("FoRArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &FoRArray, idx: usize) -> String {
-        match idx {
-            0 => "encoded".to_string(),
-            _ => vortex_panic!("FoRArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn slots(array: &FoRArray) -> &[Option<ArrayRef>] {
         &array.slots
     }

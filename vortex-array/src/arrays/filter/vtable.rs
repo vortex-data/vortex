@@ -91,24 +91,6 @@ impl VTable for Filter {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        1
-    }
-
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.child().clone(),
-            _ => vortex_panic!("FilterArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "child".to_string(),
-            _ => vortex_panic!("FilterArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn slots(array: &Self::Array) -> &[Option<ArrayRef>] {
         &array.slots
     }

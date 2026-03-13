@@ -87,18 +87,6 @@ impl VTable for Python {
         None
     }
 
-    fn nchildren(_array: &PythonArray) -> usize {
-        0
-    }
-
-    fn child(_array: &PythonArray, idx: usize) -> ArrayRef {
-        vortex_panic!("PythonArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: &PythonArray, idx: usize) -> String {
-        vortex_panic!("PythonArray child_name index {idx} out of bounds")
-    }
-
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
         pyo3::Python::attach(|py| {
             let obj = array.object.bind(py);

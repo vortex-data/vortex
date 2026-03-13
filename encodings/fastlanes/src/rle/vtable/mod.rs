@@ -110,28 +110,6 @@ impl VTable for RLE {
         None
     }
 
-    fn nchildren(_array: &RLEArray) -> usize {
-        3
-    }
-
-    fn child(array: &RLEArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.values().clone(),
-            1 => array.indices().clone(),
-            2 => array.values_idx_offsets().clone(),
-            _ => vortex_panic!("RLEArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &RLEArray, idx: usize) -> String {
-        match idx {
-            0 => "values".to_string(),
-            1 => "indices".to_string(),
-            2 => "values_idx_offsets".to_string(),
-            _ => vortex_panic!("RLEArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,

@@ -108,18 +108,6 @@ impl VTable for Constant {
         }
     }
 
-    fn nchildren(_array: &ConstantArray) -> usize {
-        0
-    }
-
-    fn child(_array: &ConstantArray, idx: usize) -> ArrayRef {
-        vortex_panic!("ConstantArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: &ConstantArray, idx: usize) -> String {
-        vortex_panic!("ConstantArray child_name index {idx} out of bounds")
-    }
-
     fn slots(array: &ConstantArray) -> &[Option<ArrayRef>] {
         &array.slots
     }

@@ -86,24 +86,6 @@ impl VTable for Shared {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        1
-    }
-
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.current_array_ref().clone(),
-            _ => vortex_panic!("SharedArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "source".to_string(),
-            _ => vortex_panic!("SharedArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn slots(array: &SharedArray) -> &[Option<ArrayRef>] {
         &array.slots
     }

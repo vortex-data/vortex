@@ -26,11 +26,8 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_array::vtable::validity_nchildren;
-use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -95,25 +92,6 @@ impl VTable for ByteBool {
         match idx {
             0 => Some("values".to_string()),
             _ => vortex_panic!("ByteBoolArray buffer_name index {idx} out of bounds"),
-        }
-    }
-
-    fn nchildren(array: &ByteBoolArray) -> usize {
-        validity_nchildren(array.validity())
-    }
-
-    fn child(array: &ByteBoolArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => validity_to_child(array.validity(), array.len())
-                .vortex_expect("ByteBoolArray validity child out of bounds"),
-            _ => vortex_panic!("ByteBoolArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &ByteBoolArray, idx: usize) -> String {
-        match idx {
-            0 => "validity".to_string(),
-            _ => vortex_panic!("ByteBoolArray child_name index {idx} out of bounds"),
         }
     }
 

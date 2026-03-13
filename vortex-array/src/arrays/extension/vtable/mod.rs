@@ -88,24 +88,6 @@ impl VTable for Extension {
         None
     }
 
-    fn nchildren(_array: &ExtensionArray) -> usize {
-        1
-    }
-
-    fn child(array: &ExtensionArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.storage_array().clone(),
-            _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &ExtensionArray, idx: usize) -> String {
-        match idx {
-            0 => "storage".to_string(),
-            _ => vortex_panic!("ExtensionArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn slots(array: &ExtensionArray) -> &[Option<ArrayRef>] {
         &array.slots
     }

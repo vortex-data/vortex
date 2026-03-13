@@ -3,7 +3,6 @@
 
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -29,8 +28,6 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
@@ -113,22 +110,6 @@ impl VTable for Decimal {
             0 => Some("values".to_string()),
             _ => None,
         }
-    }
-
-    fn nchildren(array: &DecimalArray) -> usize {
-        validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &DecimalArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("DecimalArray child index out of bounds"),
-            _ => vortex_panic!("DecimalArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &DecimalArray, _idx: usize) -> String {
-        "validity".to_string()
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {

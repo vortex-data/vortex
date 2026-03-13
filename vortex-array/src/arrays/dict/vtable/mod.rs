@@ -13,10 +13,8 @@ use vortex_session::VortexSession;
 
 use super::DictArray;
 use super::DictMetadata;
-use super::array::CODES_SLOT;
 use super::array::NUM_SLOTS;
 use super::array::SLOT_NAMES;
-use super::array::VALUES_SLOT;
 use super::take_canonical;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -100,26 +98,6 @@ impl VTable for Dict {
 
     fn buffer_name(_array: &DictArray, _idx: usize) -> Option<String> {
         None
-    }
-
-    fn nchildren(_array: &DictArray) -> usize {
-        2
-    }
-
-    fn child(array: &DictArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.codes().clone(),
-            1 => array.values().clone(),
-            _ => vortex_panic!("DictArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &DictArray, idx: usize) -> String {
-        match idx {
-            0 => SLOT_NAMES[CODES_SLOT].to_string(),
-            1 => SLOT_NAMES[VALUES_SLOT].to_string(),
-            _ => vortex_panic!("DictArray child_name index {idx} out of bounds"),
-        }
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {

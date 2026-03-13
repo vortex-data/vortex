@@ -107,26 +107,6 @@ impl VTable for RunEnd {
         vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &RunEndArray) -> usize {
-        2
-    }
-
-    fn child(array: &RunEndArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.ends().clone(),
-            1 => array.values().clone(),
-            _ => vortex_panic!("RunEndArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &RunEndArray, idx: usize) -> String {
-        match idx {
-            0 => "ends".to_string(),
-            1 => "values".to_string(),
-            _ => vortex_panic!("RunEndArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RunEndMetadata {
             ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")

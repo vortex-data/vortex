@@ -77,18 +77,6 @@ impl VTable for Null {
         None
     }
 
-    fn nchildren(_array: &NullArray) -> usize {
-        0
-    }
-
-    fn child(_array: &NullArray, idx: usize) -> ArrayRef {
-        vortex_panic!("NullArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: &NullArray, idx: usize) -> String {
-        vortex_panic!("NullArray child_name index {idx} out of bounds")
-    }
-
     fn slots(array: &NullArray) -> &[Option<ArrayRef>] {
         &array.slots
     }
