@@ -25,7 +25,7 @@ use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::ChunkedVTable;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
@@ -324,7 +324,7 @@ impl PyArray {
         let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
         let py = self_.py();
 
-        if let Some(chunked_array) = array.as_opt::<ChunkedVTable>() {
+        if let Some(chunked_array) = array.as_opt::<Chunked>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
             let arrow_dtype = chunked_array.dtype().to_arrow_dtype()?;

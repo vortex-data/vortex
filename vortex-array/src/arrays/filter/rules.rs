@@ -8,20 +8,20 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
-use crate::arrays::FilterVTable;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
 use crate::arrays::struct_::StructArrayParts;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<FilterVTable> =
+pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);
 
-pub(super) const RULES: ReduceRuleSet<FilterVTable> =
+pub(super) const RULES: ReduceRuleSet<Filter> =
     ReduceRuleSet::new(&[&TrivialFilterRule, &FilterStructRule]);
 
 /// A simple redecution rule that simplifies a [`FilterArray`] whose child is also a
@@ -29,8 +29,8 @@ pub(super) const RULES: ReduceRuleSet<FilterVTable> =
 #[derive(Debug)]
 struct FilterFilterRule;
 
-impl ArrayParentReduceRule<FilterVTable> for FilterFilterRule {
-    type Parent = FilterVTable;
+impl ArrayParentReduceRule<Filter> for FilterFilterRule {
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,
@@ -48,7 +48,7 @@ impl ArrayParentReduceRule<FilterVTable> for FilterFilterRule {
 #[derive(Debug)]
 struct TrivialFilterRule;
 
-impl ArrayReduceRule<FilterVTable> for TrivialFilterRule {
+impl ArrayReduceRule<Filter> for TrivialFilterRule {
     fn reduce(&self, array: &FilterArray) -> VortexResult<Option<ArrayRef>> {
         match array.filter_mask() {
             Mask::AllTrue(_) => Ok(Some(array.child.clone())),
@@ -62,10 +62,10 @@ impl ArrayReduceRule<FilterVTable> for TrivialFilterRule {
 #[derive(Debug)]
 struct FilterStructRule;
 
-impl ArrayReduceRule<FilterVTable> for FilterStructRule {
+impl ArrayReduceRule<Filter> for FilterStructRule {
     fn reduce(&self, array: &FilterArray) -> VortexResult<Option<ArrayRef>> {
         let mask = array.filter_mask();
-        let Some(struct_array) = array.child().as_opt::<StructVTable>() else {
+        let Some(struct_array) = array.child().as_opt::<Struct>() else {
             return Ok(None);
         };
 

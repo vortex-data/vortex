@@ -12,9 +12,9 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::DictArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::VarBinVTable;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::Primitive;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinView;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 
@@ -44,13 +44,13 @@ pub trait DictEncoder: Send {
 }
 
 pub fn dict_encoder(array: &ArrayRef, constraints: &DictConstraints) -> Box<dyn DictEncoder> {
-    let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<PrimitiveVTable>() {
+    let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<Primitive>() {
         match_each_native_ptype!(pa.ptype(), |P| {
             primitive_dict_builder::<P>(pa.dtype().nullability(), constraints)
         })
-    } else if let Some(vbv) = array.as_opt::<VarBinViewVTable>() {
+    } else if let Some(vbv) = array.as_opt::<VarBinView>() {
         bytes_dict_builder(vbv.dtype().clone(), constraints)
-    } else if let Some(vb) = array.as_opt::<VarBinVTable>() {
+    } else if let Some(vb) = array.as_opt::<VarBin>() {
         bytes_dict_builder(vb.dtype().clone(), constraints)
     } else {
         vortex_panic!("Can only encode primitive or varbin/view arrays")

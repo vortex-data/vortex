@@ -17,24 +17,24 @@ use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
+use crate::arrays::Null;
 use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::arrays::bool::BoolArrayParts;
 use crate::arrays::decimal::DecimalArrayParts;
 use crate::arrays::listview::ListViewArrayParts;
@@ -793,7 +793,7 @@ impl<T: NativePType> Executable for Buffer<T> {
 /// This will panic if the array's dtype is not primitive.
 impl Executable for PrimitiveArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<PrimitiveVTable>() {
+        match array.try_into::<Primitive>() {
             Ok(primitive) => Ok(primitive),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_primitive()),
         }
@@ -805,7 +805,7 @@ impl Executable for PrimitiveArray {
 /// This will panic if the array's dtype is not bool.
 impl Executable for BoolArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<BoolVTable>() {
+        match array.try_into::<Bool>() {
             Ok(bool_array) => Ok(bool_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
         }
@@ -831,7 +831,7 @@ impl Executable for BitBuffer {
 /// This will panic if the array's dtype is not null.
 impl Executable for NullArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<NullVTable>() {
+        match array.try_into::<Null>() {
             Ok(null_array) => Ok(null_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_null()),
         }
@@ -843,7 +843,7 @@ impl Executable for NullArray {
 /// This will panic if the array's dtype is not utf8 or binary.
 impl Executable for VarBinViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<VarBinViewVTable>() {
+        match array.try_into::<VarBinView>() {
             Ok(varbinview) => Ok(varbinview),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
         }
@@ -855,7 +855,7 @@ impl Executable for VarBinViewArray {
 /// This will panic if the array's dtype is not an extension type.
 impl Executable for ExtensionArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<ExtensionVTable>() {
+        match array.try_into::<Extension>() {
             Ok(ext_array) => Ok(ext_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_extension()),
         }
@@ -867,7 +867,7 @@ impl Executable for ExtensionArray {
 /// This will panic if the array's dtype is not decimal.
 impl Executable for DecimalArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<DecimalVTable>() {
+        match array.try_into::<Decimal>() {
             Ok(decimal) => Ok(decimal),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_decimal()),
         }
@@ -879,7 +879,7 @@ impl Executable for DecimalArray {
 /// This will panic if the array's dtype is not list.
 impl Executable for ListViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<ListViewVTable>() {
+        match array.try_into::<ListView>() {
             Ok(list) => Ok(list),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_listview()),
         }
@@ -891,7 +891,7 @@ impl Executable for ListViewArray {
 /// This will panic if the array's dtype is not fixed size list.
 impl Executable for FixedSizeListArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<FixedSizeListVTable>() {
+        match array.try_into::<FixedSizeList>() {
             Ok(fsl) => Ok(fsl),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_list()),
         }
@@ -903,7 +903,7 @@ impl Executable for FixedSizeListArray {
 /// This will panic if the array's dtype is not struct.
 impl Executable for StructArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<StructVTable>() {
+        match array.try_into::<Struct>() {
             Ok(struct_array) => Ok(struct_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_struct()),
         }
@@ -962,38 +962,36 @@ impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
     fn matches(array: &dyn DynArray) -> bool {
-        array.is::<NullVTable>()
-            || array.is::<BoolVTable>()
-            || array.is::<PrimitiveVTable>()
-            || array.is::<DecimalVTable>()
-            || array.is::<StructVTable>()
-            || array.is::<ListViewVTable>()
-            || array.is::<FixedSizeListVTable>()
-            || array.is::<VarBinViewVTable>()
-            || array.is::<ExtensionVTable>()
+        array.is::<Null>()
+            || array.is::<Bool>()
+            || array.is::<Primitive>()
+            || array.is::<Decimal>()
+            || array.is::<Struct>()
+            || array.is::<ListView>()
+            || array.is::<FixedSizeList>()
+            || array.is::<VarBinView>()
+            || array.is::<Extension>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
-        if let Some(a) = array.as_opt::<NullVTable>() {
+        if let Some(a) = array.as_opt::<Null>() {
             Some(CanonicalView::Null(a))
-        } else if let Some(a) = array.as_opt::<BoolVTable>() {
+        } else if let Some(a) = array.as_opt::<Bool>() {
             Some(CanonicalView::Bool(a))
-        } else if let Some(a) = array.as_opt::<PrimitiveVTable>() {
+        } else if let Some(a) = array.as_opt::<Primitive>() {
             Some(CanonicalView::Primitive(a))
-        } else if let Some(a) = array.as_opt::<DecimalVTable>() {
+        } else if let Some(a) = array.as_opt::<Decimal>() {
             Some(CanonicalView::Decimal(a))
-        } else if let Some(a) = array.as_opt::<StructVTable>() {
+        } else if let Some(a) = array.as_opt::<Struct>() {
             Some(CanonicalView::Struct(a))
-        } else if let Some(a) = array.as_opt::<ListViewVTable>() {
+        } else if let Some(a) = array.as_opt::<ListView>() {
             Some(CanonicalView::List(a))
-        } else if let Some(a) = array.as_opt::<FixedSizeListVTable>() {
+        } else if let Some(a) = array.as_opt::<FixedSizeList>() {
             Some(CanonicalView::FixedSizeList(a))
-        } else if let Some(a) = array.as_opt::<VarBinViewVTable>() {
+        } else if let Some(a) = array.as_opt::<VarBinView>() {
             Some(CanonicalView::VarBinView(a))
         } else {
-            array
-                .as_opt::<ExtensionVTable>()
-                .map(CanonicalView::Extension)
+            array.as_opt::<Extension>().map(CanonicalView::Extension)
         }
     }
 }

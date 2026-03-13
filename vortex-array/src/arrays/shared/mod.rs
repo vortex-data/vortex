@@ -5,7 +5,7 @@ mod array;
 mod vtable;
 
 pub use array::SharedArray;
-pub use vtable::SharedVTable;
+pub use vtable::Shared;
 
 #[cfg(test)]
 mod tests;

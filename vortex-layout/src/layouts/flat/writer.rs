@@ -202,10 +202,10 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::PrimitiveVTable;
     use vortex_array::arrays::StructArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -426,7 +426,7 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let allowed = ArrayRegistry::default();
-                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
+                allowed.register(Primitive::ID, Primitive);
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(
@@ -467,8 +467,8 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let allowed = ArrayRegistry::default();
-                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
-                allowed.register(DictVTable::ID, DictVTable);
+                allowed.register(Primitive::ID, Primitive);
+                allowed.register(Dict::ID, Dict);
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(

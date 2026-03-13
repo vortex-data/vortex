@@ -1,0 +1,15 @@
+name: "Setup Prebuild"
+description: "Minimal setup for runners with pre-built Rust toolchain, nextest, and sccache"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure sccache timeout
+      shell: bash
+      run: |
+        mkdir -p ~/.config/sccache
+        echo 'server_startup_timeout_ms = 15000' > ~/.config/sccache/config
+
+    - name: Pre-start sccache server
+      shell: bash
+      run: sccache --start-server &

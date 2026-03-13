@@ -15,10 +15,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
+use super::ByteBool;
 use super::ByteBoolArray;
-use super::ByteBoolVTable;
 
-impl CastReduce for ByteBoolVTable {
+impl CastReduce for ByteBool {
     fn cast(array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
@@ -41,7 +41,7 @@ impl CastReduce for ByteBoolVTable {
     }
 }
 
-impl MaskReduce for ByteBoolVTable {
+impl MaskReduce for ByteBool {
     fn mask(array: &ByteBoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ByteBoolArray::new(
@@ -56,7 +56,7 @@ impl MaskReduce for ByteBoolVTable {
     }
 }
 
-impl TakeExecute for ByteBoolVTable {
+impl TakeExecute for ByteBool {
     fn take(
         array: &ByteBoolArray,
         indices: &ArrayRef,

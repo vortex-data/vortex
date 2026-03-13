@@ -8,10 +8,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::r#for::FoR;
 use crate::r#for::FoRArray;
-use crate::r#for::FoRVTable;
 
-impl CastReduce for FoRVTable {
+impl CastReduce for FoR {
     fn cast(array: &FoRArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FoR only supports integer types
         if !dtype.is_int() {

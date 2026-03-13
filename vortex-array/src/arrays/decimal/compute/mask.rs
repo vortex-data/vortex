@@ -5,14 +5,14 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for DecimalVTable {
+impl MaskReduce for Decimal {
     fn mask(array: &DecimalArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(match_each_decimal_value_type!(
             array.values_type(),

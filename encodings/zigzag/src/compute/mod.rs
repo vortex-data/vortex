@@ -16,17 +16,17 @@ use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ZigZag;
 use crate::ZigZagArray;
-use crate::ZigZagVTable;
 
-impl FilterReduce for ZigZagVTable {
+impl FilterReduce for ZigZag {
     fn filter(array: &ZigZagArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let encoded = array.encoded().filter(mask.clone())?;
         Ok(Some(ZigZagArray::try_new(encoded)?.into_array()))
     }
 }
 
-impl TakeExecute for ZigZagVTable {
+impl TakeExecute for ZigZag {
     fn take(
         array: &ZigZagArray,
         indices: &ArrayRef,
@@ -37,7 +37,7 @@ impl TakeExecute for ZigZagVTable {
     }
 }
 
-impl MaskReduce for ZigZagVTable {
+impl MaskReduce for ZigZag {
     fn mask(array: &ZigZagArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_encoded = MaskExpr.try_new_array(
             array.encoded().len(),

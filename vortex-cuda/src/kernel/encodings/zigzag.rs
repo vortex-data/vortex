@@ -14,8 +14,8 @@ use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
+use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::ZigZagArray;
-use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -31,7 +31,7 @@ pub(crate) struct ZigZagExecutor;
 
 impl ZigZagExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {
-        array.try_into::<ZigZagVTable>().ok()
+        array.try_into::<ZigZag>().ok()
     }
 }
 

@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
@@ -14,7 +14,7 @@ use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::register_kernel;
 
-impl IsSortedKernel for PrimitiveVTable {
+impl IsSortedKernel for Primitive {
     fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<Option<bool>> {
         match_each_native_ptype!(array.ptype(), |P| {
             compute_is_sorted::<P>(array, false).map(Some)
@@ -28,7 +28,7 @@ impl IsSortedKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(PrimitiveVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Primitive).lift());
 
 #[derive(Copy, Clone)]
 struct ComparablePrimitive<T: NativePType>(T);

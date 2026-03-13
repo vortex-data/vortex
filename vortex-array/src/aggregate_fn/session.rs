@@ -14,7 +14,7 @@ use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::vtable::ArrayId;
 
@@ -41,7 +41,7 @@ impl Default for AggregateFnSession {
         };
 
         // Register the built-in aggregate kernels.
-        this.register_aggregate_kernel(ChunkedVTable::ID, None, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(Chunked::ID, None, &ChunkedArrayAggregate);
 
         this
     }

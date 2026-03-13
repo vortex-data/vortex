@@ -11,14 +11,14 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::SliceVTable;
+use vortex::array::arrays::Slice;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;
-use vortex::encodings::fastlanes::BitPackedVTable;
+use vortex::encodings::fastlanes::BitPacked;
+use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
-use vortex::encodings::fastlanes::FoRVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -36,7 +36,7 @@ pub(crate) struct FoRExecutor;
 
 impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
-        array.try_into::<FoRVTable>().ok()
+        array.try_into::<FoR>().ok()
     }
 }
 
@@ -51,7 +51,7 @@ impl CudaExecute for FoRExecutor {
         let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
         // Fuse FOR + BP => FFOR
-        if let Some(bitpacked) = array.encoded().as_opt::<BitPackedVTable>() {
+        if let Some(bitpacked) = array.encoded().as_opt::<BitPacked>() {
             match_each_integer_ptype!(bitpacked.ptype(), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
                 return decode_bitpacked(bitpacked.clone(), reference, ctx).await;
@@ -59,8 +59,8 @@ impl CudaExecute for FoRExecutor {
         }
 
         // Fuse FOR + SLICE + BP => SLICE + FFOR
-        if let Some(slice_array) = array.encoded().as_opt::<SliceVTable>()
-            && let Some(bitpacked) = slice_array.child().as_opt::<BitPackedVTable>()
+        if let Some(slice_array) = array.encoded().as_opt::<Slice>()
+            && let Some(bitpacked) = slice_array.child().as_opt::<BitPacked>()
         {
             let slice_range = slice_array.slice_range().clone();
             let unpacked = match_each_integer_ptype!(bitpacked.ptype(), |P| {

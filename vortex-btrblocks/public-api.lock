@@ -268,7 +268,7 @@ pub fn vortex_btrblocks::IntegerStats::fmt(&self, f: &mut core::fmt::Formatter<'
 
 impl vortex_btrblocks::CompressorStats for vortex_btrblocks::IntegerStats
 
-pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::primitive::vtable::PrimitiveVTable
+pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::primitive::vtable::Primitive
 
 pub fn vortex_btrblocks::IntegerStats::generate(input: &<Self::ArrayVTable as vortex_array::vtable::VTable>::Array) -> Self
 
@@ -316,7 +316,7 @@ pub fn vortex_btrblocks::CompressorStats::source(&self) -> &<Self::ArrayVTable a
 
 impl vortex_btrblocks::CompressorStats for vortex_btrblocks::IntegerStats
 
-pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::primitive::vtable::PrimitiveVTable
+pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::primitive::vtable::Primitive
 
 pub fn vortex_btrblocks::IntegerStats::generate(input: &<Self::ArrayVTable as vortex_array::vtable::VTable>::Array) -> Self
 

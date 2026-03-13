@@ -218,7 +218,9 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -397,7 +399,12 @@ mod tests {
         let sliced_array = rle_array.slice(1..4).unwrap();
         let validity_mask = sliced_array.validity_mask().unwrap();
 
-        let expected_mask = Validity::from_iter([false, true, false]).to_mask(3);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let expected_mask = Validity::from_iter([false, true, false])
+            .execute_mask(3, &mut ctx)
+            .unwrap();
+        assert_eq!(validity_mask.len(), expected_mask.len());
+        assert_eq!(validity_mask, expected_mask);
         assert_eq!(validity_mask.len(), expected_mask.len());
         assert_eq!(validity_mask, expected_mask);
     }

@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskReduce for PrimitiveVTable {
+impl MaskReduce for Primitive {
     fn mask(array: &PrimitiveArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: validity and data buffer still have same length
         Ok(Some(unsafe {

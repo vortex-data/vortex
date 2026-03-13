@@ -40,7 +40,7 @@ use crate::vtable;
 
 vtable!(Zoned);
 
-impl VTable for ZonedVTable {
+impl VTable for Zoned {
     type Layout = ZonedLayout;
     type Encoding = ZonedLayoutEncoding;
     type Metadata = ZonedMetadata;

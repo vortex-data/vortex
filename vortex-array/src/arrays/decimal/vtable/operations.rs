@@ -3,14 +3,14 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::DecimalVTable;
+use crate::arrays::Decimal;
 use crate::arrays::decimal::vtable::DecimalArray;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<DecimalVTable> for DecimalVTable {
+impl OperationsVTable<Decimal> for Decimal {
     fn scalar_at(array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
         Ok(match_each_decimal_value_type!(array.values_type(), |D| {
             Scalar::decimal(
@@ -28,8 +28,8 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
+    use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
-    use crate::arrays::DecimalVTable;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::scalar::DecimalValue;
@@ -48,7 +48,7 @@ mod tests {
         let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);
 
-        let decimal = sliced.as_::<DecimalVTable>();
+        let decimal = sliced.as_::<Decimal>();
         assert_eq!(decimal.buffer::<i128>(), buffer![200i128, 300i128]);
     }
 

@@ -3,8 +3,8 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::dtype::DType;
@@ -14,16 +14,16 @@ use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-pub(super) const RULES: ParentRuleSet<RunEndVTable> = ParentRuleSet::new(&[
+pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
-    ParentRuleSet::lift(&CastReduceAdaptor(RunEndVTable)),
+    ParentRuleSet::lift(&CastReduceAdaptor(RunEnd)),
     ParentRuleSet::lift(&RunEndScalarFnRule),
-    ParentRuleSet::lift(&FillNullReduceAdaptor(RunEndVTable)),
+    ParentRuleSet::lift(&FillNullReduceAdaptor(RunEnd)),
 ]);
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
@@ -32,7 +32,7 @@ pub(super) const RULES: ParentRuleSet<RunEndVTable> = ParentRuleSet::new(&[
 #[derive(Debug)]
 pub(crate) struct RunEndScalarFnRule;
 
-impl ArrayParentReduceRule<RunEndVTable> for RunEndScalarFnRule {
+impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
     type Parent = AnyScalarFn;
 
     fn reduce_parent(
@@ -47,7 +47,7 @@ impl ArrayParentReduceRule<RunEndVTable> for RunEndScalarFnRule {
                 continue;
             }
 
-            if !child.is::<ConstantVTable>() {
+            if !child.is::<Constant>() {
                 // We can only push down if all other children are constants
                 return Ok(None);
             }
@@ -69,7 +69,7 @@ impl ArrayParentReduceRule<RunEndVTable> for RunEndScalarFnRule {
 
             // Replace other children with their constant scalar value with length adjusted
             // to the length of the run end values.
-            let constant = child.as_::<ConstantVTable>();
+            let constant = child.as_::<Constant>();
             *child = ConstantArray::new(constant.scalar().clone(), values_len).into_array();
         }
 

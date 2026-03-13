@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
-use vortex::encodings::fastlanes::BitPackedVTable;
-use vortex::encodings::fastlanes::DeltaVTable;
-use vortex::encodings::fastlanes::FoRVTable;
+use vortex::encodings::fastlanes::BitPacked;
+use vortex::encodings::fastlanes::Delta;
+use vortex::encodings::fastlanes::FoR;
 
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
@@ -15,7 +15,7 @@ use crate::arrays::native::PyNativeArray;
 pub(crate) struct PyFastLanesBitPackedArray;
 
 impl EncodingSubclass for PyFastLanesBitPackedArray {
-    type VTable = BitPackedVTable;
+    type VTable = BitPacked;
 }
 
 #[pymethods]
@@ -32,7 +32,7 @@ impl PyFastLanesBitPackedArray {
 pub(crate) struct PyFastLanesDeltaArray;
 
 impl EncodingSubclass for PyFastLanesDeltaArray {
-    type VTable = DeltaVTable;
+    type VTable = Delta;
 }
 
 /// Concrete class for arrays with `fastlanes.for` encoding.
@@ -40,5 +40,5 @@ impl EncodingSubclass for PyFastLanesDeltaArray {
 pub(crate) struct PyFastLanesFoRArray;
 
 impl EncodingSubclass for PyFastLanesFoRArray {
-    type VTable = FoRVTable;
+    type VTable = FoR;
 }

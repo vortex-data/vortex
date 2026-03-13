@@ -5,14 +5,14 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastReduce for ListViewVTable {
+impl CastReduce for ListView {
     fn cast(array: &ListViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Check if we're casting to a `List` type.
         let Some(target_element_type) = dtype.as_list_element_opt() else {

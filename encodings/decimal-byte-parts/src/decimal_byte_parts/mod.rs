@@ -58,7 +58,7 @@ pub struct DecimalBytesPartsMetadata {
     lower_part_count: u32,
 }
 
-impl VTable for DecimalBytePartsVTable {
+impl VTable for DecimalByteParts {
     type Array = DecimalBytePartsArray;
 
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
@@ -271,9 +271,9 @@ impl DecimalBytePartsArray {
 }
 
 #[derive(Debug)]
-pub struct DecimalBytePartsVTable;
+pub struct DecimalByteParts;
 
-impl DecimalBytePartsVTable {
+impl DecimalByteParts {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
 }
 
@@ -301,7 +301,7 @@ fn to_canonical_decimal(
     }))
 }
 
-impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index)?;
@@ -317,7 +317,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     }
 }
 
-impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+impl ValidityChild<DecimalByteParts> for DecimalByteParts {
     fn validity_child(array: &DecimalBytePartsArray) -> &ArrayRef {
         // validity stored in 0th child
         &array.msp

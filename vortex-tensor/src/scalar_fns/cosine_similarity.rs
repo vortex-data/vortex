@@ -11,9 +11,9 @@ use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::ConstantVTable;
-use vortex::array::arrays::ExtensionVTable;
+use vortex::array::arrays::Extension;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_float_ptype;
 use vortex::dtype::DType;
@@ -197,7 +197,7 @@ impl ScalarFnVTable for CosineSimilarity {
 /// Extracts the storage array from an extension array without canonicalizing.
 fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
     let ext = array
-        .as_opt::<ExtensionVTable>()
+        .as_opt::<Extension>()
         .ok_or_else(|| vortex_err!("cosine_similarity input must be an extension array"))?;
     Ok(ext.storage_array().clone())
 }
@@ -211,7 +211,7 @@ fn extract_flat_elements(
     storage: &ArrayRef,
     list_size: usize,
 ) -> VortexResult<(PrimitiveArray, usize)> {
-    if let Some(constant) = storage.as_opt::<ConstantVTable>() {
+    if let Some(constant) = storage.as_opt::<Constant>() {
         // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a
         // huge amount of data.
         let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();

@@ -29,6 +29,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::extension::datetime::TimeUnit;
+use vortex::mask::Mask;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;
@@ -149,14 +150,14 @@ fn convert_valid_list_entry(
 ///    downstream operations like converting `ListView` to `List`.
 fn process_duckdb_lists(
     entries: &[duckdb_list_entry],
-    validity: &Validity,
-) -> (Buffer<i64>, Buffer<i64>, usize) {
+    validity: &Mask,
+) -> VortexResult<(Buffer<i64>, Buffer<i64>, usize)> {
     let len = entries.len();
     let mut offsets = BufferMut::with_capacity(len);
     let mut sizes = BufferMut::with_capacity(len);
 
     match validity {
-        Validity::NonNullable | Validity::AllValid => {
+        Mask::AllTrue(_) => {
             // All entries are valid, so there is no need to check the validity.
             let mut child_min_length = 0;
             let mut previous_end = 0;
@@ -170,41 +171,37 @@ fn process_duckdb_lists(
                     sizes.push_unchecked(size);
                 }
             }
-            (offsets.freeze(), sizes.freeze(), child_min_length)
+            Ok((offsets.freeze(), sizes.freeze(), child_min_length))
         }
-        Validity::AllInvalid => {
+        Mask::AllFalse(_) => {
             // All entries are null, so we can just set offset=0 and size=0.
             // SAFETY: We allocated enough capacity above.
             unsafe {
                 offsets.push_n_unchecked(0, len);
                 sizes.push_n_unchecked(0, len);
             }
-            (offsets.freeze(), sizes.freeze(), 0)
+            Ok((offsets.freeze(), sizes.freeze(), 0))
         }
-        Validity::Array(_) => {
+        Mask::Values(values) => {
             // We have some number of nulls, so make sure to check validity before updating info.
-            let mask = validity.to_mask(len);
-            let child_min_length = mask.iter_bools(|validity_iter| {
-                let mut child_min_length = 0;
-                let mut previous_end = 0;
+            let mut child_min_length = 0;
+            let mut previous_end = 0;
 
-                for (entry, is_valid) in entries.iter().zip(validity_iter) {
-                    let (offset, size) = if is_valid {
-                        convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end)
-                    } else {
-                        (previous_end, 0)
-                    };
+            for (entry, is_valid) in entries.iter().zip(values.bit_buffer().iter()) {
+                let (offset, size) = if is_valid {
+                    convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end)
+                } else {
+                    (previous_end, 0)
+                };
 
-                    // SAFETY: We allocated enough capacity above.
-                    unsafe {
-                        offsets.push_unchecked(offset);
-                        sizes.push_unchecked(size);
-                    }
+                // SAFETY: We allocated enough capacity above.
+                unsafe {
+                    offsets.push_unchecked(offset);
+                    sizes.push_unchecked(size);
                 }
+            }
 
-                child_min_length
-            });
-            (offsets.freeze(), sizes.freeze(), child_min_length)
+            Ok((offsets.freeze(), sizes.freeze(), child_min_length))
         }
     }
 }
@@ -321,10 +318,10 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
-            let validity = vector.validity_ref(len).to_validity();
+            let validity = vector.validity_ref(len).to_mask();
             let entries = vector.as_slice_with_len::<duckdb_list_entry>(len);
 
-            let (offsets, sizes, child_min_length) = process_duckdb_lists(entries, &validity);
+            let (offsets, sizes, child_min_length) = process_duckdb_lists(entries, &validity)?;
             let child_data =
                 flat_vector_to_vortex(vector.list_vector_get_child(), child_min_length)?;
 
@@ -332,7 +329,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                 child_data,
                 offsets.into_array(),
                 sizes.into_array(),
-                validity,
+                Validity::from_mask(validity, Nullability::Nullable),
             )
             .map(|a| a.into_array())
         }

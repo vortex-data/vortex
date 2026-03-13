@@ -6,7 +6,7 @@ use pyo3::PyRef;
 use pyo3::PyResult;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::array::arrays::ConstantVTable;
+use vortex::array::arrays::Constant;
 
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
@@ -18,7 +18,7 @@ use crate::scalar::PyScalar;
 pub(crate) struct PyConstantArray;
 
 impl EncodingSubclass for PyConstantArray {
-    type VTable = ConstantVTable;
+    type VTable = Constant;
 }
 
 #[pymethods]

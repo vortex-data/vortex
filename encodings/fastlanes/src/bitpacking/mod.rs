@@ -11,4 +11,4 @@ pub use array::unpack_iter;
 mod compute;
 
 mod vtable;
-pub use vtable::BitPackedVTable;
+pub use vtable::BitPacked;

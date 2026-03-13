@@ -5,9 +5,9 @@ use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-use crate::alp_rd::ALPRDVTable;
+use crate::alp_rd::ALPRD;
 
-pub(crate) static RULES: ParentRuleSet<ALPRDVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(ALPRDVTable)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ALPRDVTable)),
+pub(crate) static RULES: ParentRuleSet<ALPRD> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&CastReduceAdaptor(ALPRD)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(ALPRD)),
 ]);

@@ -40,19 +40,19 @@ use crate::vtable::ValidityVTable;
 vtable!(Slice);
 
 #[derive(Debug)]
-pub struct SliceVTable;
+pub struct Slice;
 
-impl SliceVTable {
+impl Slice {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.slice");
 }
 
-impl VTable for SliceVTable {
+impl VTable for Slice {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(_array: &Self::Array) -> ArrayId {
-        SliceVTable::ID
+        Slice::ID
     }
 
     fn len(array: &SliceArray) -> usize {
@@ -182,13 +182,13 @@ impl VTable for SliceVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
-impl OperationsVTable<SliceVTable> for SliceVTable {
+impl OperationsVTable<Slice> for Slice {
     fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
         array.child.scalar_at(array.range.start + index)
     }
 }
 
-impl ValidityVTable<SliceVTable> for SliceVTable {
+impl ValidityVTable<Slice> for Slice {
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
         array.child.validity()?.slice(array.range.clone())
     }

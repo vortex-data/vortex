@@ -18,11 +18,11 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
-use crate::unpack_iter::BitPacked;
+use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
-impl IsConstantKernel for BitPackedVTable {
+impl IsConstantKernel for BitPacked {
     fn is_constant(
         &self,
         array: &BitPackedArray,
@@ -38,9 +38,9 @@ impl IsConstantKernel for BitPackedVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(BitPackedVTable).lift());
+register_kernel!(IsConstantKernelAdapter(BitPacked).lift());
 
-fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
+fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
@@ -131,7 +131,7 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     Ok(true)
 }
 
-fn apply_patches<T: BitPacked>(
+fn apply_patches<T: BitPackedUnpack>(
     values: &mut [T],
     values_range: Range<usize>,
     patch_indices: &PrimitiveArray,
@@ -149,7 +149,7 @@ fn apply_patches<T: BitPacked>(
     });
 }
 
-fn apply_patches_idx_typed<T: BitPacked, I: IntegerPType>(
+fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
     values: &mut [T],
     values_range: Range<usize>,
     patch_indices: &[I],

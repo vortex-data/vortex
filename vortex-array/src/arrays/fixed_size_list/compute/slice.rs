@@ -7,12 +7,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::arrays::slice::SliceReduce;
 use crate::vtable::ValidityHelper;
 
-impl SliceReduce for FixedSizeListVTable {
+impl SliceReduce for FixedSizeList {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let new_len = range.len();
         let list_size = array.list_size() as usize;

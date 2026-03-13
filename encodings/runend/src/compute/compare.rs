@@ -14,11 +14,11 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 use crate::decompress_bool::runend_decode_bools;
 
-impl CompareKernel for RunEndVTable {
+impl CompareKernel for RunEnd {
     fn compare(
         lhs: &RunEndArray,
         rhs: &ArrayRef,

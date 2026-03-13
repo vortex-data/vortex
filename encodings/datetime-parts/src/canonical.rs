@@ -147,19 +147,17 @@ mod test {
         ))
         .unwrap();
 
-        assert_eq!(
-            date_times.validity_mask().unwrap(),
-            validity.to_mask(date_times.len())
-        );
-
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+        assert!(date_times.validity()?.mask_eq(&validity, &mut ctx)?);
+
         let primitive_values = decode_to_temporal(&date_times, &mut ctx)?
             .temporal_values()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
-        assert_eq!(primitive_values.validity(), &validity);
+        assert!(primitive_values.validity().mask_eq(&validity, &mut ctx)?);
         Ok(())
     }
 }

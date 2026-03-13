@@ -6,7 +6,6 @@ use std::os::raw::c_char;
 use std::os::raw::c_ulong;
 use std::os::raw::c_void;
 
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
 
@@ -39,12 +38,12 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
                 .to_string_lossy()
                 .into_owned()
         })
-        .collect_vec();
+        .collect();
 
     let column_types = unsafe { std::slice::from_raw_parts(column_types, column_type_count.as_()) }
         .iter()
         .map(|c| unsafe { LogicalType::borrow(*c) })
-        .collect_vec();
+        .collect();
 
     try_or_null(error_out, || {
         let bind_data = T::bind(column_names, column_types)?;

@@ -8,8 +8,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
-use crate::arrays::FilterVTable;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -77,7 +77,7 @@ impl<V> ArrayParentReduceRule<V> for FilterReduceAdaptor<V>
 where
     V: FilterReduce,
 {
-    type Parent = FilterVTable;
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,
@@ -100,7 +100,7 @@ impl<V> ExecuteParentKernel<V> for FilterExecuteAdaptor<V>
 where
     V: FilterKernel,
 {
-    type Parent = FilterVTable;
+    type Parent = Filter;
 
     fn execute_parent(
         &self,

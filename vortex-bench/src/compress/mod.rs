@@ -178,6 +178,7 @@ pub fn calculate_ratios(
     ratios: &mut Vec<CustomUnitMeasurement>,
 ) {
     calculate_vortex_parquet_ratios(measurements, compressed_sizes, bench_name, ratios);
+    calculate_vortex_lance_ratios(measurements, compressed_sizes, bench_name, ratios);
 }
 
 fn calculate_vortex_parquet_ratios(
@@ -223,5 +224,102 @@ fn calculate_vortex_parquet_ratios(
             unit: Cow::from("ratio"),
             value: vortex_time.as_nanos() as f64 / parquet_time.as_nanos() as f64,
         });
+    }
+}
+
+fn calculate_vortex_lance_ratios(
+    measurements: &HashMap<(Format, CompressOp), Duration>,
+    compressed_sizes: &HashMap<Format, u64>,
+    bench_name: &str,
+    ratios: &mut Vec<CustomUnitMeasurement>,
+) {
+    // Size ratio: vortex vs lance.
+    if let (Some(vortex_size), Some(lance_size)) = (
+        compressed_sizes.get(&Format::OnDiskVortex),
+        compressed_sizes.get(&Format::Lance),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:lance size/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: *vortex_size as f64 / *lance_size as f64,
+        });
+    }
+
+    // Compress time ratio: vortex vs lance.
+    if let (Some(vortex_time), Some(lance_time)) = (
+        measurements.get(&(Format::OnDiskVortex, CompressOp::Compress)),
+        measurements.get(&(Format::Lance, CompressOp::Compress)),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:lance ratio compress time/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex_time.as_nanos() as f64 / lance_time.as_nanos() as f64,
+        });
+    }
+
+    // Decompress time ratio: vortex vs lance.
+    if let (Some(vortex_time), Some(lance_time)) = (
+        measurements.get(&(Format::OnDiskVortex, CompressOp::Decompress)),
+        measurements.get(&(Format::Lance, CompressOp::Decompress)),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:lance ratio decompress time/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex_time.as_nanos() as f64 / lance_time.as_nanos() as f64,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn calculate_ratios_adds_vortex_lance_metrics() {
+        let mut timings = HashMap::new();
+        timings.insert(
+            (Format::OnDiskVortex, CompressOp::Compress),
+            Duration::from_millis(20),
+        );
+        timings.insert(
+            (Format::Lance, CompressOp::Compress),
+            Duration::from_millis(10),
+        );
+        timings.insert(
+            (Format::OnDiskVortex, CompressOp::Decompress),
+            Duration::from_millis(12),
+        );
+        timings.insert(
+            (Format::Lance, CompressOp::Decompress),
+            Duration::from_millis(6),
+        );
+
+        let mut compressed_sizes = HashMap::new();
+        compressed_sizes.insert(Format::OnDiskVortex, 400);
+        compressed_sizes.insert(Format::Lance, 200);
+
+        let mut ratios = Vec::new();
+        calculate_ratios(&timings, &compressed_sizes, "demo", &mut ratios);
+
+        assert!(
+            ratios
+                .iter()
+                .any(|m| m.name == "vortex:lance size/demo" && m.value == 2.0)
+        );
+        assert!(
+            ratios
+                .iter()
+                .any(|m| { m.name == "vortex:lance ratio compress time/demo" && m.value == 2.0 })
+        );
+        assert!(
+            ratios
+                .iter()
+                .any(|m| { m.name == "vortex:lance ratio decompress time/demo" && m.value == 2.0 })
+        );
     }
 }

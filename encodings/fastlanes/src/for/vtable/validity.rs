@@ -4,10 +4,10 @@
 use vortex_array::ArrayRef;
 use vortex_array::vtable::ValidityChild;
 
-use super::FoRVTable;
+use super::FoR;
 use crate::FoRArray;
 
-impl ValidityChild<FoRVTable> for FoRVTable {
+impl ValidityChild<FoR> for FoR {
     fn validity_child(array: &FoRArray) -> &ArrayRef {
         array.encoded()
     }

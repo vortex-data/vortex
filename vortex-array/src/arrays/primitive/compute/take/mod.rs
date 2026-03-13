@@ -17,8 +17,8 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -80,7 +80,7 @@ impl TakeImpl for TakeKernelScalar {
     }
 }
 
-impl TakeExecute for PrimitiveVTable {
+impl TakeExecute for Primitive {
     fn take(
         array: &PrimitiveArray,
         indices: &ArrayRef,
