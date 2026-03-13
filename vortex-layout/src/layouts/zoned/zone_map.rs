@@ -6,6 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
@@ -108,7 +109,7 @@ impl ZoneMap {
     }
 
     /// Returns an aggregated stats set for the table.
-    pub fn to_stats_set(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
+    pub fn to_stats_set(&self, stats: &[Stat], ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
             let Some(array) = self.get_stat(stat)? else {
@@ -127,7 +128,7 @@ impl ZoneMap {
                 }
                 // These stats sum up
                 Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
-                    if let Some(sum_value) = sum(&array)?
+                    if let Some(sum_value) = sum(&array, ctx)?
                         .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
                         .into_value()
                     {

@@ -51,6 +51,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::arrays::DecimalArray;
     use crate::dtype::DType;
@@ -71,7 +73,10 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
@@ -90,7 +95,10 @@ mod tests {
             Validity::from_iter([true, false, true, true]),
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullable),
@@ -109,7 +117,10 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
@@ -129,7 +140,10 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected_sum = near_max as i64 + 500 + 400;
         let expected = Scalar::try_new(
@@ -150,7 +164,10 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected_sum = (large_val as i128) * 4 + 1;
         let expected = Scalar::try_new(
@@ -170,7 +187,10 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(16, 4), Nullability::NonNullable),
@@ -186,7 +206,10 @@ mod tests {
         let decimal =
             DecimalArray::new(buffer![42i32], DecimalDType::new(3, 1), Validity::AllValid);
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(13, 1), Nullability::NonNullable),
@@ -205,7 +228,10 @@ mod tests {
             Validity::from_iter([false, false, true, false]),
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullable),
@@ -225,7 +251,10 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.into_array())?;
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let expected_sum =
             i256::from_i128(max_val) + i256::from_i128(max_val) + i256::from_i128(max_val);
@@ -248,7 +277,11 @@ mod tests {
         );
 
         assert_eq!(
-            sum(&decimal.into_array()).vortex_expect("operation should succeed in test"),
+            sum(
+                &decimal.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx()
+            )
+            .vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullable))
         );
         Ok(())

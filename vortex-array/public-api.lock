@@ -64,7 +64,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::combine_partials(&self, partia
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -76,9 +76,9 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::id(&self) -> vortex_array::agg
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::is_saturated(&self, partial: &Self::Partial) -> bool
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -202,9 +202,9 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::is<V: vortex_array::aggregate
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::options(&self) -> vortex_array::aggregate_fn::AggregateFnOptions<'_>
 
-pub fn vortex_array::aggregate_fn::AggregateFnRef::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::AggregateFnRef::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::AggregateFnRef::state_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::AggregateFnRef::state_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::vtable_ref<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> core::option::Option<&V>
 
@@ -306,9 +306,9 @@ pub fn vortex_array::aggregate_fn::AggregateFnVTable::id(&self) -> vortex_array:
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::is_saturated(&self, state: &Self::Partial) -> bool
 
-pub fn vortex_array::aggregate_fn::AggregateFnVTable::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::AggregateFnVTable::return_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::return_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -324,7 +324,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::combine_partials(&self, partia
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -336,9 +336,9 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::id(&self) -> vortex_array::agg
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::is_saturated(&self, partial: &Self::Partial) -> bool
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 

@@ -29,9 +29,9 @@ pub(super) fn accumulate_bool(inner: &mut SumState, b: &BoolArray) -> VortexResu
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
@@ -42,15 +42,15 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-
-    fn session() -> VortexSession {
-        VortexSession::empty()
-    }
+    use crate::executor::VortexSessionExecute;
 
     #[test]
     fn sum_bool_all_true() -> VortexResult<()> {
         let arr: BoolArray = [true, true, true].into_iter().collect();
-        let result = sum(&arr.into_array())?;
+        let result = sum(
+            &arr.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(3));
         Ok(())
     }
@@ -58,7 +58,10 @@ mod tests {
     #[test]
     fn sum_bool_mixed() -> VortexResult<()> {
         let arr: BoolArray = [true, false, true, false, true].into_iter().collect();
-        let result = sum(&arr.into_array())?;
+        let result = sum(
+            &arr.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(3));
         Ok(())
     }
@@ -66,7 +69,10 @@ mod tests {
     #[test]
     fn sum_bool_all_false() -> VortexResult<()> {
         let arr: BoolArray = [false, false, false].into_iter().collect();
-        let result = sum(&arr.into_array())?;
+        let result = sum(
+            &arr.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
     }
@@ -74,7 +80,10 @@ mod tests {
     #[test]
     fn sum_bool_with_nulls() -> VortexResult<()> {
         let arr = BoolArray::from_iter([Some(true), None, Some(true), Some(false)]);
-        let result = sum(&arr.into_array())?;
+        let result = sum(
+            &arr.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(2));
         Ok(())
     }
@@ -82,7 +91,10 @@ mod tests {
     #[test]
     fn sum_bool_all_null() -> VortexResult<()> {
         let arr = BoolArray::from_iter([None::<bool>, None, None]);
-        let result = sum(&arr.into_array())?;
+        let result = sum(
+            &arr.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
     }
@@ -90,7 +102,7 @@ mod tests {
     #[test]
     fn sum_bool_empty_produces_zero() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
         let result = acc.finish()?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
@@ -98,16 +110,17 @@ mod tests {
 
     #[test]
     fn sum_bool_finish_resets_state() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype, session())?;
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
 
         let batch1: BoolArray = [true, true, false].into_iter().collect();
-        acc.accumulate(&batch1.into_array())?;
+        acc.accumulate(&batch1.into_array(), &mut ctx)?;
         let result1 = acc.finish()?;
         assert_eq!(result1.as_primitive().typed_value::<u64>(), Some(2));
 
         let batch2: BoolArray = [false, true].into_iter().collect();
-        acc.accumulate(&batch2.into_array())?;
+        acc.accumulate(&batch2.into_array(), &mut ctx)?;
         let result2 = acc.finish()?;
         assert_eq!(result2.as_primitive().typed_value::<u64>(), Some(1));
         Ok(())
@@ -125,7 +138,7 @@ mod tests {
     #[test]
     fn sum_boolean_from_iter() -> VortexResult<()> {
         let arr = BoolArray::from_iter([true, false, false, true]).into_array();
-        let result = sum(&arr)?;
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().as_::<i32>(), Some(2));
         Ok(())
     }

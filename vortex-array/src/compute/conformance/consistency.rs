@@ -27,6 +27,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
@@ -1014,6 +1016,8 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
     use crate::compute::nan_count;
     use crate::dtype::DType;
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     let len = array.len();
     if len < 5 {
         return; // Need enough elements for meaningful slice
@@ -1051,7 +1055,9 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
         return;
     }
 
-    if let (Ok(slice_sum), Ok(canonical_sum)) = (sum(&sliced), sum(&canonical_sliced)) {
+    if let (Ok(slice_sum), Ok(canonical_sum)) =
+        (sum(&sliced, &mut ctx), sum(&canonical_sliced, &mut ctx))
+    {
         // Compare sum scalars
         assert_eq!(
             slice_sum, canonical_sum,

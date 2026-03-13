@@ -567,6 +567,7 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
         }
     }
 
+    // TODO(ngates): deprecate this function since it requires compute.
     fn valid_count(&self) -> VortexResult<usize> {
         if let Some(Precision::Exact(invalid_count)) =
             self.statistics().get_as::<usize>(Stat::NullCount)
@@ -578,7 +579,8 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
             Validity::NonNullable | Validity::AllValid => self.len(),
             Validity::AllInvalid => 0,
             Validity::Array(a) => {
-                let array_sum = sum(&a)?;
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let array_sum = sum(&a, &mut ctx)?;
                 array_sum
                     .as_primitive()
                     .as_::<usize>()

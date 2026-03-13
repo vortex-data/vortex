@@ -4,9 +4,12 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::scalar::Scalar;
 
 #[deprecated(note = "use `vortex::array::aggregate_fn::fns::sum::sum` instead")]
 pub fn sum(array: &ArrayRef) -> VortexResult<Scalar> {
-    crate::aggregate_fn::fns::sum::sum(array)
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    crate::aggregate_fn::fns::sum::sum(array, &mut ctx)
 }
