@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
+#![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
 use vortex_fastlanes::bit_transpose::transpose_bits_scalar;
@@ -12,10 +12,11 @@ fn main() {
 }
 
 /// Generate deterministic test data.
-fn generate_test_data(seed: u8) -> [u8; 128] {
+#[allow(clippy::cast_possible_truncation)]
+fn generate_test_data(seed: usize) -> [u8; 128] {
     let mut data = [0u8; 128];
     for (i, byte) in data.iter_mut().enumerate() {
-        *byte = seed.wrapping_mul(17).wrapping_add(i as u8).wrapping_mul(31);
+        *byte = seed.wrapping_mul(17).wrapping_add(i).wrapping_mul(31) as u8;
     }
     data
 }
@@ -44,7 +45,7 @@ fn transpose_scalar(bencher: Bencher) {
 
 #[divan::bench]
 fn transpose_scalar_throughput(bencher: Bencher) {
-    let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+    let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
     bencher
         .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
@@ -78,7 +79,7 @@ fn untranspose_scalar(bencher: Bencher) {
 
 #[divan::bench]
 fn untranspose_scalar_throughput(bencher: Bencher) {
-    let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+    let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
     bencher
         .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
@@ -183,7 +184,7 @@ mod x86 {
             return;
         }
 
-        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
@@ -201,7 +202,7 @@ mod x86 {
             return;
         }
 
-        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
@@ -221,7 +222,7 @@ mod x86 {
             return;
         }
 
-        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
@@ -239,7 +240,7 @@ mod x86 {
             return;
         }
 
-        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
@@ -297,7 +298,7 @@ mod aarch64 {
 
     #[divan::bench]
     fn transpose_neon_throughput(bencher: Bencher) {
-        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
@@ -313,7 +314,7 @@ mod aarch64 {
 
     #[divan::bench]
     fn untranspose_neon_throughput(bencher: Bencher) {
-        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
         bencher
             .with_inputs(|| (&inputs, vec![[0u8; 128]; BATCH_SIZE]))
