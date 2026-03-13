@@ -84,7 +84,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Sel
 
 pub struct vortex_array::aggregate_fn::fns::sum::SumPartial
 
-pub fn vortex_array::aggregate_fn::fns::sum::sum(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::sum::sum(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub mod vortex_array::aggregate_fn::kernels
 
@@ -132,11 +132,11 @@ pub struct vortex_array::aggregate_fn::Accumulator<V: vortex_array::aggregate_fn
 
 impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::Accumulator<V>
 
-pub fn vortex_array::aggregate_fn::Accumulator<V>::try_new(vtable: V, options: <V as vortex_array::aggregate_fn::AggregateFnVTable>::Options, dtype: vortex_array::dtype::DType, session: vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::aggregate_fn::Accumulator<V>::try_new(vtable: V, options: <V as vortex_array::aggregate_fn::AggregateFnVTable>::Options, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
 impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynAccumulator for vortex_array::aggregate_fn::Accumulator<V>
 
-pub fn vortex_array::aggregate_fn::Accumulator<V>::accumulate(&mut self, batch: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::Accumulator<V>::accumulate(&mut self, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::Accumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -188,9 +188,9 @@ pub struct vortex_array::aggregate_fn::AggregateFnRef(_)
 
 impl vortex_array::aggregate_fn::AggregateFnRef
 
-pub fn vortex_array::aggregate_fn::AggregateFnRef::accumulator(&self, input_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::AccumulatorRef>
+pub fn vortex_array::aggregate_fn::AggregateFnRef::accumulator(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::aggregate_fn::AccumulatorRef>
 
-pub fn vortex_array::aggregate_fn::AggregateFnRef::accumulator_grouped(&self, input_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::GroupedAccumulatorRef>
+pub fn vortex_array::aggregate_fn::AggregateFnRef::accumulator_grouped(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::aggregate_fn::GroupedAccumulatorRef>
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::as_<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> &<V as vortex_array::aggregate_fn::AggregateFnVTable>::Options
 
@@ -260,11 +260,11 @@ pub struct vortex_array::aggregate_fn::GroupedAccumulator<V: vortex_array::aggre
 
 impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::GroupedAccumulator<V>
 
-pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::try_new(vtable: V, options: <V as vortex_array::aggregate_fn::AggregateFnVTable>::Options, dtype: vortex_array::dtype::DType, session: vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::try_new(vtable: V, options: <V as vortex_array::aggregate_fn::AggregateFnVTable>::Options, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
 impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynGroupedAccumulator for vortex_array::aggregate_fn::GroupedAccumulator<V>
 
-pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::accumulate_list(&mut self, groups: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::accumulate_list(&mut self, groups: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -352,7 +352,7 @@ pub fn V::bind(&self, options: Self::Options) -> vortex_array::aggregate_fn::Agg
 
 pub trait vortex_array::aggregate_fn::DynAccumulator: 'static + core::marker::Send
 
-pub fn vortex_array::aggregate_fn::DynAccumulator::accumulate(&mut self, batch: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::DynAccumulator::accumulate(&mut self, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::DynAccumulator::finish(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -362,7 +362,7 @@ pub fn vortex_array::aggregate_fn::DynAccumulator::is_saturated(&self) -> bool
 
 impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynAccumulator for vortex_array::aggregate_fn::Accumulator<V>
 
-pub fn vortex_array::aggregate_fn::Accumulator<V>::accumulate(&mut self, batch: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::Accumulator<V>::accumulate(&mut self, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::Accumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -372,7 +372,7 @@ pub fn vortex_array::aggregate_fn::Accumulator<V>::is_saturated(&self) -> bool
 
 pub trait vortex_array::aggregate_fn::DynGroupedAccumulator: 'static + core::marker::Send
 
-pub fn vortex_array::aggregate_fn::DynGroupedAccumulator::accumulate_list(&mut self, groups: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::DynGroupedAccumulator::accumulate_list(&mut self, groups: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::DynGroupedAccumulator::finish(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -380,7 +380,7 @@ pub fn vortex_array::aggregate_fn::DynGroupedAccumulator::flush(&mut self) -> vo
 
 impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynGroupedAccumulator for vortex_array::aggregate_fn::GroupedAccumulator<V>
 
-pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::accumulate_list(&mut self, groups: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::accumulate_list(&mut self, groups: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
