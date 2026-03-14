@@ -13,7 +13,6 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;

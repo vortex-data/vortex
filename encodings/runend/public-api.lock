@@ -50,7 +50,7 @@ pub fn vortex_runend::RunEnd::min_max(&self, array: &vortex_runend::RunEndArray)
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_runend::RunEnd
 

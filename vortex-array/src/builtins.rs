@@ -22,14 +22,20 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::arithmetic::Arithmetic;
+use crate::scalar_fn::fns::arithmetic::ArithmeticOp;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::comparison::CompareOperator;
+use crate::scalar_fn::fns::comparison::Comparison;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::logical::LogicalBinary;
+use crate::scalar_fn::fns::logical::LogicalOp;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::Operator;
@@ -65,6 +71,15 @@ pub trait ExprBuiltins: Sized {
 
     /// Apply a binary operator to this expression and another.
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
+
+    /// Apply a comparison operator to this expression and another.
+    fn compare(&self, rhs: Expression, op: CompareOperator) -> VortexResult<Expression>;
+
+    /// Apply an arithmetic operator to this expression and another.
+    fn arithmetic(&self, rhs: Expression, op: ArithmeticOp) -> VortexResult<Expression>;
+
+    /// Apply a logical operator to this expression and another.
+    fn logical(&self, rhs: Expression, op: LogicalOp) -> VortexResult<Expression>;
 }
 
 impl ExprBuiltins for Expression {
@@ -103,6 +118,18 @@ impl ExprBuiltins for Expression {
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
         Binary.try_new_expr(op, [self.clone(), rhs])
     }
+
+    fn compare(&self, rhs: Expression, op: CompareOperator) -> VortexResult<Expression> {
+        Comparison.try_new_expr(op, [self.clone(), rhs])
+    }
+
+    fn arithmetic(&self, rhs: Expression, op: ArithmeticOp) -> VortexResult<Expression> {
+        Arithmetic.try_new_expr(op, [self.clone(), rhs])
+    }
+
+    fn logical(&self, rhs: Expression, op: LogicalOp) -> VortexResult<Expression> {
+        LogicalBinary.try_new_expr(op, [self.clone(), rhs])
+    }
 }
 
 pub trait ArrayBuiltins: Sized {
@@ -134,6 +161,15 @@ pub trait ArrayBuiltins: Sized {
 
     /// Apply a binary operator to this array and another.
     fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef>;
+
+    /// Apply a comparison operator to this array and another.
+    fn compare(&self, rhs: ArrayRef, op: CompareOperator) -> VortexResult<ArrayRef>;
+
+    /// Apply an arithmetic operator to this array and another.
+    fn arithmetic(&self, rhs: ArrayRef, op: ArithmeticOp) -> VortexResult<ArrayRef>;
+
+    /// Apply a logical operator to this array and another.
+    fn logical(&self, rhs: ArrayRef, op: LogicalOp) -> VortexResult<ArrayRef>;
 
     /// Compare a values between lower </<= value </<= upper
     fn between(
@@ -204,6 +240,24 @@ impl ArrayBuiltins for ArrayRef {
 
     fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
         Binary
+            .try_new_array(self.len(), op, [self.clone(), rhs])?
+            .optimize()
+    }
+
+    fn compare(&self, rhs: ArrayRef, op: CompareOperator) -> VortexResult<ArrayRef> {
+        Comparison
+            .try_new_array(self.len(), op, [self.clone(), rhs])?
+            .optimize()
+    }
+
+    fn arithmetic(&self, rhs: ArrayRef, op: ArithmeticOp) -> VortexResult<ArrayRef> {
+        Arithmetic
+            .try_new_array(self.len(), op, [self.clone(), rhs])?
+            .optimize()
+    }
+
+    fn logical(&self, rhs: ArrayRef, op: LogicalOp) -> VortexResult<ArrayRef> {
+        LogicalBinary
             .try_new_array(self.len(), op, [self.clone(), rhs])?
             .optimize()
     }

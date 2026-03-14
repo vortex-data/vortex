@@ -1282,7 +1282,7 @@ pub fn vortex_array::arrays::dict::Dict::min_max(&self, array: &vortex_array::ar
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::dict::Dict
 
@@ -1400,7 +1400,7 @@ pub fn vortex_array::arrays::dict::Dict::min_max(&self, array: &vortex_array::ar
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::dict::Dict
 
@@ -1722,7 +1722,7 @@ pub fn vortex_array::arrays::Extension::sum(&self, array: &vortex_array::arrays:
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::Extension
 
-pub fn vortex_array::arrays::Extension::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::Extension::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Extension
 
@@ -3992,7 +3992,7 @@ pub fn vortex_array::arrays::VarBin::min_max(&self, array: &vortex_array::arrays
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::VarBin
 
-pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::VarBin
 
@@ -5356,7 +5356,7 @@ pub fn vortex_array::arrays::dict::Dict::min_max(&self, array: &vortex_array::ar
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::dict::Dict
 
@@ -5536,7 +5536,7 @@ pub fn vortex_array::arrays::Extension::sum(&self, array: &vortex_array::arrays:
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::Extension
 
-pub fn vortex_array::arrays::Extension::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::Extension::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Extension
 
@@ -7416,7 +7416,7 @@ pub fn vortex_array::arrays::VarBin::min_max(&self, array: &vortex_array::arrays
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::VarBin
 
-pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::VarBin
 
@@ -13852,7 +13852,7 @@ pub fn vortex_array::expr::col(field: impl core::convert::Into<vortex_array::dty
 
 pub fn vortex_array::expr::descendent_annotations<A: vortex_array::expr::AnnotationFn>(expr: &vortex_array::expr::Expression, annotate: A) -> vortex_array::expr::Annotations<'_, <A as vortex_array::expr::AnnotationFn>::Annotation>
 
-pub fn vortex_array::expr::dynamic(operator: vortex_array::scalar_fn::fns::operators::CompareOperator, rhs_value: impl core::ops::function::Fn() -> core::option::Option<vortex_array::scalar::ScalarValue> + core::marker::Send + core::marker::Sync + 'static, rhs_dtype: vortex_array::dtype::DType, default: bool, lhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
+pub fn vortex_array::expr::dynamic(operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, rhs_value: impl core::ops::function::Fn() -> core::option::Option<vortex_array::scalar::ScalarValue> + core::marker::Send + core::marker::Sync + 'static, rhs_dtype: vortex_array::dtype::DType, default: bool, lhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::eq(lhs: vortex_array::expr::Expression, rhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
@@ -14502,6 +14502,12 @@ pub type vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor<V>::Parent 
 
 pub fn vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::binary::Binary>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V> where V: vortex_array::scalar_fn::fns::binary::CompareKernel
+
+pub type vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>::Parent = vortex_array::arrays::scalar_fn::ExactScalarFn<vortex_array::scalar_fn::fns::comparison::Comparison>
+
+pub fn vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::comparison::Comparison>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::scalar_fn::fns::cast::CastExecuteAdaptor<V> where V: vortex_array::scalar_fn::fns::cast::CastKernel
 
 pub type vortex_array::scalar_fn::fns::cast::CastExecuteAdaptor<V>::Parent = vortex_array::arrays::scalar_fn::ExactScalarFn<vortex_array::scalar_fn::fns::cast::Cast>
@@ -15067,6 +15073,10 @@ pub fn vortex_array::scalar::NumericOperator::eq(&self, other: &vortex_array::sc
 impl core::convert::From<vortex_array::scalar::NumericOperator> for vortex_array::scalar_fn::fns::operators::Operator
 
 pub fn vortex_array::scalar_fn::fns::operators::Operator::from(op: vortex_array::scalar::NumericOperator) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_array::scalar::NumericOperator
+
+pub fn vortex_array::scalar::NumericOperator::from(op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
 
 impl core::fmt::Debug for vortex_array::scalar::NumericOperator
 
@@ -16776,6 +16786,122 @@ pub mod vortex_array::scalar_fn
 
 pub mod vortex_array::scalar_fn::fns
 
+pub mod vortex_array::scalar_fn::fns::arithmetic
+
+pub enum vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Add
+
+pub vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Div
+
+pub vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Mul
+
+pub vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Sub
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::clone(&self) -> vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::eq(&self, other: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> bool
+
+impl core::cmp::PartialOrd for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::partial_cmp(&self, other: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for i32
+
+pub fn i32::from(value: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_array::scalar::NumericOperator
+
+pub fn vortex_array::scalar::NumericOperator::from(op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_array::scalar_fn::fns::operators::Operator
+
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::from(value: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_proto::expr::arithmetic_opts::ArithmeticOp> for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::from(value: vortex_proto::expr::arithmetic_opts::ArithmeticOp) -> Self
+
+impl core::convert::TryFrom<i32> for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub type vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::try_from(value: i32) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub type vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub struct vortex_array::scalar_fn::fns::arithmetic::Arithmetic
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::arithmetic::Arithmetic
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::clone(&self) -> vortex_array::scalar_fn::fns::arithmetic::Arithmetic
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::arithmetic::Arithmetic
+
+pub type vortex_array::scalar_fn::fns::arithmetic::Arithmetic::Options = vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::execute(&self, op: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::is_fallible(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::return_dtype(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::validity(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 pub mod vortex_array::scalar_fn::fns::between
 
 pub enum vortex_array::scalar_fn::fns::between::StrictComparison
@@ -16788,7 +16914,7 @@ impl vortex_array::scalar_fn::fns::between::StrictComparison
 
 pub const fn vortex_array::scalar_fn::fns::between::StrictComparison::is_strict(&self) -> bool
 
-pub const fn vortex_array::scalar_fn::fns::between::StrictComparison::to_compare_operator(&self) -> vortex_array::scalar_fn::fns::operators::CompareOperator
+pub const fn vortex_array::scalar_fn::fns::between::StrictComparison::to_compare_operator(&self) -> vortex_array::scalar_fn::fns::comparison::CompareOperator
 
 pub const fn vortex_array::scalar_fn::fns::between::StrictComparison::to_operator(&self) -> vortex_array::scalar_fn::fns::operators::Operator
 
@@ -16960,17 +17086,17 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::is_fallible(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator) -> bool
+pub fn vortex_array::scalar_fn::fns::binary::Binary::is_fallible(&self, options: &Self::Options) -> bool
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::operators::Operator) -> bool
+pub fn vortex_array::scalar_fn::fns::binary::Binary::is_null_sensitive(&self, options: &Self::Options) -> bool
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::reduce(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::return_dtype(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -16982,9 +17108,9 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::simplify_untyped(&self, opt
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_falsification(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::validity(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 pub struct vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor<V>(pub V)
 
@@ -17002,29 +17128,41 @@ pub type vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor<V>::Parent 
 
 pub fn vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::binary::Binary>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+pub struct vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>
+
+pub fn vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>::default() -> vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>
+
+pub fn vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V> where V: vortex_array::scalar_fn::fns::binary::CompareKernel
+
+pub type vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>::Parent = vortex_array::arrays::scalar_fn::ExactScalarFn<vortex_array::scalar_fn::fns::comparison::Comparison>
+
+pub fn vortex_array::scalar_fn::fns::binary::ComparisonCompareExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::comparison::Comparison>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub trait vortex_array::scalar_fn::fns::binary::CompareKernel: vortex_array::vtable::VTable
 
-pub fn vortex_array::scalar_fn::fns::binary::CompareKernel::compare(lhs: &Self::Array, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::scalar_fn::fns::binary::CompareKernel::compare(lhs: &Self::Array, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::Extension
 
-pub fn vortex_array::arrays::Extension::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::Extension::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::VarBin
 
-pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::scalar_fn::fns::binary::and_kleene(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::compare_nested_arrow_arrays(lhs: &dyn arrow_array::array::Array, rhs: &dyn arrow_array::array::Array, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> vortex_error::VortexResult<arrow_array::array::boolean_array::BooleanArray>
 
-pub fn vortex_array::scalar_fn::fns::binary::compare_nested_arrow_arrays(lhs: &dyn arrow_array::array::Array, rhs: &dyn arrow_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator) -> vortex_error::VortexResult<arrow_array::array::boolean_array::BooleanArray>
-
-pub fn vortex_array::scalar_fn::fns::binary::or_kleene(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::scalar_fn::fns::binary::scalar_cmp(lhs: &vortex_array::scalar::Scalar, rhs: &vortex_array::scalar::Scalar, operator: vortex_array::scalar_fn::fns::operators::CompareOperator) -> vortex_array::scalar::Scalar
+pub fn vortex_array::scalar_fn::fns::binary::scalar_cmp(lhs: &vortex_array::scalar::Scalar, rhs: &vortex_array::scalar::Scalar, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> vortex_array::scalar::Scalar
 
 pub mod vortex_array::scalar_fn::fns::case_when
 
@@ -17245,6 +17383,128 @@ pub fn vortex_array::arrays::dict::Dict::cast(array: &vortex_array::arrays::dict
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::cast(array: &vortex_array::arrays::null::NullArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub mod vortex_array::scalar_fn::fns::comparison
+
+pub enum vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub vortex_array::scalar_fn::fns::comparison::CompareOperator::Eq
+
+pub vortex_array::scalar_fn::fns::comparison::CompareOperator::Gt
+
+pub vortex_array::scalar_fn::fns::comparison::CompareOperator::Gte
+
+pub vortex_array::scalar_fn::fns::comparison::CompareOperator::Lt
+
+pub vortex_array::scalar_fn::fns::comparison::CompareOperator::Lte
+
+pub vortex_array::scalar_fn::fns::comparison::CompareOperator::NotEq
+
+impl vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::inverse(self) -> Self
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::swap(self) -> Self
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::clone(&self) -> vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::eq(&self, other: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> bool
+
+impl core::cmp::PartialOrd for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::partial_cmp(&self, other: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_array::scalar_fn::fns::comparison::CompareOperator> for i32
+
+pub fn i32::from(value: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::comparison::CompareOperator> for vortex_array::scalar_fn::fns::operators::Operator
+
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::comparison::CompareOperator> for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::from(value: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> Self
+
+impl core::convert::From<vortex_proto::expr::comparison_opts::ComparisonOp> for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::from(value: vortex_proto::expr::comparison_opts::ComparisonOp) -> Self
+
+impl core::convert::TryFrom<i32> for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub type vortex_array::scalar_fn::fns::comparison::CompareOperator::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::try_from(value: i32) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub type vortex_array::scalar_fn::fns::comparison::CompareOperator::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub struct vortex_array::scalar_fn::fns::comparison::Comparison
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::comparison::Comparison
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::clone(&self) -> vortex_array::scalar_fn::fns::comparison::Comparison
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::comparison::Comparison
+
+pub type vortex_array::scalar_fn::fns::comparison::Comparison::Options = vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::execute(&self, op: &vortex_array::scalar_fn::fns::comparison::CompareOperator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::is_fallible(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> bool
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> bool
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::return_dtype(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::stat_falsification(&self, operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::validity(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 pub mod vortex_array::scalar_fn::fns::dynamic
 
@@ -17774,6 +18034,114 @@ pub fn vortex_array::scalar_fn::fns::literal::Literal::stat_falsification(&self,
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::validity(&self, scalar: &vortex_array::scalar::Scalar, _expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+pub mod vortex_array::scalar_fn::fns::logical
+
+pub enum vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub vortex_array::scalar_fn::fns::logical::LogicalOp::And
+
+pub vortex_array::scalar_fn::fns::logical::LogicalOp::Or
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::clone(&self) -> vortex_array::scalar_fn::fns::logical::LogicalOp
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::eq(&self, other: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> bool
+
+impl core::cmp::PartialOrd for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::partial_cmp(&self, other: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_array::scalar_fn::fns::logical::LogicalOp> for i32
+
+pub fn i32::from(value: vortex_array::scalar_fn::fns::logical::LogicalOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::logical::LogicalOp> for vortex_array::scalar_fn::fns::operators::Operator
+
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::logical::LogicalOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::logical::LogicalOp> for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::from(value: vortex_array::scalar_fn::fns::logical::LogicalOp) -> Self
+
+impl core::convert::From<vortex_proto::expr::logical_binary_opts::LogicalBinaryOp> for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::from(value: vortex_proto::expr::logical_binary_opts::LogicalBinaryOp) -> Self
+
+impl core::convert::TryFrom<i32> for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub type vortex_array::scalar_fn::fns::logical::LogicalOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::try_from(value: i32) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub type vortex_array::scalar_fn::fns::logical::LogicalOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub struct vortex_array::scalar_fn::fns::logical::LogicalBinary
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::logical::LogicalBinary
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::clone(&self) -> vortex_array::scalar_fn::fns::logical::LogicalBinary
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::logical::LogicalBinary
+
+pub type vortex_array::scalar_fn::fns::logical::LogicalBinary::Options = vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::execute(&self, op: &vortex_array::scalar_fn::fns::logical::LogicalOp, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::is_fallible(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::return_dtype(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::stat_falsification(&self, operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::validity(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, _expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 pub mod vortex_array::scalar_fn::fns::mask
 
 pub struct vortex_array::scalar_fn::fns::mask::Mask
@@ -18084,6 +18452,78 @@ pub fn vortex_array::arrays::Constant::invert(array: &vortex_array::arrays::Cons
 
 pub mod vortex_array::scalar_fn::fns::operators
 
+pub enum vortex_array::scalar_fn::fns::operators::ArithmeticOp
+
+pub vortex_array::scalar_fn::fns::operators::ArithmeticOp::Add
+
+pub vortex_array::scalar_fn::fns::operators::ArithmeticOp::Div
+
+pub vortex_array::scalar_fn::fns::operators::ArithmeticOp::Mul
+
+pub vortex_array::scalar_fn::fns::operators::ArithmeticOp::Sub
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::clone(&self) -> vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::eq(&self, other: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> bool
+
+impl core::cmp::PartialOrd for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::partial_cmp(&self, other: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for i32
+
+pub fn i32::from(value: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_array::scalar::NumericOperator
+
+pub fn vortex_array::scalar::NumericOperator::from(op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_array::scalar_fn::fns::operators::Operator
+
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::from(value: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_proto::expr::arithmetic_opts::ArithmeticOp> for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::from(value: vortex_proto::expr::arithmetic_opts::ArithmeticOp) -> Self
+
+impl core::convert::TryFrom<i32> for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub type vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::try_from(value: i32) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub type vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
 pub enum vortex_array::scalar_fn::fns::operators::CompareOperator
 
 pub vortex_array::scalar_fn::fns::operators::CompareOperator::Eq
@@ -18098,51 +18538,133 @@ pub vortex_array::scalar_fn::fns::operators::CompareOperator::Lte
 
 pub vortex_array::scalar_fn::fns::operators::CompareOperator::NotEq
 
-impl vortex_array::scalar_fn::fns::operators::CompareOperator
+impl vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::inverse(self) -> Self
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::inverse(self) -> Self
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::swap(self) -> Self
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::swap(self) -> Self
 
-impl core::clone::Clone for vortex_array::scalar_fn::fns::operators::CompareOperator
+impl core::clone::Clone for vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::clone(&self) -> vortex_array::scalar_fn::fns::operators::CompareOperator
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::clone(&self) -> vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-impl core::cmp::Eq for vortex_array::scalar_fn::fns::operators::CompareOperator
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::operators::CompareOperator
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::eq(&self, other: &vortex_array::scalar_fn::fns::operators::CompareOperator) -> bool
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::eq(&self, other: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> bool
 
-impl core::cmp::PartialOrd for vortex_array::scalar_fn::fns::operators::CompareOperator
+impl core::cmp::PartialOrd for vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::partial_cmp(&self, other: &vortex_array::scalar_fn::fns::operators::CompareOperator) -> core::option::Option<core::cmp::Ordering>
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::partial_cmp(&self, other: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> core::option::Option<core::cmp::Ordering>
 
-impl core::convert::From<vortex_array::scalar_fn::fns::operators::CompareOperator> for vortex_array::scalar_fn::fns::operators::Operator
+impl core::convert::From<vortex_array::scalar_fn::fns::comparison::CompareOperator> for i32
 
-pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::operators::CompareOperator) -> Self
+pub fn i32::from(value: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> Self
 
-impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::operators::CompareOperator
+impl core::convert::From<vortex_array::scalar_fn::fns::comparison::CompareOperator> for vortex_array::scalar_fn::fns::operators::Operator
 
-pub type vortex_array::scalar_fn::fns::operators::CompareOperator::Error = vortex_error::VortexError
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> Self
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+impl core::convert::From<vortex_array::scalar_fn::fns::comparison::CompareOperator> for vortex_proto::expr::comparison_opts::ComparisonOp
 
-impl core::fmt::Debug for vortex_array::scalar_fn::fns::operators::CompareOperator
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::from(value: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> Self
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::convert::From<vortex_proto::expr::comparison_opts::ComparisonOp> for vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-impl core::fmt::Display for vortex_array::scalar_fn::fns::operators::CompareOperator
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::from(value: vortex_proto::expr::comparison_opts::ComparisonOp) -> Self
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::convert::TryFrom<i32> for vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-impl core::hash::Hash for vortex_array::scalar_fn::fns::operators::CompareOperator
+pub type vortex_array::scalar_fn::fns::comparison::CompareOperator::Error = vortex_error::VortexError
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::try_from(value: i32) -> core::result::Result<Self, Self::Error>
 
-impl core::marker::Copy for vortex_array::scalar_fn::fns::operators::CompareOperator
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::comparison::CompareOperator
 
-impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::operators::CompareOperator
+pub type vortex_array::scalar_fn::fns::comparison::CompareOperator::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub enum vortex_array::scalar_fn::fns::operators::LogicalOp
+
+pub vortex_array::scalar_fn::fns::operators::LogicalOp::And
+
+pub vortex_array::scalar_fn::fns::operators::LogicalOp::Or
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::clone(&self) -> vortex_array::scalar_fn::fns::logical::LogicalOp
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::eq(&self, other: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> bool
+
+impl core::cmp::PartialOrd for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::partial_cmp(&self, other: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_array::scalar_fn::fns::logical::LogicalOp> for i32
+
+pub fn i32::from(value: vortex_array::scalar_fn::fns::logical::LogicalOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::logical::LogicalOp> for vortex_array::scalar_fn::fns::operators::Operator
+
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::logical::LogicalOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::logical::LogicalOp> for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::from(value: vortex_array::scalar_fn::fns::logical::LogicalOp) -> Self
+
+impl core::convert::From<vortex_proto::expr::logical_binary_opts::LogicalBinaryOp> for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::from(value: vortex_proto::expr::logical_binary_opts::LogicalBinaryOp) -> Self
+
+impl core::convert::TryFrom<i32> for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub type vortex_array::scalar_fn::fns::logical::LogicalOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::try_from(value: i32) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub type vortex_array::scalar_fn::fns::logical::LogicalOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::logical::LogicalOp
 
 pub enum vortex_array::scalar_fn::fns::operators::Operator
 
@@ -18200,9 +18722,17 @@ impl core::convert::From<vortex_array::scalar::NumericOperator> for vortex_array
 
 pub fn vortex_array::scalar_fn::fns::operators::Operator::from(op: vortex_array::scalar::NumericOperator) -> Self
 
-impl core::convert::From<vortex_array::scalar_fn::fns::operators::CompareOperator> for vortex_array::scalar_fn::fns::operators::Operator
+impl core::convert::From<vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp> for vortex_array::scalar_fn::fns::operators::Operator
 
-pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::operators::CompareOperator) -> Self
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::comparison::CompareOperator> for vortex_array::scalar_fn::fns::operators::Operator
+
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> Self
+
+impl core::convert::From<vortex_array::scalar_fn::fns::logical::LogicalOp> for vortex_array::scalar_fn::fns::operators::Operator
+
+pub fn vortex_array::scalar_fn::fns::operators::Operator::from(value: vortex_array::scalar_fn::fns::logical::LogicalOp) -> Self
 
 impl core::convert::From<vortex_array::scalar_fn::fns::operators::Operator> for i32
 
@@ -18222,11 +18752,23 @@ pub type vortex_array::scalar_fn::fns::operators::Operator::Error = vortex_error
 
 pub fn vortex_array::scalar_fn::fns::operators::Operator::try_from(value: i32) -> core::result::Result<Self, Self::Error>
 
-impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::operators::CompareOperator
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
 
-pub type vortex_array::scalar_fn::fns::operators::CompareOperator::Error = vortex_error::VortexError
+pub type vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::Error = vortex_error::VortexError
 
-pub fn vortex_array::scalar_fn::fns::operators::CompareOperator::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+pub fn vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub type vortex_array::scalar_fn::fns::comparison::CompareOperator::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::comparison::CompareOperator::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::scalar_fn::fns::operators::Operator> for vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub type vortex_array::scalar_fn::fns::logical::LogicalOp::Error = vortex_error::VortexError
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalOp::try_from(value: vortex_array::scalar_fn::fns::operators::Operator) -> core::result::Result<Self, Self::Error>
 
 impl core::fmt::Debug for vortex_array::scalar_fn::fns::operators::Operator
 
@@ -18870,6 +19412,42 @@ pub fn vortex_array::scalar_fn::ScalarFnVTable::stat_falsification(&self, option
 
 pub fn vortex_array::scalar_fn::ScalarFnVTable::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::arithmetic::Arithmetic
+
+pub type vortex_array::scalar_fn::fns::arithmetic::Arithmetic::Options = vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::execute(&self, op: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::is_fallible(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::return_dtype(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::arithmetic::Arithmetic::validity(&self, _operator: &vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::between::Between
 
 pub type vortex_array::scalar_fn::fns::between::Between::Options = vortex_array::scalar_fn::fns::between::BetweenOptions
@@ -18916,17 +19494,17 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::is_fallible(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator) -> bool
+pub fn vortex_array::scalar_fn::fns::binary::Binary::is_fallible(&self, options: &Self::Options) -> bool
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::operators::Operator) -> bool
+pub fn vortex_array::scalar_fn::fns::binary::Binary::is_null_sensitive(&self, options: &Self::Options) -> bool
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::reduce(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::return_dtype(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -18938,9 +19516,9 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::simplify_untyped(&self, opt
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_falsification(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::validity(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::case_when::CaseWhen
 
@@ -19013,6 +19591,42 @@ pub fn vortex_array::scalar_fn::fns::cast::Cast::stat_expression(&self, dtype: &
 pub fn vortex_array::scalar_fn::fns::cast::Cast::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::validity(&self, dtype: &vortex_array::dtype::DType, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::comparison::Comparison
+
+pub type vortex_array::scalar_fn::fns::comparison::Comparison::Options = vortex_array::scalar_fn::fns::comparison::CompareOperator
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::execute(&self, op: &vortex_array::scalar_fn::fns::comparison::CompareOperator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::is_fallible(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> bool
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator) -> bool
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::return_dtype(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::stat_falsification(&self, operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::comparison::Comparison::validity(&self, _operator: &vortex_array::scalar_fn::fns::comparison::CompareOperator, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::dynamic::DynamicComparison
 
@@ -19265,6 +19879,42 @@ pub fn vortex_array::scalar_fn::fns::literal::Literal::stat_expression(&self, sc
 pub fn vortex_array::scalar_fn::fns::literal::Literal::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::validity(&self, scalar: &vortex_array::scalar::Scalar, _expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::logical::LogicalBinary
+
+pub type vortex_array::scalar_fn::fns::logical::LogicalBinary::Options = vortex_array::scalar_fn::fns::logical::LogicalOp
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::execute(&self, op: &vortex_array::scalar_fn::fns::logical::LogicalOp, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::is_fallible(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::is_null_sensitive(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp) -> bool
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::return_dtype(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::stat_falsification(&self, operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::logical::LogicalBinary::validity(&self, _operator: &vortex_array::scalar_fn::fns::logical::LogicalOp, _expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::mask::Mask
 

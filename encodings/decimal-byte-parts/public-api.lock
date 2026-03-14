@@ -28,7 +28,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::is_constant(&self, array: &v
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_decimal_byte_parts::DecimalByteParts
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::compare(lhs: &Self::Array, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::compare(lhs: &Self::Array, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_decimal_byte_parts::DecimalByteParts
 

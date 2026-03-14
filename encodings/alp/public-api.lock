@@ -34,7 +34,7 @@ pub fn vortex_alp::ALP::between(array: &vortex_alp::ALPArray, lower: &vortex_arr
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_alp::ALP
 
-pub fn vortex_alp::ALP::compare(lhs: &vortex_alp::ALPArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALP::compare(lhs: &vortex_alp::ALPArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_alp::ALP
 

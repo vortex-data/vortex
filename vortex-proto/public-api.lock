@@ -610,6 +610,74 @@ pub fn vortex_proto::dtype::Utf8::encoded_len(&self) -> usize
 
 pub mod vortex_proto::expr
 
+pub mod vortex_proto::expr::arithmetic_opts
+
+#[repr(i32)] pub enum vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub vortex_proto::expr::arithmetic_opts::ArithmeticOp::Add = 0
+
+pub vortex_proto::expr::arithmetic_opts::ArithmeticOp::Div = 3
+
+pub vortex_proto::expr::arithmetic_opts::ArithmeticOp::Mul = 2
+
+pub vortex_proto::expr::arithmetic_opts::ArithmeticOp::Sub = 1
+
+impl vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::as_str_name(&self) -> &'static str
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::from_str_name(value: &str) -> core::option::Option<Self>
+
+impl vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::from_i32(value: i32) -> core::option::Option<vortex_proto::expr::arithmetic_opts::ArithmeticOp>
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::is_valid(value: i32) -> bool
+
+impl core::clone::Clone for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::clone(&self) -> vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+impl core::cmp::Eq for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+impl core::cmp::Ord for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::cmp(&self, other: &vortex_proto::expr::arithmetic_opts::ArithmeticOp) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::eq(&self, other: &vortex_proto::expr::arithmetic_opts::ArithmeticOp) -> bool
+
+impl core::cmp::PartialOrd for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::partial_cmp(&self, other: &vortex_proto::expr::arithmetic_opts::ArithmeticOp) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_proto::expr::arithmetic_opts::ArithmeticOp> for i32
+
+pub fn i32::from(value: vortex_proto::expr::arithmetic_opts::ArithmeticOp) -> i32
+
+impl core::convert::TryFrom<i32> for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub type vortex_proto::expr::arithmetic_opts::ArithmeticOp::Error = prost::error::UnknownEnumValue
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::try_from(value: i32) -> core::result::Result<vortex_proto::expr::arithmetic_opts::ArithmeticOp, prost::error::UnknownEnumValue>
+
+impl core::default::Default for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::default() -> vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+impl core::fmt::Debug for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::arithmetic_opts::ArithmeticOp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
 pub mod vortex_proto::expr::binary_opts
 
 #[repr(i32)] pub enum vortex_proto::expr::binary_opts::BinaryOp
@@ -694,6 +762,142 @@ impl core::marker::Copy for vortex_proto::expr::binary_opts::BinaryOp
 
 impl core::marker::StructuralPartialEq for vortex_proto::expr::binary_opts::BinaryOp
 
+pub mod vortex_proto::expr::comparison_opts
+
+#[repr(i32)] pub enum vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub vortex_proto::expr::comparison_opts::ComparisonOp::Eq = 0
+
+pub vortex_proto::expr::comparison_opts::ComparisonOp::Gt = 2
+
+pub vortex_proto::expr::comparison_opts::ComparisonOp::Gte = 3
+
+pub vortex_proto::expr::comparison_opts::ComparisonOp::Lt = 4
+
+pub vortex_proto::expr::comparison_opts::ComparisonOp::Lte = 5
+
+pub vortex_proto::expr::comparison_opts::ComparisonOp::NotEq = 1
+
+impl vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::as_str_name(&self) -> &'static str
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::from_str_name(value: &str) -> core::option::Option<Self>
+
+impl vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::from_i32(value: i32) -> core::option::Option<vortex_proto::expr::comparison_opts::ComparisonOp>
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::is_valid(value: i32) -> bool
+
+impl core::clone::Clone for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::clone(&self) -> vortex_proto::expr::comparison_opts::ComparisonOp
+
+impl core::cmp::Eq for vortex_proto::expr::comparison_opts::ComparisonOp
+
+impl core::cmp::Ord for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::cmp(&self, other: &vortex_proto::expr::comparison_opts::ComparisonOp) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::eq(&self, other: &vortex_proto::expr::comparison_opts::ComparisonOp) -> bool
+
+impl core::cmp::PartialOrd for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::partial_cmp(&self, other: &vortex_proto::expr::comparison_opts::ComparisonOp) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_proto::expr::comparison_opts::ComparisonOp> for i32
+
+pub fn i32::from(value: vortex_proto::expr::comparison_opts::ComparisonOp) -> i32
+
+impl core::convert::TryFrom<i32> for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub type vortex_proto::expr::comparison_opts::ComparisonOp::Error = prost::error::UnknownEnumValue
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::try_from(value: i32) -> core::result::Result<vortex_proto::expr::comparison_opts::ComparisonOp, prost::error::UnknownEnumValue>
+
+impl core::default::Default for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::default() -> vortex_proto::expr::comparison_opts::ComparisonOp
+
+impl core::fmt::Debug for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::comparison_opts::ComparisonOp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::comparison_opts::ComparisonOp
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub mod vortex_proto::expr::logical_binary_opts
+
+#[repr(i32)] pub enum vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::And = 0
+
+pub vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::Or = 1
+
+impl vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::as_str_name(&self) -> &'static str
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::from_str_name(value: &str) -> core::option::Option<Self>
+
+impl vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::from_i32(value: i32) -> core::option::Option<vortex_proto::expr::logical_binary_opts::LogicalBinaryOp>
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::is_valid(value: i32) -> bool
+
+impl core::clone::Clone for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::clone(&self) -> vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+impl core::cmp::Eq for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+impl core::cmp::Ord for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::cmp(&self, other: &vortex_proto::expr::logical_binary_opts::LogicalBinaryOp) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::eq(&self, other: &vortex_proto::expr::logical_binary_opts::LogicalBinaryOp) -> bool
+
+impl core::cmp::PartialOrd for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::partial_cmp(&self, other: &vortex_proto::expr::logical_binary_opts::LogicalBinaryOp) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_proto::expr::logical_binary_opts::LogicalBinaryOp> for i32
+
+pub fn i32::from(value: vortex_proto::expr::logical_binary_opts::LogicalBinaryOp) -> i32
+
+impl core::convert::TryFrom<i32> for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub type vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::Error = prost::error::UnknownEnumValue
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::try_from(value: i32) -> core::result::Result<vortex_proto::expr::logical_binary_opts::LogicalBinaryOp, prost::error::UnknownEnumValue>
+
+impl core::default::Default for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::default() -> vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+impl core::fmt::Debug for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::logical_binary_opts::LogicalBinaryOp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
 pub mod vortex_proto::expr::select_opts
 
 pub enum vortex_proto::expr::select_opts::Opts
@@ -729,6 +933,48 @@ impl core::hash::Hash for vortex_proto::expr::select_opts::Opts
 pub fn vortex_proto::expr::select_opts::Opts::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_proto::expr::select_opts::Opts
+
+pub struct vortex_proto::expr::ArithmeticOpts
+
+pub vortex_proto::expr::ArithmeticOpts::op: i32
+
+impl vortex_proto::expr::ArithmeticOpts
+
+pub fn vortex_proto::expr::ArithmeticOpts::op(&self) -> vortex_proto::expr::arithmetic_opts::ArithmeticOp
+
+pub fn vortex_proto::expr::ArithmeticOpts::set_op(&mut self, value: vortex_proto::expr::arithmetic_opts::ArithmeticOp)
+
+impl core::clone::Clone for vortex_proto::expr::ArithmeticOpts
+
+pub fn vortex_proto::expr::ArithmeticOpts::clone(&self) -> vortex_proto::expr::ArithmeticOpts
+
+impl core::cmp::Eq for vortex_proto::expr::ArithmeticOpts
+
+impl core::cmp::PartialEq for vortex_proto::expr::ArithmeticOpts
+
+pub fn vortex_proto::expr::ArithmeticOpts::eq(&self, other: &vortex_proto::expr::ArithmeticOpts) -> bool
+
+impl core::default::Default for vortex_proto::expr::ArithmeticOpts
+
+pub fn vortex_proto::expr::ArithmeticOpts::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::ArithmeticOpts
+
+pub fn vortex_proto::expr::ArithmeticOpts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::ArithmeticOpts
+
+pub fn vortex_proto::expr::ArithmeticOpts::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::ArithmeticOpts
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::ArithmeticOpts
+
+impl prost::message::Message for vortex_proto::expr::ArithmeticOpts
+
+pub fn vortex_proto::expr::ArithmeticOpts::clear(&mut self)
+
+pub fn vortex_proto::expr::ArithmeticOpts::encoded_len(&self) -> usize
 
 pub struct vortex_proto::expr::BetweenOpts
 
@@ -873,6 +1119,48 @@ impl prost::message::Message for vortex_proto::expr::CastOpts
 pub fn vortex_proto::expr::CastOpts::clear(&mut self)
 
 pub fn vortex_proto::expr::CastOpts::encoded_len(&self) -> usize
+
+pub struct vortex_proto::expr::ComparisonOpts
+
+pub vortex_proto::expr::ComparisonOpts::op: i32
+
+impl vortex_proto::expr::ComparisonOpts
+
+pub fn vortex_proto::expr::ComparisonOpts::op(&self) -> vortex_proto::expr::comparison_opts::ComparisonOp
+
+pub fn vortex_proto::expr::ComparisonOpts::set_op(&mut self, value: vortex_proto::expr::comparison_opts::ComparisonOp)
+
+impl core::clone::Clone for vortex_proto::expr::ComparisonOpts
+
+pub fn vortex_proto::expr::ComparisonOpts::clone(&self) -> vortex_proto::expr::ComparisonOpts
+
+impl core::cmp::Eq for vortex_proto::expr::ComparisonOpts
+
+impl core::cmp::PartialEq for vortex_proto::expr::ComparisonOpts
+
+pub fn vortex_proto::expr::ComparisonOpts::eq(&self, other: &vortex_proto::expr::ComparisonOpts) -> bool
+
+impl core::default::Default for vortex_proto::expr::ComparisonOpts
+
+pub fn vortex_proto::expr::ComparisonOpts::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::ComparisonOpts
+
+pub fn vortex_proto::expr::ComparisonOpts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::ComparisonOpts
+
+pub fn vortex_proto::expr::ComparisonOpts::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::ComparisonOpts
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::ComparisonOpts
+
+impl prost::message::Message for vortex_proto::expr::ComparisonOpts
+
+pub fn vortex_proto::expr::ComparisonOpts::clear(&mut self)
+
+pub fn vortex_proto::expr::ComparisonOpts::encoded_len(&self) -> usize
 
 pub struct vortex_proto::expr::Expr
 
@@ -1043,6 +1331,48 @@ impl prost::message::Message for vortex_proto::expr::LiteralOpts
 pub fn vortex_proto::expr::LiteralOpts::clear(&mut self)
 
 pub fn vortex_proto::expr::LiteralOpts::encoded_len(&self) -> usize
+
+pub struct vortex_proto::expr::LogicalBinaryOpts
+
+pub vortex_proto::expr::LogicalBinaryOpts::op: i32
+
+impl vortex_proto::expr::LogicalBinaryOpts
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::op(&self) -> vortex_proto::expr::logical_binary_opts::LogicalBinaryOp
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::set_op(&mut self, value: vortex_proto::expr::logical_binary_opts::LogicalBinaryOp)
+
+impl core::clone::Clone for vortex_proto::expr::LogicalBinaryOpts
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::clone(&self) -> vortex_proto::expr::LogicalBinaryOpts
+
+impl core::cmp::Eq for vortex_proto::expr::LogicalBinaryOpts
+
+impl core::cmp::PartialEq for vortex_proto::expr::LogicalBinaryOpts
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::eq(&self, other: &vortex_proto::expr::LogicalBinaryOpts) -> bool
+
+impl core::default::Default for vortex_proto::expr::LogicalBinaryOpts
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::LogicalBinaryOpts
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::LogicalBinaryOpts
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::LogicalBinaryOpts
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::LogicalBinaryOpts
+
+impl prost::message::Message for vortex_proto::expr::LogicalBinaryOpts
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::clear(&mut self)
+
+pub fn vortex_proto::expr::LogicalBinaryOpts::encoded_len(&self) -> usize
 
 pub struct vortex_proto::expr::PackOpts
 

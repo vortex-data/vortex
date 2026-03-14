@@ -24,7 +24,7 @@ pub fn vortex_fsst::FSST::slice(array: &Self::Array, range: core::ops::range::Ra
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::compare(lhs: &vortex_fsst::FSSTArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::compare(lhs: &vortex_fsst::FSSTArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::comparison::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fsst::FSST
 

@@ -5,7 +5,6 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
@@ -13,6 +12,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::expression::Expression;
+use crate::scalar::NumericOperator;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -112,13 +112,26 @@ impl ScalarFnVTable for Binary {
     fn execute(
         &self,
         op: &Operator,
-        _args: &dyn ExecutionArgs,
+        args: &dyn ExecutionArgs,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        vortex_bail!(
-            "Binary scalar function must be reduced before execution: {:?}",
-            op
-        );
+        let lhs = args.get(0)?;
+        let rhs = args.get(1)?;
+
+        match op {
+            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq),
+            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq),
+            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt),
+            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte),
+            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt),
+            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte),
+            Operator::And => execute_boolean(&lhs, &rhs, Operator::And),
+            Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or),
+            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add),
+            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub),
+            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul),
+            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div),
+        }
     }
 
     fn reduce(
