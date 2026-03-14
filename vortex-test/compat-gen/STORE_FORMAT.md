@@ -84,7 +84,12 @@ use by looking up the hash in `versions.json`.
       "description": "All primitive types with boundary values",
       "since": "0.62.0",
       "sha256": "deadbeefcafebabe...",
-      "size_bytes": 4096
+      "size_bytes": 4096,
+      "expected_encodings": [
+        "array:vortex.primitive",
+        "layout:vortex.flat",
+        "layout:vortex.struct"
+      ]
     }
   ]
 }
@@ -107,22 +112,87 @@ use by looking up the hash in `versions.json`.
 | `name` | string | Fixture filename (e.g. `"primitives.vortex"`). |
 | `description` | string | Human-readable description of what the fixture tests. |
 | `since` | string | First Vortex version that introduced this fixture. Carried forward across versions by manifest merging. |
-| `sha256` | string | Hex-encoded SHA-256 hash of the `.vortex` file bytes. Used to detect oracle drift (see below). |
-| `size_bytes` | integer | File size in bytes. Useful for detecting compression regressions. |
+| `sha256` | string | Hex-encoded SHA-256 hash of the `.vortex` file bytes. Verifies the file on disk hasn't been corrupted or tampered with since publish. Also used to skip re-uploads when re-publishing if the file hasn't changed. |
+| `size_bytes` | integer | File size in bytes. Useful for spotting compression regressions across versions. |
+| `expected_encodings` | string[] | Encodings this fixture is designed to exercise (see below). |
 
-### Oracle drift detection via `sha256`
+## Expected encodings
 
-The compat test has two moving parts:
+Each fixture declares a list of encodings it is designed to test. These are
+the encodings the fixture author intentionally targets — not an exhaustive
+list of every encoding that appears in the file (the compressor may introduce
+additional intermediate encodings).
 
-1. **`build()`** generates expected arrays in memory (the oracle).
-2. **`check()`** reads old `.vortex` files and compares against `build()`.
+Encoding IDs use a `type:id` format:
 
-If a test fails, you need to know which side changed. The `sha256` field
-enables this: at check time, re-run `build()` → write to a temp buffer →
-hash it. If the hash matches the manifest, `build()` still produces the same
-output and the failure is a real reader regression. If the hash differs,
-`build()` output has drifted (e.g. a compressor tweak changed encoding
-selection) and the failure may be a false alarm.
+| Prefix | Source | Example |
+|--------|--------|---------|
+| `array:` | Array encoding (compression layer) | `array:vortex.dict`, `array:vortex.fsst`, `array:vortex.primitive` |
+| `layout:` | Layout encoding (storage layer) | `layout:vortex.flat`, `layout:vortex.chunked`, `layout:vortex.struct` |
+
+### How they're declared
+
+Each fixture declares its expected encodings via the `Fixture` trait:
+
+```rust
+pub enum ExpectedEncoding {
+    Array(ArrayId),
+    Layout(LayoutEncodingId),
+}
+
+pub trait Fixture: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding>;
+    fn build(&self, tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>>;
+}
+```
+
+### How they're verified
+
+**At generate time (publish):** After writing the `.vortex` file, the tool
+walks the layout tree via `footer().layout().depth_first_traversal()` and
+collects all encoding IDs present in the file. It then asserts that every
+encoding in `expected_encodings()` appears somewhere in the file. If a
+declared encoding is missing — e.g. the compressor chose a different strategy
+than expected — the publish fails. This catches the case where a fixture
+claims to test dict encoding but the file doesn't actually contain one.
+
+**At check time (validation):** After opening the old file, the tool walks
+the layout tree the same way and verifies the declared encodings are still
+present. This catches the case where a reader or format change silently
+drops or substitutes an encoding.
+
+The check is a **subset assertion**: every declared encoding must appear in
+the file, but the file may contain additional encodings not in the list.
+The fixture author only declares what the fixture is *designed* to exercise,
+not every internal encoding the compressor happens to use.
+
+### Why this matters
+
+- **Coverage tracking.** "Which fixtures exercise FSST?" → grep manifests
+  for `array:vortex.fsst`. "Do we have any fixture testing dict encoding?"
+  → search for `array:vortex.dict`. Find gaps without running code.
+- **Intent documentation.** The encoding list tells you *why* a fixture
+  exists, distinct from its description. `strings.vortex` exists to test
+  varbin/FSST, not just "strings in general."
+- **Encoding removal safety.** Before removing an encoding, search the
+  manifests to see which fixtures depend on it.
+
+## Fixture evolution
+
+Fixtures are immutable. The `build()` output for a given fixture name must
+never change — old files written with the old `build()` must remain valid
+and readable forever.
+
+- **Adding coverage** (new column, new edge case, new dtype) → create a new
+  fixture file. The old fixture keeps testing the old schema.
+- **New encoding or structural pattern** → create a new fixture file that
+  declares the new encoding in `expected_encodings()`.
+
+Never modify an existing fixture's `build()` to change its schema, values,
+or structure. The fixture contract is append-only at both the fixture list
+level and the individual fixture level.
 
 ## Workflows
 
@@ -134,6 +204,7 @@ detect commit                →  "a1b2c3d4e5f6..."
 short hash                   →  "a1b2c3d"
                                     │
 generate fixtures                   │
+verify expected_encodings present   │
 write to v0.63.0-a1b2c3d/          │
 compute sha256 per file             │
 write manifest.json                 │
@@ -150,7 +221,9 @@ read versions.json
 for each version:
   resolve directory: v{version}-{hash}/
   download manifest.json + *.vortex
-  run vortex-compat check
+  run vortex-compat check:
+    - read file, compare values against build()
+    - walk layout tree, verify expected_encodings present
   report pass/fail
 ```
 
