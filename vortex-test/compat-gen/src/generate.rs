@@ -32,8 +32,15 @@ struct FixtureInfo {
 /// 3. **Write** — serialize `.vortex` files and `fixtures.json` to disk.
 ///
 /// All fixtures must build successfully before any are written.
-pub fn generate(output_dir: &Path) -> VortexResult<()> {
-    let fixtures = all_fixtures();
+pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
+    let fixtures: Vec<_> = all_fixtures()
+        .into_iter()
+        .filter(|f| !exclude.contains(&f.name().to_string()))
+        .collect();
+
+    if !exclude.is_empty() {
+        eprintln!("excluding: {}", exclude.join(", "));
+    }
 
     let tmp_dir = output_dir.join(".tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| vortex_err!("failed to create tmp dir: {e}"))?;

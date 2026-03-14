@@ -57,6 +57,10 @@ enum Commands {
         /// Output directory for .vortex files and fixtures.json.
         #[arg(long, value_name = "DIR")]
         output: PathBuf,
+
+        /// Fixture names to exclude (comma-separated, e.g. "clickbench_hits_1k.vortex").
+        #[arg(long, value_delimiter = ',', value_name = "NAMES")]
+        exclude: Vec<String>,
     },
 
     /// Check .vortex files in a directory against in-memory fixtures.
@@ -81,6 +85,10 @@ enum Commands {
         /// superset — directory may be missing files (skipped), no unknown files allowed.
         #[arg(long, default_value = "subset", value_name = "MODE")]
         mode: CheckMode,
+
+        /// Fixture names to exclude from checking (comma-separated).
+        #[arg(long, value_delimiter = ',', value_name = "NAMES")]
+        exclude: Vec<String>,
     },
 }
 
@@ -98,14 +106,14 @@ fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate { output } => generate::generate(&output),
-        Commands::Check { dir, mode } => {
+        Commands::Generate { output, exclude } => generate::generate(&output, &exclude),
+        Commands::Check { dir, mode, exclude } => {
             let mode = match mode {
                 CheckMode::Exact => check::Mode::Exact,
                 CheckMode::Subset => check::Mode::Subset,
                 CheckMode::Superset => check::Mode::Superset,
             };
-            check::check(&dir, mode)
+            check::check(&dir, mode, &exclude)
         }
     }
 }

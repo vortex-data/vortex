@@ -42,8 +42,15 @@ struct FailedFixture {
 ///
 /// Prints JSON result to stdout, human-readable progress to stderr.
 /// Returns error if any fixture failed or if mode constraints are violated.
-pub fn check(dir: &Path, mode: Mode) -> VortexResult<()> {
-    let fixtures = all_fixtures();
+pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
+    let fixtures: Vec<_> = all_fixtures()
+        .into_iter()
+        .filter(|f| !exclude.contains(&f.name().to_string()))
+        .collect();
+
+    if !exclude.is_empty() {
+        eprintln!("excluding: {}", exclude.join(", "));
+    }
     let tmp_dir = dir.join(".tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| vortex_err!("failed to create tmp dir: {e}"))?;
 

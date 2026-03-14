@@ -332,12 +332,13 @@ def cmd_generate(args: argparse.Namespace) -> None:
     """Generate fixtures locally, then write a proper manifest."""
     output = Path(args.output)
     git_ref = args.git_ref
+    exclude = _parse_exclude(args)
     version = _version_from_ref(git_ref)
 
     if git_ref:
         _worktree_generate(git_ref, output)
     else:
-        _run_rust_generate(output)
+        _run_rust_generate(output, exclude=exclude)
 
     # Read fixtures.json and write a versioned manifest.
     fixtures_json = json.loads((output / "fixtures.json").read_text())
@@ -357,6 +358,7 @@ def cmd_publish(args: argparse.Namespace) -> None:
     """Generate fixtures and publish to a store."""
     store = _parse_store(args.store)
     git_ref = args.git_ref
+    exclude = _parse_exclude(args)
     version = _version_from_ref(git_ref)
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -366,7 +368,7 @@ def cmd_publish(args: argparse.Namespace) -> None:
         if git_ref:
             _worktree_generate(git_ref, output)
         else:
-            _run_rust_generate(output)
+            _run_rust_generate(output, exclude=exclude)
 
         fixtures_json = json.loads((output / "fixtures.json").read_text())
 
@@ -411,6 +413,7 @@ def cmd_publish(args: argparse.Namespace) -> None:
 def cmd_check(args: argparse.Namespace) -> None:
     """Download fixtures from store and check with Rust binary."""
     store = _parse_store(args.store)
+    exclude = _parse_exclude(args)
 
     if args.versions:
         versions = [v.strip() for v in args.versions.split(",")]
@@ -445,7 +448,7 @@ def cmd_check(args: argparse.Namespace) -> None:
                     continue
                 (tmppath / name).write_bytes(data)
 
-            result = _run_rust_check(tmppath, mode="subset")
+            result = _run_rust_check(tmppath, mode="subset", exclude=exclude)
 
             passed = len(result.get("passed", []))
             failed_list = result.get("failed", [])
@@ -542,15 +545,19 @@ def cmd_validate_manifest(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_rust_generate(output: Path) -> None:
+def _run_rust_generate(output: Path, exclude: list[str] | None = None) -> None:
     """Run `vortex-compat generate --output <dir>`."""
     cmd = _cargo_run_cmd() + ["generate", "--output", str(output)]
+    if exclude:
+        cmd += ["--exclude", ",".join(exclude)]
     _run_cmd(cmd, check=True)
 
 
-def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
+def _run_rust_check(dir: Path, mode: str = "subset", exclude: list[str] | None = None) -> dict:
     """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
     cmd = _cargo_run_cmd() + ["check", "--dir", str(dir), "--mode", mode]
+    if exclude:
+        cmd += ["--exclude", ",".join(exclude)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
@@ -602,6 +609,14 @@ def _version_sort_key(v: str) -> list[int]:
     return parts
 
 
+def _parse_exclude(args: argparse.Namespace) -> list[str] | None:
+    """Parse --exclude flag into a list of fixture names."""
+    exclude = getattr(args, "exclude", None)
+    if not exclude:
+        return None
+    return [e.strip() for e in exclude.split(",") if e.strip()]
+
+
 def _info(msg: str) -> None:
     print(msg, file=sys.stderr)
 
@@ -642,6 +657,10 @@ def main() -> None:
         help="Git ref (tag/branch/SHA) to build from via worktree. "
         "Version is derived from the nearest tag at this ref.",
     )
+    p.add_argument(
+        "--exclude",
+        help="Comma-separated fixture names to exclude (e.g. clickbench_hits_1k.vortex)",
+    )
 
     # -- publish --
     p = sub.add_parser(
@@ -674,6 +693,10 @@ def main() -> None:
         action="store_true",
         help="Generate and show manifest, but don't upload",
     )
+    p.add_argument(
+        "--exclude",
+        help="Comma-separated fixture names to exclude (e.g. clickbench_hits_1k.vortex)",
+    )
 
     # -- check --
     p = sub.add_parser(
@@ -698,6 +721,10 @@ def main() -> None:
     p.add_argument(
         "--versions",
         help="Comma-separated versions to check (default: all)",
+    )
+    p.add_argument(
+        "--exclude",
+        help="Comma-separated fixture names to exclude (e.g. clickbench_hits_1k.vortex)",
     )
 
     # -- list --
