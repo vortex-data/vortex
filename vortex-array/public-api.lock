@@ -9314,11 +9314,15 @@ pub mod vortex_array::builtins
 
 pub trait vortex_array::builtins::ArrayBuiltins: core::marker::Sized
 
+pub fn vortex_array::builtins::ArrayBuiltins::arithmetic(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::builtins::ArrayBuiltins::between(self, lower: vortex_array::ArrayRef, upper: vortex_array::ArrayRef, options: vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::builtins::ArrayBuiltins::binary(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::operators::Operator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::builtins::ArrayBuiltins::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::builtins::ArrayBuiltins::compare(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::builtins::ArrayBuiltins::fill_null(&self, fill_value: impl core::convert::Into<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -9328,6 +9332,8 @@ pub fn vortex_array::builtins::ArrayBuiltins::is_null(&self) -> vortex_error::Vo
 
 pub fn vortex_array::builtins::ArrayBuiltins::list_contains(&self, value: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::builtins::ArrayBuiltins::logical(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::logical::LogicalOp) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::builtins::ArrayBuiltins::mask(self, mask: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::builtins::ArrayBuiltins::not(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -9336,11 +9342,15 @@ pub fn vortex_array::builtins::ArrayBuiltins::zip(&self, if_true: vortex_array::
 
 impl vortex_array::builtins::ArrayBuiltins for vortex_array::ArrayRef
 
+pub fn vortex_array::ArrayRef::arithmetic(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::ArrayRef::between(self, lower: vortex_array::ArrayRef, upper: vortex_array::ArrayRef, options: vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::binary(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::operators::Operator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::ArrayRef::compare(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::fill_null(&self, fill_value: impl core::convert::Into<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -9350,6 +9360,8 @@ pub fn vortex_array::ArrayRef::is_null(&self) -> vortex_error::VortexResult<vort
 
 pub fn vortex_array::ArrayRef::list_contains(&self, value: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::ArrayRef::logical(&self, rhs: vortex_array::ArrayRef, op: vortex_array::scalar_fn::fns::logical::LogicalOp) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::ArrayRef::mask(self, mask: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::not(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -9358,9 +9370,13 @@ pub fn vortex_array::ArrayRef::zip(&self, if_true: vortex_array::ArrayRef, if_fa
 
 pub trait vortex_array::builtins::ExprBuiltins: core::marker::Sized
 
+pub fn vortex_array::builtins::ExprBuiltins::arithmetic(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::builtins::ExprBuiltins::binary(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::operators::Operator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::builtins::ExprBuiltins::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::builtins::ExprBuiltins::compare(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::builtins::ExprBuiltins::fill_null(&self, fill_value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -9370,6 +9386,8 @@ pub fn vortex_array::builtins::ExprBuiltins::is_null(&self) -> vortex_error::Vor
 
 pub fn vortex_array::builtins::ExprBuiltins::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
+pub fn vortex_array::builtins::ExprBuiltins::logical(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::logical::LogicalOp) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::builtins::ExprBuiltins::mask(&self, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::builtins::ExprBuiltins::not(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
@@ -9378,9 +9396,13 @@ pub fn vortex_array::builtins::ExprBuiltins::zip(&self, if_true: vortex_array::e
 
 impl vortex_array::builtins::ExprBuiltins for vortex_array::expr::Expression
 
+pub fn vortex_array::expr::Expression::arithmetic(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::expr::Expression::binary(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::operators::Operator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::expr::Expression::compare(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::fill_null(&self, fill_value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -9389,6 +9411,8 @@ pub fn vortex_array::expr::Expression::get_item(&self, field_name: impl core::co
 pub fn vortex_array::expr::Expression::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::expr::Expression::logical(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::logical::LogicalOp) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::mask(&self, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -13768,9 +13792,13 @@ pub fn vortex_array::expr::Expression::drop(&mut self)
 
 impl vortex_array::builtins::ExprBuiltins for vortex_array::expr::Expression
 
+pub fn vortex_array::expr::Expression::arithmetic(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::arithmetic::ArithmeticOp) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::expr::Expression::binary(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::operators::Operator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::expr::Expression::compare(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::comparison::CompareOperator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::fill_null(&self, fill_value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -13779,6 +13807,8 @@ pub fn vortex_array::expr::Expression::get_item(&self, field_name: impl core::co
 pub fn vortex_array::expr::Expression::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::expr::Expression::logical(&self, rhs: vortex_array::expr::Expression, op: vortex_array::scalar_fn::fns::logical::LogicalOp) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::mask(&self, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -17086,7 +17116,7 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -19494,7 +19524,7 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
