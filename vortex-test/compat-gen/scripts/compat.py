@@ -21,8 +21,6 @@ Quick start:
     # Publish an old version using a git worktree
     python compat.py publish --version 0.62.0 --git-ref v0.62.0
 
-    # Generate multiple versions in parallel via worktrees
-    python compat.py publish-multi 0.61.0=v0.61.0 0.62.0=v0.62.0 0.63.0=HEAD
 """
 
 from __future__ import annotations
@@ -34,7 +32,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -67,9 +64,6 @@ examples:
 
   # Publish an old version from a git tag using a worktree
   python compat.py publish --version 0.62.0 --git-ref v0.62.0
-
-  # Bulk-publish multiple versions in parallel
-  python compat.py publish-multi 0.61.0=v0.61.0 0.62.0=v0.62.0
 
   # Check only specific versions
   python compat.py check --versions 0.62.0,0.63.0
@@ -384,97 +378,6 @@ def cmd_publish(args: argparse.Namespace) -> None:
         )
 
 
-def cmd_publish_multi(args: argparse.Namespace) -> None:
-    """Publish multiple versions in parallel using git worktrees.
-
-    Each spec is VERSION=GIT_REF (e.g. 0.62.0=v0.62.0).
-    """
-    store = _parse_store(args.store)
-    specs = _parse_version_specs(args.specs)
-
-    if not specs:
-        print("error: no version specs provided", file=sys.stderr)
-        sys.exit(1)
-
-    _info(f"publishing {len(specs)} version(s): {', '.join(v for v, _ in specs)}")
-
-    repo_root = Path(
-        subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    )
-
-    # Generate all versions (potentially in parallel with worktrees).
-    generated: list[tuple[str, Path]] = []
-    tmpdir = tempfile.mkdtemp(prefix="vortex-compat-multi-")
-
-    try:
-        if args.parallel and len(specs) > 1:
-            _info(f"generating {len(specs)} versions in parallel...")
-            with ProcessPoolExecutor(max_workers=min(len(specs), args.jobs)) as executor:
-                futures = {}
-                for version, git_ref in specs:
-                    out = Path(tmpdir) / version
-                    futures[executor.submit(
-                        _worktree_generate_subprocess, git_ref, version, out, repo_root
-                    )] = (version, out)
-
-                for future in as_completed(futures):
-                    version, out = futures[future]
-                    try:
-                        future.result()
-                        generated.append((version, out))
-                        _info(f"  generated v{version}")
-                    except Exception as e:
-                        print(f"error generating v{version}: {e}", file=sys.stderr)
-                        sys.exit(1)
-        else:
-            for version, git_ref in specs:
-                out = Path(tmpdir) / version
-                if git_ref == "HEAD":
-                    _run_rust_generate(out)
-                else:
-                    _worktree_generate(git_ref, version, out, repo_root)
-                generated.append((version, out))
-
-        # Publish in version order.
-        generated.sort(key=lambda x: _version_sort_key(x[0]))
-
-        for version, output in generated:
-            fixtures_json = json.loads((output / "fixtures.json").read_text())
-            versions = store.list_versions()
-            prev = _find_prev_version(versions, version)
-
-            manifest = _merge_manifest(store, fixtures_json, version, prev)
-            manifest_json = json.dumps(manifest, indent=2) + "\n"
-
-            if args.dry_run:
-                _info(f"dry run v{version} — not uploading.")
-                continue
-
-            for entry in manifest["fixtures"]:
-                name = entry["name"]
-                store.write_file(f"v{version}/{name}", output / name)
-
-            store.write(f"v{version}/manifest.json", manifest_json.encode())
-
-            if version not in versions:
-                versions.append(version)
-                versions.sort(key=_version_sort_key)
-            store.write(
-                "versions.json", (json.dumps(versions, indent=2) + "\n").encode()
-            )
-            _info(f"  published v{version} ({len(manifest['fixtures'])} fixtures)")
-
-        _info(f"\ndone: {len(generated)} version(s) published to {store.display_name()}")
-
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-
 def cmd_check(args: argparse.Namespace) -> None:
     """Download fixtures from store and check with Rust binary."""
     store = _parse_store(args.store)
@@ -652,13 +555,6 @@ def _run_cmd(
     return subprocess.run(cmd, check=check, cwd=cwd)
 
 
-def _worktree_generate_subprocess(
-    git_ref: str, version: str, output_dir: Path, repo_root: Path
-) -> None:
-    """Wrapper for _worktree_generate that works with ProcessPoolExecutor."""
-    _worktree_generate(git_ref, version, output_dir, repo_root)
-
-
 def _find_prev_version(versions: list[str], current: str) -> str | None:
     """Find the highest version strictly less than `current`."""
     current_key = _version_sort_key(current)
@@ -667,19 +563,6 @@ def _find_prev_version(versions: list[str], current: str) -> str | None:
         if _version_sort_key(v) < current_key:
             prev = v
     return prev
-
-
-def _parse_version_specs(specs: list[str]) -> list[tuple[str, str]]:
-    """Parse 'VERSION=GIT_REF' specs. If no '=', GIT_REF defaults to 'v{VERSION}'."""
-    result = []
-    for spec in specs:
-        if "=" in spec:
-            version, git_ref = spec.split("=", 1)
-        else:
-            version = spec
-            git_ref = f"v{spec}"
-        result.append((version, git_ref))
-    return result
 
 
 def _version_sort_key(v: str) -> list[int]:
@@ -765,53 +648,6 @@ def main() -> None:
         help="Generate and show manifest, but don't upload",
     )
 
-    # -- publish-multi --
-    p = sub.add_parser(
-        "publish-multi",
-        help="Publish multiple versions using git worktrees",
-        description=(
-            "Generate and publish fixtures for multiple versions in one command.\n"
-            "Each version is built in its own git worktree, so they can run in\n"
-            "parallel. Useful for bootstrapping a fixture store."
-        ),
-        epilog=(
-            "specs format:\n"
-            "  VERSION=GIT_REF   e.g. 0.62.0=v0.62.0\n"
-            "  VERSION           e.g. 0.62.0 (defaults to git ref v0.62.0)\n"
-            "\n"
-            "examples:\n"
-            "  python compat.py publish-multi 0.61.0 0.62.0 0.63.0\n"
-            "  python compat.py publish-multi 0.62.0=v0.62.0 0.63.0=HEAD\n"
-            "  python compat.py publish-multi --parallel --jobs 4 0.61.0 0.62.0 0.63.0"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p.add_argument(
-        "specs",
-        nargs="+",
-        metavar="VERSION[=GIT_REF]",
-        help="Version specs to publish",
-    )
-    p.add_argument(
-        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
-    )
-    p.add_argument(
-        "--parallel",
-        action="store_true",
-        help="Build versions in parallel using separate worktrees",
-    )
-    p.add_argument(
-        "--jobs",
-        type=int,
-        default=4,
-        help="Max parallel builds (default: %(default)s)",
-    )
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Generate but don't upload",
-    )
-
     # -- check --
     p = sub.add_parser(
         "check",
@@ -879,7 +715,6 @@ def main() -> None:
     commands = {
         "generate": cmd_generate,
         "publish": cmd_publish,
-        "publish-multi": cmd_publish_multi,
         "check": cmd_check,
         "list": cmd_list,
         "validate-manifest": cmd_validate_manifest,

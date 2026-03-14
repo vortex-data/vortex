@@ -35,7 +35,6 @@ python compat.py check    [--versions 0.62.0,0.63.0] [--store s3://...]
 python compat.py generate --version 0.63.0 --output ./out [--git-ref v0.63.0]
 python compat.py list     [--store s3://...] [--version 0.63.0]
 python compat.py validate-manifest [--store s3://...]
-python compat.py publish-multi 0.61.0=v0.61.0 0.62.0=v0.62.0 [--parallel --jobs 4]
 ```
 
 ---
@@ -115,22 +114,6 @@ partial directory.
 2. Fetch previous manifest, merge (carry forward `since`, enforce additive-only)
 3. Upload `.vortex` files + `manifest.json` to store
 4. Update `versions.json`
-
-### `publish-multi <SPEC>... [--parallel]`
-
-Publish multiple versions at once. Each spec is `VERSION[=GIT_REF]`:
-
-```bash
-# Bootstrap a fixture store from three releases
-python compat.py publish-multi 0.61.0=v0.61.0 0.62.0=v0.62.0 0.63.0=HEAD
-
-# Same, but build in parallel (4 worktrees)
-python compat.py publish-multi --parallel --jobs 4 0.61.0 0.62.0 0.63.0
-```
-
-Each version gets its own git worktree, builds `vortex-compat` from that
-commit, and generates fixtures. Publishing happens sequentially (in version
-order) so manifests chain correctly.
 
 ### `check [--versions <V1,V2,...>]`
 
