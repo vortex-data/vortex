@@ -231,6 +231,9 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::pack;
     use crate::expr::root;
+    use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::arithmetic::Arithmetic;
+    use crate::scalar_fn::fns::arithmetic::ArithmeticOp;
     use crate::scalar_fn::fns::get_item::StructArray;
     use crate::validity::Validity;
 
@@ -337,7 +340,8 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
         let result = get_result.optimize_recursive(&dtype).unwrap();
-        let expected = checked_add(lit(1), lit(10));
+        // After optimization, Binary(Add) is reduced to Arithmetic(Add).
+        let expected = Arithmetic.new_expr(ArithmeticOp::Add, [lit(1), lit(10)]);
         assert_eq!(&result, &expected);
     }
 
