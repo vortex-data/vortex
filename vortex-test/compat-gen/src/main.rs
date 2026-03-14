@@ -34,8 +34,14 @@ fn main() -> VortexResult<()> {
     let fixtures = all_fixtures();
     let mut entries = Vec::with_capacity(fixtures.len());
 
+    // Create a temporary directory for fixture setup.
+    let tmp_dir = cli.output.join(".tmp");
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| vortex_error::vortex_err!("failed to create tmp dir: {e}"))?;
+
     for fixture in &fixtures {
-        let chunks = fixture.build()?;
+        fixture.setup(&tmp_dir)?;
+        let chunks = fixture.build(&tmp_dir)?;
         let path = cli.output.join(fixture.name());
         vortex_compat::adapter::write_file(&path, chunks)?;
 

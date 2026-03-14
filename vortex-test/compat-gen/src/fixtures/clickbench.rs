@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::Path;
+
 use arrow_array::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
@@ -8,6 +10,7 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::ExpectedEncoding;
 use super::Fixture;
 
 /// First partition of ClickBench hits, limited to 1000 rows.
@@ -21,7 +24,15 @@ impl Fixture for ClickBenchHits1kFixture {
         "clickbench_hits_1k.vortex"
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn description(&self) -> &str {
+        "ClickBench hits first 1000 rows (real-world wide table)"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![]
+    }
+
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let bytes = reqwest::blocking::get(CLICKBENCH_URL)
             .map_err(|e| vortex_err!("failed to download ClickBench parquet: {e}"))?
             .bytes()

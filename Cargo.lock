@@ -9915,6 +9915,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-layout",
  "vortex-session",
  "vortex-utils",
 ]

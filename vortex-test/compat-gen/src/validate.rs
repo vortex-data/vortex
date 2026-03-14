@@ -83,7 +83,10 @@ fn validate_version(
 
 fn validate_one(bytes: ByteBuffer, fixture: &dyn Fixture) -> VortexResult<()> {
     let actual = adapter::read_file(bytes)?;
-    let expected = fixture.build()?;
+    let tmp_dir = std::env::temp_dir().join("vortex-compat-validate");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| vortex_err!("failed to create tmp dir: {e}"))?;
+    fixture.setup(&tmp_dir)?;
+    let expected = fixture.build(&tmp_dir)?;
 
     let actual_dtype = actual[0].dtype().clone();
     let expected_dtype = expected[0].dtype().clone();
