@@ -11,7 +11,7 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {
-        // Fast path: same extension type (ignoring nullability), just cast the storage.
+        // Same extension type (ignoring nullability): just cast the storage nullability.
         if array.dtype().eq_ignore_nullability(dtype) {
             let DType::Extension(ext_dtype) = dtype else {
                 unreachable!("Already verified we have an extension dtype");
@@ -26,8 +26,9 @@ impl CastReduce for Extension {
             ));
         }
 
-        // Otherwise we defer to the extension vtable.
-        array.ext_dtype().cast_from_ext(array, dtype)
+        // Type-specific casting (e.g. Timestamp(s) → Timestamp(ns)) is handled by
+        // ExtVTable::reduce_parent_array, which runs before this CastReduce fallback.
+        Ok(None)
     }
 }
 

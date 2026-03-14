@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrays::ExtensionArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -117,23 +118,23 @@ impl ExtDTypeRef {
         self.0.coercion_least_supertype(other)
     }
 
-    /// Attempt to cast the extension array to the target dtype.
-    pub fn cast_into_ext(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        self.0.cast_into_ext(array, self)
-    }
-
-    /// Attempt to cast the extension array to the target dtype.
-    pub fn cast_from_ext(
+    pub(crate) fn execute_parent(
         &self,
         array: &ExtensionArray,
-        target: &DType,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(ext_dtype) = array.dtype().as_extension_opt()
-            && ext_dtype != self
-        {
-            return Ok(None);
-        }
-        self.0.cast_from_ext(array, target)
+        self.0.execute_parent_array(array, parent, child_idx, ctx)
+    }
+
+    pub(crate) fn reduce_parent(
+        &self,
+        array: &ExtensionArray,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.0.reduce_parent_array(array, parent, child_idx)
     }
 }
 

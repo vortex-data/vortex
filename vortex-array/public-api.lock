@@ -1688,6 +1688,34 @@ pub fn vortex_array::arrays::dict::take_canonical(values: vortex_array::Canonica
 
 pub mod vortex_array::arrays::extension
 
+pub struct vortex_array::arrays::extension::ExactExtArray<V: vortex_array::dtype::extension::ExtVTable>(_)
+
+impl<V: core::default::Default + vortex_array::dtype::extension::ExtVTable> core::default::Default for vortex_array::arrays::extension::ExactExtArray<V>
+
+pub fn vortex_array::arrays::extension::ExactExtArray<V>::default() -> vortex_array::arrays::extension::ExactExtArray<V>
+
+impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtVTable> core::fmt::Debug for vortex_array::arrays::extension::ExactExtArray<V>
+
+pub fn vortex_array::arrays::extension::ExactExtArray<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::matcher::Matcher for vortex_array::arrays::extension::ExactExtArray<V>
+
+pub type vortex_array::arrays::extension::ExactExtArray<V>::Match<'a> = vortex_array::arrays::extension::ExtArray<'a, V>
+
+pub fn vortex_array::arrays::extension::ExactExtArray<V>::matches(array: &dyn vortex_array::DynArray) -> bool
+
+pub fn vortex_array::arrays::extension::ExactExtArray<V>::try_match(array: &dyn vortex_array::DynArray) -> core::option::Option<Self::Match>
+
+pub struct vortex_array::arrays::extension::ExtArray<'a, V: vortex_array::dtype::extension::ExtVTable>
+
+impl<'a, V: vortex_array::dtype::extension::ExtVTable> vortex_array::arrays::extension::ExtArray<'a, V>
+
+pub fn vortex_array::arrays::extension::ExtArray<'a, V>::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::arrays::extension::ExtArray<'a, V>::storage_array(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::extension::ExtArray<'a, V>::try_new(array: &'a vortex_array::arrays::ExtensionArray) -> core::option::Option<Self>
+
 pub struct vortex_array::arrays::extension::Extension
 
 impl vortex_array::arrays::Extension
@@ -1805,6 +1833,8 @@ pub fn vortex_array::arrays::Extension::validity_child(array: &vortex_array::arr
 pub struct vortex_array::arrays::extension::ExtensionArray
 
 impl vortex_array::arrays::ExtensionArray
+
+pub fn vortex_array::arrays::ExtensionArray::downcast_ref<V: vortex_array::dtype::extension::ExtVTable>(&self) -> core::option::Option<vortex_array::arrays::extension::ExtArray<'_, V>>
 
 pub fn vortex_array::arrays::ExtensionArray::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
@@ -5619,6 +5649,8 @@ pub fn vortex_array::arrays::Extension::validity_child(array: &vortex_array::arr
 pub struct vortex_array::arrays::ExtensionArray
 
 impl vortex_array::arrays::ExtensionArray
+
+pub fn vortex_array::arrays::ExtensionArray::downcast_ref<V: vortex_array::dtype::extension::ExtVTable>(&self) -> core::option::Option<vortex_array::arrays::extension::ExtArray<'_, V>>
 
 pub fn vortex_array::arrays::ExtensionArray::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
@@ -10196,6 +10228,8 @@ impl vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> alloc::sync::Arc<vortex_array::dtype::extension::ExtDType<V>>
 
+pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast_ref<V: vortex_array::dtype::extension::ExtVTable>(&self) -> core::option::Option<&vortex_array::dtype::extension::ExtDType<V>>
+
 pub fn vortex_array::dtype::extension::ExtDTypeRef::is<M: vortex_array::dtype::extension::Matcher>(&self) -> bool
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata<M: vortex_array::dtype::extension::Matcher>(&self) -> <M as vortex_array::dtype::extension::Matcher>::Match
@@ -10250,9 +10284,13 @@ pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_to(&self, ext_dtype
 
 pub fn vortex_array::dtype::extension::ExtVTable::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::dtype::extension::ExtVTable::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::dtype::extension::ExtVTable::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::dtype::extension::ExtVTable::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::dtype::extension::ExtVTable::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::dtype::extension::ExtVTable::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -10274,9 +10312,13 @@ pub fn vortex_array::extension::datetime::Date::can_coerce_to(&self, ext_dtype: 
 
 pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::datetime::Date::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::datetime::Date::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::datetime::Date::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -10298,9 +10340,13 @@ pub fn vortex_array::extension::datetime::Time::can_coerce_to(&self, ext_dtype: 
 
 pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::datetime::Time::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::datetime::Time::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::datetime::Time::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -10322,9 +10368,13 @@ pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(&self, ext_dt
 
 pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::datetime::Timestamp::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::datetime::Timestamp::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::datetime::Timestamp::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -10346,9 +10396,13 @@ pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(&self, ext_dtype: &vor
 
 pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::uuid::Uuid::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::uuid::Uuid::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::uuid::Uuid::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -14070,6 +14124,8 @@ pub vortex_array::extension::datetime::TimeUnit::Seconds = 3
 
 impl vortex_array::extension::datetime::TimeUnit
 
+pub fn vortex_array::extension::datetime::TimeUnit::nanos_per_unit(&self) -> i64
+
 pub fn vortex_array::extension::datetime::TimeUnit::to_jiff_span(&self, v: i64) -> vortex_error::VortexResult<jiff::span::Span>
 
 impl core::clone::Clone for vortex_array::extension::datetime::TimeUnit
@@ -14212,9 +14268,13 @@ pub fn vortex_array::extension::datetime::Date::can_coerce_to(&self, ext_dtype: 
 
 pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::datetime::Date::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::datetime::Date::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::datetime::Date::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -14268,9 +14328,13 @@ pub fn vortex_array::extension::datetime::Time::can_coerce_to(&self, ext_dtype: 
 
 pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::datetime::Time::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::datetime::Time::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::datetime::Time::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -14326,9 +14390,13 @@ pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(&self, ext_dt
 
 pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::datetime::Timestamp::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::datetime::Timestamp::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::datetime::Timestamp::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -14408,9 +14476,13 @@ pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(&self, ext_dtype: &vor
 
 pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_array::extension::uuid::Uuid::execute_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::extension::uuid::Uuid::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::uuid::Uuid::reduce_parent_array(&self, array: &vortex_array::arrays::extension::ExtArray<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -14705,6 +14777,14 @@ pub type vortex_array::arrays::scalar_fn::ExactScalarFn<F>::Match<'a> = vortex_a
 pub fn vortex_array::arrays::scalar_fn::ExactScalarFn<F>::matches(array: &dyn vortex_array::DynArray) -> bool
 
 pub fn vortex_array::arrays::scalar_fn::ExactScalarFn<F>::try_match(array: &dyn vortex_array::DynArray) -> core::option::Option<Self::Match>
+
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::matcher::Matcher for vortex_array::arrays::extension::ExactExtArray<V>
+
+pub type vortex_array::arrays::extension::ExactExtArray<V>::Match<'a> = vortex_array::arrays::extension::ExtArray<'a, V>
+
+pub fn vortex_array::arrays::extension::ExactExtArray<V>::matches(array: &dyn vortex_array::DynArray) -> bool
+
+pub fn vortex_array::arrays::extension::ExactExtArray<V>::try_match(array: &dyn vortex_array::DynArray) -> core::option::Option<Self::Match>
 
 impl<V: vortex_array::vtable::VTable> vortex_array::matcher::Matcher for V
 

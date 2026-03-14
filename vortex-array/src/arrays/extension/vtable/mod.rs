@@ -157,21 +157,30 @@ impl VTable for Extension {
         Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(result) = array
+            .ext_dtype()
+            .execute_parent(array, parent, child_idx, ctx)?
+        {
+            return Ok(Some(result));
+        }
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(result) = array.ext_dtype().reduce_parent(array, parent, child_idx)? {
+            return Ok(Some(result));
+        }
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

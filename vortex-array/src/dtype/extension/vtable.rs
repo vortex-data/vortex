@@ -8,6 +8,7 @@ use std::hash::Hash;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrays::extension::ExtArray;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
@@ -67,8 +68,6 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         None
     }
 
-    // Methods related to the extension scalar values.
-
     /// Validate the given storage value is compatible with the extension type.
     ///
     /// By default, this calls [`unpack_native()`](ExtVTable::unpack_native) and discards the result.
@@ -99,33 +98,30 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>>;
 
-    /// Cast an array into this extension DType.
+    /// Execute the extension array's parent.
     ///
-    /// Note that this function does not take an execution context. It is expected that the
-    /// implementation can be expressed via operations on the storage array.
-    ///
-    /// Returns `None` if the cast is not possible.
-    fn cast_into_ext(
+    /// See [`crate::vtable::VTable::execute_parent`]
+    fn execute_parent_array(
         &self,
-        array: &ArrayRef,
-        target: &ExtDType<Self>,
+        array: &ExtArray<Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let _ = (array, target);
+        let _ = (array, parent, child_idx, ctx);
         Ok(None)
     }
 
-    /// Cast an array of this extension DType into another DType.
+    /// Reduce the extension array's parent.
     ///
-    /// Note that this function does not take an execution context. It is expected that the
-    /// implementation can be expressed via operations on the storage array.
-    ///
-    /// Returns `None` if the cast is not possible.
-    fn cast_from_ext(
+    /// See [`crate::vtable::VTable::reduce_parent`]
+    fn reduce_parent_array(
         &self,
         array: &ExtArray<Self>,
-        target: &DType,
+        parent: &ArrayRef,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let _ = (array, target);
+        let _ = (array, parent, child_idx);
         Ok(None)
     }
 }

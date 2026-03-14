@@ -19,6 +19,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtArray;
+use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -27,7 +28,9 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::TimeUnit;
+use crate::matcher::Matcher;
 use crate::scalar::ScalarValue;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::operators::Operator;
 
 /// Timestamp DType.
@@ -205,11 +208,18 @@ impl ExtVTable for Timestamp {
         ))
     }
 
-    fn cast_from_ext(
+    fn reduce_parent_array(
         &self,
         array: &ExtArray<Self>,
-        target: &DType,
+        parent: &ArrayRef,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        let _ = child_idx;
+        let Some(cast_view) = ExactScalarFn::<Cast>::try_match(parent.as_ref()) else {
+            return Ok(None);
+        };
+        let target = cast_view.options;
+
         let DType::Extension(target_ext) = target else {
             return Ok(None);
         };

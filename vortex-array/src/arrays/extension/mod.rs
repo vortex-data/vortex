@@ -5,6 +5,7 @@ mod array;
 pub use array::ExtensionArray;
 
 mod view;
+pub use view::ExactExtArray;
 pub use view::ExtArray;
 
 pub(crate) mod compute;
