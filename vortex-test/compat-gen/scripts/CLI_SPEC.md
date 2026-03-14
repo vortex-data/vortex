@@ -26,13 +26,15 @@ needs to compile against each version. The orchestrator is version-agnostic.
 ### Python orchestrator: `compat.py`
 
 Handles everything version-agnostic: S3 uploads/downloads, manifest merging,
-`versions.json` management, additive-only checks, and git worktree management
-for multi-version generation.
+`versions.json` management, additive-only checks, and git worktree management.
+
+Version is always auto-detected from the nearest git tag (stripping the `v`
+prefix). Use `--git-ref` to target a specific tag/branch/SHA.
 
 ```
-python compat.py publish  --version 0.63.0 [--git-ref v0.63.0] [--store s3://...] [--dry-run]
+python compat.py publish  [--git-ref v0.62.0] [--store s3://...] [--dry-run]
 python compat.py check    [--versions 0.62.0,0.63.0] [--store s3://...]
-python compat.py generate --version 0.63.0 --output ./out [--git-ref v0.63.0]
+python compat.py generate --output ./out [--git-ref v0.62.0]
 python compat.py list     [--store s3://...] [--version 0.63.0]
 python compat.py validate-manifest [--store s3://...]
 ```
@@ -108,12 +110,13 @@ partial directory.
 
 ## Python orchestrator details
 
-### `publish --version <VER> [--git-ref <REF>]`
+### `publish [--git-ref <REF>]`
 
-1. Generate fixtures (from current tree, or from a git worktree at `<REF>`)
-2. Fetch previous manifest, merge (carry forward `since`, enforce additive-only)
-3. Upload `.vortex` files + `manifest.json` to store
-4. Update `versions.json`
+1. Detect version from nearest git tag at HEAD (or `<REF>`)
+2. Generate fixtures (from current tree, or from a worktree at `<REF>`)
+3. Fetch previous manifest, merge (carry forward `since`, enforce additive-only)
+4. Upload `.vortex` files + `manifest.json` to store
+5. Update `versions.json`
 
 ### `check [--versions <V1,V2,...>]`
 
@@ -137,17 +140,17 @@ consecutive versions (additive-only property).
 
 The `--git-ref` flag on `publish` and `generate` automates this workflow:
 
-1. `git worktree add <tmpdir> <ref>` — check out the target commit
-2. `cargo build -p vortex-compat --release` — build in the worktree
-3. `<worktree>/target/release/vortex-compat generate --output <dir>` — generate
-4. `git worktree remove <tmpdir>` — clean up
+1. Detect version from the nearest tag at `<ref>` (e.g. `v0.62.0` → `0.62.0`)
+2. `git worktree add <tmpdir> <ref>` — check out the target commit
+3. `cargo build -p vortex-compat --release` — build in the worktree
+4. `<worktree>/target/release/vortex-compat generate --output <dir>` — generate
+5. `git worktree remove <tmpdir>` — clean up
 
 This means you can publish fixtures for any historical release without
 manually switching branches:
 
 ```bash
-# Publish v0.62.0 fixtures from the v0.62.0 tag
-python compat.py publish --version 0.62.0 --git-ref v0.62.0
+python compat.py publish --git-ref v0.62.0
 ```
 
 ---
@@ -158,17 +161,16 @@ python compat.py publish --version 0.62.0 --git-ref v0.62.0
 
 ```yaml
 - name: Generate and publish fixtures
-  run: >
-    python vortex-test/compat-gen/scripts/compat.py
-    publish --version "${{ inputs.version }}"
+  run: python vortex-test/compat-gen/scripts/compat.py publish
 ```
+
+Optionally pass `--git-ref` to publish from a specific tag.
 
 ### Weekly validation (`.github/workflows/compat-test-weekly.yml`)
 
 ```yaml
 - name: Run compat tests
-  run: >
-    python vortex-test/compat-gen/scripts/compat.py check
+  run: python vortex-test/compat-gen/scripts/compat.py check
 ```
 
 ---

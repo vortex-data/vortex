@@ -12,15 +12,14 @@ Everything else (versioning, S3 upload/download, manifest merging, worktree
 management) lives here.
 
 Quick start:
-    # Generate + publish for the current commit
-    python compat.py publish --version 0.63.0
+    # Generate + publish for HEAD (version auto-detected from latest tag)
+    python compat.py publish
+
+    # Publish from an older tag
+    python compat.py publish --git-ref v0.62.0
 
     # Check all published versions against current code
     python compat.py check
-
-    # Publish an old version using a git worktree
-    python compat.py publish --version 0.62.0 --git-ref v0.62.0
-
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,21 +52,31 @@ store spec:
   Default: s3://vortex-compat-fixtures
   S3 reads are public HTTPS; writes need AWS credentials (env or IAM role).
 
+version detection:
+  The version is always derived from a git tag. By default, HEAD's nearest
+  tag is used (via `git describe --tags --abbrev=0`). Use --git-ref to
+  target a different ref (e.g. v0.62.0). The 'v' prefix is stripped to
+  produce the version string (v0.63.0 -> 0.63.0).
+
 examples:
-  # Local development: generate, inspect, check
-  python compat.py generate --version 0.63.0 --output /tmp/fixtures
-  python compat.py list --store /tmp/store
-  python compat.py check --store /tmp/store
+  # Publish from HEAD (version from latest tag)
+  python compat.py publish
+  python compat.py publish --dry-run
 
-  # Publish to S3 (dry-run first)
-  python compat.py publish --version 0.63.0 --dry-run
-  python compat.py publish --version 0.63.0
+  # Publish from an older tag via worktree
+  python compat.py publish --git-ref v0.62.0
 
-  # Publish an old version from a git tag using a worktree
-  python compat.py publish --version 0.62.0 --git-ref v0.62.0
+  # Generate locally without publishing
+  python compat.py generate --output /tmp/fixtures
+  python compat.py generate --output /tmp/fixtures --git-ref v0.62.0
 
-  # Check only specific versions
+  # Check all versions, or specific ones
+  python compat.py check
   python compat.py check --versions 0.62.0,0.63.0
+
+  # Inspect store contents
+  python compat.py list
+  python compat.py list --version 0.62.0
 
   # Validate additive-only manifest property
   python compat.py validate-manifest
@@ -189,6 +199,36 @@ def _parse_store(spec: str) -> Store:
 
 
 # ---------------------------------------------------------------------------
+# Version detection
+# ---------------------------------------------------------------------------
+
+
+def _version_from_ref(git_ref: str | None = None) -> str:
+    """Derive a version string from a git ref.
+
+    If git_ref is None, uses HEAD. Finds the nearest tag and strips the 'v' prefix.
+    For example, tag 'v0.63.0' yields version '0.63.0'.
+    """
+    cmd = ["git", "describe", "--tags", "--abbrev=0"]
+    if git_ref:
+        cmd.append(git_ref)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(
+            f"error: could not detect version from git"
+            + (f" ref '{git_ref}'" if git_ref else "")
+            + f": {result.stderr.strip()}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    tag = result.stdout.strip()
+    # Strip 'v' prefix if present.
+    version = re.sub(r"^v", "", tag)
+    _info(f"detected version {version} (from tag {tag})")
+    return version
+
+
+# ---------------------------------------------------------------------------
 # Manifest helpers
 # ---------------------------------------------------------------------------
 
@@ -240,21 +280,18 @@ def _merge_manifest(
 # ---------------------------------------------------------------------------
 
 
-def _worktree_generate(
-    git_ref: str, version: str, output_dir: Path, repo_root: Path | None = None
-) -> None:
+def _worktree_generate(git_ref: str, output_dir: Path) -> None:
     """Create a git worktree at `git_ref`, build vortex-compat, and generate fixtures."""
-    if repo_root is None:
-        repo_root = Path(
-            subprocess.run(
-                ["git", "rev-parse", "--show-toplevel"],
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
-        )
+    repo_root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    )
 
-    worktree_dir = Path(tempfile.mkdtemp(prefix=f"vortex-compat-wt-{version}-"))
+    worktree_dir = Path(tempfile.mkdtemp(prefix=f"vortex-compat-wt-{git_ref}-"))
     try:
         _info(f"creating worktree at {git_ref} in {worktree_dir}")
         _run_cmd(
@@ -262,7 +299,6 @@ def _worktree_generate(
             check=True,
         )
 
-        # Build the binary inside the worktree.
         _info(f"building vortex-compat at {git_ref}...")
         _run_cmd(
             ["cargo", "build", "-p", CARGO_BIN, "--release"],
@@ -270,18 +306,15 @@ def _worktree_generate(
             cwd=worktree_dir,
         )
 
-        # Find the binary.
         bin_path = worktree_dir / "target" / "release" / CARGO_BIN
         if not bin_path.exists():
             print(f"error: binary not found at {bin_path}", file=sys.stderr)
             sys.exit(1)
 
-        # Generate fixtures using the worktree's binary.
         _info(f"generating fixtures with {git_ref} binary...")
         _run_cmd([str(bin_path), "generate", "--output", str(output_dir)], check=True)
 
     finally:
-        # Clean up worktree.
         _run_cmd(
             ["git", "-C", str(repo_root), "worktree", "remove", "--force", str(worktree_dir)],
             check=False,
@@ -298,45 +331,45 @@ def _worktree_generate(
 def cmd_generate(args: argparse.Namespace) -> None:
     """Generate fixtures locally, then write a proper manifest."""
     output = Path(args.output)
+    git_ref = args.git_ref
+    version = _version_from_ref(git_ref)
 
-    if args.git_ref:
-        _worktree_generate(args.git_ref, args.version, output)
+    if git_ref:
+        _worktree_generate(git_ref, output)
     else:
         _run_rust_generate(output)
 
     # Read fixtures.json and write a versioned manifest.
     fixtures_json = json.loads((output / "fixtures.json").read_text())
     manifest = {
-        "version": args.version,
+        "version": version,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "fixtures": [
-            {"name": f["name"], "description": f["description"], "since": args.version}
+            {"name": f["name"], "description": f["description"], "since": version}
             for f in fixtures_json["fixtures"]
         ],
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    _info(f"wrote manifest.json for v{args.version}")
+    _info(f"wrote manifest.json for v{version}")
 
 
 def cmd_publish(args: argparse.Namespace) -> None:
     """Generate fixtures and publish to a store."""
     store = _parse_store(args.store)
-    version = args.version
+    git_ref = args.git_ref
+    version = _version_from_ref(git_ref)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output = Path(tmpdir) / "fixtures"
 
-        # Step 1: Generate (optionally via worktree).
         _info("generating fixtures...")
-        if args.git_ref:
-            _worktree_generate(args.git_ref, version, output)
+        if git_ref:
+            _worktree_generate(git_ref, output)
         else:
             _run_rust_generate(output)
 
-        # Step 2: Read fixtures.json.
         fixtures_json = json.loads((output / "fixtures.json").read_text())
 
-        # Step 3: Find previous version and merge manifest.
         versions = store.list_versions()
         prev = _find_prev_version(versions, version)
         if prev:
@@ -350,7 +383,6 @@ def cmd_publish(args: argparse.Namespace) -> None:
             print(manifest_json)
             return
 
-        # Step 4: Upload fixture files.
         _info(
             f"uploading {len(manifest['fixtures'])} fixtures to {store.display_name()}..."
         )
@@ -361,11 +393,9 @@ def cmd_publish(args: argparse.Namespace) -> None:
             store.write_file(key, local)
             _info(f"  uploaded {name}")
 
-        # Step 5: Upload manifest.
         store.write(f"v{version}/manifest.json", manifest_json.encode())
         _info("  uploaded manifest.json")
 
-        # Step 6: Update versions.json.
         if version not in versions:
             versions.append(version)
             versions.sort(key=_version_sort_key)
@@ -407,7 +437,6 @@ def cmd_check(args: argparse.Namespace) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
 
-            # Download all fixture files.
             for entry in manifest["fixtures"]:
                 name = entry["name"]
                 data = store.read(f"v{version}/{name}")
@@ -416,7 +445,6 @@ def cmd_check(args: argparse.Namespace) -> None:
                     continue
                 (tmppath / name).write_bytes(data)
 
-            # Run Rust checker.
             result = _run_rust_check(tmppath, mode="subset")
 
             passed = len(result.get("passed", []))
@@ -524,7 +552,6 @@ def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
     """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
     cmd = _cargo_run_cmd() + ["check", "--dir", str(dir), "--mode", mode]
     result = subprocess.run(cmd, capture_output=True, text=True)
-    # stdout has JSON, stderr has progress.
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
 
@@ -599,21 +626,21 @@ def main() -> None:
         help="Generate fixtures locally",
         description=(
             "Build all fixture .vortex files and write them to a directory.\n"
-            "Optionally uses a git worktree to build from an older commit."
+            "Version is auto-detected from the nearest git tag at HEAD\n"
+            "(or at --git-ref if specified)."
         ),
         epilog=(
             "examples:\n"
-            "  python compat.py generate --version 0.63.0 --output ./out\n"
-            "  python compat.py generate --version 0.62.0 --output ./out --git-ref v0.62.0"
+            "  python compat.py generate --output ./out\n"
+            "  python compat.py generate --output ./out --git-ref v0.62.0"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--version", required=True, help="Version tag (e.g. 0.63.0)")
     p.add_argument("--output", required=True, help="Output directory")
     p.add_argument(
         "--git-ref",
         help="Git ref (tag/branch/SHA) to build from via worktree. "
-        "If omitted, builds from the current working tree.",
+        "Version is derived from the nearest tag at this ref.",
     )
 
     # -- publish --
@@ -622,25 +649,25 @@ def main() -> None:
         help="Generate and publish fixtures to a store",
         description=(
             "Generate fixture files, merge the manifest with the previous version,\n"
-            "and upload everything to the store."
+            "and upload everything to the store. Version is auto-detected from the\n"
+            "nearest git tag at HEAD (or at --git-ref)."
         ),
         epilog=(
             "examples:\n"
-            "  python compat.py publish --version 0.63.0\n"
-            "  python compat.py publish --version 0.63.0 --dry-run\n"
-            "  python compat.py publish --version 0.62.0 --git-ref v0.62.0\n"
-            "  python compat.py publish --version 0.63.0 --store /tmp/store"
+            "  python compat.py publish\n"
+            "  python compat.py publish --dry-run\n"
+            "  python compat.py publish --git-ref v0.62.0\n"
+            "  python compat.py publish --store /tmp/store"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--version", required=True, help="Version tag (e.g. 0.63.0)")
     p.add_argument(
         "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
     )
     p.add_argument(
         "--git-ref",
         help="Git ref to build from via worktree (e.g. v0.62.0). "
-        "Useful for publishing fixtures for older releases.",
+        "Version is derived from the nearest tag at this ref.",
     )
     p.add_argument(
         "--dry-run",

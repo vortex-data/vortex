@@ -3,9 +3,10 @@ name: Compat Fixture Upload
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to generate fixtures for (e.g. 0.62.0)"
-        required: true
+      git_ref:
+        description: "Git ref to publish fixtures from (e.g. v0.62.0). Defaults to HEAD."
+        required: false
+        default: ""
 
 jobs:
   upload-fixtures:
@@ -15,6 +16,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -31,6 +34,9 @@ jobs:
           aws-region: us-east-1
 
       - name: Generate and publish fixtures
-        run: >
-          python vortex-test/compat-gen/scripts/compat.py
-          publish --version "${{ inputs.version }}"
+        run: |
+          args="publish"
+          if [ -n "${{ inputs.git_ref }}" ]; then
+            args="$args --git-ref ${{ inputs.git_ref }}"
+          fi
+          python vortex-test/compat-gen/scripts/compat.py $args
