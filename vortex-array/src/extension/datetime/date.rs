@@ -10,6 +10,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtArray;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -18,6 +24,7 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// The Unix epoch date (1970-01-01).
 const EPOCH: jiff::civil::Date = jiff::civil::Date::constant(1970, 1, 1);
@@ -129,6 +136,48 @@ impl ExtVTable for Date {
         Some(DType::Extension(Date::new(finest, union_null).erased()))
     }
 
+    fn cast_from_ext(
+        &self,
+        array: &ExtArray<Self>,
+        target: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let DType::Extension(target_ext) = target else {
+            return Ok(None);
+        };
+        let Some(target_unit) = target_ext.metadata_opt::<Date>() else {
+            return Ok(None);
+        };
+        let source_unit = array.ext_dtype().metadata();
+
+        let source_nanos = source_unit.nanos_per_unit();
+        let target_nanos = target_unit.nanos_per_unit();
+
+        // Cast storage to target ptype first (e.g. i32 → i64 for Days → Ms).
+        let storage = array
+            .storage_array()
+            .cast(target_ext.storage_dtype().clone())?;
+
+        let storage = if source_nanos == target_nanos {
+            storage
+        } else if source_nanos > target_nanos {
+            let factor = source_nanos / target_nanos;
+            storage.binary(
+                ConstantArray::new(factor, storage.len()).into_array(),
+                Operator::Mul,
+            )?
+        } else {
+            let factor = target_nanos / source_nanos;
+            storage.binary(
+                ConstantArray::new(factor, storage.len()).into_array(),
+                Operator::Div,
+            )?
+        };
+
+        Ok(Some(
+            ExtensionArray::new(target_ext.clone(), storage).into_array(),
+        ))
+    }
+
     fn unpack_native(
         &self,
         ext_dtype: &ExtDType<Self>,
@@ -209,5 +258,33 @@ mod tests {
         let ms = DType::Extension(Date::new(TimeUnit::Milliseconds, NonNullable).erased());
         assert!(ms.can_coerce_from(&days));
         assert!(!days.can_coerce_from(&ms));
+    }
+
+    #[test]
+    fn cast_date_days_to_ms() {
+        use vortex_buffer::buffer;
+
+        use crate::IntoArray;
+        use crate::arrays::ExtensionArray;
+        use crate::builtins::ArrayBuiltins;
+        use crate::dtype::Nullability::NonNullable;
+
+        let source_dtype = Date::new(TimeUnit::Days, NonNullable).erased();
+        let target_dtype = Date::new(TimeUnit::Milliseconds, NonNullable).erased();
+
+        // 1 day and 2 days since epoch
+        let storage = buffer![1i32, 2].into_array();
+        let arr = ExtensionArray::new(source_dtype, storage).into_array();
+
+        let result = arr.cast(DType::Extension(target_dtype)).unwrap();
+        let ext = result.to_canonical().unwrap().as_extension().clone();
+        let prim = ext
+            .storage_array()
+            .to_canonical()
+            .unwrap()
+            .as_primitive()
+            .clone();
+        // Days → Ms: ×86_400_000
+        assert_eq!(prim.as_slice::<i64>(), &[86_400_000i64, 172_800_000]);
     }
 }

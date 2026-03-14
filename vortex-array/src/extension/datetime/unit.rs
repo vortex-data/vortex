@@ -43,6 +43,17 @@ impl TryFrom<u8> for TimeUnit {
 }
 
 impl TimeUnit {
+    /// Returns the number of nanoseconds per unit of this time unit.
+    pub fn nanos_per_unit(&self) -> i64 {
+        match self {
+            TimeUnit::Nanoseconds => 1,
+            TimeUnit::Microseconds => 1_000,
+            TimeUnit::Milliseconds => 1_000_000,
+            TimeUnit::Seconds => 1_000_000_000,
+            TimeUnit::Days => 86_400_000_000_000,
+        }
+    }
+
     /// Convert to a Jiff span.
     pub fn to_jiff_span(&self, v: i64) -> VortexResult<Span> {
         Ok(match self {

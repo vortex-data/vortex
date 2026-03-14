@@ -9,11 +9,11 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use arrow_array::ArrayRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::ArrayRef;
 use crate::arrays::ExtensionArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -128,11 +128,11 @@ impl ExtDTypeRef {
         array: &ExtensionArray,
         target: &DType,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(ext_dtype) = array.dtype().as_extension_opt() {
-            if ext_dtype != self {
-                return Ok(None);
-            }
-        };
+        if let Some(ext_dtype) = array.dtype().as_extension_opt()
+            && ext_dtype != self
+        {
+            return Ok(None);
+        }
         self.0.cast_from_ext(array, target)
     }
 }

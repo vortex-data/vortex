@@ -11,20 +11,19 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {
-        // Try casting the internal storage of the extension array.
+        // Fast path: same extension type (ignoring nullability), just cast the storage.
         if array.dtype().eq_ignore_nullability(dtype) {
             let DType::Extension(ext_dtype) = dtype else {
                 unreachable!("Already verified we have an extension dtype");
             };
 
-            if let Some(new_storage) = array
+            let new_storage = array
                 .storage_array()
-                .cast(ext_dtype.storage_dtype().clone())?
-            {
-                return Ok(Some(
-                    ExtensionArray::new(ext_dtype.clone(), new_storage).into_array(),
-                ));
-            };
+                .cast(ext_dtype.storage_dtype().clone())?;
+
+            return Ok(Some(
+                ExtensionArray::new(ext_dtype.clone(), new_storage).into_array(),
+            ));
         }
 
         // Otherwise we defer to the extension vtable.
@@ -82,21 +81,68 @@ mod tests {
     }
 
     #[test]
-    fn cast_different_ext_dtype() {
-        let original_dtype =
+    fn cast_timestamp_ms_to_ns() {
+        let source_dtype =
             Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-        // Note NS here instead of MS
         let target_dtype = Timestamp::new(TimeUnit::Nanoseconds, Nullability::NonNullable).erased();
 
-        let storage = buffer![1i64].into_array();
-        let arr = ExtensionArray::new(original_dtype, storage);
+        let storage = buffer![1i64, 2, 3].into_array();
+        let arr = ExtensionArray::new(source_dtype, storage).into_array();
 
-        assert!(
-            arr.into_array()
-                .cast(DType::Extension(target_dtype))
-                .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-                .is_err()
-        );
+        let result = arr.cast(DType::Extension(target_dtype.clone())).unwrap();
+        assert_eq!(result.dtype(), &DType::Extension(target_dtype));
+
+        // Verify values were scaled: ms → ns is ×1_000_000
+        let ext = result.to_canonical().unwrap().as_extension().clone();
+        let prim = ext
+            .storage_array()
+            .to_canonical()
+            .unwrap()
+            .as_primitive()
+            .clone();
+        assert_eq!(prim.as_slice::<i64>(), &[1_000_000, 2_000_000, 3_000_000]);
+    }
+
+    #[test]
+    fn cast_timestamp_s_to_us() {
+        let source_dtype = Timestamp::new(TimeUnit::Seconds, Nullability::NonNullable).erased();
+        let target_dtype =
+            Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased();
+
+        let storage = buffer![10i64, 20].into_array();
+        let arr = ExtensionArray::new(source_dtype, storage).into_array();
+
+        let result = arr.cast(DType::Extension(target_dtype)).unwrap();
+        let ext = result.to_canonical().unwrap().as_extension().clone();
+        let prim = ext
+            .storage_array()
+            .to_canonical()
+            .unwrap()
+            .as_primitive()
+            .clone();
+        assert_eq!(prim.as_slice::<i64>(), &[10_000_000, 20_000_000]);
+    }
+
+    #[test]
+    fn cast_timestamp_tz_mismatch_fails() {
+        use std::sync::Arc;
+
+        let utc_dtype = Timestamp::new_with_tz(
+            TimeUnit::Seconds,
+            Some(Arc::from("UTC")),
+            Nullability::NonNullable,
+        )
+        .erased();
+        let no_tz_dtype = Timestamp::new(TimeUnit::Nanoseconds, Nullability::NonNullable).erased();
+
+        let storage = buffer![1i64].into_array();
+        let arr = ExtensionArray::new(utc_dtype, storage).into_array();
+
+        // Timezone mismatch: cast creates a lazy expression, error surfaces on evaluation.
+        let result = arr
+            .cast(DType::Extension(no_tz_dtype))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        assert!(result.is_err());
     }
 
     #[rstest]

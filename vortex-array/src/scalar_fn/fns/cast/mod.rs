@@ -109,6 +109,13 @@ impl ScalarFnVTable for Cast {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
 
+        // If the target is an extension DType, we give it a chance to intercept.
+        if let DType::Extension(ext_dtype) = target_dtype
+            && let Some(casted) = ext_dtype.cast_into_ext(&input)?
+        {
+            return Ok(casted);
+        }
+
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
         };

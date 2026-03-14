@@ -14,6 +14,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtArray;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -22,6 +28,7 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Timestamp DType.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -195,6 +202,48 @@ impl ExtVTable for Timestamp {
         let union_null = ext_dtype.storage_dtype().nullability() | other.nullability();
         Some(DType::Extension(
             Timestamp::new_with_tz(finest, our_opts.tz.clone(), union_null).erased(),
+        ))
+    }
+
+    fn cast_from_ext(
+        &self,
+        array: &ExtArray<Self>,
+        target: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let DType::Extension(target_ext) = target else {
+            return Ok(None);
+        };
+        let Some(target_opts) = target_ext.metadata_opt::<Timestamp>() else {
+            return Ok(None);
+        };
+        let source_opts = array.ext_dtype().metadata();
+        if source_opts.tz != target_opts.tz {
+            return Ok(None);
+        }
+
+        let source_nanos = source_opts.unit.nanos_per_unit();
+        let target_nanos = target_opts.unit.nanos_per_unit();
+
+        let storage = if source_nanos == target_nanos {
+            array
+                .storage_array()
+                .cast(target_ext.storage_dtype().clone())?
+        } else if source_nanos > target_nanos {
+            let factor = source_nanos / target_nanos;
+            array.storage_array().binary(
+                ConstantArray::new(factor, array.storage_array().len()).into_array(),
+                Operator::Mul,
+            )?
+        } else {
+            let factor = target_nanos / source_nanos;
+            array.storage_array().binary(
+                ConstantArray::new(factor, array.storage_array().len()).into_array(),
+                Operator::Div,
+            )?
+        };
+
+        Ok(Some(
+            ExtensionArray::new(target_ext.clone(), storage).into_array(),
         ))
     }
 

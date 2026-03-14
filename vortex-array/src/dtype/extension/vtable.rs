@@ -101,6 +101,9 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Cast an array into this extension DType.
     ///
+    /// Note that this function does not take an execution context. It is expected that the
+    /// implementation can be expressed via operations on the storage array.
+    ///
     /// Returns `None` if the cast is not possible.
     fn cast_into_ext(
         &self,
@@ -112,6 +115,11 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     }
 
     /// Cast an array of this extension DType into another DType.
+    ///
+    /// Note that this function does not take an execution context. It is expected that the
+    /// implementation can be expressed via operations on the storage array.
+    ///
+    /// Returns `None` if the cast is not possible.
     fn cast_from_ext(
         &self,
         array: &ExtArray<Self>,

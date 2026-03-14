@@ -205,6 +205,13 @@ impl DType {
 
     /// Convenience — is there a path from `self` to `other`?
     pub fn can_coerce_to(&self, other: &DType) -> bool {
+        if let DType::Extension(ext) = self {
+            // Extension types can define coercions in either direction, so check both.
+            if ext.can_coerce_to(other) {
+                return true;
+            }
+        };
+
         other.can_coerce_from(self)
     }
 
