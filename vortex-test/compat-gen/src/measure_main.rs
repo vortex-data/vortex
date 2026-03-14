@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_compat::fixtures::all_fixtures;
+use vortex_error::VortexResult;
 
-fn main() {
+fn main() -> VortexResult<()> {
     let tmp = std::env::temp_dir().join("vortex-fixture-measure");
-    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::create_dir_all(&tmp)?;
 
     println!(
         "{:<35} {:>8} {:>8} {:>12}",
@@ -48,4 +49,5 @@ fn main() {
         "{:<35} {:>8} {:>8} {:>12}",
         "TOTAL", "", total_rows, total_bytes
     );
+    Ok(())
 }

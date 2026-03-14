@@ -12,6 +12,7 @@ use std::path::Path;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -50,6 +51,7 @@ pub fn all_encoding_fixtures() -> Vec<Box<dyn Fixture>> {
         Box::new(SequenceFixture),
         Box::new(SparseFixture),
         Box::new(ZigZagFixture),
+        Box::new(ConstantFixture),
         // Layout-oriented fixtures
         Box::new(FlatLayoutFixture),
         Box::new(ChunkedLayoutFixture),
@@ -754,6 +756,46 @@ impl Fixture for ZigZagFixture {
                     .into_array(),
                 PrimitiveArray::new(Buffer::from(small_i64), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(deltas_i32), Validity::NonNullable).into_array(),
+            ],
+            N,
+            Validity::NonNullable,
+        )?;
+        Ok(vec![arr.into_array()])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constant: constant-value arrays (used as a btrblocks compression scheme)
+// ---------------------------------------------------------------------------
+
+pub struct ConstantFixture;
+
+impl Fixture for ConstantFixture {
+    fn name(&self) -> &str {
+        "enc_constant.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Constant-value columns (int, float, string, bool, null) for Constant encoding"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![ExpectedEncoding::Array(ArrayId::new_ref("vortex.constant"))]
+    }
+
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
+        let const_i32 = ConstantArray::new(42i32, N);
+        let const_f64 = ConstantArray::new(99.99f64, N);
+        let const_bool = ConstantArray::new(true, N);
+        let const_str = ConstantArray::new("constant_value", N);
+
+        let arr = StructArray::try_new(
+            FieldNames::from(["const_i32", "const_f64", "const_bool", "const_str"]),
+            vec![
+                const_i32.into_array(),
+                const_f64.into_array(),
+                const_bool.into_array(),
+                const_str.into_array(),
             ],
             N,
             Validity::NonNullable,
