@@ -81,6 +81,42 @@ message SelectOpts {
   }
 }
 
+// Options for `vortex.logical_binary`
+message LogicalBinaryOpts {
+  LogicalBinaryOp op = 1;
+
+  enum LogicalBinaryOp {
+    And = 0;
+    Or = 1;
+  }
+}
+
+// Options for `vortex.comparison`
+message ComparisonOpts {
+  ComparisonOp op = 1;
+
+  enum ComparisonOp {
+    Eq = 0;
+    NotEq = 1;
+    Gt = 2;
+    Gte = 3;
+    Lt = 4;
+    Lte = 5;
+  }
+}
+
+// Options for `vortex.arithmetic`
+message ArithmeticOpts {
+  ArithmeticOp op = 1;
+
+  enum ArithmeticOp {
+    Add = 0;
+    Sub = 1;
+    Mul = 2;
+    Div = 3;
+  }
+}
+
 // Options for `vortex.case_when`
 // Encodes num_when_then_pairs and has_else into a single u32 (num_children).
 // num_children = num_when_then_pairs * 2 + (has_else ? 1 : 0)

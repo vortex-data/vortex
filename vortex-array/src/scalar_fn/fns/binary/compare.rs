@@ -27,6 +27,7 @@ use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::comparison::Comparison;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::vtable::VTable;
 
@@ -95,6 +96,56 @@ where
         }
 
         // Null constant on either side → all-null bool result
+        if other.as_constant().is_some_and(|s| s.is_null()) {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(DType::Bool(nullable.into())), len).into_array(),
+            ));
+        }
+
+        V::compare(array, other, cmp_op, ctx)
+    }
+}
+
+/// Adaptor that bridges [`CompareKernel`] implementations to [`ExecuteParentKernel`] for the
+/// new [`Comparison`] scalar function.
+#[derive(Default, Debug)]
+pub struct ComparisonCompareExecuteAdaptor<V>(pub V);
+
+impl<V> ExecuteParentKernel<V> for ComparisonCompareExecuteAdaptor<V>
+where
+    V: CompareKernel,
+{
+    type Parent = ExactScalarFn<Comparison>;
+
+    fn execute_parent(
+        &self,
+        array: &V::Array,
+        parent: ScalarFnArrayView<'_, Comparison>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let cmp_op = *parent.options;
+
+        let Some(scalar_fn_array) = parent.as_opt::<ScalarFnVTable>() else {
+            return Ok(None);
+        };
+        let children = scalar_fn_array.children();
+
+        let (cmp_op, other) = match child_idx {
+            0 => (cmp_op, &children[1]),
+            1 => (cmp_op.swap(), &children[0]),
+            _ => return Ok(None),
+        };
+
+        let len = array.len();
+        let nullable = array.dtype().is_nullable() || other.dtype().is_nullable();
+
+        if len == 0 {
+            return Ok(Some(
+                Canonical::empty(&DType::Bool(nullable.into())).into_array(),
+            ));
+        }
+
         if other.as_constant().is_some_and(|s| s.is_null()) {
             return Ok(Some(
                 ConstantArray::new(Scalar::null(DType::Bool(nullable.into())), len).into_array(),

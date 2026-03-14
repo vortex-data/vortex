@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod arithmetic;
 pub mod between;
 pub mod binary;
 pub mod case_when;
 pub mod cast;
+pub mod comparison;
 pub mod dynamic;
 pub mod fill_null;
 pub mod get_item;
@@ -12,6 +14,7 @@ pub mod is_null;
 pub mod like;
 pub mod list_contains;
 pub mod literal;
+pub mod logical;
 pub mod mask;
 pub mod merge;
 pub mod not;

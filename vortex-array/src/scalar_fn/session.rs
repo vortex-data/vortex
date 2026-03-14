@@ -9,15 +9,18 @@ use vortex_session::registry::Registry;
 
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::arithmetic::Arithmetic;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::comparison::Comparison;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::logical::LogicalBinary;
 use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::pack::Pack;
@@ -53,8 +56,10 @@ impl Default for ScalarFnSession {
         };
 
         // Register built-in expressions.
+        this.register(Arithmetic);
         this.register(Between);
         this.register(Binary);
+        this.register(Comparison);
         this.register(Cast);
         this.register(FillNull);
         this.register(GetItem);
@@ -62,6 +67,7 @@ impl Default for ScalarFnSession {
         this.register(Like);
         this.register(ListContains);
         this.register(Literal);
+        this.register(LogicalBinary);
         this.register(Merge);
         this.register(Not);
         this.register(Pack);

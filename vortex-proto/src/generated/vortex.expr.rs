@@ -145,6 +145,159 @@ pub mod select_opts {
         Exclude(super::FieldNames),
     }
 }
+/// Options for `vortex.logical_binary`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LogicalBinaryOpts {
+    #[prost(enumeration = "logical_binary_opts::LogicalBinaryOp", tag = "1")]
+    pub op: i32,
+}
+/// Nested message and enum types in `LogicalBinaryOpts`.
+pub mod logical_binary_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum LogicalBinaryOp {
+        And = 0,
+        Or = 1,
+    }
+    impl LogicalBinaryOp {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::And => "And",
+                Self::Or => "Or",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "And" => Some(Self::And),
+                "Or" => Some(Self::Or),
+                _ => None,
+            }
+        }
+    }
+}
+/// Options for `vortex.comparison`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ComparisonOpts {
+    #[prost(enumeration = "comparison_opts::ComparisonOp", tag = "1")]
+    pub op: i32,
+}
+/// Nested message and enum types in `ComparisonOpts`.
+pub mod comparison_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ComparisonOp {
+        Eq = 0,
+        NotEq = 1,
+        Gt = 2,
+        Gte = 3,
+        Lt = 4,
+        Lte = 5,
+    }
+    impl ComparisonOp {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Eq => "Eq",
+                Self::NotEq => "NotEq",
+                Self::Gt => "Gt",
+                Self::Gte => "Gte",
+                Self::Lt => "Lt",
+                Self::Lte => "Lte",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "Eq" => Some(Self::Eq),
+                "NotEq" => Some(Self::NotEq),
+                "Gt" => Some(Self::Gt),
+                "Gte" => Some(Self::Gte),
+                "Lt" => Some(Self::Lt),
+                "Lte" => Some(Self::Lte),
+                _ => None,
+            }
+        }
+    }
+}
+/// Options for `vortex.arithmetic`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ArithmeticOpts {
+    #[prost(enumeration = "arithmetic_opts::ArithmeticOp", tag = "1")]
+    pub op: i32,
+}
+/// Nested message and enum types in `ArithmeticOpts`.
+pub mod arithmetic_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ArithmeticOp {
+        Add = 0,
+        Sub = 1,
+        Mul = 2,
+        Div = 3,
+    }
+    impl ArithmeticOp {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Add => "Add",
+                Self::Sub => "Sub",
+                Self::Mul => "Mul",
+                Self::Div => "Div",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "Add" => Some(Self::Add),
+                "Sub" => Some(Self::Sub),
+                "Mul" => Some(Self::Mul),
+                "Div" => Some(Self::Div),
+                _ => None,
+            }
+        }
+    }
+}
 /// Options for `vortex.case_when`
 /// Encodes num_when_then_pairs and has_else into a single u32 (num_children).
 /// num_children = num_when_then_pairs * 2 + (has_else ? 1 : 0)

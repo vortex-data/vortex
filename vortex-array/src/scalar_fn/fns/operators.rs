@@ -8,6 +8,12 @@ use std::fmt::Formatter;
 use vortex_error::VortexError;
 use vortex_proto::expr::binary_opts::BinaryOp;
 
+// Re-export operator types that have moved to their own modules, so that existing
+// `use …::operators::CompareOperator` paths continue to work.
+pub use super::arithmetic::ArithmeticOp;
+pub use super::comparison::CompareOperator;
+pub use super::logical::LogicalOp;
+
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///
 /// For most operations, if either side is null, the result is null.
@@ -175,95 +181,5 @@ impl Operator {
             self,
             Self::Eq | Self::NotEq | Self::Gt | Self::Gte | Self::Lt | Self::Lte
         )
-    }
-}
-
-/// The six comparison operators, providing compile-time guarantees that only
-/// comparison variants are used where comparisons are expected.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum CompareOperator {
-    /// Expressions are equal.
-    Eq,
-    /// Expressions are not equal.
-    NotEq,
-    /// Expression is greater than another.
-    Gt,
-    /// Expression is greater or equal to another.
-    Gte,
-    /// Expression is less than another.
-    Lt,
-    /// Expression is less or equal to another.
-    Lte,
-}
-
-impl CompareOperator {
-    /// Return the logical inverse of this comparison operator.
-    pub fn inverse(self) -> Self {
-        match self {
-            CompareOperator::Eq => CompareOperator::NotEq,
-            CompareOperator::NotEq => CompareOperator::Eq,
-            CompareOperator::Gt => CompareOperator::Lte,
-            CompareOperator::Gte => CompareOperator::Lt,
-            CompareOperator::Lt => CompareOperator::Gte,
-            CompareOperator::Lte => CompareOperator::Gt,
-        }
-    }
-
-    /// Swap the sides of the operator so that swapping lhs and rhs preserves the result.
-    pub fn swap(self) -> Self {
-        match self {
-            CompareOperator::Eq => CompareOperator::Eq,
-            CompareOperator::NotEq => CompareOperator::NotEq,
-            CompareOperator::Gt => CompareOperator::Lt,
-            CompareOperator::Gte => CompareOperator::Lte,
-            CompareOperator::Lt => CompareOperator::Gt,
-            CompareOperator::Lte => CompareOperator::Gte,
-        }
-    }
-}
-
-impl Display for CompareOperator {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let display = match self {
-            CompareOperator::Eq => "=",
-            CompareOperator::NotEq => "!=",
-            CompareOperator::Gt => ">",
-            CompareOperator::Gte => ">=",
-            CompareOperator::Lt => "<",
-            CompareOperator::Lte => "<=",
-        };
-        Display::fmt(display, f)
-    }
-}
-
-impl From<CompareOperator> for Operator {
-    fn from(value: CompareOperator) -> Self {
-        match value {
-            CompareOperator::Eq => Operator::Eq,
-            CompareOperator::NotEq => Operator::NotEq,
-            CompareOperator::Gt => Operator::Gt,
-            CompareOperator::Gte => Operator::Gte,
-            CompareOperator::Lt => Operator::Lt,
-            CompareOperator::Lte => Operator::Lte,
-        }
-    }
-}
-
-impl TryFrom<Operator> for CompareOperator {
-    type Error = VortexError;
-
-    fn try_from(value: Operator) -> Result<Self, Self::Error> {
-        match value {
-            Operator::Eq => Ok(CompareOperator::Eq),
-            Operator::NotEq => Ok(CompareOperator::NotEq),
-            Operator::Gt => Ok(CompareOperator::Gt),
-            Operator::Gte => Ok(CompareOperator::Gte),
-            Operator::Lt => Ok(CompareOperator::Lt),
-            Operator::Lte => Ok(CompareOperator::Lte),
-            other => Err(vortex_error::vortex_err!(
-                InvalidArgument: "{other} is not a comparison operator"
-            )),
-        }
     }
 }
