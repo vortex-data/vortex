@@ -6,14 +6,23 @@
 Vortex backward-compatibility orchestrator.
 
 Manages fixture versions in S3 (or local directories) by calling the thin
-`vortex-compat` Rust binary for generation and checking.
+`vortex-compat` Rust binary for generation and checking.  The Rust binary
+handles only two things: generating .vortex files and comparing them.
+Everything else (versioning, S3 upload/download, manifest merging, worktree
+management) lives here.
 
-Usage:
-    python compat.py publish  --version 0.63.0 [--store s3://bucket] [--dry-run]
-    python compat.py check    [--versions 0.62.0,0.63.0] [--store s3://bucket]
-    python compat.py generate --version 0.63.0 --output ./my-fixtures
-    python compat.py list     [--store s3://bucket] [--version 0.63.0]
-    python compat.py validate-manifest [--store s3://bucket]
+Quick start:
+    # Generate + publish for the current commit
+    python compat.py publish --version 0.63.0
+
+    # Check all published versions against current code
+    python compat.py check
+
+    # Publish an old version using a git worktree
+    python compat.py publish --version 0.62.0 --git-ref v0.62.0
+
+    # Generate multiple versions in parallel via worktrees
+    python compat.py publish-multi 0.61.0=v0.61.0 0.62.0=v0.62.0 0.63.0=HEAD
 """
 
 from __future__ import annotations
@@ -21,9 +30,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -31,6 +42,41 @@ from urllib.request import urlopen
 
 DEFAULT_STORE = "s3://vortex-compat-fixtures"
 CARGO_BIN = "vortex-compat"
+
+EPILOG = """\
+environment variables:
+  VORTEX_COMPAT_BIN    Path to a pre-built vortex-compat binary.
+                       Skips `cargo run` when set.
+
+store spec:
+  Local path           --store /tmp/compat-store
+  S3 bucket            --store s3://my-bucket
+
+  Default: s3://vortex-compat-fixtures
+  S3 reads are public HTTPS; writes need AWS credentials (env or IAM role).
+
+examples:
+  # Local development: generate, inspect, check
+  python compat.py generate --version 0.63.0 --output /tmp/fixtures
+  python compat.py list --store /tmp/store
+  python compat.py check --store /tmp/store
+
+  # Publish to S3 (dry-run first)
+  python compat.py publish --version 0.63.0 --dry-run
+  python compat.py publish --version 0.63.0
+
+  # Publish an old version from a git tag using a worktree
+  python compat.py publish --version 0.62.0 --git-ref v0.62.0
+
+  # Bulk-publish multiple versions in parallel
+  python compat.py publish-multi 0.61.0=v0.61.0 0.62.0=v0.62.0
+
+  # Check only specific versions
+  python compat.py check --versions 0.62.0,0.63.0
+
+  # Validate additive-only manifest property
+  python compat.py validate-manifest
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +104,8 @@ class Store:
 
 
 class LocalStore(Store):
+    """Fixture store backed by a local directory."""
+
     def __init__(self, root: Path):
         self.root = root
 
@@ -73,8 +121,6 @@ class LocalStore(Store):
         path.write_bytes(data)
 
     def write_file(self, key: str, local_path: Path) -> None:
-        import shutil
-
         dest = self.root / key
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(local_path, dest)
@@ -85,13 +131,14 @@ class LocalStore(Store):
             return json.loads(versions_data)
         if not self.root.exists():
             return []
+        # Fall back to directory listing.
         versions = []
         for entry in self.root.iterdir():
             if entry.is_dir() and entry.name.startswith("v"):
                 manifest = entry / "manifest.json"
                 if manifest.exists():
                     versions.append(entry.name[1:])  # strip 'v' prefix
-        versions.sort(key=version_sort_key)
+        versions.sort(key=_version_sort_key)
         return versions
 
     def display_name(self) -> str:
@@ -99,6 +146,8 @@ class LocalStore(Store):
 
 
 class S3Store(Store):
+    """Fixture store backed by an S3 bucket (public reads, aws cli writes)."""
+
     def __init__(self, bucket: str):
         self.bucket = bucket
         self.https_base = f"https://{bucket}.s3.amazonaws.com"
@@ -138,7 +187,8 @@ class S3Store(Store):
         return f"s3://{self.bucket}"
 
 
-def parse_store(spec: str) -> Store:
+def _parse_store(spec: str) -> Store:
+    """Parse a store specification into a Store instance."""
     if spec.startswith("s3://"):
         return S3Store(spec[5:])
     return LocalStore(Path(spec))
@@ -149,22 +199,22 @@ def parse_store(spec: str) -> Store:
 # ---------------------------------------------------------------------------
 
 
-def read_manifest(store: Store, version: str) -> dict | None:
+def _read_manifest(store: Store, version: str) -> dict | None:
     data = store.read(f"v{version}/manifest.json")
     if data is None:
         return None
     return json.loads(data)
 
 
-def merge_manifest(
+def _merge_manifest(
     store: Store, fixtures_json: dict, version: str, prev_version: str | None
 ) -> dict:
-    """Build a manifest for `version`, merging `since` from prev_version."""
+    """Build a manifest for `version`, carrying forward `since` from prev_version."""
     entries = []
     prev_since: dict[str, str] = {}
 
     if prev_version:
-        prev_manifest = read_manifest(store, prev_version)
+        prev_manifest = _read_manifest(store, prev_version)
         if prev_manifest:
             prev_since = {e["name"]: e["since"] for e in prev_manifest["fixtures"]}
 
@@ -173,12 +223,12 @@ def merge_manifest(
         since = prev_since.get(name, version)
         entries.append({"name": name, "description": f["description"], "since": since})
 
-    # Additive-only check.
+    # Additive-only enforcement.
     current_names = {e["name"] for e in entries}
     missing = [n for n in prev_since if n not in current_names]
     if missing:
         print(
-            f"ERROR: fixtures removed since v{prev_version}: {', '.join(missing)}",
+            f"error: fixtures removed since v{prev_version}: {', '.join(missing)}",
             file=sys.stderr,
         )
         print("Fixtures must never be removed.", file=sys.stderr)
@@ -192,6 +242,61 @@ def merge_manifest(
 
 
 # ---------------------------------------------------------------------------
+# Worktree helpers
+# ---------------------------------------------------------------------------
+
+
+def _worktree_generate(
+    git_ref: str, version: str, output_dir: Path, repo_root: Path | None = None
+) -> None:
+    """Create a git worktree at `git_ref`, build vortex-compat, and generate fixtures."""
+    if repo_root is None:
+        repo_root = Path(
+            subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        )
+
+    worktree_dir = Path(tempfile.mkdtemp(prefix=f"vortex-compat-wt-{version}-"))
+    try:
+        _info(f"creating worktree at {git_ref} in {worktree_dir}")
+        _run_cmd(
+            ["git", "-C", str(repo_root), "worktree", "add", str(worktree_dir), git_ref],
+            check=True,
+        )
+
+        # Build the binary inside the worktree.
+        _info(f"building vortex-compat at {git_ref}...")
+        _run_cmd(
+            ["cargo", "build", "-p", CARGO_BIN, "--release"],
+            check=True,
+            cwd=worktree_dir,
+        )
+
+        # Find the binary.
+        bin_path = worktree_dir / "target" / "release" / CARGO_BIN
+        if not bin_path.exists():
+            print(f"error: binary not found at {bin_path}", file=sys.stderr)
+            sys.exit(1)
+
+        # Generate fixtures using the worktree's binary.
+        _info(f"generating fixtures with {git_ref} binary...")
+        _run_cmd([str(bin_path), "generate", "--output", str(output_dir)], check=True)
+
+    finally:
+        # Clean up worktree.
+        _run_cmd(
+            ["git", "-C", str(repo_root), "worktree", "remove", "--force", str(worktree_dir)],
+            check=False,
+        )
+        if worktree_dir.exists():
+            shutil.rmtree(worktree_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
@@ -199,7 +304,11 @@ def merge_manifest(
 def cmd_generate(args: argparse.Namespace) -> None:
     """Generate fixtures locally, then write a proper manifest."""
     output = Path(args.output)
-    run_rust_generate(output)
+
+    if args.git_ref:
+        _worktree_generate(args.git_ref, args.version, output)
+    else:
+        _run_rust_generate(output)
 
     # Read fixtures.json and write a versioned manifest.
     fixtures_json = json.loads((output / "fixtures.json").read_text())
@@ -212,74 +321,163 @@ def cmd_generate(args: argparse.Namespace) -> None:
         ],
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(f"wrote manifest.json for v{args.version}", file=sys.stderr)
+    _info(f"wrote manifest.json for v{args.version}")
 
 
 def cmd_publish(args: argparse.Namespace) -> None:
     """Generate fixtures and publish to a store."""
-    store = parse_store(args.store)
+    store = _parse_store(args.store)
     version = args.version
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output = Path(tmpdir) / "fixtures"
 
-        # Step 1: Generate.
-        print(f"generating fixtures...", file=sys.stderr)
-        run_rust_generate(output)
+        # Step 1: Generate (optionally via worktree).
+        _info("generating fixtures...")
+        if args.git_ref:
+            _worktree_generate(args.git_ref, version, output)
+        else:
+            _run_rust_generate(output)
 
         # Step 2: Read fixtures.json.
         fixtures_json = json.loads((output / "fixtures.json").read_text())
 
         # Step 3: Find previous version and merge manifest.
         versions = store.list_versions()
-        prev = None
-        for v in versions:
-            if v != version:
-                prev = v
+        prev = _find_prev_version(versions, version)
         if prev:
-            print(f"previous version: {prev}", file=sys.stderr)
+            _info(f"previous version: {prev}")
 
-        manifest = merge_manifest(store, fixtures_json, version, prev)
+        manifest = _merge_manifest(store, fixtures_json, version, prev)
         manifest_json = json.dumps(manifest, indent=2) + "\n"
 
         if args.dry_run:
-            print("dry run — not uploading.", file=sys.stderr)
+            _info("dry run — not uploading.")
             print(manifest_json)
             return
 
         # Step 4: Upload fixture files.
-        print(
-            f"uploading {len(manifest['fixtures'])} fixtures to {store.display_name()}...",
-            file=sys.stderr,
+        _info(
+            f"uploading {len(manifest['fixtures'])} fixtures to {store.display_name()}..."
         )
         for entry in manifest["fixtures"]:
             name = entry["name"]
             local = output / name
             key = f"v{version}/{name}"
             store.write_file(key, local)
-            print(f"  uploaded {name}", file=sys.stderr)
+            _info(f"  uploaded {name}")
 
         # Step 5: Upload manifest.
         store.write(f"v{version}/manifest.json", manifest_json.encode())
-        print("  uploaded manifest.json", file=sys.stderr)
+        _info("  uploaded manifest.json")
 
         # Step 6: Update versions.json.
         if version not in versions:
             versions.append(version)
-            versions.sort(key=version_sort_key)
+            versions.sort(key=_version_sort_key)
         store.write("versions.json", (json.dumps(versions, indent=2) + "\n").encode())
-        print("  updated versions.json", file=sys.stderr)
+        _info("  updated versions.json")
 
-        print(
+        _info(
             f"\ndone: {len(manifest['fixtures'])} fixtures for v{version} "
-            f"published to {store.display_name()}",
-            file=sys.stderr,
+            f"published to {store.display_name()}"
         )
+
+
+def cmd_publish_multi(args: argparse.Namespace) -> None:
+    """Publish multiple versions in parallel using git worktrees.
+
+    Each spec is VERSION=GIT_REF (e.g. 0.62.0=v0.62.0).
+    """
+    store = _parse_store(args.store)
+    specs = _parse_version_specs(args.specs)
+
+    if not specs:
+        print("error: no version specs provided", file=sys.stderr)
+        sys.exit(1)
+
+    _info(f"publishing {len(specs)} version(s): {', '.join(v for v, _ in specs)}")
+
+    repo_root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    )
+
+    # Generate all versions (potentially in parallel with worktrees).
+    generated: list[tuple[str, Path]] = []
+    tmpdir = tempfile.mkdtemp(prefix="vortex-compat-multi-")
+
+    try:
+        if args.parallel and len(specs) > 1:
+            _info(f"generating {len(specs)} versions in parallel...")
+            with ProcessPoolExecutor(max_workers=min(len(specs), args.jobs)) as executor:
+                futures = {}
+                for version, git_ref in specs:
+                    out = Path(tmpdir) / version
+                    futures[executor.submit(
+                        _worktree_generate_subprocess, git_ref, version, out, repo_root
+                    )] = (version, out)
+
+                for future in as_completed(futures):
+                    version, out = futures[future]
+                    try:
+                        future.result()
+                        generated.append((version, out))
+                        _info(f"  generated v{version}")
+                    except Exception as e:
+                        print(f"error generating v{version}: {e}", file=sys.stderr)
+                        sys.exit(1)
+        else:
+            for version, git_ref in specs:
+                out = Path(tmpdir) / version
+                if git_ref == "HEAD":
+                    _run_rust_generate(out)
+                else:
+                    _worktree_generate(git_ref, version, out, repo_root)
+                generated.append((version, out))
+
+        # Publish in version order.
+        generated.sort(key=lambda x: _version_sort_key(x[0]))
+
+        for version, output in generated:
+            fixtures_json = json.loads((output / "fixtures.json").read_text())
+            versions = store.list_versions()
+            prev = _find_prev_version(versions, version)
+
+            manifest = _merge_manifest(store, fixtures_json, version, prev)
+            manifest_json = json.dumps(manifest, indent=2) + "\n"
+
+            if args.dry_run:
+                _info(f"dry run v{version} — not uploading.")
+                continue
+
+            for entry in manifest["fixtures"]:
+                name = entry["name"]
+                store.write_file(f"v{version}/{name}", output / name)
+
+            store.write(f"v{version}/manifest.json", manifest_json.encode())
+
+            if version not in versions:
+                versions.append(version)
+                versions.sort(key=_version_sort_key)
+            store.write(
+                "versions.json", (json.dumps(versions, indent=2) + "\n").encode()
+            )
+            _info(f"  published v{version} ({len(manifest['fixtures'])} fixtures)")
+
+        _info(f"\ndone: {len(generated)} version(s) published to {store.display_name()}")
+
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def cmd_check(args: argparse.Namespace) -> None:
     """Download fixtures from store and check with Rust binary."""
-    store = parse_store(args.store)
+    store = _parse_store(args.store)
 
     if args.versions:
         versions = [v.strip() for v in args.versions.split(",")]
@@ -287,10 +485,10 @@ def cmd_check(args: argparse.Namespace) -> None:
         versions = store.list_versions()
 
     if not versions:
-        print("no versions found", file=sys.stderr)
+        _info("no versions found")
         return
 
-    print(f"checking {len(versions)} version(s): {', '.join(versions)}", file=sys.stderr)
+    _info(f"checking {len(versions)} version(s): {', '.join(versions)}")
 
     total_passed = 0
     total_failed = 0
@@ -298,9 +496,9 @@ def cmd_check(args: argparse.Namespace) -> None:
     all_failures: list[tuple[str, str, str]] = []
 
     for version in versions:
-        manifest = read_manifest(store, version)
+        manifest = _read_manifest(store, version)
         if manifest is None:
-            print(f"  v{version}: no manifest found, skipping", file=sys.stderr)
+            _info(f"  v{version}: no manifest found, skipping")
             continue
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -311,12 +509,12 @@ def cmd_check(args: argparse.Namespace) -> None:
                 name = entry["name"]
                 data = store.read(f"v{version}/{name}")
                 if data is None:
-                    print(f"  v{version}: {name} not found in store", file=sys.stderr)
+                    _info(f"  v{version}: {name} not found in store")
                     continue
                 (tmppath / name).write_bytes(data)
 
             # Run Rust checker.
-            result = run_rust_check(tmppath, mode="subset")
+            result = _run_rust_check(tmppath, mode="subset")
 
             passed = len(result.get("passed", []))
             failed_list = result.get("failed", [])
@@ -326,23 +524,18 @@ def cmd_check(args: argparse.Namespace) -> None:
             total_skipped += skipped
 
             if failed_list:
-                print(
+                _info(
                     f"  v{version}: {passed} passed, {len(failed_list)} FAILED, "
-                    f"{skipped} skipped",
-                    file=sys.stderr,
+                    f"{skipped} skipped"
                 )
                 for f in failed_list:
-                    print(f"    FAIL {f['name']}: {f['error']}", file=sys.stderr)
+                    _info(f"    FAIL {f['name']}: {f['error']}")
                     all_failures.append((version, f["name"], f["error"]))
             else:
-                print(
-                    f"  v{version}: {passed} passed, {skipped} skipped",
-                    file=sys.stderr,
-                )
+                _info(f"  v{version}: {passed} passed, {skipped} skipped")
 
-    print(
-        f"\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped",
-        file=sys.stderr,
+    _info(
+        f"\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped"
     )
     if all_failures:
         sys.exit(1)
@@ -350,10 +543,10 @@ def cmd_check(args: argparse.Namespace) -> None:
 
 def cmd_list(args: argparse.Namespace) -> None:
     """List versions or show a version's manifest."""
-    store = parse_store(args.store)
+    store = _parse_store(args.store)
 
     if args.version:
-        manifest = read_manifest(store, args.version)
+        manifest = _read_manifest(store, args.version)
         if manifest is None:
             print(f"no manifest found for v{args.version}", file=sys.stderr)
             sys.exit(1)
@@ -361,30 +554,30 @@ def cmd_list(args: argparse.Namespace) -> None:
     else:
         versions = store.list_versions()
         if not versions:
-            print("(no versions)", file=sys.stderr)
+            _info("(no versions)")
         for v in versions:
             print(v)
 
 
 def cmd_validate_manifest(args: argparse.Namespace) -> None:
     """Check that manifests are additive-only across all versions."""
-    store = parse_store(args.store)
+    store = _parse_store(args.store)
     versions = store.list_versions()
 
     if not versions:
-        print("no versions found", file=sys.stderr)
+        _info("no versions found")
         return
 
-    print(f"validating {len(versions)} version(s)...", file=sys.stderr)
+    _info(f"validating {len(versions)} version(s)...")
 
     prev_names: set[str] | None = None
     prev_version: str | None = None
     errors: list[str] = []
 
     for version in versions:
-        manifest = read_manifest(store, version)
+        manifest = _read_manifest(store, version)
         if manifest is None:
-            print(f"  v{version}: no manifest, skipping", file=sys.stderr)
+            _info(f"  v{version}: no manifest, skipping")
             continue
         names = {e["name"] for e in manifest["fixtures"]}
 
@@ -392,26 +585,25 @@ def cmd_validate_manifest(args: argparse.Namespace) -> None:
             missing = prev_names - names
             if missing:
                 msg = f"v{version} missing from v{prev_version}: {', '.join(sorted(missing))}"
-                print(f"  FAIL: {msg}", file=sys.stderr)
+                _info(f"  FAIL: {msg}")
                 errors.append(msg)
             else:
                 new = len(names) - len(prev_names)
                 extra = f" (+{new} new)" if new > 0 else ""
-                print(
-                    f"  v{prev_version} -> v{version}: ok ({len(names)} fixtures{extra})",
-                    file=sys.stderr,
+                _info(
+                    f"  v{prev_version} -> v{version}: ok ({len(names)} fixtures{extra})"
                 )
         else:
-            print(f"  v{version}: {len(names)} fixtures (first)", file=sys.stderr)
+            _info(f"  v{version}: {len(names)} fixtures (first)")
 
         prev_names = names
         prev_version = version
 
     if errors:
-        print(f"\n{len(errors)} error(s)", file=sys.stderr)
+        _info(f"\n{len(errors)} error(s)")
         sys.exit(1)
     else:
-        print("\nall manifests are additive-only.", file=sys.stderr)
+        _info("\nall manifests are additive-only.")
 
 
 # ---------------------------------------------------------------------------
@@ -419,14 +611,14 @@ def cmd_validate_manifest(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_rust_generate(output: Path) -> None:
+def _run_rust_generate(output: Path) -> None:
     """Run `vortex-compat generate --output <dir>`."""
     cmd = _cargo_run_cmd() + ["generate", "--output", str(output)]
     _run_cmd(cmd, check=True)
 
 
-def run_rust_check(dir: Path, mode: str = "subset") -> dict:
-    """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON."""
+def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
+    """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
     cmd = _cargo_run_cmd() + ["check", "--dir", str(dir), "--mode", mode]
     result = subprocess.run(cmd, capture_output=True, text=True)
     # stdout has JSON, stderr has progress.
@@ -437,24 +629,60 @@ def run_rust_check(dir: Path, mode: str = "subset") -> dict:
         return json.loads(result.stdout)
 
     if result.returncode != 0:
-        return {"passed": [], "failed": [{"name": "(all)", "error": "check process failed"}], "skipped": []}
+        return {
+            "passed": [],
+            "failed": [{"name": "(all)", "error": "check process failed"}],
+            "skipped": [],
+        }
     return {"passed": [], "failed": [], "skipped": []}
 
 
 def _cargo_run_cmd() -> list[str]:
-    """Build the cargo run command for vortex-compat."""
+    """Build the command to invoke vortex-compat (pre-built binary or cargo run)."""
     bin_path = os.environ.get("VORTEX_COMPAT_BIN")
     if bin_path:
         return [bin_path]
     return ["cargo", "run", "-p", CARGO_BIN, "--release", "--"]
 
 
-def _run_cmd(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess:
-    print(f"  $ {' '.join(cmd)}", file=sys.stderr)
-    return subprocess.run(cmd, check=check)
+def _run_cmd(
+    cmd: list[str], check: bool = False, cwd: Path | None = None
+) -> subprocess.CompletedProcess:
+    _info(f"  $ {' '.join(cmd)}")
+    return subprocess.run(cmd, check=check, cwd=cwd)
 
 
-def version_sort_key(v: str) -> list[int]:
+def _worktree_generate_subprocess(
+    git_ref: str, version: str, output_dir: Path, repo_root: Path
+) -> None:
+    """Wrapper for _worktree_generate that works with ProcessPoolExecutor."""
+    _worktree_generate(git_ref, version, output_dir, repo_root)
+
+
+def _find_prev_version(versions: list[str], current: str) -> str | None:
+    """Find the highest version strictly less than `current`."""
+    current_key = _version_sort_key(current)
+    prev = None
+    for v in versions:
+        if _version_sort_key(v) < current_key:
+            prev = v
+    return prev
+
+
+def _parse_version_specs(specs: list[str]) -> list[tuple[str, str]]:
+    """Parse 'VERSION=GIT_REF' specs. If no '=', GIT_REF defaults to 'v{VERSION}'."""
+    result = []
+    for spec in specs:
+        if "=" in spec:
+            version, git_ref = spec.split("=", 1)
+        else:
+            version = spec
+            git_ref = f"v{spec}"
+        result.append((version, git_ref))
+    return result
+
+
+def _version_sort_key(v: str) -> list[int]:
     parts = []
     for p in v.split("."):
         try:
@@ -462,6 +690,10 @@ def version_sort_key(v: str) -> list[int]:
         except ValueError:
             parts.append(0)
     return parts
+
+
+def _info(msg: str) -> None:
+    print(msg, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -473,39 +705,181 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="compat.py",
         description="Vortex backward-compatibility fixture orchestrator",
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
-    # generate
-    p = sub.add_parser("generate", help="Generate fixtures locally")
+    # -- generate --
+    p = sub.add_parser(
+        "generate",
+        help="Generate fixtures locally",
+        description=(
+            "Build all fixture .vortex files and write them to a directory.\n"
+            "Optionally uses a git worktree to build from an older commit."
+        ),
+        epilog=(
+            "examples:\n"
+            "  python compat.py generate --version 0.63.0 --output ./out\n"
+            "  python compat.py generate --version 0.62.0 --output ./out --git-ref v0.62.0"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--version", required=True, help="Version tag (e.g. 0.63.0)")
     p.add_argument("--output", required=True, help="Output directory")
+    p.add_argument(
+        "--git-ref",
+        help="Git ref (tag/branch/SHA) to build from via worktree. "
+        "If omitted, builds from the current working tree.",
+    )
 
-    # publish
-    p = sub.add_parser("publish", help="Generate and publish fixtures to a store")
+    # -- publish --
+    p = sub.add_parser(
+        "publish",
+        help="Generate and publish fixtures to a store",
+        description=(
+            "Generate fixture files, merge the manifest with the previous version,\n"
+            "and upload everything to the store."
+        ),
+        epilog=(
+            "examples:\n"
+            "  python compat.py publish --version 0.63.0\n"
+            "  python compat.py publish --version 0.63.0 --dry-run\n"
+            "  python compat.py publish --version 0.62.0 --git-ref v0.62.0\n"
+            "  python compat.py publish --version 0.63.0 --store /tmp/store"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--version", required=True, help="Version tag (e.g. 0.63.0)")
-    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (local path or s3://bucket)")
-    p.add_argument("--dry-run", action="store_true", help="Generate but don't upload")
+    p.add_argument(
+        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
+    )
+    p.add_argument(
+        "--git-ref",
+        help="Git ref to build from via worktree (e.g. v0.62.0). "
+        "Useful for publishing fixtures for older releases.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate and show manifest, but don't upload",
+    )
 
-    # check
-    p = sub.add_parser("check", help="Validate fixtures from a store")
-    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec")
-    p.add_argument("--versions", help="Comma-separated versions (default: all)")
+    # -- publish-multi --
+    p = sub.add_parser(
+        "publish-multi",
+        help="Publish multiple versions using git worktrees",
+        description=(
+            "Generate and publish fixtures for multiple versions in one command.\n"
+            "Each version is built in its own git worktree, so they can run in\n"
+            "parallel. Useful for bootstrapping a fixture store."
+        ),
+        epilog=(
+            "specs format:\n"
+            "  VERSION=GIT_REF   e.g. 0.62.0=v0.62.0\n"
+            "  VERSION           e.g. 0.62.0 (defaults to git ref v0.62.0)\n"
+            "\n"
+            "examples:\n"
+            "  python compat.py publish-multi 0.61.0 0.62.0 0.63.0\n"
+            "  python compat.py publish-multi 0.62.0=v0.62.0 0.63.0=HEAD\n"
+            "  python compat.py publish-multi --parallel --jobs 4 0.61.0 0.62.0 0.63.0"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "specs",
+        nargs="+",
+        metavar="VERSION[=GIT_REF]",
+        help="Version specs to publish",
+    )
+    p.add_argument(
+        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
+    )
+    p.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Build versions in parallel using separate worktrees",
+    )
+    p.add_argument(
+        "--jobs",
+        type=int,
+        default=4,
+        help="Max parallel builds (default: %(default)s)",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate but don't upload",
+    )
 
-    # list
-    p = sub.add_parser("list", help="List versions or show a manifest")
-    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec")
+    # -- check --
+    p = sub.add_parser(
+        "check",
+        help="Validate fixtures from a store against current code",
+        description=(
+            "Download fixtures for each version from the store, then use the\n"
+            "current vortex-compat binary to verify they can still be read and\n"
+            "match expectations."
+        ),
+        epilog=(
+            "examples:\n"
+            "  python compat.py check\n"
+            "  python compat.py check --versions 0.62.0,0.63.0\n"
+            "  python compat.py check --store /tmp/store"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
+    )
+    p.add_argument(
+        "--versions",
+        help="Comma-separated versions to check (default: all)",
+    )
+
+    # -- list --
+    p = sub.add_parser(
+        "list",
+        help="List versions or show a version's manifest",
+        description="Inspect the contents of a fixture store.",
+        epilog=(
+            "examples:\n"
+            "  python compat.py list\n"
+            "  python compat.py list --version 0.62.0\n"
+            "  python compat.py list --store /tmp/store"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
+    )
     p.add_argument("--version", help="Show manifest for this version")
 
-    # validate-manifest
-    p = sub.add_parser("validate-manifest", help="Check additive-only property")
-    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec")
+    # -- validate-manifest --
+    p = sub.add_parser(
+        "validate-manifest",
+        help="Check additive-only property across all versions",
+        description=(
+            "Verify that no fixtures were removed between consecutive versions.\n"
+            "New fixtures are allowed; removals are errors."
+        ),
+        epilog=(
+            "examples:\n"
+            "  python compat.py validate-manifest\n"
+            "  python compat.py validate-manifest --store /tmp/store"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
+    )
 
     args = parser.parse_args()
 
     commands = {
         "generate": cmd_generate,
         "publish": cmd_publish,
+        "publish-multi": cmd_publish_multi,
         "check": cmd_check,
         "list": cmd_list,
         "validate-manifest": cmd_validate_manifest,
