@@ -83,13 +83,18 @@ impl Fixture for AlpFixture {
         let f64_prices: Vec<f64> = (0..N).map(|i| 100.0 + (i as f64) * 0.25).collect();
         let f32_near_int: Vec<f32> = (0..N).map(|i| i as f32).collect();
         let f64_currency: Vec<f64> = (0..N).map(|i| ((i % 10000) as f64) / 100.0).collect();
+        // Nullable f64 with 10% nulls
+        let f64_nullable = PrimitiveArray::from_option_iter(
+            (0..N as i64).map(|i| (i % 10 != 0).then_some(50.0 + (i as f64) * 0.125)),
+        );
 
         let arr = StructArray::try_new(
-            FieldNames::from(["f64_prices", "f32_near_int", "f64_currency"]),
+            FieldNames::from(["f64_prices", "f32_near_int", "f64_currency", "f64_nullable"]),
             vec![
                 PrimitiveArray::new(Buffer::from(f64_prices), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(f32_near_int), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(f64_currency), Validity::NonNullable).into_array(),
+                f64_nullable.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -205,13 +210,17 @@ impl Fixture for ByteBoolFixture {
         let alternating = BoolArray::from_iter((0..N).map(|i| i % 2 == 0));
         let mostly_true = BoolArray::from_iter((0..N).map(|i| i % 100 != 0));
         let mixed = BoolArray::from_iter((0..N).map(|i| (i * 7 + 3) % 5 > 1));
+        // Nullable booleans with 20% nulls
+        let nullable_bool =
+            BoolArray::from_iter((0..N).map(|i| (i % 5 != 0).then_some(i % 3 == 0)));
 
         let arr = StructArray::try_new(
-            FieldNames::from(["alternating", "mostly_true", "mixed"]),
+            FieldNames::from(["alternating", "mostly_true", "mixed", "nullable_bool"]),
             vec![
                 alternating.into_array(),
                 mostly_true.into_array(),
                 mixed.into_array(),
+                nullable_bool.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -258,9 +267,30 @@ impl Fixture for DateTimePartsFixture {
             None,
         );
 
+        // Millisecond precision
+        let base_ms: i64 = 1_704_067_200_000; // 2024-01-01T00:00:00 in milliseconds
+        let ts_ms: Vec<i64> = (0..N as i64).map(|i| base_ms + i * 1000).collect();
+        let ts_ms_arr = TemporalArray::new_timestamp(
+            PrimitiveArray::new(Buffer::from(ts_ms), Validity::NonNullable).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+
+        // Nullable microsecond timestamps with 10% nulls
+        let ts_us_nullable = PrimitiveArray::from_option_iter(
+            (0..N as i64).map(|i| (i % 10 != 0).then(|| base_us + i * 60_000_000)),
+        );
+        let ts_us_nullable_arr =
+            TemporalArray::new_timestamp(ts_us_nullable.into_array(), TimeUnit::Microseconds, None);
+
         let arr = StructArray::try_new(
-            FieldNames::from(["ts_us", "ts_ns"]),
-            vec![ts_us_arr.into_array(), ts_ns_arr.into_array()],
+            FieldNames::from(["ts_us", "ts_ns", "ts_ms", "ts_us_nullable"]),
+            vec![
+                ts_us_arr.into_array(),
+                ts_ns_arr.into_array(),
+                ts_ms_arr.into_array(),
+                ts_us_nullable_arr.into_array(),
+            ],
             N,
             Validity::NonNullable,
         )?;
@@ -333,14 +363,23 @@ impl Fixture for DeltaFixture {
         let monotonic_u64: Vec<u64> = (0..N as u64).map(|i| i * 3 + 1000).collect();
         let sorted_i32: Vec<i32> = (0..N as i32).map(|i| -500 + i + (i / 100)).collect();
         let sorted_i64: Vec<i64> = (0..N as i64).map(|i| 1_700_000_000 + i * 60).collect();
+        // Constant-delta column (stride=1)
+        let constant_delta: Vec<u32> = (0..N as u32).collect();
 
         let arr = StructArray::try_new(
-            FieldNames::from(["monotonic_u64", "sorted_i32", "sorted_i64"]),
+            FieldNames::from([
+                "monotonic_u64",
+                "sorted_i32",
+                "sorted_i64",
+                "constant_delta",
+            ]),
             vec![
                 PrimitiveArray::new(Buffer::from(monotonic_u64), Validity::NonNullable)
                     .into_array(),
                 PrimitiveArray::new(Buffer::from(sorted_i32), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(sorted_i64), Validity::NonNullable).into_array(),
+                PrimitiveArray::new(Buffer::from(constant_delta), Validity::NonNullable)
+                    .into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -442,9 +481,20 @@ impl Fixture for FsstFixture {
         let log_refs: Vec<&str> = logs.iter().map(|s| s.as_str()).collect();
         let log_col = VarBinArray::from(log_refs);
 
+        // Nullable strings with common prefixes and 15% nulls
+        let nullable_urls: Vec<Option<String>> = (0..N)
+            .map(|i| (i % 7 != 0).then(|| format!("{}{}", prefixes[i % prefixes.len()], i * 3)))
+            .collect();
+        let nullable_refs: Vec<Option<&str>> = nullable_urls.iter().map(|s| s.as_deref()).collect();
+        let nullable_col = VarBinArray::from(nullable_refs);
+
         let arr = StructArray::try_new(
-            FieldNames::from(["urls", "logs"]),
-            vec![url_col.into_array(), log_col.into_array()],
+            FieldNames::from(["urls", "logs", "nullable_urls"]),
+            vec![
+                url_col.into_array(),
+                log_col.into_array(),
+                nullable_col.into_array(),
+            ],
             N,
             Validity::NonNullable,
         )?;
@@ -475,9 +525,16 @@ impl Fixture for FoRFixture {
         let clustered_i32: Vec<i32> = (0..N as i32).map(|i| 1_000_000 + (i % 100)).collect();
         let clustered_u64: Vec<u64> = (0..N as u64).map(|i| 10_000_000_000 + (i % 256)).collect();
         let clustered_i64: Vec<i64> = (0..N as i64).map(|i| 1_704_067_200 + (i % 3600)).collect();
+        // Negative-range cluster
+        let negative_i32: Vec<i32> = (0..N as i32).map(|i| -1_000_000 + (i % 50)).collect();
 
         let arr = StructArray::try_new(
-            FieldNames::from(["clustered_i32", "clustered_u64", "clustered_i64"]),
+            FieldNames::from([
+                "clustered_i32",
+                "clustered_u64",
+                "clustered_i64",
+                "negative_i32",
+            ]),
             vec![
                 PrimitiveArray::new(Buffer::from(clustered_i32), Validity::NonNullable)
                     .into_array(),
@@ -485,6 +542,7 @@ impl Fixture for FoRFixture {
                     .into_array(),
                 PrimitiveArray::new(Buffer::from(clustered_i64), Validity::NonNullable)
                     .into_array(),
+                PrimitiveArray::new(Buffer::from(negative_i32), Validity::NonNullable).into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -748,14 +806,17 @@ impl Fixture for ZigZagFixture {
             .collect();
         let small_i64: Vec<i64> = (0..N as i64).map(|i| (i % 21) - 10).collect();
         let deltas_i32: Vec<i32> = (0..N as i32).map(|i| -(i % 50)).collect();
+        // Small signed types: i8 and i16
+        let small_i16: Vec<i16> = (0..N as i16).map(|i| (i % 11) - 5).collect();
 
         let arr = StructArray::try_new(
-            FieldNames::from(["alternating_i32", "small_i64", "deltas_i32"]),
+            FieldNames::from(["alternating_i32", "small_i64", "deltas_i32", "small_i16"]),
             vec![
                 PrimitiveArray::new(Buffer::from(alternating_i32), Validity::NonNullable)
                     .into_array(),
                 PrimitiveArray::new(Buffer::from(small_i64), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(deltas_i32), Validity::NonNullable).into_array(),
+                PrimitiveArray::new(Buffer::from(small_i16), Validity::NonNullable).into_array(),
             ],
             N,
             Validity::NonNullable,
