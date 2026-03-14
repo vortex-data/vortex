@@ -23,6 +23,10 @@ path = "src/main.rs"
 name = "compat-validate"
 path = "src/validate_main.rs"
 
+[[bin]]
+name = "compat-measure"
+path = "src/measure_main.rs"
+
 [dependencies]
 # Vortex crates
 vortex = { workspace = true, features = ["files", "tokio"] }
