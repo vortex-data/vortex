@@ -325,14 +325,7 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 fn cpp(duckdb_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
-        // Duckdb sources fail -Wno-unused-parameter and -Wno-type-limits
-        .flags([
-            "-Wall",
-            "-Wextra",
-            "-Wpedantic",
-            "-Wno-unused-parameter",
-            "-Wno-type-limits",
-        ])
+        .flags(["-Wall", "-Wextra", "-Wpedantic"])
         .cpp(true)
         .include(duckdb_include_dir)
         .include("cpp/include")

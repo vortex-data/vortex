@@ -23,7 +23,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Enable compiler warnings (matching build.rs flags).
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-type-limits")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
 
 # Find DuckDB include directory via the symlink created by build.rs.
 # The symlink points to target/duckdb-source-vX.Y.Z which contains duckdb-X.Y.Z/
