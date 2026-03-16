@@ -195,3 +195,13 @@ pub fn all_fixtures() -> Vec<Box<dyn Fixture>> {
     }
     out
 }
+
+#[cfg(test)]
+pub(crate) fn synthetic_fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
+    arrays::synthetic_fixtures()
+}
+
+#[cfg(test)]
+pub(crate) fn dataset_fixtures() -> Vec<Box<dyn DatasetFixture>> {
+    arrays::dataset_fixtures()
+}

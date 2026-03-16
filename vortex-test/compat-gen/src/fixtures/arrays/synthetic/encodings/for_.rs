@@ -40,6 +40,18 @@ impl FlatLayoutFixture for FoRFixture {
             (0..N as i32).map(|i| (i % 11 != 0).then_some(500_000 + (i % 200))),
         );
         let clustered_i16: Vec<i16> = (0..N as i16).map(|i| 10000 + (i % 30)).collect();
+        let constant_offsets: Vec<i32> = vec![123_456; N];
+        let zero_crossing_i32: Vec<i32> = (0..N as i32).map(|i| -512 + (i % 1024)).collect();
+        let far_outlier_i64: Vec<i64> = (0..N as i64)
+            .map(|i| {
+                if i == 0 {
+                    9_000_000_000
+                } else {
+                    1_000_000 + (i % 8)
+                }
+            })
+            .collect();
+        let near_max_u64: Vec<u64> = (0..N as u64).map(|i| u64::MAX - 2048 + (i % 512)).collect();
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -49,6 +61,10 @@ impl FlatLayoutFixture for FoRFixture {
                 "negative_i32",
                 "nullable_i32",
                 "clustered_i16",
+                "constant_offsets",
+                "zero_crossing_i32",
+                "far_outlier_i64",
+                "near_max_u64",
             ]),
             vec![
                 FoRArray::encode(PrimitiveArray::new(
@@ -74,6 +90,26 @@ impl FlatLayoutFixture for FoRFixture {
                 FoRArray::encode(nullable_i32)?.into_array(),
                 FoRArray::encode(PrimitiveArray::new(
                     Buffer::from(clustered_i16),
+                    Validity::NonNullable,
+                ))?
+                .into_array(),
+                FoRArray::encode(PrimitiveArray::new(
+                    Buffer::from(constant_offsets),
+                    Validity::NonNullable,
+                ))?
+                .into_array(),
+                FoRArray::encode(PrimitiveArray::new(
+                    Buffer::from(zero_crossing_i32),
+                    Validity::NonNullable,
+                ))?
+                .into_array(),
+                FoRArray::encode(PrimitiveArray::new(
+                    Buffer::from(far_outlier_i64),
+                    Validity::NonNullable,
+                ))?
+                .into_array(),
+                FoRArray::encode(PrimitiveArray::new(
+                    Buffer::from(near_max_u64),
                     Validity::NonNullable,
                 ))?
                 .into_array(),

@@ -70,19 +70,64 @@ impl FlatLayoutFixture for FsstFixture {
             .map(|i| short_tokens[i % short_tokens.len()])
             .collect();
         let short_col = VarBinArray::from(short_strs);
+        let empty_and_unicode_values =
+            ["", "こんにちは", "😀", "naive", "façade", "résumé", "مرحبا"];
+        let empty_and_unicode: Vec<&str> = (0..N)
+            .map(|i| empty_and_unicode_values[i % empty_and_unicode_values.len()])
+            .collect();
+        let empty_and_unicode_col = VarBinArray::from(empty_and_unicode);
+        let suffix_shared_values: Vec<String> = (0..N)
+            .map(|i| format!("prefix-{:04}-common-suffix", i % 64))
+            .collect();
+        let suffix_shared_refs: Vec<&str> =
+            suffix_shared_values.iter().map(String::as_str).collect();
+        let suffix_shared_col = VarBinArray::from(suffix_shared_refs);
+        let high_entropy_values: Vec<String> = (0..N)
+            .map(|i| format!("{:016x}{:016x}", i.wrapping_mul(97), i.wrapping_mul(13_579)))
+            .collect();
+        let high_entropy_refs: Vec<&str> = high_entropy_values.iter().map(String::as_str).collect();
+        let high_entropy_col = VarBinArray::from(high_entropy_refs);
+        let all_null_clustered = VarBinArray::from(
+            (0..N)
+                .map(|i| {
+                    if i < 16 || i >= N - 16 {
+                        None
+                    } else {
+                        Some("clustered-null-middle")
+                    }
+                })
+                .collect::<Vec<_>>(),
+        );
 
         let url_comp = fsst_train_compressor(&url_col);
         let log_comp = fsst_train_compressor(&log_col);
         let nullable_comp = fsst_train_compressor(&nullable_col);
         let short_comp = fsst_train_compressor(&short_col);
+        let empty_and_unicode_comp = fsst_train_compressor(&empty_and_unicode_col);
+        let suffix_shared_comp = fsst_train_compressor(&suffix_shared_col);
+        let high_entropy_comp = fsst_train_compressor(&high_entropy_col);
+        let all_null_clustered_comp = fsst_train_compressor(&all_null_clustered);
 
         let arr = StructArray::try_new(
-            FieldNames::from(["urls", "logs", "nullable_urls", "short_strs"]),
+            FieldNames::from([
+                "urls",
+                "logs",
+                "nullable_urls",
+                "short_strs",
+                "empty_and_unicode",
+                "suffix_shared",
+                "high_entropy",
+                "all_null_clustered",
+            ]),
             vec![
                 fsst_compress(url_col, &url_comp).into_array(),
                 fsst_compress(log_col, &log_comp).into_array(),
                 fsst_compress(nullable_col, &nullable_comp).into_array(),
                 fsst_compress(short_col, &short_comp).into_array(),
+                fsst_compress(empty_and_unicode_col, &empty_and_unicode_comp).into_array(),
+                fsst_compress(suffix_shared_col, &suffix_shared_comp).into_array(),
+                fsst_compress(high_entropy_col, &high_entropy_comp).into_array(),
+                fsst_compress(all_null_clustered, &all_null_clustered_comp).into_array(),
             ],
             N,
             Validity::NonNullable,

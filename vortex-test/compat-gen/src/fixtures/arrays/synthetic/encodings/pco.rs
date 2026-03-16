@@ -45,9 +45,30 @@ impl FlatLayoutFixture for PcoFixture {
         let nullable_f32 = PrimitiveArray::from_option_iter(
             (0..N).map(|i| (i % 9 != 0).then_some((i as f32) * 0.1 + ((i * 3 % 7) as f32) * 0.01)),
         );
+        let negative_i32: Vec<i32> = (0..N as i32).map(|i| -10_000 + (i % 257)).collect();
+        let constant_u16: Vec<u16> = vec![17; N];
+        let spike_outliers: Vec<f64> = (0..N)
+            .map(|i| {
+                if i % 257 == 0 {
+                    1_000_000.0 + i as f64
+                } else {
+                    3.14159
+                }
+            })
+            .collect();
+        let narrow_i16: Vec<i16> = (0..N as i16).map(|i| (i % 17) - 8).collect();
 
         let arr = StructArray::try_new(
-            FieldNames::from(["irregular_i64", "smooth_f64", "pattern_u32", "nullable_f32"]),
+            FieldNames::from([
+                "irregular_i64",
+                "smooth_f64",
+                "pattern_u32",
+                "nullable_f32",
+                "negative_i32",
+                "constant_u16",
+                "spike_outliers",
+                "narrow_i16",
+            ]),
             vec![
                 PcoArray::from_primitive(
                     &PrimitiveArray::new(Buffer::from(irregular_i64), Validity::NonNullable),
@@ -68,6 +89,30 @@ impl FlatLayoutFixture for PcoFixture {
                 )?
                 .into_array(),
                 PcoArray::from_primitive(&nullable_f32, 8, 0)?.into_array(),
+                PcoArray::from_primitive(
+                    &PrimitiveArray::new(Buffer::from(negative_i32), Validity::NonNullable),
+                    8,
+                    0,
+                )?
+                .into_array(),
+                PcoArray::from_primitive(
+                    &PrimitiveArray::new(Buffer::from(constant_u16), Validity::NonNullable),
+                    8,
+                    0,
+                )?
+                .into_array(),
+                PcoArray::from_primitive(
+                    &PrimitiveArray::new(Buffer::from(spike_outliers), Validity::NonNullable),
+                    8,
+                    0,
+                )?
+                .into_array(),
+                PcoArray::from_primitive(
+                    &PrimitiveArray::new(Buffer::from(narrow_i16), Validity::NonNullable),
+                    8,
+                    0,
+                )?
+                .into_array(),
             ],
             N,
             Validity::NonNullable,

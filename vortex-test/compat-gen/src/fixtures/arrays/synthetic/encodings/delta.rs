@@ -38,6 +38,23 @@ impl FlatLayoutFixture for DeltaFixture {
         let monotonic_u16: Vec<u16> = (0..N as u16).map(|i| i / 2).collect();
         let monotonic_u8: Vec<u8> = (0..N).map(|i| (i / 4) as u8).collect();
         let large_base_u64: Vec<u64> = (0..N as u64).map(|i| 10_000_000_000 + i * 10).collect();
+        let all_zero_deltas: Vec<u64> = vec![777; N];
+        let irregular_monotone: Vec<u64> = (0..N as u64)
+            .scan(0u64, |state, i| {
+                *state += (i % 7) + 1;
+                Some(*state)
+            })
+            .collect();
+        let near_overflow_base: Vec<u64> = (0..N as u64)
+            .map(|i| u64::MAX - ((N as u64 - i) * 2))
+            .collect();
+        let nullable_monotone = PrimitiveArray::from_option_iter((0..N as u64).map(|i| {
+            if i < 8 || i >= N as u64 - 8 {
+                None
+            } else {
+                Some(50_000 + i * 4)
+            }
+        }));
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -47,6 +64,10 @@ impl FlatLayoutFixture for DeltaFixture {
                 "monotonic_u16",
                 "monotonic_u8",
                 "large_base_u64",
+                "all_zero_deltas",
+                "irregular_monotone",
+                "near_overflow_base",
+                "nullable_monotone",
             ]),
             vec![
                 DeltaArray::try_from_primitive_array(&PrimitiveArray::new(
@@ -79,6 +100,22 @@ impl FlatLayoutFixture for DeltaFixture {
                     Validity::NonNullable,
                 ))?
                 .into_array(),
+                DeltaArray::try_from_primitive_array(&PrimitiveArray::new(
+                    Buffer::from(all_zero_deltas),
+                    Validity::NonNullable,
+                ))?
+                .into_array(),
+                DeltaArray::try_from_primitive_array(&PrimitiveArray::new(
+                    Buffer::from(irregular_monotone),
+                    Validity::NonNullable,
+                ))?
+                .into_array(),
+                DeltaArray::try_from_primitive_array(&PrimitiveArray::new(
+                    Buffer::from(near_overflow_base),
+                    Validity::NonNullable,
+                ))?
+                .into_array(),
+                DeltaArray::try_from_primitive_array(&nullable_monotone)?.into_array(),
             ],
             N,
             Validity::NonNullable,

@@ -52,6 +52,37 @@ impl FlatLayoutFixture for DictFixture {
             .map(|i| if i % 3 == 0 { "yes" } else { "no" })
             .collect();
         let bool_cat_col = VarBinArray::from(bool_cat);
+        let all_null_col = VarBinArray::from((0..N).map(|_| None::<&str>).collect::<Vec<_>>());
+        let single_non_null_col = VarBinArray::from(
+            (0..N)
+                .map(|i| (i == N / 2).then_some("lonely"))
+                .collect::<Vec<_>>(),
+        );
+        let threshold_255_values: Vec<String> =
+            (0..N).map(|i| format!("u255-{}", i % 255)).collect();
+        let threshold_255_refs: Vec<&str> =
+            threshold_255_values.iter().map(String::as_str).collect();
+        let threshold_255_col = VarBinArray::from(threshold_255_refs);
+        let threshold_256_values: Vec<String> =
+            (0..N).map(|i| format!("u256-{}", i % 256)).collect();
+        let threshold_256_refs: Vec<&str> =
+            threshold_256_values.iter().map(String::as_str).collect();
+        let threshold_256_col = VarBinArray::from(threshold_256_refs);
+        let threshold_257_values: Vec<String> =
+            (0..N).map(|i| format!("u257-{}", i % 257)).collect();
+        let threshold_257_refs: Vec<&str> =
+            threshold_257_values.iter().map(String::as_str).collect();
+        let threshold_257_col = VarBinArray::from(threshold_257_refs);
+        let long_values: Vec<String> = (0..N)
+            .map(|i| format!("long-dict-value-{i:04}-{:08x}-suffix", i * 17))
+            .collect();
+        let long_refs: Vec<&str> = long_values.iter().map(String::as_str).collect();
+        let long_col = VarBinArray::from(long_refs);
+        let insertion_values = ["late", "first", "middle", "early", "last"];
+        let insertion_ordered: Vec<&str> = (0..N)
+            .map(|i| insertion_values[(i * 7 + 3) % insertion_values.len()])
+            .collect();
+        let insertion_ordered_col = VarBinArray::from(insertion_ordered);
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -60,6 +91,13 @@ impl FlatLayoutFixture for DictFixture {
                 "nullable_cat",
                 "single_cat",
                 "bool_cat",
+                "all_null",
+                "single_non_null",
+                "threshold_255",
+                "threshold_256",
+                "threshold_257",
+                "long_values",
+                "insertion_ordered",
             ]),
             vec![
                 dict_encode(&str_col.into_array())?.into_array(),
@@ -67,6 +105,13 @@ impl FlatLayoutFixture for DictFixture {
                 dict_encode(&nullable_col.into_array())?.into_array(),
                 dict_encode(&single_col.into_array())?.into_array(),
                 dict_encode(&bool_cat_col.into_array())?.into_array(),
+                dict_encode(&all_null_col.into_array())?.into_array(),
+                dict_encode(&single_non_null_col.into_array())?.into_array(),
+                dict_encode(&threshold_255_col.into_array())?.into_array(),
+                dict_encode(&threshold_256_col.into_array())?.into_array(),
+                dict_encode(&threshold_257_col.into_array())?.into_array(),
+                dict_encode(&long_col.into_array())?.into_array(),
+                dict_encode(&insertion_ordered_col.into_array())?.into_array(),
             ],
             N,
             Validity::NonNullable,

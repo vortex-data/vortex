@@ -2,13 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::TemporalArray;
+use vortex::array::dtype::DType;
+use vortex::array::dtype::DecimalDType;
 use vortex::array::dtype::FieldNames;
+use vortex::array::dtype::Nullability;
+use vortex::array::extension::datetime::TimeUnit;
+use vortex::array::scalar::DecimalValue;
+use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
+use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -36,6 +46,43 @@ impl FlatLayoutFixture for ConstantFixture {
         let const_str = ConstantArray::new("constant_value", N);
         let const_zero = ConstantArray::new(0u64, N);
         let const_neg = ConstantArray::new(-1i64, N);
+        let const_null = ConstantArray::new(Scalar::null(DType::Null), N);
+        let const_nullable_i32 =
+            ConstantArray::new(Scalar::primitive(42i32, Nullability::Nullable), N);
+        let const_long_utf8 = ConstantArray::new(
+            Scalar::utf8(
+                "constant-value-with-a-longer-inline-boundary-crossing-payload".to_string(),
+                Nullability::NonNullable,
+            ),
+            N,
+        );
+        let const_binary = ConstantArray::new(
+            Scalar::binary(
+                vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+                Nullability::NonNullable,
+            ),
+            N,
+        );
+        let const_decimal = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I64(123_456),
+                DecimalDType::new(10, 2),
+                Nullability::NonNullable,
+            ),
+            N,
+        );
+        let timestamp_scalar = TemporalArray::new_timestamp(
+            PrimitiveArray::new(
+                Buffer::from(vec![1_704_067_200_000i64]),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            TimeUnit::Milliseconds,
+            Some("UTC".into()),
+        )
+        .into_array()
+        .scalar_at(0)?;
+        let const_timestamp = ConstantArray::new(timestamp_scalar, N);
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -45,6 +92,12 @@ impl FlatLayoutFixture for ConstantFixture {
                 "const_str",
                 "const_zero",
                 "const_neg",
+                "const_null",
+                "const_nullable_i32",
+                "const_long_utf8",
+                "const_binary",
+                "const_decimal",
+                "const_timestamp",
             ]),
             vec![
                 const_i32.into_array(),
@@ -53,6 +106,12 @@ impl FlatLayoutFixture for ConstantFixture {
                 const_str.into_array(),
                 const_zero.into_array(),
                 const_neg.into_array(),
+                const_null.into_array(),
+                const_nullable_i32.into_array(),
+                const_long_utf8.into_array(),
+                const_binary.into_array(),
+                const_decimal.into_array(),
+                const_timestamp.into_array(),
             ],
             N,
             Validity::NonNullable,

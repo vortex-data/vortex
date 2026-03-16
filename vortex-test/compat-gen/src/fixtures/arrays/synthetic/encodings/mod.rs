@@ -22,6 +22,7 @@ mod runend;
 mod sequence;
 mod sparse;
 mod zigzag;
+mod zstd;
 
 use crate::fixtures::FlatLayoutFixture;
 
@@ -45,6 +46,7 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(runend::RunEndFixture),
         Box::new(sequence::SequenceFixture),
         Box::new(sparse::SparseFixture),
+        Box::new(zstd::ZstdFixture),
         Box::new(zigzag::ZigZagFixture),
         Box::new(constant::ConstantFixture),
     ]

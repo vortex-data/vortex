@@ -47,7 +47,7 @@ impl FlatLayoutFixture for DecimalFixture {
 
         // Decimal(18,0) stored as i64: large integers
         let dec_18_0 = DecimalArray::new(
-            buffer![0i64, i64::MAX, i64::MIN],
+            buffer![0i64, 999_999_999_999_999_999, -999_999_999_999_999_999],
             DecimalDType::new(18, 0),
             Validity::NonNullable,
         );

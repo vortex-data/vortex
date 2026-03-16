@@ -37,15 +37,40 @@ impl FlatLayoutFixture for SequenceFixture {
         let decreasing =
             SequenceArray::try_new_typed::<i64>(10000, -3, Nullability::NonNullable, N)?;
         let large_step = SequenceArray::try_new_typed::<u32>(0, 1000, Nullability::NonNullable, N)?;
+        let zero_step = SequenceArray::try_new_typed::<i32>(7, 0, Nullability::NonNullable, N)?;
+        let zero_crossing =
+            SequenceArray::try_new_typed::<i32>(-512, 1, Nullability::NonNullable, N)?;
+        let near_overflow = SequenceArray::try_new_typed::<u64>(
+            u64::MAX - N as u64,
+            1,
+            Nullability::NonNullable,
+            N,
+        )?;
+        let small_negative_i16 =
+            SequenceArray::try_new_typed::<i16>(1200, -2, Nullability::NonNullable, N)?;
 
         let arr = StructArray::try_new(
-            FieldNames::from(["row_ids", "stepped", "offset", "decreasing", "large_step"]),
+            FieldNames::from([
+                "row_ids",
+                "stepped",
+                "offset",
+                "decreasing",
+                "large_step",
+                "zero_step",
+                "zero_crossing",
+                "near_overflow",
+                "small_negative_i16",
+            ]),
             vec![
                 row_ids.into_array(),
                 stepped.into_array(),
                 offset.into_array(),
                 decreasing.into_array(),
                 large_step.into_array(),
+                zero_step.into_array(),
+                zero_crossing.into_array(),
+                near_overflow.into_array(),
+                small_negative_i16.into_array(),
             ],
             N,
             Validity::NonNullable,

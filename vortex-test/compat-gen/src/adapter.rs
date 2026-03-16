@@ -52,6 +52,24 @@ pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()> {
     })
 }
 
+/// Write a sequence of array chunks to an in-memory `.vortex` byte buffer with no compression.
+pub fn write_file_to_bytes(chunk: ArrayRef) -> VortexResult<ByteBuffer> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+
+    runtime()?.block_on(async {
+        let session = VortexSession::default().with_tokio();
+        let mut bytes = Vec::new();
+        let _summary = session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, stream)
+            .await?;
+        Ok(ByteBuffer::from(bytes))
+    })
+}
+
 /// Write a `.vortex` file using a caller-provided layout strategy (compressor pipeline).
 pub fn write_compressed(
     path: &Path,
@@ -71,6 +89,25 @@ pub fn write_compressed(
             .write(&mut file, stream)
             .await?;
         Ok(())
+    })
+}
+
+/// Write a `.vortex` file into an in-memory byte buffer using a caller-provided layout strategy.
+pub fn write_compressed_to_bytes(
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<ByteBuffer> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+
+    runtime()?.block_on(async {
+        let session = VortexSession::default().with_tokio();
+        let mut bytes = Vec::new();
+        let _summary = session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, stream)
+            .await?;
+        Ok(ByteBuffer::from(bytes))
     })
 }
 

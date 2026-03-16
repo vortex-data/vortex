@@ -52,33 +52,81 @@ impl FlatLayoutFixture for RunEndFixture {
         let run_col = RunEndArray::try_new(run_ends.into_array(), run_values)?;
 
         let statuses = ["open", "closed", "pending", "cancelled"];
-        let mut status_values = Vec::with_capacity(N);
+        let mut status_values = Vec::new();
+        let mut status_ends = Vec::new();
         let mut s_idx = 0;
         let mut remaining = N;
+        let mut status_end = 0u16;
         while remaining > 0 {
             let run_len = (32 + s_idx * 7 % 64).min(remaining);
-            for _ in 0..run_len {
-                status_values.push(statuses[s_idx % statuses.len()]);
-            }
+            status_values.push(statuses[s_idx % statuses.len()]);
+            status_end += run_len as u16;
+            status_ends.push(status_end);
             s_idx += 1;
             remaining -= run_len;
         }
-        let status_col = VarBinArray::from(status_values);
+        let status_col = RunEndArray::try_new(
+            PrimitiveArray::new(Buffer::from(status_ends), Validity::NonNullable).into_array(),
+            VarBinArray::from(status_values).into_array(),
+        )?;
 
         let uniform_runs: Vec<i32> = (0..N as i32).map(|i| i / 64).collect();
         let uniform_prim = PrimitiveArray::new(Buffer::from(uniform_runs), Validity::NonNullable);
         let (uniform_ends, uniform_values) = runend_encode(&uniform_prim);
         let uniform_col = RunEndArray::try_new(uniform_ends.into_array(), uniform_values)?;
 
-        let bool_runs = BoolArray::from_iter((0..N).map(|i| (i / 32) % 2 == 0));
+        let bool_ends: Vec<u16> = (1..=N / 32).map(|i| (i * 32) as u16).collect();
+        let bool_values =
+            BoolArray::from_iter((0..bool_ends.len()).map(|i| i % 2 == 0)).into_array();
+        let bool_runs = RunEndArray::try_new(
+            PrimitiveArray::new(Buffer::from(bool_ends), Validity::NonNullable).into_array(),
+            bool_values,
+        )?;
+        let nullable_run_values = PrimitiveArray::from_option_iter([
+            Some(10i32),
+            None,
+            Some(-5),
+            Some(77),
+            None,
+            Some(0),
+        ]);
+        let nullable_runs = RunEndArray::try_new(
+            PrimitiveArray::new(
+                Buffer::from(vec![16u16, 64, 128, 256, 512, N as u16]),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            nullable_run_values.into_array(),
+        )?;
+        let single_run = RunEndArray::try_new(
+            PrimitiveArray::new(Buffer::from(vec![N as u64]), Validity::NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(vec![1234i64]), Validity::NonNullable).into_array(),
+        )?;
+        let singleton_values: Vec<i16> = (0..N as i16).map(|i| i - 512).collect();
+        let singleton_ends: Vec<u16> = (1..=N as u16).collect();
+        let alternating_singletons = RunEndArray::try_new(
+            PrimitiveArray::new(Buffer::from(singleton_ends), Validity::NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(singleton_values), Validity::NonNullable).into_array(),
+        )?;
 
         let arr = StructArray::try_new(
-            FieldNames::from(["run_values", "statuses", "uniform_runs", "bool_runs"]),
+            FieldNames::from([
+                "run_values",
+                "statuses",
+                "uniform_runs",
+                "bool_runs",
+                "nullable_runs",
+                "single_run",
+                "alternating_singletons",
+            ]),
             vec![
                 run_col.into_array(),
                 status_col.into_array(),
                 uniform_col.into_array(),
                 bool_runs.into_array(),
+                nullable_runs.into_array(),
+                single_run.into_array(),
+                alternating_singletons.into_array(),
             ],
             N,
             Validity::NonNullable,

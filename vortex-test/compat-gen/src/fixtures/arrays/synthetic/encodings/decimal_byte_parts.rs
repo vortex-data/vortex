@@ -51,13 +51,63 @@ impl FlatLayoutFixture for DecimalBytePartsFixture {
         let neg_msp =
             PrimitiveArray::new(Buffer::from(neg_values), Validity::NonNullable).into_array();
         let neg_arr = DecimalBytePartsArray::try_new(neg_msp, neg_dtype)?;
+        let nullable_dtype = DecimalDType::new(12, 4);
+        let nullable_values = PrimitiveArray::from_option_iter((0..N as i64).map(|i| {
+            if i % 11 == 0 {
+                None
+            } else {
+                Some((i - 500) * 10_000)
+            }
+        }))
+        .into_array();
+        let nullable_arr = DecimalBytePartsArray::try_new(nullable_values, nullable_dtype)?;
+        let zero_dtype = DecimalDType::new(10, 2);
+        let zero_arr = DecimalBytePartsArray::try_new(
+            PrimitiveArray::new(Buffer::from(vec![0i64; N]), Validity::NonNullable).into_array(),
+            zero_dtype,
+        )?;
+        let crossing_dtype = DecimalDType::new(12, 3);
+        let crossing_values: Vec<i64> = (0..N as i64).map(|i| (i % 200) - 100).collect();
+        let crossing_arr = DecimalBytePartsArray::try_new(
+            PrimitiveArray::new(Buffer::from(crossing_values), Validity::NonNullable).into_array(),
+            crossing_dtype,
+        )?;
+        let trailing_zero_dtype = DecimalDType::new(18, 4);
+        let trailing_zero_values: Vec<i64> = (0..N as i64).map(|i| (i % 1000) * 10_000).collect();
+        let trailing_zero_arr = DecimalBytePartsArray::try_new(
+            PrimitiveArray::new(Buffer::from(trailing_zero_values), Validity::NonNullable)
+                .into_array(),
+            trailing_zero_dtype,
+        )?;
+        let near_limit_dtype = DecimalDType::new(18, 0);
+        let near_limit_values: Vec<i64> =
+            (0..N as i64).map(|i| 900_000_000_000_000_000 - i).collect();
+        let near_limit_arr = DecimalBytePartsArray::try_new(
+            PrimitiveArray::new(Buffer::from(near_limit_values), Validity::NonNullable)
+                .into_array(),
+            near_limit_dtype,
+        )?;
 
         let arr = StructArray::try_new(
-            FieldNames::from(["dec_10_2", "dec_18_6", "dec_negative"]),
+            FieldNames::from([
+                "dec_10_2",
+                "dec_18_6",
+                "dec_negative",
+                "dec_nullable",
+                "dec_zero",
+                "dec_crossing",
+                "dec_trailing_zero",
+                "dec_near_limit",
+            ]),
             vec![
                 decimal_arr.into_array(),
                 hi_prec_arr.into_array(),
                 neg_arr.into_array(),
+                nullable_arr.into_array(),
+                zero_arr.into_array(),
+                crossing_arr.into_array(),
+                trailing_zero_arr.into_array(),
+                near_limit_arr.into_array(),
             ],
             N,
             Validity::NonNullable,

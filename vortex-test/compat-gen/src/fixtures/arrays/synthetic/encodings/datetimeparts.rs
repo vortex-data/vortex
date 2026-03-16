@@ -36,7 +36,7 @@ impl FlatLayoutFixture for DateTimePartsFixture {
     }
 
     fn description(&self) -> &str {
-        "Timestamp arrays (microsecond and nanosecond) for DateTimeParts encoding"
+        "Timestamp arrays for DateTimeParts encoding"
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
@@ -81,15 +81,72 @@ impl FlatLayoutFixture for DateTimePartsFixture {
             TimeUnit::Seconds,
             None,
         );
-
+        let ts_ms_tz: Vec<i64> = (0..N as i64).map(|i| base_ms + i * 60_000).collect();
+        let ts_ms_tz_arr = TemporalArray::new_timestamp(
+            PrimitiveArray::new(Buffer::from(ts_ms_tz), Validity::NonNullable).into_array(),
+            TimeUnit::Milliseconds,
+            Some("UTC".into()),
+        );
+        let ts_pre_1970: Vec<i64> = (0..N as i64).map(|i| -86_400_000 + i * 1000).collect();
+        let ts_pre_1970_arr = TemporalArray::new_timestamp(
+            PrimitiveArray::new(Buffer::from(ts_pre_1970), Validity::NonNullable).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let ts_day_boundary: Vec<i64> = (0..N as i64)
+            .map(|i| base_ms + (i / 4) * 86_400_000 + [0, 999, 1000, 86_399_999][(i % 4) as usize])
+            .collect();
+        let ts_day_boundary_arr = TemporalArray::new_timestamp(
+            PrimitiveArray::new(Buffer::from(ts_day_boundary), Validity::NonNullable).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let ts_ns_subsecond: Vec<i64> = (0..N as i64)
+            .map(|i| {
+                base_ns + (i / 4) * 1_000_000_000 + [0, 1, 999_999, 999_999_999][(i % 4) as usize]
+            })
+            .collect();
+        let ts_ns_subsecond_arr = TemporalArray::new_timestamp(
+            PrimitiveArray::new(Buffer::from(ts_ns_subsecond), Validity::NonNullable).into_array(),
+            TimeUnit::Nanoseconds,
+            None,
+        );
+        let ts_head_tail_null = PrimitiveArray::from_option_iter((0..N as i64).map(|i| {
+            if i < 8 || i >= N as i64 - 8 {
+                None
+            } else {
+                Some(base_ms + i * 1000)
+            }
+        }));
+        let ts_head_tail_null_arr = TemporalArray::new_timestamp(
+            ts_head_tail_null.into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
         let arr = StructArray::try_new(
-            FieldNames::from(["ts_us", "ts_ns", "ts_ms", "ts_us_nullable", "ts_s"]),
+            FieldNames::from([
+                "ts_us",
+                "ts_ns",
+                "ts_ms",
+                "ts_us_nullable",
+                "ts_s",
+                "ts_ms_tz",
+                "ts_pre_1970",
+                "ts_day_boundary",
+                "ts_ns_subsecond",
+                "ts_head_tail_null",
+            ]),
             vec![
                 encode_temporal(ts_us_arr)?,
                 encode_temporal(ts_ns_arr)?,
                 encode_temporal(ts_ms_arr)?,
                 encode_temporal(ts_us_nullable_arr)?,
                 encode_temporal(ts_s_arr)?,
+                encode_temporal(ts_ms_tz_arr)?,
+                encode_temporal(ts_pre_1970_arr)?,
+                encode_temporal(ts_day_boundary_arr)?,
+                encode_temporal(ts_ns_subsecond_arr)?,
+                encode_temporal(ts_head_tail_null_arr)?,
             ],
             N,
             Validity::NonNullable,
