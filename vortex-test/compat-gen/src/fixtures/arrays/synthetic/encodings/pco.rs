@@ -14,11 +14,11 @@ use vortex::encodings::pco::PcoArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct PcoFixture;
 
-impl ArrayFixture for PcoFixture {
+impl FlatLayoutFixture for PcoFixture {
     fn name(&self) -> &str {
         "pco.vortex"
     }

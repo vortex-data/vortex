@@ -6,15 +6,11 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::Primitive;
-use vortex_array::arrays::Struct;
-use vortex_array::arrays::VarBin;
 use vortex_array::arrow::FromArrowArray;
-use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::DatasetFixture;
 
 /// First partition of ClickBench hits, limited to 1000 rows.
 const CLICKBENCH_URL: &str =
@@ -22,17 +18,13 @@ const CLICKBENCH_URL: &str =
 
 struct ClickBenchHits1kFixture;
 
-impl ArrayFixture for ClickBenchHits1kFixture {
+impl DatasetFixture for ClickBenchHits1kFixture {
     fn name(&self) -> &str {
-        "clickbench_hits_1k.vortex"
+        "clickbench_hits_1k"
     }
 
     fn description(&self) -> &str {
         "First 1000 rows of ClickBench hits dataset with wide schema of primitives and strings"
-    }
-
-    fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Struct::ID, Primitive::ID, VarBin::ID]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -62,6 +54,6 @@ impl ArrayFixture for ClickBenchHits1kFixture {
     }
 }
 
-pub fn fixtures() -> Vec<Box<dyn ArrayFixture>> {
+pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
     vec![Box::new(ClickBenchHits1kFixture)]
 }

@@ -14,11 +14,11 @@ use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct BitPackedFixture;
 
-impl ArrayFixture for BitPackedFixture {
+impl FlatLayoutFixture for BitPackedFixture {
     fn name(&self) -> &str {
         "bitpacked.vortex"
     }

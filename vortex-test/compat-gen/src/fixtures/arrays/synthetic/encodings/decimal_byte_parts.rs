@@ -15,11 +15,11 @@ use vortex::encodings::decimal_byte_parts::DecimalBytePartsArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct DecimalBytePartsFixture;
 
-impl ArrayFixture for DecimalBytePartsFixture {
+impl FlatLayoutFixture for DecimalBytePartsFixture {
     fn name(&self) -> &str {
         "decimal_byte_parts.vortex"
     }

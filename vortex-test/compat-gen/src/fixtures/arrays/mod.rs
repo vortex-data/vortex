@@ -4,12 +4,15 @@
 mod datasets;
 mod synthetic;
 
-use super::ArrayFixture;
+use super::DatasetFixture;
+use super::FlatLayoutFixture;
 
-/// All array fixtures.
-pub fn fixtures() -> Vec<Box<dyn ArrayFixture>> {
-    let mut fixtures = Vec::new();
-    fixtures.extend(synthetic::fixtures());
-    fixtures.extend(datasets::fixtures());
-    fixtures
+/// All synthetic (flat-layout) fixtures.
+pub fn synthetic_fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
+    synthetic::fixtures()
+}
+
+/// All dataset fixtures.
+pub fn dataset_fixtures() -> Vec<Box<dyn DatasetFixture>> {
+    datasets::fixtures()
 }

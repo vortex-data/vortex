@@ -12,11 +12,11 @@ use vortex::array::vtable::ArrayId;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct ConstantFixture;
 
-impl ArrayFixture for ConstantFixture {
+impl FlatLayoutFixture for ConstantFixture {
     fn name(&self) -> &str {
         "constant.vortex"
     }

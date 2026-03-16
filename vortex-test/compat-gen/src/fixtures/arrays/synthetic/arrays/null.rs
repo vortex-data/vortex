@@ -13,11 +13,11 @@ use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct NullFixture;
 
-impl ArrayFixture for NullFixture {
+impl FlatLayoutFixture for NullFixture {
     fn name(&self) -> &str {
         "null.vortex"
     }

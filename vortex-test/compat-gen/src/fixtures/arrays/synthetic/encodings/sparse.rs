@@ -15,11 +15,11 @@ use vortex::encodings::sparse::SparseArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct SparseFixture;
 
-impl ArrayFixture for SparseFixture {
+impl FlatLayoutFixture for SparseFixture {
     fn name(&self) -> &str {
         "sparse.vortex"
     }

@@ -14,11 +14,11 @@ use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct ListFixture;
 
-impl ArrayFixture for ListFixture {
+impl FlatLayoutFixture for ListFixture {
     fn name(&self) -> &str {
         "list.vortex"
     }

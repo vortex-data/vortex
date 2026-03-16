@@ -13,11 +13,11 @@ use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct FixedSizeListFixture;
 
-impl ArrayFixture for FixedSizeListFixture {
+impl FlatLayoutFixture for FixedSizeListFixture {
     fn name(&self) -> &str {
         "fixed_size_list.vortex"
     }

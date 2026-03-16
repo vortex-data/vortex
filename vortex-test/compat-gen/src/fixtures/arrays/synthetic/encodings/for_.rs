@@ -14,11 +14,11 @@ use vortex::encodings::fastlanes::FoRArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct FoRFixture;
 
-impl ArrayFixture for FoRFixture {
+impl FlatLayoutFixture for FoRFixture {
     fn name(&self) -> &str {
         "for.vortex"
     }

@@ -11,11 +11,11 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct VarBinFixture;
 
-impl ArrayFixture for VarBinFixture {
+impl FlatLayoutFixture for VarBinFixture {
     fn name(&self) -> &str {
         "varbin.vortex"
     }

@@ -23,12 +23,12 @@ mod sequence;
 mod sparse;
 mod zigzag;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub(crate) const N: usize = 1024;
 
 /// All per-encoding fixtures.
-pub fn fixtures() -> Vec<Box<dyn ArrayFixture>> {
+pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
     vec![
         Box::new(alp::AlpFixture),
         Box::new(alprd::AlprdFixture),

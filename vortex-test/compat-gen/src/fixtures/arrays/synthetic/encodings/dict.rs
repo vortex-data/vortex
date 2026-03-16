@@ -15,11 +15,11 @@ use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct DictFixture;
 
-impl ArrayFixture for DictFixture {
+impl FlatLayoutFixture for DictFixture {
     fn name(&self) -> &str {
         "dict.vortex"
     }

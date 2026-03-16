@@ -15,10 +15,10 @@ mod struct_nested;
 mod varbin;
 mod varbinview;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 /// All per-array-type fixtures.
-pub fn fixtures() -> Vec<Box<dyn ArrayFixture>> {
+pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
     vec![
         Box::new(primitive::PrimitivesFixture),
         Box::new(varbin::VarBinFixture),

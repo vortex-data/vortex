@@ -13,11 +13,11 @@ use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct StructNestedFixture;
 
-impl ArrayFixture for StructNestedFixture {
+impl FlatLayoutFixture for StructNestedFixture {
     fn name(&self) -> &str {
         "struct_nested.vortex"
     }

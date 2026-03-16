@@ -14,11 +14,11 @@ use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct FsstFixture;
 
-impl ArrayFixture for FsstFixture {
+impl FlatLayoutFixture for FsstFixture {
     fn name(&self) -> &str {
         "fsst.vortex"
     }

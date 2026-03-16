@@ -14,11 +14,11 @@ use vortex::encodings::alp::alp_encode;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct AlpFixture;
 
-impl ArrayFixture for AlpFixture {
+impl FlatLayoutFixture for AlpFixture {
     fn name(&self) -> &str {
         "alp.vortex"
     }

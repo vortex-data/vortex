@@ -16,11 +16,11 @@ use vortex::encodings::fastlanes::RLEArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct RleFixture;
 
-impl ArrayFixture for RleFixture {
+impl FlatLayoutFixture for RleFixture {
     fn name(&self) -> &str {
         "rle.vortex"
     }

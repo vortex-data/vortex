@@ -9908,6 +9908,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tpchgen",
  "tpchgen-arrow",

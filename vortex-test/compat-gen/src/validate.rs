@@ -11,7 +11,6 @@ use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::adapter;
-use crate::fixtures::ArrayFixture;
 use crate::fixtures::all_fixtures;
 use crate::manifest::Manifest;
 
@@ -29,12 +28,22 @@ pub fn validate_all(
     versions: &[String],
 ) -> VortexResult<Vec<VersionResult>> {
     let fixtures = all_fixtures();
-    let fixture_map: HashMap<&str, &dyn ArrayFixture> =
-        fixtures.iter().map(|f| (f.name(), f.as_ref())).collect();
+
+    // Generate fresh fixtures into a temp dir.
+    let tmp_dir = tempfile::tempdir().map_err(|e| vortex_err!("failed to create temp dir: {e}"))?;
+    let mut fresh_names: Vec<String> = Vec::new();
+    for fixture in &fixtures {
+        let entries = fixture.write(tmp_dir.path())?;
+        for entry in entries {
+            fresh_names.push(entry.name);
+        }
+    }
+
+    let fresh_set: HashMap<&str, ()> = fresh_names.iter().map(|n| (n.as_str(), ())).collect();
 
     let mut results = Vec::new();
     for version in versions {
-        let result = validate_version(source, version, &fixture_map)?;
+        let result = validate_version(source, version, tmp_dir.path(), &fresh_set)?;
         results.push(result);
     }
     Ok(results)
@@ -43,7 +52,8 @@ pub fn validate_all(
 fn validate_version(
     source: &FixtureSource,
     version: &str,
-    fixture_map: &HashMap<&str, &dyn ArrayFixture>,
+    fresh_dir: &std::path::Path,
+    fresh_set: &HashMap<&str, ()>,
 ) -> VortexResult<VersionResult> {
     let manifest = source.fetch_manifest(version)?;
     let mut passed = 0;
@@ -51,18 +61,23 @@ fn validate_version(
     let mut failed = Vec::new();
 
     for entry in &manifest.fixtures {
-        let Some(fixture) = fixture_map.get(entry.name.as_str()) else {
+        if !fresh_set.contains_key(entry.name.as_str()) {
             eprintln!(
                 "  warn: unknown fixture {} in v{version}, skipping",
                 entry.name
             );
             skipped += 1;
             continue;
-        };
+        }
 
         eprintln!("  checking {} from v{version}...", entry.name);
-        let bytes = source.fetch_fixture(version, &entry.name)?;
-        match validate(bytes, *fixture) {
+        let stored_bytes = source.fetch_fixture(version, &entry.name)?;
+        let fresh_path = fresh_dir.join(&entry.name);
+        let fresh_bytes = std::fs::read(&fresh_path).map_err(|e| {
+            vortex_err!("failed to read fresh fixture {}: {e}", fresh_path.display())
+        })?;
+
+        match validate(stored_bytes, ByteBuffer::from(fresh_bytes)) {
             Ok(()) => passed += 1,
             Err(e) => {
                 eprintln!("  FAIL: {} from v{version}: {e}", entry.name);
@@ -79,15 +94,15 @@ fn validate_version(
     })
 }
 
-fn validate(bytes: ByteBuffer, fixture: &dyn ArrayFixture) -> VortexResult<()> {
-    let actual = adapter::read_file(bytes)?;
-    let expected = fixture.build()?;
+fn validate(stored_bytes: ByteBuffer, fresh_bytes: ByteBuffer) -> VortexResult<()> {
+    let stored_array = adapter::read_file(stored_bytes)?;
+    let fresh_array = adapter::read_file(fresh_bytes)?;
 
-    assert_arrays_eq!(actual, expected);
+    assert_arrays_eq!(stored_array, fresh_array);
     Ok(())
 }
 
-/// Source for fetching fixture files — either HTTPS or local directory.
+/// Source for fetching fixture files -- either HTTPS or local directory.
 pub enum FixtureSource {
     Url(String),
     Dir(PathBuf),

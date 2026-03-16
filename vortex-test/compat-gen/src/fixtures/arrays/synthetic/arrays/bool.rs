@@ -11,11 +11,11 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct BooleansFixture;
 
-impl ArrayFixture for BooleansFixture {
+impl FlatLayoutFixture for BooleansFixture {
     fn name(&self) -> &str {
         "booleans.vortex"
     }

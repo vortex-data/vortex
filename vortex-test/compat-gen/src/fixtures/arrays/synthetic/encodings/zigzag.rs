@@ -14,11 +14,11 @@ use vortex::encodings::zigzag::zigzag_encode;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct ZigZagFixture;
 
-impl ArrayFixture for ZigZagFixture {
+impl FlatLayoutFixture for ZigZagFixture {
     fn name(&self) -> &str {
         "zigzag.vortex"
     }

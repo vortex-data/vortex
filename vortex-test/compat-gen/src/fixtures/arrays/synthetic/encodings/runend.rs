@@ -17,11 +17,11 @@ use vortex::encodings::runend::compress::runend_encode;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct RunEndFixture;
 
-impl ArrayFixture for RunEndFixture {
+impl FlatLayoutFixture for RunEndFixture {
     fn name(&self) -> &str {
         "runend.vortex"
     }

@@ -17,7 +17,7 @@ use vortex::encodings::datetime_parts::split_temporal;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct DateTimePartsFixture;
 
@@ -30,7 +30,7 @@ fn encode_temporal(temporal: TemporalArray) -> VortexResult<ArrayRef> {
     )
 }
 
-impl ArrayFixture for DateTimePartsFixture {
+impl FlatLayoutFixture for DateTimePartsFixture {
     fn name(&self) -> &str {
         "datetimeparts.vortex"
     }

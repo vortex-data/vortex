@@ -12,11 +12,11 @@ use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct PrimitivesFixture;
 
-impl ArrayFixture for PrimitivesFixture {
+impl FlatLayoutFixture for PrimitivesFixture {
     fn name(&self) -> &str {
         "primitives.vortex"
     }

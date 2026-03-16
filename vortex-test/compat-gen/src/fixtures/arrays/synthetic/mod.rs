@@ -5,10 +5,10 @@ mod arrays;
 #[allow(clippy::cast_possible_truncation)]
 mod encodings;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 /// All synthetic fixtures (arrays + encodings).
-pub fn fixtures() -> Vec<Box<dyn ArrayFixture>> {
+pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
     let mut fixtures = Vec::new();
     fixtures.extend(arrays::fixtures());
     fixtures.extend(encodings::fixtures());

@@ -12,11 +12,11 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct ChunkedFixture;
 
-impl ArrayFixture for ChunkedFixture {
+impl FlatLayoutFixture for ChunkedFixture {
     fn name(&self) -> &str {
         "chunked.vortex"
     }

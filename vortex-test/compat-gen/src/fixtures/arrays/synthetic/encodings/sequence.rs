@@ -13,11 +13,11 @@ use vortex::encodings::sequence::SequenceArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct SequenceFixture;
 
-impl ArrayFixture for SequenceFixture {
+impl FlatLayoutFixture for SequenceFixture {
     fn name(&self) -> &str {
         "sequence.vortex"
     }

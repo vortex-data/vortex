@@ -5,10 +5,10 @@ mod clickbench;
 #[allow(clippy::cast_possible_truncation)]
 mod tpch;
 
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::DatasetFixture;
 
 /// All dataset-derived fixtures.
-pub fn fixtures() -> Vec<Box<dyn ArrayFixture>> {
+pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
     let mut fixtures = Vec::new();
     fixtures.extend(tpch::fixtures());
     fixtures.extend(clickbench::fixtures());

@@ -13,11 +13,11 @@ use vortex::encodings::bytebool::ByteBoolArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct ByteBoolFixture;
 
-impl ArrayFixture for ByteBoolFixture {
+impl FlatLayoutFixture for ByteBoolFixture {
     fn name(&self) -> &str {
         "bytebool.vortex"
     }

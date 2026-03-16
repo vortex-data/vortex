@@ -14,11 +14,11 @@ use vortex::encodings::fastlanes::DeltaArray;
 use vortex::error::VortexResult;
 
 use super::N;
-use crate::fixtures::ArrayFixture;
+use crate::fixtures::FlatLayoutFixture;
 
 pub struct DeltaFixture;
 
-impl ArrayFixture for DeltaFixture {
+impl FlatLayoutFixture for DeltaFixture {
     fn name(&self) -> &str {
         "delta.vortex"
     }
