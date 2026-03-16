@@ -216,7 +216,7 @@ impl FromArrowType<&Field> for DType {
             .map(|s| s.as_str())
             == Some("arrow.parquet.variant")
         {
-            return DType::Variant;
+            return DType::Variant(field.is_nullable().into());
         }
         Self::from_arrow((field.data_type(), field.is_nullable().into()))
     }
@@ -320,7 +320,7 @@ impl DType {
 
                 DataType::Struct(Fields::from(fields))
             }
-            DType::Variant => vortex_bail!(
+            DType::Variant(_) => vortex_bail!(
                 "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
             ),
             DType::Extension(ext_dtype) => {
@@ -431,7 +431,10 @@ mod test {
 
     #[test]
     fn test_variant_dtype_to_arrow_dtype_errors() {
-        let err = DType::Variant.to_arrow_dtype().unwrap_err().to_string();
+        let err = DType::Variant(Nullability::NonNullable)
+            .to_arrow_dtype()
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("Variant"));
     }
 
@@ -493,7 +496,10 @@ mod test {
 
     #[test]
     fn test_schema_variant_field_metadata() {
-        let dtype = DType::struct_([("v", DType::Variant)], Nullability::NonNullable);
+        let dtype = DType::struct_(
+            [("v", DType::Variant(Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
         let schema = dtype.to_arrow_schema().unwrap();
         let field = schema.field(0);
         assert_eq!(
@@ -504,6 +510,7 @@ mod test {
             Some("arrow.parquet.variant")
         );
         assert!(matches!(field.data_type(), DataType::Struct(_)));
+        assert!(!field.is_nullable());
     }
 
     #[rstest]

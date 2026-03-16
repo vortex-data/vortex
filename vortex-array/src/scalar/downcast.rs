@@ -20,6 +20,7 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::StructScalar;
 use crate::scalar::Utf8Scalar;
+use crate::scalar::VariantScalar;
 
 impl Scalar {
     /// Returns a view of the scalar as a boolean scalar.
@@ -154,22 +155,19 @@ impl Scalar {
         Some(ExtScalar::new_unchecked(self.dtype(), self.value()))
     }
 
-    /// Returns the row-specific scalar wrapped by a variant, panicking if the scalar is not a
-    /// variant.
-    pub fn as_variant(&self) -> &Scalar {
-        self.value()
-            .vortex_expect("Failed to convert null scalar to variant")
-            .as_variant()
+    /// Returns a view of the scalar as a variant scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar does not have a [`Variant`](crate::dtype::DType::Variant) type.
+    pub fn as_variant(&self) -> VariantScalar<'_> {
+        self.as_variant_opt()
+            .vortex_expect("Failed to convert scalar to variant")
     }
 
-    /// Returns the row-specific scalar wrapped by a variant if the scalar has `DType::Variant` and
-    /// is non-null.
-    pub fn as_variant_opt(&self) -> Option<&Scalar> {
-        self.dtype()
-            .is_variant()
-            .then(|| self.value())
-            .flatten()
-            .map(ScalarValue::as_variant)
+    /// Returns a view of the scalar as a variant scalar if it has a variant type.
+    pub fn as_variant_opt(&self) -> Option<VariantScalar<'_>> {
+        VariantScalar::try_new(self.dtype(), self.value()).ok()
     }
 }
 

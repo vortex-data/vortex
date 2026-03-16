@@ -67,7 +67,7 @@ impl ScalarValue {
                 // zero storage value and try to make an extension scalar from that.
                 Self::zero_value(ext_dtype.storage_dtype())
             }
-            DType::Variant => Self::Variant(Box::new(Scalar::null(DType::Null))),
+            DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
         }
     }
 
@@ -104,7 +104,7 @@ impl ScalarValue {
                 // default storage value and try to make an extension scalar from that.
                 Self::default_value(ext_dtype.storage_dtype())?
             }
-            DType::Variant => Self::Variant(Box::new(Scalar::null(DType::Null))),
+            DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
         })
     }
 }

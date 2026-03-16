@@ -99,7 +99,7 @@ impl DType {
                 let ext_dtype = vtable.deserialize(e.metadata(), storage_dtype)?;
                 Ok(Self::Extension(ext_dtype))
             }
-            DtypeType::Variant(..) => Ok(Self::Variant),
+            DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
         }
     }
 }
@@ -153,7 +153,9 @@ impl TryFrom<&DType> for pb::DType {
                     storage_dtype: Some(Box::new(e.storage_dtype().try_into()?)),
                     metadata: Some(e.serialize_metadata()?),
                 })),
-                DType::Variant => DtypeType::Variant(pb::Variant {}),
+                DType::Variant(null) => DtypeType::Variant(pb::Variant {
+                    nullable: (*null).into(),
+                }),
             }),
         })
     }
@@ -365,8 +367,8 @@ mod tests {
 
     #[test]
     fn test_variant_round_trip() {
-        let converted = round_trip_dtype(&DType::Variant);
-        assert_eq!(DType::Variant, converted);
+        let converted = round_trip_dtype(&DType::Variant(Nullability::Nullable));
+        assert_eq!(DType::Variant(Nullability::Nullable), converted);
     }
 
     #[test]

@@ -59,7 +59,7 @@ impl Scalar {
             DType::Struct(..) => self.as_struct().cast(target_dtype),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
             DType::Extension(..) => self.as_extension().cast(target_dtype),
-            DType::Variant => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
+            DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
         }
     }
 

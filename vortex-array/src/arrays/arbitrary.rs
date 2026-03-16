@@ -164,7 +164,7 @@ fn random_array_chunk(
         DType::Extension(..) => {
             unimplemented!("Extension arrays are not implemented")
         }
-        DType::Variant => {
+        DType::Variant(_) => {
             unimplemented!("Variant arrays are not implemented")
         }
     }

@@ -110,7 +110,7 @@ impl PyScalar {
                 Self::with_subclass(py, scalar, PyListScalar)
             }
             DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
-            DType::Variant => Err(PyValueError::new_err(
+            DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),
         }

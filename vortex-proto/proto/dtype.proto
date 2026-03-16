@@ -70,7 +70,9 @@ message Extension {
   optional bytes metadata = 3;
 }
 
-message Variant {}
+message Variant {
+  bool nullable = 1;
+}
 
 message DType {
   oneof dtype_type {

@@ -177,6 +177,10 @@ impl Scalar {
     /// Returns `None` if the scalar is null, otherwise returns `Some(true)` if the value is zero
     /// and `Some(false)` otherwise.
     pub fn is_zero(&self) -> Option<bool> {
+        if self.dtype().is_variant() {
+            return self.is_variant_null();
+        }
+
         let value = self.value()?;
 
         let is_zero = match self.dtype() {
@@ -190,10 +194,18 @@ impl Scalar {
             DType::FixedSizeList(_, list_size, _) => value.as_list().len() == *list_size as usize,
             DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
             DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
-            DType::Variant => value.as_variant().is_null(),
+            DType::Variant(_) => unreachable!("handled above"),
         };
 
         Some(is_zero)
+    }
+
+    /// Returns whether a present variant scalar contains the variant-null payload.
+    ///
+    /// Returns `None` for non-variant scalars and for outer-null variants.
+    pub fn is_variant_null(&self) -> Option<bool> {
+        self.as_variant_opt()
+            .and_then(|variant| variant.is_variant_null())
     }
 
     /// Reinterprets the bytes of this scalar as a different primitive type.
@@ -258,7 +270,7 @@ impl Scalar {
                 .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
                 .unwrap_or_default(),
             DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
-            DType::Variant => self.as_variant_opt().map_or(0, Scalar::approx_nbytes),
+            DType::Variant(_) => self.as_variant().value().map_or(0, Scalar::approx_nbytes),
         }
     }
 }

@@ -1395,6 +1395,7 @@ impl<'a> flatbuffers::Follow<'a> for Variant<'a> {
 }
 
 impl<'a> Variant<'a> {
+  pub const VT_NULLABLE: flatbuffers::VOffsetT = 4;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -1403,12 +1404,21 @@ impl<'a> Variant<'a> {
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    _args: &'args VariantArgs
+    args: &'args VariantArgs
   ) -> flatbuffers::WIPOffset<Variant<'bldr>> {
     let mut builder = VariantBuilder::new(_fbb);
+    builder.add_nullable(args.nullable);
     builder.finish()
   }
 
+
+  #[inline]
+  pub fn nullable(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Variant::VT_NULLABLE, Some(false)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Variant<'_> {
@@ -1418,16 +1428,19 @@ impl flatbuffers::Verifiable for Variant<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
+     .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
      .finish();
     Ok(())
   }
 }
 pub struct VariantArgs {
+    pub nullable: bool,
 }
 impl<'a> Default for VariantArgs {
   #[inline]
   fn default() -> Self {
     VariantArgs {
+      nullable: false,
     }
   }
 }
@@ -1437,6 +1450,10 @@ pub struct VariantBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> VariantBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_nullable(&mut self, nullable: bool) {
+    self.fbb_.push_slot::<bool>(Variant::VT_NULLABLE, nullable, false);
+  }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> VariantBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
@@ -1455,6 +1472,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> VariantBuilder<'a, 'b, A> {
 impl core::fmt::Debug for Variant<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Variant");
+      ds.field("nullable", &self.nullable());
       ds.finish()
   }
 }

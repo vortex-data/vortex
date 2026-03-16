@@ -117,7 +117,7 @@ impl Serialize for DType {
             DType::Extension(ext) => {
                 serializer.serialize_newtype_variant("DType", 9, "Extension", ext)
             }
-            DType::Variant => serializer.serialize_unit_variant("DType", 10, "Variant"),
+            DType::Variant(n) => serializer.serialize_newtype_variant("DType", 10, "Variant", n),
         }
     }
 }
@@ -220,8 +220,8 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                         Ok(DType::Extension(ext))
                     }
                     "Variant" => {
-                        access.unit_variant()?;
-                        Ok(DType::Variant)
+                        let n = access.newtype_variant()?;
+                        Ok(DType::Variant(n))
                     }
                     _ => Err(de::Error::unknown_variant(&variant, VARIANTS)),
                 }

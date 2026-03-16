@@ -160,7 +160,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     },
                 }
             }
-            DType::Variant => vortex_bail!("Variant scalars aren't supported with DF"),
+            DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
         })
     }
 }

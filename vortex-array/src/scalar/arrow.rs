@@ -65,7 +65,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             DType::List(..) => unimplemented!("list scalar conversion"),
             DType::FixedSizeList(..) => unimplemented!("fixed-size list scalar conversion"),
             DType::Extension(..) => extension_to_arrow(value.as_extension()),
-            DType::Variant => unimplemented!("Variant scalar conversion"),
+            DType::Variant(_) => unimplemented!("Variant scalar conversion"),
         }
     }
 }

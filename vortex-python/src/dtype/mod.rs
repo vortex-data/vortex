@@ -125,7 +125,7 @@ impl PyDType {
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
-            DType::Variant => Err(PyValueError::new_err(
+            DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant DType is not supported in Python yet",
             )),
         }

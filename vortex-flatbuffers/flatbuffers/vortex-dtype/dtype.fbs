@@ -63,7 +63,9 @@ table Extension {
     metadata: [ubyte];
 }
 
-table Variant {}
+table Variant {
+    nullable: bool;
+}
 
 union Type {
     Null = 1,

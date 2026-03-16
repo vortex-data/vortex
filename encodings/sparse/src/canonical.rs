@@ -118,7 +118,7 @@ pub(super) fn execute_sparse(
             execute_sparse_fixed_size_list(array, *nullability, ctx)?
         }
         DType::Extension(_ext_dtype) => todo!(),
-        DType::Variant => vortex_bail!("Sparse canonicalization does not support Variant"),
+        DType::Variant(_) => vortex_bail!("Sparse canonicalization does not support Variant"),
     })
 }
 

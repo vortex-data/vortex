@@ -1514,9 +1514,13 @@ pub vortex_flatbuffers::dtype::Variant::_tab: flatbuffers::table::Table<'a>
 
 impl<'a> vortex_flatbuffers::dtype::Variant<'a>
 
-pub fn vortex_flatbuffers::dtype::Variant<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(_fbb: &'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, _args: &'args vortex_flatbuffers::dtype::VariantArgs) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Variant<'bldr>>
+pub const vortex_flatbuffers::dtype::Variant<'a>::VT_NULLABLE: flatbuffers::primitives::VOffsetT
+
+pub fn vortex_flatbuffers::dtype::Variant<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(_fbb: &'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, args: &'args vortex_flatbuffers::dtype::VariantArgs) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Variant<'bldr>>
 
 pub unsafe fn vortex_flatbuffers::dtype::Variant<'a>::init_from_table(table: flatbuffers::table::Table<'a>) -> Self
+
+pub fn vortex_flatbuffers::dtype::Variant<'a>::nullable(&self) -> bool
 
 impl core::fmt::Debug for vortex_flatbuffers::dtype::Variant<'_>
 
@@ -1546,6 +1550,8 @@ pub unsafe fn vortex_flatbuffers::dtype::Variant<'a>::follow(buf: &'a [u8], loc:
 
 pub struct vortex_flatbuffers::dtype::VariantArgs
 
+pub vortex_flatbuffers::dtype::VariantArgs::nullable: bool
+
 impl<'a> core::default::Default for vortex_flatbuffers::dtype::VariantArgs
 
 pub fn vortex_flatbuffers::dtype::VariantArgs::default() -> Self
@@ -1553,6 +1559,8 @@ pub fn vortex_flatbuffers::dtype::VariantArgs::default() -> Self
 pub struct vortex_flatbuffers::dtype::VariantBuilder<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a>
 
 impl<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a> vortex_flatbuffers::dtype::VariantBuilder<'a, 'b, A>
+
+pub fn vortex_flatbuffers::dtype::VariantBuilder<'a, 'b, A>::add_nullable(&mut self, nullable: bool)
 
 pub fn vortex_flatbuffers::dtype::VariantBuilder<'a, 'b, A>::finish(self) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Variant<'a>>
 

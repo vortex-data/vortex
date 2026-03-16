@@ -86,7 +86,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::Extension(_) => {
                 PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
             }
-            DType::Variant => Err(PyValueError::new_err(
+            DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),
         }

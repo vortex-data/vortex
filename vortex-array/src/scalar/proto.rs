@@ -241,39 +241,30 @@ impl ScalarValue {
             .as_ref()
             .ok_or_else(|| vortex_err!(Serde: "Scalar value missing kind"))?;
 
-        if dtype == &DType::Variant {
-            return match kind {
-                Kind::NullValue(_) => Ok(None),
-                Kind::VariantValue(v) => Ok(Some(ScalarValue::Variant(Box::new(
-                    Scalar::from_proto(v, session)?,
-                )))),
-                _ => vortex_bail!(
-                    Serde: "expected Scalar proto for Variant dtype, got {kind:?}"
-                ),
-            };
-        }
-
         // `DType::Extension` store their serialized values using the storage `DType`.
         let dtype = match dtype {
             DType::Extension(ext) => ext.storage_dtype(),
             _ => dtype,
         };
 
-        Ok(Some(match kind {
-            Kind::NullValue(_) => return Ok(None),
-            Kind::BoolValue(v) => bool_from_proto(*v, dtype)?,
-            Kind::Int64Value(v) => int64_from_proto(*v, dtype)?,
-            Kind::Uint64Value(v) => uint64_from_proto(*v, dtype)?,
-            Kind::F16Value(v) => f16_from_proto(*v, dtype)?,
-            Kind::F32Value(v) => f32_from_proto(*v, dtype)?,
-            Kind::F64Value(v) => f64_from_proto(*v, dtype)?,
-            Kind::StringValue(s) => string_from_proto(s, dtype)?,
-            Kind::BytesValue(b) => bytes_from_proto(b, dtype)?,
-            Kind::ListValue(v) => list_from_proto(v, dtype, session)?,
-            Kind::VariantValue(_) => {
-                vortex_bail!(Serde: "expected non-Variant scalar proto for dtype {dtype}")
-            }
-        }))
+        Ok(match kind {
+            Kind::NullValue(_) => None,
+            Kind::BoolValue(v) => Some(bool_from_proto(*v, dtype)?),
+            Kind::Int64Value(v) => Some(int64_from_proto(*v, dtype)?),
+            Kind::Uint64Value(v) => Some(uint64_from_proto(*v, dtype)?),
+            Kind::F16Value(v) => Some(f16_from_proto(*v, dtype)?),
+            Kind::F32Value(v) => Some(f32_from_proto(*v, dtype)?),
+            Kind::F64Value(v) => Some(f64_from_proto(*v, dtype)?),
+            Kind::StringValue(s) => Some(string_from_proto(s, dtype)?),
+            Kind::BytesValue(b) => Some(bytes_from_proto(b, dtype)?),
+            Kind::ListValue(v) => Some(list_from_proto(v, dtype, session)?),
+            Kind::VariantValue(v) => match dtype {
+                DType::Variant(_) => Some(ScalarValue::Variant(Box::new(Scalar::from_proto(
+                    v, session,
+                )?))),
+                _ => vortex_bail!(Serde: "expected non-Variant scalar proto for dtype {dtype}"),
+            },
+        })
     }
 }
 
@@ -617,7 +608,7 @@ mod tests {
     #[test]
     fn test_variant_scalar_roundtrip() {
         let nums = Scalar::list(
-            Arc::new(DType::Variant),
+            Arc::new(DType::Variant(Nullability::NonNullable)),
             vec![
                 Scalar::variant(Scalar::primitive(-7_i16, Nullability::NonNullable)),
                 Scalar::variant(Scalar::primitive(42_u32, Nullability::NonNullable)),
@@ -631,7 +622,7 @@ mod tests {
         );
 
         let nested = Scalar::list(
-            Arc::new(DType::Variant),
+            Arc::new(DType::Variant(Nullability::NonNullable)),
             vec![
                 Scalar::variant(Scalar::from(true)),
                 Scalar::variant(nums),
@@ -649,7 +640,7 @@ mod tests {
 
     #[test]
     fn test_variant_scalar_proto_preserves_scalar_null_vs_variant_null() {
-        let scalar_null = Scalar::null(DType::Variant);
+        let scalar_null = Scalar::null(DType::Variant(Nullability::Nullable));
         let variant_null = Scalar::variant(Scalar::null(DType::Null));
 
         let scalar_null_pb = pb::Scalar::from(&scalar_null);

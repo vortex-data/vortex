@@ -68,7 +68,7 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
-            DType::Variant => vortex_panic!("Variant DType is not supported in FFI yet"),
+            DType::Variant(_) => vortex_panic!("Variant DType is not supported in FFI yet"),
         }
     }
 }

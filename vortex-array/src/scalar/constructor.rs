@@ -192,11 +192,15 @@ impl Scalar {
 
     /// Creates a new variant scalar from a row-specific nested scalar.
     ///
-    /// Use [`Scalar::null(DType::Variant)`][Scalar::null] for a top-level null variant value, and
+    /// Use [`Scalar::null(DType::Variant(Nullability::Nullable))`][Scalar::null] for a top-level
+    /// null variant value, and
     /// `Scalar::variant(Scalar::null(DType::Null))` for a defined variant-null.
     pub fn variant(value: Scalar) -> Self {
-        Self::try_new(DType::Variant, Some(ScalarValue::Variant(Box::new(value))))
-            .vortex_expect("unable to construct a variant `Scalar`")
+        Self::try_new(
+            DType::Variant(Nullability::NonNullable),
+            Some(ScalarValue::Variant(Box::new(value))),
+        )
+        .vortex_expect("unable to construct a variant `Scalar`")
     }
 }
 

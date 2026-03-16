@@ -612,6 +612,8 @@ pub fn vortex_proto::dtype::Utf8::encoded_len(&self) -> usize
 
 pub struct vortex_proto::dtype::Variant
 
+pub vortex_proto::dtype::Variant::nullable: bool
+
 impl core::clone::Clone for vortex_proto::dtype::Variant
 
 pub fn vortex_proto::dtype::Variant::clone(&self) -> vortex_proto::dtype::Variant

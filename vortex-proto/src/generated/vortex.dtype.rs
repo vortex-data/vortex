@@ -67,7 +67,10 @@ pub struct Extension {
     pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct Variant {}
+pub struct Variant {
+    #[prost(bool, tag = "1")]
+    pub nullable: bool,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
     #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]

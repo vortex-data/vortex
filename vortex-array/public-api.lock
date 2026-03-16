@@ -10402,7 +10402,7 @@ pub vortex_array::dtype::DType::Struct(vortex_array::dtype::StructFields, vortex
 
 pub vortex_array::dtype::DType::Utf8(vortex_array::dtype::Nullability)
 
-pub vortex_array::dtype::DType::Variant
+pub vortex_array::dtype::DType::Variant(vortex_array::dtype::Nullability)
 
 impl vortex_array::dtype::DType
 
@@ -15990,6 +15990,8 @@ pub fn vortex_array::scalar::Scalar::is_null(&self) -> bool
 
 pub fn vortex_array::scalar::Scalar::is_valid(&self) -> bool
 
+pub fn vortex_array::scalar::Scalar::is_variant_null(&self) -> core::option::Option<bool>
+
 pub fn vortex_array::scalar::Scalar::is_zero(&self) -> core::option::Option<bool>
 
 pub unsafe fn vortex_array::scalar::Scalar::new_unchecked(dtype: vortex_array::dtype::DType, value: core::option::Option<vortex_array::scalar::ScalarValue>) -> Self
@@ -16040,9 +16042,9 @@ pub fn vortex_array::scalar::Scalar::as_utf8(&self) -> vortex_array::scalar::Utf
 
 pub fn vortex_array::scalar::Scalar::as_utf8_opt(&self) -> core::option::Option<vortex_array::scalar::Utf8Scalar<'_>>
 
-pub fn vortex_array::scalar::Scalar::as_variant(&self) -> &vortex_array::scalar::Scalar
+pub fn vortex_array::scalar::Scalar::as_variant(&self) -> vortex_array::scalar::VariantScalar<'_>
 
-pub fn vortex_array::scalar::Scalar::as_variant_opt(&self) -> core::option::Option<&vortex_array::scalar::Scalar>
+pub fn vortex_array::scalar::Scalar::as_variant_opt(&self) -> core::option::Option<vortex_array::scalar::VariantScalar<'_>>
 
 impl vortex_array::scalar::Scalar
 
@@ -16735,6 +16737,32 @@ pub fn vortex_array::scalar::Utf8Scalar<'a>::fmt(&self, f: &mut core::fmt::Forma
 impl<'a> core::hash::Hash for vortex_array::scalar::Utf8Scalar<'a>
 
 pub fn vortex_array::scalar::Utf8Scalar<'a>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+pub struct vortex_array::scalar::VariantScalar<'a>
+
+impl<'a> vortex_array::scalar::VariantScalar<'a>
+
+pub fn vortex_array::scalar::VariantScalar<'a>::dtype(&self) -> &'a vortex_array::dtype::DType
+
+pub fn vortex_array::scalar::VariantScalar<'a>::is_null(&self) -> bool
+
+pub fn vortex_array::scalar::VariantScalar<'a>::is_variant_null(&self) -> core::option::Option<bool>
+
+pub fn vortex_array::scalar::VariantScalar<'a>::value(&self) -> core::option::Option<&'a vortex_array::scalar::Scalar>
+
+impl core::fmt::Display for vortex_array::scalar::VariantScalar<'_>
+
+pub fn vortex_array::scalar::VariantScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::clone::Clone for vortex_array::scalar::VariantScalar<'a>
+
+pub fn vortex_array::scalar::VariantScalar<'a>::clone(&self) -> vortex_array::scalar::VariantScalar<'a>
+
+impl<'a> core::fmt::Debug for vortex_array::scalar::VariantScalar<'a>
+
+pub fn vortex_array::scalar::VariantScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_array::scalar::VariantScalar<'a>
 
 pub trait vortex_array::scalar::ScalarTruncation: core::marker::Send + core::marker::Sized
 
