@@ -44,6 +44,22 @@ pub trait Fixture: Send + Sync {
     /// Returns a `Vec` to support chunked fixtures (multiple chunks).
     /// Single-array fixtures return a one-element vec.
     fn build(&self, tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>>;
+
+    /// Additional validation beyond data equality.
+    ///
+    /// Called after the basic `assert_arrays_eq!` check passes. Receives the
+    /// array read back from the file (`actual`) and the array produced by
+    /// [`build`](Self::build) (`expected`). Both are already flattened into a
+    /// single chunked array.
+    ///
+    /// Fixtures can override this to compare properties extracted from both
+    /// sides — e.g. stats, dtype details, scalar sampling — without exposing
+    /// how the fixture was constructed.
+    ///
+    /// The default implementation does nothing.
+    fn validate(&self, _actual: &ArrayRef, _expected: &ArrayRef) -> VortexResult<()> {
+        Ok(())
+    }
 }
 
 /// All registered fixtures.

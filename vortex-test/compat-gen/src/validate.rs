@@ -93,7 +93,8 @@ fn validate_one(bytes: ByteBuffer, fixture: &dyn Fixture) -> VortexResult<()> {
     let actual_arr = ChunkedArray::try_new(actual, actual_dtype)?.into_array();
     let expected_arr = ChunkedArray::try_new(expected, expected_dtype)?.into_array();
 
-    assert_arrays_eq!(actual_arr, expected_arr);
+    assert_arrays_eq!(&actual_arr, &expected_arr);
+    fixture.validate(&actual_arr, &expected_arr)?;
     Ok(())
 }
 
