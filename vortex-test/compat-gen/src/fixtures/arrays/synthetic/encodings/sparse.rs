@@ -58,13 +58,9 @@ impl FlatLayoutFixture for SparseFixture {
             (0..N as i32).map(|i| if i % 75 == 0 { Some(99) } else { Some(10) }),
         );
         let all_default = ConstantArray::new(10i32, N).into_array();
-        let clustered_edges = PrimitiveArray::from_option_iter((0..N as i64).map(|i| {
-            if i < 8 || i >= N as i64 - 8 {
-                Some(i * 9)
-            } else {
-                None
-            }
-        }));
+        let clustered_edges = PrimitiveArray::from_option_iter(
+            (0..N as i64).map(|i| (i < 8 || i >= N as i64 - 8).then(|| i * 9)),
+        );
         let almost_dense = PrimitiveArray::from_option_iter(
             (0..N as i32).map(|i| if i % 32 == 0 { None } else { Some((i % 5) + 1) }),
         );

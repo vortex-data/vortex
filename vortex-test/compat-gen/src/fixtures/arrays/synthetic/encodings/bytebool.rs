@@ -44,7 +44,7 @@ impl FlatLayoutFixture for ByteBoolFixture {
         let sparse_true: Vec<bool> = (0..N).map(|i| i % 127 == 0).collect();
         let edge_null_vals: Vec<bool> = (0..N).map(|i| i % 4 == 0).collect();
         let edge_null_validity = Validity::from(
-            BoolArray::from_iter((0..N).map(|i| i >= 8 && i < N - 8)).to_bit_buffer(),
+            BoolArray::from_iter((0..N).map(|i| (8..N - 8).contains(&i))).to_bit_buffer(),
         );
 
         let arr = StructArray::try_new(

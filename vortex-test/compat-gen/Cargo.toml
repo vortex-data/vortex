@@ -38,6 +38,7 @@ tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 
 # ClickBench parquet reading
+bytes = { workspace = true }
 parquet = { workspace = true }
 
 # Async runtime

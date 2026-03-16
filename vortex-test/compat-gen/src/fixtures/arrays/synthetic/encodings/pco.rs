@@ -52,7 +52,7 @@ impl FlatLayoutFixture for PcoFixture {
                 if i % 257 == 0 {
                     1_000_000.0 + i as f64
                 } else {
-                    3.14159
+                    std::f64::consts::PI
                 }
             })
             .collect();

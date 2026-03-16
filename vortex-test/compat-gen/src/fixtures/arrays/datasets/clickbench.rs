@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::RecordBatch;
+use bytes::Bytes;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -12,31 +13,27 @@ use vortex_error::vortex_err;
 
 use crate::fixtures::DatasetFixture;
 
-/// First partition of ClickBench hits, limited to 1000 rows.
-const CLICKBENCH_URL: &str =
-    "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_0.parquet";
+/// 5×1000 rows sampled from deterministic random offsets in ClickBench hits partition 0.
+/// Offsets (seed=42): [26225, 116739, 288389, 670487, 777572].
+const CLICKBENCH_PARQUET: &[u8] = include_bytes!("../../../../data/clickbench_hits_5k.parquet");
 
-struct ClickBenchHits1kFixture;
+struct ClickBenchHits5kFixture;
 
-impl DatasetFixture for ClickBenchHits1kFixture {
+impl DatasetFixture for ClickBenchHits5kFixture {
     fn name(&self) -> &str {
-        "clickbench_hits_1k"
+        "clickbench_hits_5k"
     }
 
     fn description(&self) -> &str {
-        "First 1000 rows of ClickBench hits dataset with wide schema of primitives and strings"
+        "5000 rows (5x1000 from random offsets) of ClickBench hits dataset with wide schema of primitives and strings"
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
-        let bytes = reqwest::blocking::get(CLICKBENCH_URL)
-            .map_err(|e| vortex_err!("failed to download ClickBench parquet: {e}"))?
-            .bytes()
-            .map_err(|e| vortex_err!("failed to read ClickBench response body: {e}"))?;
+        let bytes = Bytes::from_static(CLICKBENCH_PARQUET);
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(bytes)
             .map_err(|e| vortex_err!("failed to open parquet: {e}"))?
             .with_batch_size(1000)
-            .with_limit(1000)
             .build()
             .map_err(|e| vortex_err!("failed to build parquet reader: {e}"))?;
 
@@ -55,5 +52,5 @@ impl DatasetFixture for ClickBenchHits1kFixture {
 }
 
 pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
-    vec![Box::new(ClickBenchHits1kFixture)]
+    vec![Box::new(ClickBenchHits5kFixture)]
 }

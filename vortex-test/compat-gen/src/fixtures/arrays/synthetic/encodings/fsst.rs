@@ -90,7 +90,7 @@ impl FlatLayoutFixture for FsstFixture {
         let all_null_clustered = VarBinArray::from(
             (0..N)
                 .map(|i| {
-                    if i < 16 || i >= N - 16 {
+                    if !(16..N - 16).contains(&i) {
                         None
                     } else {
                         Some("clustered-null-middle")
