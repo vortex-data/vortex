@@ -16,7 +16,6 @@ use vortex::array::match_each_float_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
-use vortex::dtype::extension::Matcher;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
@@ -53,7 +52,7 @@ impl ScalarFnVTable for CosineSimilarity {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.cosine_similarity")
+        ScalarFnId::new_ref("vortex.tensor.cosine_similarity")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -106,7 +105,7 @@ impl ScalarFnVTable for CosineSimilarity {
         })?;
 
         vortex_ensure!(
-            AnyTensor::matches(lhs_ext),
+            lhs_ext.is::<AnyTensor>(),
             "CosineSimilarity inputs must be an `AnyTensor`, got {lhs}"
         );
 

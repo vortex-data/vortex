@@ -16,7 +16,6 @@ use vortex::array::match_each_float_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
-use vortex::dtype::extension::Matcher;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
@@ -48,7 +47,7 @@ impl ScalarFnVTable for L2Norm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.l2_norm")
+        ScalarFnId::new_ref("vortex.tensor.l2_norm")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -89,7 +88,7 @@ impl ScalarFnVTable for L2Norm {
         })?;
 
         vortex_ensure!(
-            AnyTensor::matches(ext),
+            ext.is::<AnyTensor>(),
             "L2Norm input must be an `AnyTensor`, got {input_dtype}"
         );
 
