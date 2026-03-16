@@ -17,7 +17,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-fsst-rs = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true, optional = true }
 vortex-array = { workspace = true }
@@ -33,7 +32,9 @@ _test-harness = ["dep:rand", "vortex-array/_test-harness"]
 divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
+snap = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+zstd = { workspace = true }
 
 [[bench]]
 name = "fsst_compress"
@@ -55,5 +56,8 @@ name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["_test-harness"]
 
-[package.metadata.cargo-machete]
-ignored = ["fsst-rs"]
+[[bench]]
+name = "fsst_vs_baselines"
+harness = false
+required-features = ["_test-harness"]
+

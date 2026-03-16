@@ -15,6 +15,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+pub mod fsst_rs;
 mod kernel;
 mod ops;
 mod rules;
@@ -26,3 +27,7 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+pub use fsst_rs::Compressor;
+pub use fsst_rs::CompressorBuilder;
+pub use fsst_rs::Decompressor;
+pub use fsst_rs::Symbol;

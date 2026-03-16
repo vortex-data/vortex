@@ -7,9 +7,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use fsst::Compressor;
-use fsst::Decompressor;
-use fsst::Symbol;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -53,6 +50,9 @@ use vortex_session::VortexSession;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
+use crate::fsst_rs::Compressor;
+use crate::fsst_rs::Decompressor;
+use crate::fsst_rs::Symbol;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
@@ -524,8 +524,6 @@ impl ValidityChild<FSST> for FSST {
 
 #[cfg(test)]
 mod test {
-    use fsst::Compressor;
-    use fsst::Symbol;
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
@@ -545,6 +543,8 @@ mod test {
     use crate::FSST;
     use crate::array::FSSTMetadata;
     use crate::fsst_compress_iter;
+    use crate::fsst_rs::Compressor;
+    use crate::fsst_rs::Symbol;
 
     #[cfg_attr(miri, ignore)]
     #[test]

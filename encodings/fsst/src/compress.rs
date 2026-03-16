@@ -3,8 +3,6 @@
 
 // Compress a set of values into an Array.
 
-use fsst::Compressor;
-use fsst::Symbol;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
@@ -15,6 +13,8 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 
 use crate::FSSTArray;
+use crate::fsst_rs::Compressor;
+use crate::fsst_rs::Symbol;
 
 /// Compress a string array using FSST.
 pub fn fsst_compress<A: ArrayAccessor<[u8]> + AsRef<dyn DynArray>>(
@@ -109,13 +109,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use fsst::CompressorBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
 
     use crate::compress::DEFAULT_BUFFER_LEN;
     use crate::fsst_compress_iter;
+    use crate::fsst_rs::CompressorBuilder;
 
     #[test]
     fn test_large_string() {
