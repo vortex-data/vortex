@@ -49,13 +49,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download fuzzer logs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.logs_artifact_name }}
           path: ./logs
 
       - name: Download crash artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}
           path: ./crash_artifacts
