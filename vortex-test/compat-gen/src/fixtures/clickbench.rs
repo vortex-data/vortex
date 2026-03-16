@@ -5,11 +5,14 @@ use std::path::Path;
 
 use arrow_array::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use vortex::layout::LayoutId;
 use vortex_array::ArrayRef;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::ExpectedEncoding;
 use super::Fixture;
 
 /// First partition of ClickBench hits, limited to 1000 rows.
@@ -27,6 +30,16 @@ impl Fixture for ClickBenchHits1kFixture {
 
     fn description(&self) -> &str {
         "First 1000 rows of ClickBench hits_0 partition (wide real-world schema)"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.primitive")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.varbin")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.struct")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.flat")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.struct")),
+        ]
     }
 
     fn setup(&self, tmp_dir: &Path) -> VortexResult<()> {

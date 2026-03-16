@@ -255,7 +255,10 @@ def _merge_manifest(
     for f in fixtures_json["fixtures"]:
         name = f["name"]
         since = prev_since.get(name, version)
-        entries.append({"name": name, "description": f["description"], "since": since})
+        entry = {"name": name, "description": f["description"], "since": since}
+        if "expected_encodings" in f:
+            entry["expected_encodings"] = f["expected_encodings"]
+        entries.append(entry)
 
     # Additive-only enforcement.
     current_names = {e["name"] for e in entries}
@@ -342,13 +345,16 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
     # Read fixtures.json and write a versioned manifest.
     fixtures_json = json.loads((output / "fixtures.json").read_text())
+    entries = []
+    for f in fixtures_json["fixtures"]:
+        entry = {"name": f["name"], "description": f["description"], "since": version}
+        if "expected_encodings" in f:
+            entry["expected_encodings"] = f["expected_encodings"]
+        entries.append(entry)
     manifest = {
         "version": version,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "fixtures": [
-            {"name": f["name"], "description": f["description"], "since": version}
-            for f in fixtures_json["fixtures"]
-        ],
+        "fixtures": entries,
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     _info(f"wrote manifest.json for v{version}")

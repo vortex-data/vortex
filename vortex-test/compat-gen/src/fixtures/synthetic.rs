@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use vortex::layout::LayoutId;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -11,9 +12,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
+use super::ExpectedEncoding;
 use super::Fixture;
 
 pub struct PrimitivesFixture;
@@ -25,6 +28,15 @@ impl Fixture for PrimitivesFixture {
 
     fn description(&self) -> &str {
         "All primitive types (u8–u64, i32, i64, f32, f64) at boundary values"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.primitive")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.struct")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.flat")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.struct")),
+        ]
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
@@ -71,6 +83,15 @@ impl Fixture for StringsFixture {
         "UTF-8 strings: empty, ASCII, multibyte (Japanese), and emoji"
     }
 
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.varbin")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.struct")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.flat")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.struct")),
+        ]
+    }
+
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let strings = VarBinArray::from(vec!["", "hello", "こんにちは", "\u{1f980}"]);
         let arr = StructArray::try_new(
@@ -94,6 +115,15 @@ impl Fixture for BooleansFixture {
         "Boolean column with mixed true/false values"
     }
 
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.bool")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.struct")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.flat")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.struct")),
+        ]
+    }
+
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let bools = BoolArray::from_iter([true, false, true, true, false]);
         let arr = StructArray::try_new(
@@ -115,6 +145,17 @@ impl Fixture for NullableFixture {
 
     fn description(&self) -> &str {
         "Nullable int and string columns with interspersed nulls"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.primitive")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.varbin")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.struct")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.masked")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.flat")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.struct")),
+        ]
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
@@ -141,6 +182,16 @@ impl Fixture for StructNestedFixture {
 
     fn description(&self) -> &str {
         "Nested struct-in-struct with primitive and string leaf columns"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.primitive")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.varbin")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.struct")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.flat")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.struct")),
+        ]
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
@@ -176,6 +227,16 @@ impl Fixture for ChunkedFixture {
 
     fn description(&self) -> &str {
         "Multi-chunk file: 3 chunks of 1000 rows with deterministic values"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.primitive")),
+            ExpectedEncoding::Array(ArrayId::new_ref("vortex.struct")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.chunked")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.flat")),
+            ExpectedEncoding::Layout(LayoutId::new_ref("vortex.struct")),
+        ]
     }
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {

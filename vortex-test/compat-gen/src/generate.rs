@@ -22,6 +22,7 @@ struct FixturesJson {
 struct FixtureInfo {
     name: String,
     description: String,
+    expected_encodings: Vec<String>,
 }
 
 /// Generate all fixtures into `output_dir`.
@@ -65,6 +66,11 @@ pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
         infos.push(FixtureInfo {
             name: fixture.name().to_string(),
             description: fixture.description().to_string(),
+            expected_encodings: fixture
+                .expected_encodings()
+                .iter()
+                .map(|e| e.to_string())
+                .collect(),
         });
         eprintln!("  wrote {}", fixture.name());
     }
