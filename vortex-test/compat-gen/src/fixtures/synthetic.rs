@@ -6,6 +6,9 @@ use std::path::Path;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
@@ -219,5 +222,119 @@ impl Fixture for ChunkedFixture {
                 .into_array())
             })
             .collect()
+    }
+}
+
+pub struct ListFixture;
+
+impl Fixture for ListFixture {
+    fn name(&self) -> &str {
+        "list.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Variable-length list arrays with integer and string elements"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![]
+    }
+
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
+        // List of i32: [[1,2,3], [4,5], [6], [7,8,9,10], []]
+        let elements = PrimitiveArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            Validity::NonNullable,
+        );
+        let offsets = PrimitiveArray::new(buffer![0i64, 3, 5, 6, 10, 10], Validity::NonNullable);
+        let int_list = ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::NonNullable,
+        )?;
+
+        // List of strings: [["a","b"], ["hello"], [], ["x","y","z"]]
+        let str_elements = VarBinArray::from(vec!["a", "b", "hello", "x", "y", "z"]);
+        let str_offsets = PrimitiveArray::new(buffer![0i64, 2, 3, 3, 6], Validity::NonNullable);
+        let str_list = ListArray::try_new(
+            str_elements.into_array(),
+            str_offsets.into_array(),
+            Validity::NonNullable,
+        )?;
+
+        let arr = StructArray::try_new(
+            FieldNames::from(["int_list", "str_list"]),
+            vec![int_list.into_array(), str_list.into_array()],
+            4,
+            Validity::NonNullable,
+        )?;
+        Ok(vec![arr.into_array()])
+    }
+}
+
+pub struct FixedSizeListFixture;
+
+impl Fixture for FixedSizeListFixture {
+    fn name(&self) -> &str {
+        "fixed_size_list.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Fixed-size list arrays (e.g. 3-element vectors)"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![]
+    }
+
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
+        // 4 vectors of 3 f64 each: [[1.0,2.0,3.0], [4.0,5.0,6.0], [7.0,8.0,9.0], [10.0,11.0,12.0]]
+        let elements = PrimitiveArray::new(
+            buffer![
+                1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0
+            ],
+            Validity::NonNullable,
+        );
+        let fsl = FixedSizeListArray::try_new(elements.into_array(), 3, Validity::NonNullable, 4)?;
+
+        let arr = StructArray::try_new(
+            FieldNames::from(["vectors"]),
+            vec![fsl.into_array()],
+            4,
+            Validity::NonNullable,
+        )?;
+        Ok(vec![arr.into_array()])
+    }
+}
+
+pub struct NullFixture;
+
+impl Fixture for NullFixture {
+    fn name(&self) -> &str {
+        "null.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "All-null column using NullArray"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![]
+    }
+
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
+        let null_col = NullArray::new(10);
+        let int_col = PrimitiveArray::new(
+            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            Validity::NonNullable,
+        );
+
+        let arr = StructArray::try_new(
+            FieldNames::from(["nulls", "ids"]),
+            vec![null_col.into_array(), int_col.into_array()],
+            10,
+            Validity::NonNullable,
+        )?;
+        Ok(vec![arr.into_array()])
     }
 }

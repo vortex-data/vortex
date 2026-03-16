@@ -56,6 +56,9 @@ pub fn all_fixtures() -> Vec<Box<dyn Fixture>> {
         Box::new(synthetic::NullableFixture),
         Box::new(synthetic::StructNestedFixture),
         Box::new(synthetic::ChunkedFixture),
+        Box::new(synthetic::ListFixture),
+        Box::new(synthetic::FixedSizeListFixture),
+        Box::new(synthetic::NullFixture),
         // Real-world fixtures
         Box::new(tpch::TpchLineitemFixture),
         Box::new(tpch::TpchOrdersFixture),

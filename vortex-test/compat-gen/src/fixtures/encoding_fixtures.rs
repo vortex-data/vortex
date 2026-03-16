@@ -57,6 +57,7 @@ pub fn all_encoding_fixtures() -> Vec<Box<dyn Fixture>> {
         Box::new(ChunkedLayoutFixture),
         Box::new(DictLayoutFixture),
         Box::new(StructLayoutFixture),
+        Box::new(ZonedLayoutFixture),
     ]
 }
 
@@ -87,14 +88,31 @@ impl Fixture for AlpFixture {
         let f64_nullable = PrimitiveArray::from_option_iter(
             (0..N as i64).map(|i| (i % 10 != 0).then_some(50.0 + (i as f64) * 0.125)),
         );
+        // f64 with patches: mostly decimal-like with occasional outliers (PI, E)
+        let f64_patched: Vec<f64> = (0..N)
+            .map(|i| {
+                if i % 100 == 0 {
+                    std::f64::consts::PI * (i as f64 + 1.0)
+                } else {
+                    (i as f64) * 0.01
+                }
+            })
+            .collect();
 
         let arr = StructArray::try_new(
-            FieldNames::from(["f64_prices", "f32_near_int", "f64_currency", "f64_nullable"]),
+            FieldNames::from([
+                "f64_prices",
+                "f32_near_int",
+                "f64_currency",
+                "f64_nullable",
+                "f64_patched",
+            ]),
             vec![
                 PrimitiveArray::new(Buffer::from(f64_prices), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(f32_near_int), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(f64_currency), Validity::NonNullable).into_array(),
                 f64_nullable.into_array(),
+                PrimitiveArray::new(Buffer::from(f64_patched), Validity::NonNullable).into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -134,11 +152,22 @@ impl Fixture for AlprdFixture {
             .map(|i| 1000.0 + (i as f64) * 0.001 + ((i * 3) % 7) as f64 * 0.0001)
             .collect();
 
+        // Nullable sensor readings with sparse nulls
+        let sensor_nullable = PrimitiveArray::from_option_iter((0..N).map(|i| {
+            if i % 13 == 0 {
+                None
+            } else {
+                let noise = ((i * 11 + 3) % 100) as f64 / 1000.0;
+                Some(37.0 + noise)
+            }
+        }));
+
         let arr = StructArray::try_new(
-            FieldNames::from(["sensor", "drift"]),
+            FieldNames::from(["sensor", "drift", "sensor_nullable"]),
             vec![
                 PrimitiveArray::new(Buffer::from(sensor), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(drift), Validity::NonNullable).into_array(),
+                sensor_nullable.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -172,13 +201,27 @@ impl Fixture for BitPackedFixture {
         let u32_8bit: Vec<u32> = (0..N as u32).map(|i| i % 256).collect();
         let u64_12bit: Vec<u64> = (0..N as u64).map(|i| i % 4096).collect();
         let u16_4bit: Vec<u16> = (0..N as u16).map(|i| i % 16).collect();
+        // 1-bit values (boolean-like in u8)
+        let u8_1bit: Vec<u8> = (0..N as u8).map(|i| i % 2).collect();
+        // Nullable u32 with small values
+        let u32_nullable = PrimitiveArray::from_option_iter(
+            (0..N as u32).map(|i| (i % 8 != 0).then_some(i % 128)),
+        );
 
         let arr = StructArray::try_new(
-            FieldNames::from(["u32_8bit", "u64_12bit", "u16_4bit"]),
+            FieldNames::from([
+                "u32_8bit",
+                "u64_12bit",
+                "u16_4bit",
+                "u8_1bit",
+                "u32_nullable",
+            ]),
             vec![
                 PrimitiveArray::new(Buffer::from(u32_8bit), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(u64_12bit), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(u16_4bit), Validity::NonNullable).into_array(),
+                PrimitiveArray::new(Buffer::from(u8_1bit), Validity::NonNullable).into_array(),
+                u32_nullable.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -213,14 +256,23 @@ impl Fixture for ByteBoolFixture {
         // Nullable booleans with 20% nulls
         let nullable_bool =
             BoolArray::from_iter((0..N).map(|i| (i % 5 != 0).then_some(i % 3 == 0)));
+        // All-false column
+        let all_false = BoolArray::from_iter((0..N).map(|_| false));
 
         let arr = StructArray::try_new(
-            FieldNames::from(["alternating", "mostly_true", "mixed", "nullable_bool"]),
+            FieldNames::from([
+                "alternating",
+                "mostly_true",
+                "mixed",
+                "nullable_bool",
+                "all_false",
+            ]),
             vec![
                 alternating.into_array(),
                 mostly_true.into_array(),
                 mixed.into_array(),
                 nullable_bool.into_array(),
+                all_false.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -283,13 +335,23 @@ impl Fixture for DateTimePartsFixture {
         let ts_us_nullable_arr =
             TemporalArray::new_timestamp(ts_us_nullable.into_array(), TimeUnit::Microseconds, None);
 
+        // Second precision (coarse timestamps)
+        let base_s: i64 = 1_704_067_200; // 2024-01-01T00:00:00 in seconds
+        let ts_s: Vec<i64> = (0..N as i64).map(|i| base_s + i * 86400).collect();
+        let ts_s_arr = TemporalArray::new_timestamp(
+            PrimitiveArray::new(Buffer::from(ts_s), Validity::NonNullable).into_array(),
+            TimeUnit::Seconds,
+            None,
+        );
+
         let arr = StructArray::try_new(
-            FieldNames::from(["ts_us", "ts_ns", "ts_ms", "ts_us_nullable"]),
+            FieldNames::from(["ts_us", "ts_ns", "ts_ms", "ts_us_nullable", "ts_s"]),
             vec![
                 ts_us_arr.into_array(),
                 ts_ns_arr.into_array(),
                 ts_ms_arr.into_array(),
                 ts_us_nullable_arr.into_array(),
+                ts_s_arr.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -330,9 +392,18 @@ impl Fixture for DecimalBytePartsFixture {
             .collect();
         let hi_prec_arr = DecimalArray::from_iter(hi_prec_values, hi_prec_dtype);
 
+        // Negative decimals
+        let neg_dtype = DecimalDType::new(10, 2);
+        let neg_values: Vec<i64> = (0..N as i64).map(|i| -5000 + (i * 3 % 10000)).collect();
+        let neg_arr = DecimalArray::from_iter(neg_values, neg_dtype);
+
         let arr = StructArray::try_new(
-            FieldNames::from(["dec_10_2", "dec_18_6"]),
-            vec![decimal_arr.into_array(), hi_prec_arr.into_array()],
+            FieldNames::from(["dec_10_2", "dec_18_6", "dec_negative"]),
+            vec![
+                decimal_arr.into_array(),
+                hi_prec_arr.into_array(),
+                neg_arr.into_array(),
+            ],
             N,
             Validity::NonNullable,
         )?;
@@ -365,6 +436,10 @@ impl Fixture for DeltaFixture {
         let sorted_i64: Vec<i64> = (0..N as i64).map(|i| 1_700_000_000 + i * 60).collect();
         // Constant-delta column (stride=1)
         let constant_delta: Vec<u32> = (0..N as u32).collect();
+        // Large-stride delta (tests bigger delta values)
+        let large_stride: Vec<u64> = (0..N as u64).map(|i| i * 1_000_000).collect();
+        // Monotonic u16 (small integer type)
+        let monotonic_u16: Vec<u16> = (0..N as u16).map(|i| i / 2).collect();
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -372,6 +447,8 @@ impl Fixture for DeltaFixture {
                 "sorted_i32",
                 "sorted_i64",
                 "constant_delta",
+                "large_stride",
+                "monotonic_u16",
             ]),
             vec![
                 PrimitiveArray::new(Buffer::from(monotonic_u64), Validity::NonNullable)
@@ -379,6 +456,9 @@ impl Fixture for DeltaFixture {
                 PrimitiveArray::new(Buffer::from(sorted_i32), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(sorted_i64), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(constant_delta), Validity::NonNullable)
+                    .into_array(),
+                PrimitiveArray::new(Buffer::from(large_stride), Validity::NonNullable).into_array(),
+                PrimitiveArray::new(Buffer::from(monotonic_u16), Validity::NonNullable)
                     .into_array(),
             ],
             N,
@@ -420,12 +500,30 @@ impl Fixture for DictFixture {
             .collect();
         let nullable_col = VarBinArray::from(nullable_values);
 
+        // Single-value dictionary (cardinality=1)
+        let single_val: Vec<&str> = (0..N).map(|_| "only_value").collect();
+        let single_col = VarBinArray::from(single_val);
+
+        // Boolean-valued dictionary (2 categories)
+        let bool_cat: Vec<&str> = (0..N)
+            .map(|i| if i % 3 == 0 { "yes" } else { "no" })
+            .collect();
+        let bool_cat_col = VarBinArray::from(bool_cat);
+
         let arr = StructArray::try_new(
-            FieldNames::from(["str_cat", "int_cat", "nullable_cat"]),
+            FieldNames::from([
+                "str_cat",
+                "int_cat",
+                "nullable_cat",
+                "single_cat",
+                "bool_cat",
+            ]),
             vec![
                 str_col.into_array(),
                 int_col.into_array(),
                 nullable_col.into_array(),
+                single_col.into_array(),
+                bool_cat_col.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -488,12 +586,20 @@ impl Fixture for FsstFixture {
         let nullable_refs: Vec<Option<&str>> = nullable_urls.iter().map(|s| s.as_deref()).collect();
         let nullable_col = VarBinArray::from(nullable_refs);
 
+        // Short strings (1-3 chars) with repetitive patterns
+        let short_tokens = ["a", "bb", "ccc", "dd", "e"];
+        let short_strs: Vec<&str> = (0..N)
+            .map(|i| short_tokens[i % short_tokens.len()])
+            .collect();
+        let short_col = VarBinArray::from(short_strs);
+
         let arr = StructArray::try_new(
-            FieldNames::from(["urls", "logs", "nullable_urls"]),
+            FieldNames::from(["urls", "logs", "nullable_urls", "short_strs"]),
             vec![
                 url_col.into_array(),
                 log_col.into_array(),
                 nullable_col.into_array(),
+                short_col.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -527,6 +633,12 @@ impl Fixture for FoRFixture {
         let clustered_i64: Vec<i64> = (0..N as i64).map(|i| 1_704_067_200 + (i % 3600)).collect();
         // Negative-range cluster
         let negative_i32: Vec<i32> = (0..N as i32).map(|i| -1_000_000 + (i % 50)).collect();
+        // Nullable clustered i32
+        let nullable_i32 = PrimitiveArray::from_option_iter(
+            (0..N as i32).map(|i| (i % 11 != 0).then_some(500_000 + (i % 200))),
+        );
+        // i16 small cluster
+        let clustered_i16: Vec<i16> = (0..N as i16).map(|i| 10000 + (i % 30)).collect();
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -534,6 +646,8 @@ impl Fixture for FoRFixture {
                 "clustered_u64",
                 "clustered_i64",
                 "negative_i32",
+                "nullable_i32",
+                "clustered_i16",
             ]),
             vec![
                 PrimitiveArray::new(Buffer::from(clustered_i32), Validity::NonNullable)
@@ -543,6 +657,9 @@ impl Fixture for FoRFixture {
                 PrimitiveArray::new(Buffer::from(clustered_i64), Validity::NonNullable)
                     .into_array(),
                 PrimitiveArray::new(Buffer::from(negative_i32), Validity::NonNullable).into_array(),
+                nullable_i32.into_array(),
+                PrimitiveArray::new(Buffer::from(clustered_i16), Validity::NonNullable)
+                    .into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -581,14 +698,19 @@ impl Fixture for PcoFixture {
         let pattern_u32: Vec<u32> = (0..N as u32)
             .map(|i| i.wrapping_mul(2_654_435_761) % 65536)
             .collect();
+        // Nullable f32 with smooth values
+        let nullable_f32 = PrimitiveArray::from_option_iter(
+            (0..N).map(|i| (i % 9 != 0).then_some((i as f32) * 0.1 + ((i * 3 % 7) as f32) * 0.01)),
+        );
 
         let arr = StructArray::try_new(
-            FieldNames::from(["irregular_i64", "smooth_f64", "pattern_u32"]),
+            FieldNames::from(["irregular_i64", "smooth_f64", "pattern_u32", "nullable_f32"]),
             vec![
                 PrimitiveArray::new(Buffer::from(irregular_i64), Validity::NonNullable)
                     .into_array(),
                 PrimitiveArray::new(Buffer::from(smooth_f64), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(pattern_u32), Validity::NonNullable).into_array(),
+                nullable_f32.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -622,13 +744,27 @@ impl Fixture for RleFixture {
         let runs_str: Vec<&str> = (0..N).map(|i| labels[i / 341 % labels.len()]).collect();
         let str_col = VarBinArray::from(runs_str);
         let runs_bool = BoolArray::from_iter((0..N).map(|i| (i / 128) % 2 == 0));
+        // Single-value run (entire column is one value)
+        let single_run: Vec<u64> = vec![42u64; N];
+        // Nullable i32 runs with run-aligned nulls
+        let nullable_runs = PrimitiveArray::from_option_iter(
+            (0..N as i32).map(|i| (i / 64 % 3 != 0).then_some(i / 64 * 10)),
+        );
 
         let arr = StructArray::try_new(
-            FieldNames::from(["runs_i32", "runs_str", "runs_bool"]),
+            FieldNames::from([
+                "runs_i32",
+                "runs_str",
+                "runs_bool",
+                "single_run",
+                "nullable_runs",
+            ]),
             vec![
                 PrimitiveArray::new(Buffer::from(runs_i32), Validity::NonNullable).into_array(),
                 str_col.into_array(),
                 runs_bool.into_array(),
+                PrimitiveArray::new(Buffer::from(single_run), Validity::NonNullable).into_array(),
+                nullable_runs.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -685,9 +821,21 @@ impl Fixture for RunEndFixture {
         }
         let status_col = VarBinArray::from(status_values);
 
+        // Uniform run length (64 elements per run)
+        let uniform_runs: Vec<i32> = (0..N as i32).map(|i| i / 64).collect();
+        let uniform_col = PrimitiveArray::new(Buffer::from(uniform_runs), Validity::NonNullable);
+
+        // Boolean runs
+        let bool_runs = BoolArray::from_iter((0..N).map(|i| (i / 32) % 2 == 0));
+
         let arr = StructArray::try_new(
-            FieldNames::from(["run_values", "statuses"]),
-            vec![run_col.into_array(), status_col.into_array()],
+            FieldNames::from(["run_values", "statuses", "uniform_runs", "bool_runs"]),
+            vec![
+                run_col.into_array(),
+                status_col.into_array(),
+                uniform_col.into_array(),
+                bool_runs.into_array(),
+            ],
             N,
             Validity::NonNullable,
         )?;
@@ -718,13 +866,19 @@ impl Fixture for SequenceFixture {
         let row_ids: Vec<u64> = (0..N as u64).collect();
         let stepped: Vec<i32> = (0..N as i32).map(|i| i * 5).collect();
         let offset: Vec<i64> = (0..N as i64).map(|i| i + 1000).collect();
+        // Negative-stride sequence (decreasing)
+        let decreasing: Vec<i64> = (0..N as i64).map(|i| 10000 - i * 3).collect();
+        // u32 sequence with large stride
+        let large_step: Vec<u32> = (0..N as u32).map(|i| i * 1000).collect();
 
         let arr = StructArray::try_new(
-            FieldNames::from(["row_ids", "stepped", "offset"]),
+            FieldNames::from(["row_ids", "stepped", "offset", "decreasing", "large_step"]),
             vec![
                 PrimitiveArray::new(Buffer::from(row_ids), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(stepped), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(offset), Validity::NonNullable).into_array(),
+                PrimitiveArray::new(Buffer::from(decreasing), Validity::NonNullable).into_array(),
+                PrimitiveArray::new(Buffer::from(large_step), Validity::NonNullable).into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -764,12 +918,30 @@ impl Fixture for SparseFixture {
 
         let sparse_bool_col = BoolArray::from_iter((0..N).map(|i| (i % 100 == 0).then_some(true)));
 
+        // Very sparse f64 (1% density)
+        let sparse_f64 = PrimitiveArray::from_option_iter(
+            (0..N as i64).map(|i| (i % 100 == 0).then_some(i as f64 * 2.71)),
+        );
+
+        // Sparse values at first and last positions
+        let sparse_boundary = PrimitiveArray::from_option_iter(
+            (0..N as i64).map(|i| (i == 0 || i == (N as i64 - 1) || i % 200 == 0).then(|| i * 7)),
+        );
+
         let arr = StructArray::try_new(
-            FieldNames::from(["sparse_i64", "sparse_str", "sparse_bool"]),
+            FieldNames::from([
+                "sparse_i64",
+                "sparse_str",
+                "sparse_bool",
+                "sparse_f64",
+                "sparse_boundary",
+            ]),
             vec![
                 sparse_i64_col.into_array(),
                 sparse_str_col.into_array(),
                 sparse_bool_col.into_array(),
+                sparse_f64.into_array(),
+                sparse_boundary.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -808,15 +980,30 @@ impl Fixture for ZigZagFixture {
         let deltas_i32: Vec<i32> = (0..N as i32).map(|i| -(i % 50)).collect();
         // Small signed types: i8 and i16
         let small_i16: Vec<i16> = (0..N as i16).map(|i| (i % 11) - 5).collect();
+        // i8 with full range of small values
+        let small_i8: Vec<i8> = (0..N).map(|i| ((i % 9) as i8) - 4).collect();
+        // Nullable zigzag
+        let nullable_zigzag = PrimitiveArray::from_option_iter(
+            (0..N as i32).map(|i| (i % 6 != 0).then_some((i % 15) - 7)),
+        );
 
         let arr = StructArray::try_new(
-            FieldNames::from(["alternating_i32", "small_i64", "deltas_i32", "small_i16"]),
+            FieldNames::from([
+                "alternating_i32",
+                "small_i64",
+                "deltas_i32",
+                "small_i16",
+                "small_i8",
+                "nullable_zigzag",
+            ]),
             vec![
                 PrimitiveArray::new(Buffer::from(alternating_i32), Validity::NonNullable)
                     .into_array(),
                 PrimitiveArray::new(Buffer::from(small_i64), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(deltas_i32), Validity::NonNullable).into_array(),
                 PrimitiveArray::new(Buffer::from(small_i16), Validity::NonNullable).into_array(),
+                PrimitiveArray::new(Buffer::from(small_i8), Validity::NonNullable).into_array(),
+                nullable_zigzag.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -849,14 +1036,27 @@ impl Fixture for ConstantFixture {
         let const_f64 = ConstantArray::new(99.99f64, N);
         let const_bool = ConstantArray::new(true, N);
         let const_str = ConstantArray::new("constant_value", N);
+        // Zero constant
+        let const_zero = ConstantArray::new(0u64, N);
+        // Negative constant
+        let const_neg = ConstantArray::new(-1i64, N);
 
         let arr = StructArray::try_new(
-            FieldNames::from(["const_i32", "const_f64", "const_bool", "const_str"]),
+            FieldNames::from([
+                "const_i32",
+                "const_f64",
+                "const_bool",
+                "const_str",
+                "const_zero",
+                "const_neg",
+            ]),
             vec![
                 const_i32.into_array(),
                 const_f64.into_array(),
                 const_bool.into_array(),
                 const_str.into_array(),
+                const_zero.into_array(),
+                const_neg.into_array(),
             ],
             N,
             Validity::NonNullable,
@@ -886,9 +1086,20 @@ impl Fixture for FlatLayoutFixture {
 
     fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
         let values: Vec<i32> = (0..64).collect();
+        let strings = VarBinArray::from(
+            (0..64)
+                .map(|i| format!("v{i}"))
+                .collect::<Vec<_>>()
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>(),
+        );
         let arr = StructArray::try_new(
-            FieldNames::from(["value"]),
-            vec![PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array()],
+            FieldNames::from(["value", "label"]),
+            vec![
+                PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array(),
+                strings.into_array(),
+            ],
             64,
             Validity::NonNullable,
         )?;
@@ -1041,5 +1252,57 @@ impl Fixture for StructLayoutFixture {
             Validity::NonNullable,
         )?;
         Ok(vec![arr.into_array()])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Zoned: zone-map / stats layout (vortex.stats)
+// ---------------------------------------------------------------------------
+
+pub struct ZonedLayoutFixture;
+
+impl Fixture for ZonedLayoutFixture {
+    fn name(&self) -> &str {
+        "layout_zoned.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Large enough data to trigger zoned/stats layout with per-zone statistics"
+    }
+
+    fn expected_encodings(&self) -> Vec<ExpectedEncoding> {
+        vec![ExpectedEncoding::Layout(LayoutId::new_ref("vortex.stats"))]
+    }
+
+    fn build(&self, _tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>> {
+        // Need enough rows to create multiple zones (default block_size=8192).
+        // Use 2 chunks of 8192 to get at least 2 zones.
+        let zone_n = 8192;
+        (0i64..2)
+            .map(|chunk_idx| {
+                let base = chunk_idx * zone_n as i64;
+                let ints: Vec<i64> = (0..zone_n as i64).map(|i| base + i).collect();
+                let floats: Vec<f64> = (0..zone_n)
+                    .map(|i| (base + i as i64) as f64 * 0.5)
+                    .collect();
+                let categories = ["cat_a", "cat_b", "cat_c"];
+                let cats: Vec<&str> = (0..zone_n)
+                    .map(|i| categories[i % categories.len()])
+                    .collect();
+
+                Ok(StructArray::try_new(
+                    FieldNames::from(["id", "measure", "category"]),
+                    vec![
+                        PrimitiveArray::new(Buffer::from(ints), Validity::NonNullable).into_array(),
+                        PrimitiveArray::new(Buffer::from(floats), Validity::NonNullable)
+                            .into_array(),
+                        VarBinArray::from(cats).into_array(),
+                    ],
+                    zone_n,
+                    Validity::NonNullable,
+                )?
+                .into_array())
+            })
+            .collect()
     }
 }
