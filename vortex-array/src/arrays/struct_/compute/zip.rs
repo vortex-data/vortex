@@ -34,9 +34,8 @@ impl ZipKernel for Struct {
         );
 
         let fields = if_true
-            .unmasked_fields()
-            .iter()
-            .zip(if_false.unmasked_fields().iter())
+            .iter_unmasked_fields()
+            .zip(if_false.iter_unmasked_fields())
             .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 

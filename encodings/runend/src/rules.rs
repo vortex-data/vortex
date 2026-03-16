@@ -41,7 +41,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
         parent: &ScalarFnArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        for (idx, child) in parent.children().iter().enumerate() {
+        for (idx, child) in parent.iter_children().enumerate() {
             if idx == child_idx {
                 // Skip ourselves
                 continue;

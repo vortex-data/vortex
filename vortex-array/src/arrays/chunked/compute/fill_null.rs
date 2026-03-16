@@ -14,8 +14,7 @@ use crate::scalar_fn::fns::fill_null::FillNullReduce;
 impl FillNullReduce for Chunked {
     fn fill_null(array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
         let new_chunks = array
-            .chunks()
-            .iter()
+            .iter_chunks()
             .map(|c| c.fill_null(fill_value.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 

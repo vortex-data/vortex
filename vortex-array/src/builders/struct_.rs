@@ -168,8 +168,7 @@ impl ArrayBuilder for StructBuilder {
         let array = array.to_struct();
 
         for (a, builder) in array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .zip_eq(self.builders.iter_mut())
         {
             builder.extend_from_array(a);

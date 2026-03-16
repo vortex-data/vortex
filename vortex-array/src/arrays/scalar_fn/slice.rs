@@ -14,8 +14,7 @@ use crate::arrays::slice::SliceReduce;
 impl SliceReduce for ScalarFnVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let children: Vec<_> = array
-            .children()
-            .iter()
+            .iter_children()
             .map(|c| c.slice(range.clone()))
             .collect::<VortexResult<_>>()?;
 

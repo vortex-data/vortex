@@ -32,7 +32,7 @@ fn is_sorted_impl(
 ) -> VortexResult<Option<bool>> {
     let mut first_last = Vec::default();
 
-    for chunk in array.chunks() {
+    for chunk in array.iter_chunks() {
         if chunk.is_empty() {
             continue;
         }
@@ -51,8 +51,8 @@ fn is_sorted_impl(
         return Ok(Some(false));
     }
 
-    for chunk in array.chunks() {
-        match reentry_fn(&chunk)? {
+    for chunk in array.iter_chunks() {
+        match reentry_fn(chunk)? {
             None => {
                 return Ok(None);
             }

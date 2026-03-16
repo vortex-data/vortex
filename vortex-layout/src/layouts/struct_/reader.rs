@@ -363,8 +363,7 @@ impl LayoutReader for StructReader {
                 if is_pack_merge {
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
-                        .unmasked_fields()
-                        .iter()
+                        .iter_unmasked_fields()
                         .map(|a| a.clone().mask(validity.clone()))
                         .try_collect()?;
 

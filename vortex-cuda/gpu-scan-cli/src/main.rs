@@ -179,8 +179,7 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
         let record = next.to_struct();
 
         for (field, field_name) in record
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .zip(record.struct_fields().names().iter())
         {
             let field_name = field_name.to_string();

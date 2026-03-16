@@ -75,7 +75,7 @@ impl VTable for ScalarFnVTable {
         array.len.hash(state);
         array.dtype.hash(state);
         array.scalar_fn.hash(state);
-        for child in array.children() {
+        for child in array.iter_children() {
             child.array_hash(state, precision);
         }
     }
@@ -90,7 +90,7 @@ impl VTable for ScalarFnVTable {
         if array.scalar_fn != other.scalar_fn {
             return false;
         }
-        for (child, other_child) in array.children().iter().zip(other.children().iter()) {
+        for (child, other_child) in array.iter_children().zip(other.iter_children()) {
             if !child.array_eq(other_child, precision) {
                 return false;
             }
@@ -111,7 +111,7 @@ impl VTable for ScalarFnVTable {
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
-        let child_dtypes = array.children().iter().map(|c| c.dtype().clone()).collect();
+        let child_dtypes = array.iter_children().map(|c| c.dtype().clone()).collect();
         Ok(ScalarFnMetadata {
             scalar_fn: array.scalar_fn.clone(),
             child_dtypes,

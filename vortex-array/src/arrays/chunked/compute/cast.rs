@@ -14,7 +14,7 @@ use crate::scalar_fn::fns::cast::CastReduce;
 impl CastReduce for Chunked {
     fn cast(array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let mut cast_chunks = Vec::new();
-        for chunk in array.chunks() {
+        for chunk in array.iter_chunks() {
             cast_chunks.push(chunk.cast(dtype.clone())?);
         }
 

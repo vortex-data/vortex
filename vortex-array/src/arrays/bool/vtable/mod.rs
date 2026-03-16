@@ -17,7 +17,9 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::array::NUM_SLOTS;
 use crate::arrays::bool::array::SLOT_NAMES;
+use crate::arrays::bool::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -157,16 +159,20 @@ impl VTable for Bool {
     }
 
     fn slot_name(_array: &BoolArray, idx: usize) -> String {
-        let _ = SLOT_NAMES;
-        vortex_panic!("BoolArray has no slots, requested index {idx}")
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut BoolArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            slots.is_empty(),
-            "BoolArray expects 0 slots, got {}",
+            slots.len() == NUM_SLOTS,
+            "BoolArray expects {} slots, got {}",
+            NUM_SLOTS,
             slots.len()
         );
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype().nullability()),
+        };
         array.slots = slots;
         Ok(())
     }
@@ -198,4 +204,48 @@ pub struct Bool;
 
 impl Bool {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::ByteBufferMut;
+    use vortex_session::registry::ReadContext;
+
+    use crate::ArrayContext;
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::arrays::BoolArray;
+    use crate::assert_arrays_eq;
+    use crate::serde::ArrayParts;
+    use crate::serde::SerializeOptions;
+
+    #[test]
+    fn test_nullable_bool_serde_roundtrip() {
+        let array = BoolArray::from_iter([Some(true), None, Some(false), None]);
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let serialized = array
+            .clone()
+            .into_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert_arrays_eq!(decoded, array);
+    }
 }

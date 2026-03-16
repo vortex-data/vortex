@@ -16,8 +16,7 @@ use crate::vtable::ValidityHelper;
 impl SliceReduce for Struct {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let fields: Vec<_> = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| field.slice(range.clone()))
             .try_collect()?;
 

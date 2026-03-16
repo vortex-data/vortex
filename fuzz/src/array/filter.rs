@@ -93,8 +93,7 @@ pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let filtered_children = struct_array
-                .unmasked_fields()
-                .iter()
+                .iter_unmasked_fields()
                 .map(|c| filter_canonical_array(c, filter))
                 .collect::<VortexResult<Vec<_>>>()?;
 

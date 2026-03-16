@@ -15,8 +15,7 @@ use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Chunked> for Chunked {
     fn validity(array: &ChunkedArray) -> VortexResult<Validity> {
-        let validities: Vec<Validity> =
-            array.chunks().iter().map(|c| c.validity()).try_collect()?;
+        let validities: Vec<Validity> = array.iter_chunks().map(|c| c.validity()).try_collect()?;
 
         match validities.first() {
             // If there are no chunks, return the array's dtype nullability
@@ -42,7 +41,7 @@ impl ValidityVTable<Chunked> for Chunked {
                 ChunkedArray::new_unchecked(
                     validities
                         .into_iter()
-                        .zip(array.chunks())
+                        .zip(array.iter_chunks())
                         .map(|(v, chunk)| v.to_array(chunk.len()))
                         .collect(),
                     DType::Bool(Nullability::NonNullable),

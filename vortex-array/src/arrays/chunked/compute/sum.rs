@@ -14,8 +14,7 @@ use crate::scalar::Scalar;
 impl SumKernel for Chunked {
     fn sum(&self, array: &ChunkedArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         array
-            .chunks()
-            .iter()
+            .iter_chunks()
             .try_fold(accumulator.clone(), |result, chunk| {
                 sum_with_accumulator(chunk, &result)
             })

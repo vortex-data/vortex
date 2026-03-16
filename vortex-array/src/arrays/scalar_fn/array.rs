@@ -50,11 +50,27 @@ impl ScalarFnArray {
         &self.scalar_fn
     }
 
-    /// Get the children arrays of this scalar function array.
-    pub fn children(&self) -> Vec<ArrayRef> {
+    /// Get a child array by index.
+    pub fn get_child(&self, idx: usize) -> &ArrayRef {
+        self.slots[idx]
+            .as_ref()
+            .vortex_expect("ScalarFnArray child slot")
+    }
+
+    /// Get the number of children.
+    pub fn nchildren(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Iterate over the children arrays without allocation.
+    pub fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
         self.slots
             .iter()
-            .map(|s| s.as_ref().vortex_expect("ScalarFnArray child slot").clone())
-            .collect()
+            .map(|s| s.as_ref().vortex_expect("ScalarFnArray child slot"))
+    }
+
+    /// Get the children arrays of this scalar function array.
+    pub fn children(&self) -> Vec<ArrayRef> {
+        self.iter_children().cloned().collect()
     }
 }

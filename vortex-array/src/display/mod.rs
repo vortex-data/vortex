@@ -540,7 +540,7 @@ impl dyn DynArray + '_ {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.unmasked_fields().iter() {
+                        for field_array in struct_.iter_unmasked_fields() {
                             let value = field_array
                                 .scalar_at(row_idx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());

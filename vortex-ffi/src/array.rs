@@ -56,12 +56,12 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
 
-        let field_array = array
-            .to_struct()
-            .unmasked_fields()
-            .get(index as usize)
-            .ok_or_else(|| vortex_err!("Field index out of bounds"))?
-            .clone();
+        let struct_array = array.to_struct();
+        let idx = index as usize;
+        if idx >= struct_array.struct_fields().nfields() {
+            return Err(vortex_err!("Field index out of bounds"));
+        }
+        let field_array = struct_array.unmasked_field(idx).clone();
 
         Ok(vx_array::new(field_array))
     })

@@ -160,12 +160,23 @@ pub struct StructArrayParts {
 }
 
 impl StructArray {
-    /// Return the struct fields without the validity of the struct applied.
-    pub fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
+    /// Return a single struct field by index without the validity of the struct applied.
+    pub fn unmasked_field(&self, idx: usize) -> &ArrayRef {
+        self.slots[FIELDS_OFFSET + idx]
+            .as_ref()
+            .vortex_expect("StructArray field slot")
+    }
+
+    /// Return an iterator over the struct fields without the validity of the struct applied.
+    pub fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
         self.slots[FIELDS_OFFSET..]
             .iter()
-            .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
-            .collect()
+            .map(|s| s.as_ref().vortex_expect("StructArray field slot"))
+    }
+
+    /// Return the struct fields without the validity of the struct applied.
+    pub fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
+        self.iter_unmasked_fields().cloned().collect()
     }
 
     /// Return the struct field without the validity of the struct applied

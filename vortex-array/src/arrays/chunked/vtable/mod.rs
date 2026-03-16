@@ -77,7 +77,7 @@ impl VTable for Chunked {
             .chunk_offsets_array()
             .as_ref()
             .array_hash(state, precision);
-        for chunk in array.chunks() {
+        for chunk in array.iter_chunks() {
             chunk.array_hash(state, precision);
         }
     }
@@ -91,9 +91,8 @@ impl VTable for Chunked {
                 .array_eq(other.chunk_offsets_array().as_ref(), precision)
             && array.nchunks() == other.nchunks()
             && array
-                .chunks()
-                .iter()
-                .zip(other.chunks().iter())
+                .iter_chunks()
+                .zip(other.iter_chunks())
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
@@ -189,7 +188,7 @@ impl VTable for Chunked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        for chunk in array.chunks() {
+        for chunk in array.iter_chunks() {
             chunk.append_to_builder(builder, ctx)?;
         }
         Ok(())

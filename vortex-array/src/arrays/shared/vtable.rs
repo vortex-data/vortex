@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
+use async_lock::Mutex as AsyncMutex;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -102,6 +105,8 @@ impl VTable for Shared {
             slots.len()
         );
         array.slots = slots;
+        array.cached = Arc::new(OnceLock::new());
+        array.async_compute_lock = Arc::new(AsyncMutex::new(()));
         Ok(())
     }
 

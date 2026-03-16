@@ -69,8 +69,7 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let pattern = &children[1];
+        let pattern = scalar_fn_array.get_child(1);
         let options = *parent.options;
         <V as LikeReduce>::like(array, pattern, options)
     }
@@ -99,8 +98,7 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let pattern = &children[1];
+        let pattern = scalar_fn_array.get_child(1);
         let options = *parent.options;
         <V as LikeKernel>::like(array, pattern, options, ctx)
     }

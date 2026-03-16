@@ -155,12 +155,16 @@ impl ChunkedArray {
         Ok((index_chunk, index_in_chunk))
     }
 
-    /// Returns the chunks as a vector of owned references.
-    pub fn chunks(&self) -> Vec<ArrayRef> {
+    /// Returns an iterator over chunk references without allocation.
+    pub fn iter_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
         self.slots[1..]
             .iter()
-            .map(|s| s.as_ref().vortex_expect("ChunkedArray chunk slot").clone())
-            .collect()
+            .map(|s| s.as_ref().vortex_expect("ChunkedArray chunk slot"))
+    }
+
+    /// Returns the chunks as a vector of owned references.
+    pub fn chunks(&self) -> Vec<ArrayRef> {
+        self.iter_chunks().cloned().collect()
     }
 
     pub fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
@@ -195,7 +199,7 @@ impl ChunkedArray {
         let mut chunks_to_combine = Vec::new();
         let mut new_chunk_n_bytes = 0;
         let mut new_chunk_n_elements = 0;
-        for chunk in self.chunks() {
+        for chunk in self.iter_chunks() {
             let n_bytes = chunk.nbytes();
             let n_elements = chunk.len();
 
@@ -310,7 +314,7 @@ mod test {
         let rechunked = chunked.rechunk(1 << 16, 5).unwrap();
 
         assert_eq!(rechunked.nchunks(), 2);
-        assert!(rechunked.chunks().iter().all(|c| c.len() < 5));
+        assert!(rechunked.iter_chunks().all(|c| c.len() < 5));
         assert_arrays_eq!(chunked, rechunked);
     }
 

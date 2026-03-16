@@ -38,10 +38,7 @@ impl CastKernel for Struct {
 
         let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
         if fields_match_order {
-            for (field, target_type) in array
-                .unmasked_fields()
-                .iter()
-                .zip_eq(target_sdtype.fields())
+            for (field, target_type) in array.iter_unmasked_fields().zip_eq(target_sdtype.fields())
             {
                 let cast_field = field.cast(target_type)?;
                 cast_fields.push(cast_field);
@@ -66,8 +63,7 @@ impl CastKernel for Struct {
                     }
                     Some(src_field_idx) => {
                         // Field exists in source field. Cast it to the target type.
-                        let cast_field =
-                            array.unmasked_fields()[src_field_idx].cast(target_type)?;
+                        let cast_field = array.unmasked_field(src_field_idx).cast(target_type)?;
                         cast_fields.push(cast_field);
                     }
                 }
@@ -213,7 +209,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().unmasked_fields().len(), 2);
+        assert_eq!(result.to_struct().struct_fields().nfields(), 2);
     }
 
     #[test]
@@ -242,6 +238,6 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().unmasked_fields().len(), 3);
+        assert_eq!(result.to_struct().struct_fields().nfields(), 3);
     }
 }

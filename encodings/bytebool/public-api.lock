@@ -46,10 +46,6 @@ pub fn vortex_bytebool::ByteBool::buffer_name(_array: &vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_bytebool::ByteBoolArray>
 
-pub fn vortex_bytebool::ByteBool::child(array: &vortex_bytebool::ByteBoolArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_bytebool::ByteBool::child_name(_array: &vortex_bytebool::ByteBoolArray, idx: usize) -> alloc::string::String
-
 pub fn vortex_bytebool::ByteBool::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_bytebool::ByteBool::dtype(array: &vortex_bytebool::ByteBoolArray) -> &vortex_array::dtype::DType
@@ -66,15 +62,17 @@ pub fn vortex_bytebool::ByteBool::metadata(_array: &vortex_bytebool::ByteBoolArr
 
 pub fn vortex_bytebool::ByteBool::nbuffers(_array: &vortex_bytebool::ByteBoolArray) -> usize
 
-pub fn vortex_bytebool::ByteBool::nchildren(array: &vortex_bytebool::ByteBoolArray) -> usize
-
 pub fn vortex_bytebool::ByteBool::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_bytebool::ByteBool::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_bytebool::ByteBool::slot_name(_array: &vortex_bytebool::ByteBoolArray, idx: usize) -> alloc::string::String
+
+pub fn vortex_bytebool::ByteBool::slots(array: &vortex_bytebool::ByteBoolArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_bytebool::ByteBool::stats(array: &vortex_bytebool::ByteBoolArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
-pub fn vortex_bytebool::ByteBool::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_bytebool::ByteBool::with_slots(array: &mut vortex_bytebool::ByteBoolArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
 

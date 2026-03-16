@@ -27,8 +27,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];
 #[derive(Debug, Clone)]
 pub struct SharedArray {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
-    async_compute_lock: Arc<AsyncMutex<()>>,
+    pub(super) cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
+    pub(super) async_compute_lock: Arc<AsyncMutex<()>>,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
 }

@@ -63,7 +63,7 @@ impl VTable for Struct {
     fn array_hash<H: std::hash::Hasher>(array: &StructArray, state: &mut H, precision: Precision) {
         array.len.hash(state);
         array.dtype.hash(state);
-        for field in array.unmasked_fields().iter() {
+        for field in array.iter_unmasked_fields() {
             field.array_hash(state, precision);
         }
         array.validity.array_hash(state, precision);
@@ -74,9 +74,8 @@ impl VTable for Struct {
             && array.dtype == other.dtype
             && array.slots.len() == other.slots.len()
             && array
-                .unmasked_fields()
-                .iter()
-                .zip(other.unmasked_fields().iter())
+                .iter_unmasked_fields()
+                .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.validity.array_eq(&other.validity, precision)
     }
