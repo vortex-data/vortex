@@ -90,6 +90,8 @@ pub fn vortex_alp::ALP::nbuffers(_array: &vortex_alp::ALPArray) -> usize
 
 pub fn vortex_alp::ALP::nchildren(array: &vortex_alp::ALPArray) -> usize
 
+pub fn vortex_alp::ALP::plan_range_read(metadata: &vortex_array::metadata::ProstMetadata<vortex_alp::ALPMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
+
 pub fn vortex_alp::ALP::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_alp::ALP::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
@@ -245,6 +247,8 @@ pub fn vortex_alp::ALPRD::metadata(array: &vortex_alp::ALPRDArray) -> vortex_err
 pub fn vortex_alp::ALPRD::nbuffers(_array: &vortex_alp::ALPRDArray) -> usize
 
 pub fn vortex_alp::ALPRD::nchildren(array: &vortex_alp::ALPRDArray) -> usize
+
+pub fn vortex_alp::ALPRD::plan_range_read(metadata: &vortex_array::metadata::ProstMetadata<vortex_alp::ALPRDMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
 
 pub fn vortex_alp::ALPRD::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

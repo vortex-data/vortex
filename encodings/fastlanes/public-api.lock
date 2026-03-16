@@ -186,6 +186,8 @@ pub fn vortex_fastlanes::BitPacked::nbuffers(_array: &vortex_fastlanes::BitPacke
 
 pub fn vortex_fastlanes::BitPacked::nchildren(array: &vortex_fastlanes::BitPackedArray) -> usize
 
+pub fn vortex_fastlanes::BitPacked::plan_range_read(metadata: &vortex_array::metadata::ProstMetadata<vortex_fastlanes::bitpacking::vtable::BitPackedMetadata>, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
+
 pub fn vortex_fastlanes::BitPacked::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::BitPacked::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
@@ -331,6 +333,8 @@ pub fn vortex_fastlanes::Delta::metadata(array: &vortex_fastlanes::DeltaArray) -
 pub fn vortex_fastlanes::Delta::nbuffers(_array: &vortex_fastlanes::DeltaArray) -> usize
 
 pub fn vortex_fastlanes::Delta::nchildren(_array: &vortex_fastlanes::DeltaArray) -> usize
+
+pub fn vortex_fastlanes::Delta::plan_range_read(metadata: &vortex_array::metadata::ProstMetadata<vortex_fastlanes::delta::vtable::DeltaMetadata>, row_range: core::ops::range::Range<usize>, _row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
 
 pub fn vortex_fastlanes::Delta::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -483,6 +487,8 @@ pub fn vortex_fastlanes::FoR::metadata(array: &vortex_fastlanes::FoRArray) -> vo
 pub fn vortex_fastlanes::FoR::nbuffers(_array: &vortex_fastlanes::FoRArray) -> usize
 
 pub fn vortex_fastlanes::FoR::nchildren(_array: &vortex_fastlanes::FoRArray) -> usize
+
+pub fn vortex_fastlanes::FoR::plan_range_read(_metadata: &vortex_array::scalar::Scalar, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
 
 pub fn vortex_fastlanes::FoR::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

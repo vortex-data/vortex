@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -25,6 +26,9 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::BufferSubRange;
+use vortex_array::vtable::EncodingRangeRead;
+use vortex_array::vtable::RangeDecodeInfo;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_array::vtable::patches_child;
@@ -365,6 +369,44 @@ impl VTable for BitPacked {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        metadata: &ProstMetadata<BitPackedMetadata>,
+        row_range: Range<usize>,
+        _row_count: usize,
+        _dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        let bit_width = metadata.0.bit_width as usize;
+
+        if bit_width == 0 || metadata.0.offset != 0 {
+            return None;
+        }
+
+        // Patches and validity children not supported for range read.
+        if metadata.0.patches.is_some() {
+            return None;
+        }
+
+        let first_block = row_range.start / 1024;
+        let last_block = row_range.end.saturating_sub(1) / 1024;
+        let bytes_per_block = 128 * bit_width;
+        let byte_start = first_block * bytes_per_block;
+        let byte_end = (last_block + 1) * bytes_per_block;
+
+        let block_start_row = first_block * 1024;
+        let decode_len = row_range.end - block_start_row;
+        let intra_block_offset = row_range.start - block_start_row;
+        let post_slice = (intra_block_offset > 0).then_some(intra_block_offset..decode_len);
+
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![BufferSubRange::Range(byte_start..byte_end)],
+            children: vec![],
+            decode_info: RangeDecodeInfo::Leaf {
+                decode_len,
+                post_slice,
+            },
+        })
     }
 }
 

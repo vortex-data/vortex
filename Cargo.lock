@@ -10320,10 +10320,15 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "vortex-alp",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-bytebool",
+ "vortex-datetime-parts",
+ "vortex-decimal-byte-parts",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-mask",
@@ -10331,6 +10336,7 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
+ "vortex-zigzag",
 ]
 
 [[package]]

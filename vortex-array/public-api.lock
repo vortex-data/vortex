@@ -510,6 +510,8 @@ pub fn vortex_array::arrays::Bool::nbuffers(_array: &vortex_array::arrays::BoolA
 
 pub fn vortex_array::arrays::Bool::nchildren(array: &vortex_array::arrays::BoolArray) -> usize
 
+pub fn vortex_array::arrays::Bool::plan_range_read(metadata: &vortex_array::ProstMetadata<vortex_array::arrays::bool::vtable::BoolMetadata>, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Bool::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -736,6 +738,8 @@ pub fn vortex_array::arrays::Chunked::nbuffers(_array: &vortex_array::arrays::Ch
 
 pub fn vortex_array::arrays::Chunked::nchildren(array: &vortex_array::arrays::ChunkedArray) -> usize
 
+pub fn vortex_array::arrays::Chunked::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Chunked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -909,6 +913,8 @@ pub fn vortex_array::arrays::Constant::metadata(array: &vortex_array::arrays::Co
 pub fn vortex_array::arrays::Constant::nbuffers(_array: &vortex_array::arrays::ConstantArray) -> usize
 
 pub fn vortex_array::arrays::Constant::nchildren(_array: &vortex_array::arrays::ConstantArray) -> usize
+
+pub fn vortex_array::arrays::Constant::plan_range_read(_metadata: &vortex_array::scalar::Scalar, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Constant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -1134,6 +1140,8 @@ pub fn vortex_array::arrays::Decimal::nbuffers(_array: &vortex_array::arrays::De
 
 pub fn vortex_array::arrays::Decimal::nchildren(array: &vortex_array::arrays::DecimalArray) -> usize
 
+pub fn vortex_array::arrays::Decimal::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Decimal::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1356,6 +1364,8 @@ pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
+pub fn vortex_array::arrays::dict::Dict::plan_range_read(metadata: &vortex_array::ProstMetadata<vortex_array::arrays::dict::DictMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1473,6 +1483,8 @@ pub fn vortex_array::arrays::dict::Dict::metadata(array: &vortex_array::arrays::
 pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
+
+pub fn vortex_array::arrays::dict::Dict::plan_range_read(metadata: &vortex_array::ProstMetadata<vortex_array::arrays::dict::DictMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -1788,6 +1800,8 @@ pub fn vortex_array::arrays::Extension::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Extension::nchildren(_array: &vortex_array::arrays::ExtensionArray) -> usize
 
+pub fn vortex_array::arrays::Extension::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Extension::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1923,6 +1937,8 @@ pub fn vortex_array::arrays::Filter::metadata(array: &Self::Array) -> vortex_err
 pub fn vortex_array::arrays::Filter::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Filter::nchildren(_array: &Self::Array) -> usize
+
+pub fn vortex_array::arrays::Filter::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Filter::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -2154,6 +2170,8 @@ pub fn vortex_array::arrays::FixedSizeList::nbuffers(_array: &vortex_array::arra
 
 pub fn vortex_array::arrays::FixedSizeList::nchildren(array: &vortex_array::arrays::FixedSizeListArray) -> usize
 
+pub fn vortex_array::arrays::FixedSizeList::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::FixedSizeList::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::FixedSizeList::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2315,6 +2333,8 @@ pub fn vortex_array::arrays::List::metadata(array: &vortex_array::arrays::ListAr
 pub fn vortex_array::arrays::List::nbuffers(_array: &vortex_array::arrays::ListArray) -> usize
 
 pub fn vortex_array::arrays::List::nchildren(array: &vortex_array::arrays::ListArray) -> usize
+
+pub fn vortex_array::arrays::List::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::List::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -2498,6 +2518,8 @@ pub fn vortex_array::arrays::ListView::nbuffers(_array: &vortex_array::arrays::L
 
 pub fn vortex_array::arrays::ListView::nchildren(array: &vortex_array::arrays::ListViewArray) -> usize
 
+pub fn vortex_array::arrays::ListView::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::ListView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2676,6 +2698,8 @@ pub fn vortex_array::arrays::Masked::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Masked::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Masked::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Masked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2817,6 +2841,8 @@ pub fn vortex_array::arrays::null::Null::metadata(_array: &vortex_array::arrays:
 pub fn vortex_array::arrays::null::Null::nbuffers(_array: &vortex_array::arrays::null::NullArray) -> usize
 
 pub fn vortex_array::arrays::null::Null::nchildren(_array: &vortex_array::arrays::null::NullArray) -> usize
+
+pub fn vortex_array::arrays::null::Null::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::null::Null::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3049,6 +3075,8 @@ pub fn vortex_array::arrays::Primitive::metadata(_array: &vortex_array::arrays::
 pub fn vortex_array::arrays::Primitive::nbuffers(_array: &vortex_array::arrays::PrimitiveArray) -> usize
 
 pub fn vortex_array::arrays::Primitive::nchildren(array: &vortex_array::arrays::PrimitiveArray) -> usize
+
+pub fn vortex_array::arrays::Primitive::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, _row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Primitive::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3362,6 +3390,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3443,6 +3473,8 @@ pub fn vortex_array::arrays::Shared::metadata(_array: &Self::Array) -> vortex_er
 pub fn vortex_array::arrays::Shared::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Shared::nchildren(_array: &Self::Array) -> usize
+
+pub fn vortex_array::arrays::Shared::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Shared::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3561,6 +3593,8 @@ pub fn vortex_array::arrays::slice::Slice::metadata(array: &Self::Array) -> vort
 pub fn vortex_array::arrays::slice::Slice::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::slice::Slice::nchildren(_array: &Self::Array) -> usize
+
+pub fn vortex_array::arrays::slice::Slice::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::slice::Slice::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3828,6 +3862,8 @@ pub fn vortex_array::arrays::Struct::nbuffers(_array: &vortex_array::arrays::Str
 
 pub fn vortex_array::arrays::Struct::nchildren(array: &vortex_array::arrays::StructArray) -> usize
 
+pub fn vortex_array::arrays::Struct::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Struct::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Struct::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4057,6 +4093,8 @@ pub fn vortex_array::arrays::VarBin::metadata(array: &vortex_array::arrays::VarB
 pub fn vortex_array::arrays::VarBin::nbuffers(_array: &vortex_array::arrays::VarBinArray) -> usize
 
 pub fn vortex_array::arrays::VarBin::nchildren(array: &vortex_array::arrays::VarBinArray) -> usize
+
+pub fn vortex_array::arrays::VarBin::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::VarBin::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -4474,6 +4512,8 @@ pub fn vortex_array::arrays::VarBinView::nbuffers(array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::VarBinView::nchildren(array: &vortex_array::arrays::VarBinViewArray) -> usize
 
+pub fn vortex_array::arrays::VarBinView::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::VarBinView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBinView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4710,6 +4750,8 @@ pub fn vortex_array::arrays::Bool::nbuffers(_array: &vortex_array::arrays::BoolA
 
 pub fn vortex_array::arrays::Bool::nchildren(array: &vortex_array::arrays::BoolArray) -> usize
 
+pub fn vortex_array::arrays::Bool::plan_range_read(metadata: &vortex_array::ProstMetadata<vortex_array::arrays::bool::vtable::BoolMetadata>, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Bool::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4908,6 +4950,8 @@ pub fn vortex_array::arrays::Chunked::nbuffers(_array: &vortex_array::arrays::Ch
 
 pub fn vortex_array::arrays::Chunked::nchildren(array: &vortex_array::arrays::ChunkedArray) -> usize
 
+pub fn vortex_array::arrays::Chunked::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Chunked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5080,6 +5124,8 @@ pub fn vortex_array::arrays::Constant::nbuffers(_array: &vortex_array::arrays::C
 
 pub fn vortex_array::arrays::Constant::nchildren(_array: &vortex_array::arrays::ConstantArray) -> usize
 
+pub fn vortex_array::arrays::Constant::plan_range_read(_metadata: &vortex_array::scalar::Scalar, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Constant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Constant::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5239,6 +5285,8 @@ pub fn vortex_array::arrays::Decimal::metadata(array: &vortex_array::arrays::Dec
 pub fn vortex_array::arrays::Decimal::nbuffers(_array: &vortex_array::arrays::DecimalArray) -> usize
 
 pub fn vortex_array::arrays::Decimal::nchildren(array: &vortex_array::arrays::DecimalArray) -> usize
+
+pub fn vortex_array::arrays::Decimal::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Decimal::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5430,6 +5478,8 @@ pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
+pub fn vortex_array::arrays::dict::Dict::plan_range_read(metadata: &vortex_array::ProstMetadata<vortex_array::arrays::dict::DictMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5602,6 +5652,8 @@ pub fn vortex_array::arrays::Extension::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Extension::nchildren(_array: &vortex_array::arrays::ExtensionArray) -> usize
 
+pub fn vortex_array::arrays::Extension::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Extension::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5735,6 +5787,8 @@ pub fn vortex_array::arrays::Filter::metadata(array: &Self::Array) -> vortex_err
 pub fn vortex_array::arrays::Filter::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Filter::nchildren(_array: &Self::Array) -> usize
+
+pub fn vortex_array::arrays::Filter::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Filter::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -5881,6 +5935,8 @@ pub fn vortex_array::arrays::FixedSizeList::metadata(_array: &vortex_array::arra
 pub fn vortex_array::arrays::FixedSizeList::nbuffers(_array: &vortex_array::arrays::FixedSizeListArray) -> usize
 
 pub fn vortex_array::arrays::FixedSizeList::nchildren(array: &vortex_array::arrays::FixedSizeListArray) -> usize
+
+pub fn vortex_array::arrays::FixedSizeList::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::FixedSizeList::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6042,6 +6098,8 @@ pub fn vortex_array::arrays::List::nbuffers(_array: &vortex_array::arrays::ListA
 
 pub fn vortex_array::arrays::List::nchildren(array: &vortex_array::arrays::ListArray) -> usize
 
+pub fn vortex_array::arrays::List::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::List::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6202,6 +6260,8 @@ pub fn vortex_array::arrays::ListView::nbuffers(_array: &vortex_array::arrays::L
 
 pub fn vortex_array::arrays::ListView::nchildren(array: &vortex_array::arrays::ListViewArray) -> usize
 
+pub fn vortex_array::arrays::ListView::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::ListView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6360,6 +6420,8 @@ pub fn vortex_array::arrays::Masked::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Masked::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Masked::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Masked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6497,6 +6559,8 @@ pub fn vortex_array::arrays::null::Null::metadata(_array: &vortex_array::arrays:
 pub fn vortex_array::arrays::null::Null::nbuffers(_array: &vortex_array::arrays::null::NullArray) -> usize
 
 pub fn vortex_array::arrays::null::Null::nchildren(_array: &vortex_array::arrays::null::NullArray) -> usize
+
+pub fn vortex_array::arrays::null::Null::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::null::Null::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6661,6 +6725,8 @@ pub fn vortex_array::arrays::Primitive::metadata(_array: &vortex_array::arrays::
 pub fn vortex_array::arrays::Primitive::nbuffers(_array: &vortex_array::arrays::PrimitiveArray) -> usize
 
 pub fn vortex_array::arrays::Primitive::nchildren(array: &vortex_array::arrays::PrimitiveArray) -> usize
+
+pub fn vortex_array::arrays::Primitive::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, _row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Primitive::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6896,6 +6962,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6967,6 +7035,8 @@ pub fn vortex_array::arrays::Shared::metadata(_array: &Self::Array) -> vortex_er
 pub fn vortex_array::arrays::Shared::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Shared::nchildren(_array: &Self::Array) -> usize
+
+pub fn vortex_array::arrays::Shared::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Shared::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7083,6 +7153,8 @@ pub fn vortex_array::arrays::slice::Slice::metadata(array: &Self::Array) -> vort
 pub fn vortex_array::arrays::slice::Slice::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::slice::Slice::nchildren(_array: &Self::Array) -> usize
+
+pub fn vortex_array::arrays::slice::Slice::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::slice::Slice::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7227,6 +7299,8 @@ pub fn vortex_array::arrays::Struct::metadata(_array: &vortex_array::arrays::Str
 pub fn vortex_array::arrays::Struct::nbuffers(_array: &vortex_array::arrays::StructArray) -> usize
 
 pub fn vortex_array::arrays::Struct::nchildren(array: &vortex_array::arrays::StructArray) -> usize
+
+pub fn vortex_array::arrays::Struct::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Struct::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7482,6 +7556,8 @@ pub fn vortex_array::arrays::VarBin::nbuffers(_array: &vortex_array::arrays::Var
 
 pub fn vortex_array::arrays::VarBin::nchildren(array: &vortex_array::arrays::VarBinArray) -> usize
 
+pub fn vortex_array::arrays::VarBin::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::VarBin::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7711,6 +7787,8 @@ pub fn vortex_array::arrays::VarBinView::metadata(_array: &vortex_array::arrays:
 pub fn vortex_array::arrays::VarBinView::nbuffers(array: &vortex_array::arrays::VarBinViewArray) -> usize
 
 pub fn vortex_array::arrays::VarBinView::nchildren(array: &vortex_array::arrays::VarBinViewArray) -> usize
+
+pub fn vortex_array::arrays::VarBinView::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::VarBinView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20444,6 +20522,152 @@ pub struct vortex_array::variants::Utf8Typed<'a>(_)
 
 pub mod vortex_array::vtable
 
+pub mod vortex_array::vtable::range_read
+
+pub enum vortex_array::vtable::range_read::BufferSubRange
+
+pub vortex_array::vtable::range_read::BufferSubRange::Full
+
+pub vortex_array::vtable::range_read::BufferSubRange::Range(core::ops::range::Range<usize>)
+
+impl core::clone::Clone for vortex_array::vtable::BufferSubRange
+
+pub fn vortex_array::vtable::BufferSubRange::clone(&self) -> vortex_array::vtable::BufferSubRange
+
+impl core::fmt::Debug for vortex_array::vtable::BufferSubRange
+
+pub fn vortex_array::vtable::BufferSubRange::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_array::vtable::range_read::ChildRangeRead
+
+pub vortex_array::vtable::range_read::ChildRangeRead::Full
+
+pub vortex_array::vtable::range_read::ChildRangeRead::Recurse
+
+pub vortex_array::vtable::range_read::ChildRangeRead::Recurse::dtype: vortex_array::dtype::DType
+
+pub vortex_array::vtable::range_read::ChildRangeRead::Recurse::row_count: usize
+
+pub vortex_array::vtable::range_read::ChildRangeRead::Recurse::row_range: core::ops::range::Range<usize>
+
+impl core::clone::Clone for vortex_array::vtable::ChildRangeRead
+
+pub fn vortex_array::vtable::ChildRangeRead::clone(&self) -> vortex_array::vtable::ChildRangeRead
+
+impl core::fmt::Debug for vortex_array::vtable::ChildRangeRead
+
+pub fn vortex_array::vtable::ChildRangeRead::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_array::vtable::range_read::RangeDecodeInfo
+
+pub vortex_array::vtable::range_read::RangeDecodeInfo::FromChild
+
+pub vortex_array::vtable::range_read::RangeDecodeInfo::FromChild::child_idx: usize
+
+pub vortex_array::vtable::range_read::RangeDecodeInfo::FromChild::divisor: usize
+
+pub vortex_array::vtable::range_read::RangeDecodeInfo::Leaf
+
+pub vortex_array::vtable::range_read::RangeDecodeInfo::Leaf::decode_len: usize
+
+pub vortex_array::vtable::range_read::RangeDecodeInfo::Leaf::post_slice: core::option::Option<core::ops::range::Range<usize>>
+
+impl core::clone::Clone for vortex_array::vtable::RangeDecodeInfo
+
+pub fn vortex_array::vtable::RangeDecodeInfo::clone(&self) -> vortex_array::vtable::RangeDecodeInfo
+
+impl core::fmt::Debug for vortex_array::vtable::RangeDecodeInfo
+
+pub fn vortex_array::vtable::RangeDecodeInfo::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_array::vtable::range_read::EncodingRangeRead
+
+pub vortex_array::vtable::range_read::EncodingRangeRead::buffer_sub_ranges: alloc::vec::Vec<vortex_array::vtable::BufferSubRange>
+
+pub vortex_array::vtable::range_read::EncodingRangeRead::children: alloc::vec::Vec<vortex_array::vtable::ChildRangeRead>
+
+pub vortex_array::vtable::range_read::EncodingRangeRead::decode_info: vortex_array::vtable::RangeDecodeInfo
+
+impl core::clone::Clone for vortex_array::vtable::EncodingRangeRead
+
+pub fn vortex_array::vtable::EncodingRangeRead::clone(&self) -> vortex_array::vtable::EncodingRangeRead
+
+impl core::fmt::Debug for vortex_array::vtable::EncodingRangeRead
+
+pub fn vortex_array::vtable::EncodingRangeRead::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_array::vtable::BufferSubRange
+
+pub vortex_array::vtable::BufferSubRange::Full
+
+pub vortex_array::vtable::BufferSubRange::Range(core::ops::range::Range<usize>)
+
+impl core::clone::Clone for vortex_array::vtable::BufferSubRange
+
+pub fn vortex_array::vtable::BufferSubRange::clone(&self) -> vortex_array::vtable::BufferSubRange
+
+impl core::fmt::Debug for vortex_array::vtable::BufferSubRange
+
+pub fn vortex_array::vtable::BufferSubRange::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_array::vtable::ChildRangeRead
+
+pub vortex_array::vtable::ChildRangeRead::Full
+
+pub vortex_array::vtable::ChildRangeRead::Recurse
+
+pub vortex_array::vtable::ChildRangeRead::Recurse::dtype: vortex_array::dtype::DType
+
+pub vortex_array::vtable::ChildRangeRead::Recurse::row_count: usize
+
+pub vortex_array::vtable::ChildRangeRead::Recurse::row_range: core::ops::range::Range<usize>
+
+impl core::clone::Clone for vortex_array::vtable::ChildRangeRead
+
+pub fn vortex_array::vtable::ChildRangeRead::clone(&self) -> vortex_array::vtable::ChildRangeRead
+
+impl core::fmt::Debug for vortex_array::vtable::ChildRangeRead
+
+pub fn vortex_array::vtable::ChildRangeRead::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_array::vtable::RangeDecodeInfo
+
+pub vortex_array::vtable::RangeDecodeInfo::FromChild
+
+pub vortex_array::vtable::RangeDecodeInfo::FromChild::child_idx: usize
+
+pub vortex_array::vtable::RangeDecodeInfo::FromChild::divisor: usize
+
+pub vortex_array::vtable::RangeDecodeInfo::Leaf
+
+pub vortex_array::vtable::RangeDecodeInfo::Leaf::decode_len: usize
+
+pub vortex_array::vtable::RangeDecodeInfo::Leaf::post_slice: core::option::Option<core::ops::range::Range<usize>>
+
+impl core::clone::Clone for vortex_array::vtable::RangeDecodeInfo
+
+pub fn vortex_array::vtable::RangeDecodeInfo::clone(&self) -> vortex_array::vtable::RangeDecodeInfo
+
+impl core::fmt::Debug for vortex_array::vtable::RangeDecodeInfo
+
+pub fn vortex_array::vtable::RangeDecodeInfo::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_array::vtable::EncodingRangeRead
+
+pub vortex_array::vtable::EncodingRangeRead::buffer_sub_ranges: alloc::vec::Vec<vortex_array::vtable::BufferSubRange>
+
+pub vortex_array::vtable::EncodingRangeRead::children: alloc::vec::Vec<vortex_array::vtable::ChildRangeRead>
+
+pub vortex_array::vtable::EncodingRangeRead::decode_info: vortex_array::vtable::RangeDecodeInfo
+
+impl core::clone::Clone for vortex_array::vtable::EncodingRangeRead
+
+pub fn vortex_array::vtable::EncodingRangeRead::clone(&self) -> vortex_array::vtable::EncodingRangeRead
+
+impl core::fmt::Debug for vortex_array::vtable::EncodingRangeRead
+
+pub fn vortex_array::vtable::EncodingRangeRead::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_array::vtable::NotSupported
 
 impl<V: vortex_array::vtable::VTable> vortex_array::vtable::OperationsVTable<V> for vortex_array::vtable::NotSupported
@@ -20489,6 +20713,8 @@ pub fn vortex_array::vtable::DynVTable::build(&self, id: vortex_array::vtable::A
 pub fn vortex_array::vtable::DynVTable::execute(&self, array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::vtable::DynVTable::execute_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub fn vortex_array::vtable::DynVTable::plan_range_read(&self, metadata_bytes: &[u8], row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::vtable::DynVTable::reduce(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20624,6 +20850,8 @@ pub fn vortex_array::vtable::VTable::nbuffers(array: &Self::Array) -> usize
 
 pub fn vortex_array::vtable::VTable::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::vtable::VTable::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::vtable::VTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::vtable::VTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20677,6 +20905,8 @@ pub fn vortex_array::arrays::Bool::metadata(array: &vortex_array::arrays::BoolAr
 pub fn vortex_array::arrays::Bool::nbuffers(_array: &vortex_array::arrays::BoolArray) -> usize
 
 pub fn vortex_array::arrays::Bool::nchildren(array: &vortex_array::arrays::BoolArray) -> usize
+
+pub fn vortex_array::arrays::Bool::plan_range_read(metadata: &vortex_array::ProstMetadata<vortex_array::arrays::bool::vtable::BoolMetadata>, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Bool::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20732,6 +20962,8 @@ pub fn vortex_array::arrays::Chunked::nbuffers(_array: &vortex_array::arrays::Ch
 
 pub fn vortex_array::arrays::Chunked::nchildren(array: &vortex_array::arrays::ChunkedArray) -> usize
 
+pub fn vortex_array::arrays::Chunked::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Chunked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20785,6 +21017,8 @@ pub fn vortex_array::arrays::Constant::metadata(array: &vortex_array::arrays::Co
 pub fn vortex_array::arrays::Constant::nbuffers(_array: &vortex_array::arrays::ConstantArray) -> usize
 
 pub fn vortex_array::arrays::Constant::nchildren(_array: &vortex_array::arrays::ConstantArray) -> usize
+
+pub fn vortex_array::arrays::Constant::plan_range_read(_metadata: &vortex_array::scalar::Scalar, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Constant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20840,6 +21074,8 @@ pub fn vortex_array::arrays::Decimal::nbuffers(_array: &vortex_array::arrays::De
 
 pub fn vortex_array::arrays::Decimal::nchildren(array: &vortex_array::arrays::DecimalArray) -> usize
 
+pub fn vortex_array::arrays::Decimal::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Decimal::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20893,6 +21129,8 @@ pub fn vortex_array::arrays::Extension::metadata(_array: &vortex_array::arrays::
 pub fn vortex_array::arrays::Extension::nbuffers(_array: &vortex_array::arrays::ExtensionArray) -> usize
 
 pub fn vortex_array::arrays::Extension::nchildren(_array: &vortex_array::arrays::ExtensionArray) -> usize
+
+pub fn vortex_array::arrays::Extension::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Extension::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20948,6 +21186,8 @@ pub fn vortex_array::arrays::Filter::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Filter::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Filter::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Filter::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Filter::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21001,6 +21241,8 @@ pub fn vortex_array::arrays::FixedSizeList::metadata(_array: &vortex_array::arra
 pub fn vortex_array::arrays::FixedSizeList::nbuffers(_array: &vortex_array::arrays::FixedSizeListArray) -> usize
 
 pub fn vortex_array::arrays::FixedSizeList::nchildren(array: &vortex_array::arrays::FixedSizeListArray) -> usize
+
+pub fn vortex_array::arrays::FixedSizeList::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::FixedSizeList::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21056,6 +21298,8 @@ pub fn vortex_array::arrays::List::nbuffers(_array: &vortex_array::arrays::ListA
 
 pub fn vortex_array::arrays::List::nchildren(array: &vortex_array::arrays::ListArray) -> usize
 
+pub fn vortex_array::arrays::List::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::List::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21109,6 +21353,8 @@ pub fn vortex_array::arrays::ListView::metadata(array: &vortex_array::arrays::Li
 pub fn vortex_array::arrays::ListView::nbuffers(_array: &vortex_array::arrays::ListViewArray) -> usize
 
 pub fn vortex_array::arrays::ListView::nchildren(array: &vortex_array::arrays::ListViewArray) -> usize
+
+pub fn vortex_array::arrays::ListView::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::ListView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21164,6 +21410,8 @@ pub fn vortex_array::arrays::Masked::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Masked::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Masked::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Masked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21217,6 +21465,8 @@ pub fn vortex_array::arrays::Primitive::metadata(_array: &vortex_array::arrays::
 pub fn vortex_array::arrays::Primitive::nbuffers(_array: &vortex_array::arrays::PrimitiveArray) -> usize
 
 pub fn vortex_array::arrays::Primitive::nchildren(array: &vortex_array::arrays::PrimitiveArray) -> usize
+
+pub fn vortex_array::arrays::Primitive::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, _row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Primitive::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21272,6 +21522,8 @@ pub fn vortex_array::arrays::Shared::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Shared::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Shared::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::Shared::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Shared::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21325,6 +21577,8 @@ pub fn vortex_array::arrays::Struct::metadata(_array: &vortex_array::arrays::Str
 pub fn vortex_array::arrays::Struct::nbuffers(_array: &vortex_array::arrays::StructArray) -> usize
 
 pub fn vortex_array::arrays::Struct::nchildren(array: &vortex_array::arrays::StructArray) -> usize
+
+pub fn vortex_array::arrays::Struct::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::Struct::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21380,6 +21634,8 @@ pub fn vortex_array::arrays::VarBin::nbuffers(_array: &vortex_array::arrays::Var
 
 pub fn vortex_array::arrays::VarBin::nchildren(array: &vortex_array::arrays::VarBinArray) -> usize
 
+pub fn vortex_array::arrays::VarBin::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::VarBin::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21433,6 +21689,8 @@ pub fn vortex_array::arrays::VarBinView::metadata(_array: &vortex_array::arrays:
 pub fn vortex_array::arrays::VarBinView::nbuffers(array: &vortex_array::arrays::VarBinViewArray) -> usize
 
 pub fn vortex_array::arrays::VarBinView::nchildren(array: &vortex_array::arrays::VarBinViewArray) -> usize
+
+pub fn vortex_array::arrays::VarBinView::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::VarBinView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21488,6 +21746,8 @@ pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
+pub fn vortex_array::arrays::dict::Dict::plan_range_read(metadata: &vortex_array::ProstMetadata<vortex_array::arrays::dict::DictMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21541,6 +21801,8 @@ pub fn vortex_array::arrays::null::Null::metadata(_array: &vortex_array::arrays:
 pub fn vortex_array::arrays::null::Null::nbuffers(_array: &vortex_array::arrays::null::NullArray) -> usize
 
 pub fn vortex_array::arrays::null::Null::nchildren(_array: &vortex_array::arrays::null::NullArray) -> usize
+
+pub fn vortex_array::arrays::null::Null::plan_range_read(_metadata: &vortex_array::EmptyMetadata, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::null::Null::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21596,6 +21858,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
+
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21649,6 +21913,8 @@ pub fn vortex_array::arrays::slice::Slice::metadata(array: &Self::Array) -> vort
 pub fn vortex_array::arrays::slice::Slice::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::slice::Slice::nchildren(_array: &Self::Array) -> usize
+
+pub fn vortex_array::arrays::slice::Slice::plan_range_read(metadata: &Self::Metadata, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::EncodingRangeRead>
 
 pub fn vortex_array::arrays::slice::Slice::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 

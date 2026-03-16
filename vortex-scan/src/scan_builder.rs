@@ -74,6 +74,10 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
+    /// Whether to split row indices into merged ranges via [`attempt_split_ranges`].
+    /// When `false` and the selection is `IncludeByIndex` with no `row_range`,
+    /// each index gets its own tight single-row range for maximum range-read benefit.
+    split_row_indices: bool,
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -95,6 +99,7 @@ impl ScanBuilder<ArrayRef> {
             file_stats: None,
             limit: None,
             row_offset: 0,
+            split_row_indices: true,
         }
     }
 
@@ -158,6 +163,17 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
+        self
+    }
+
+    /// Whether to merge row indices into broader ranges when splitting.
+    ///
+    /// When `true` (the default), nearby row indices are merged into ranges
+    /// via density and gap heuristics. When `false` and the selection is
+    /// `IncludeByIndex` with no `row_range`, each index gets its own
+    /// single-row range for maximum range-read benefit.
+    pub fn with_split_row_indices(mut self, split: bool) -> Self {
+        self.split_row_indices = split;
         self
     }
 
@@ -233,6 +249,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            split_row_indices: self.split_row_indices,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
@@ -270,20 +287,36 @@ impl<A: 'static + Send> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
-        let splits =
-            if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
-                Splits::Ranges(ranges)
-            } else {
-                let split_range = self
-                    .row_range
-                    .clone()
-                    .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(self.split_by.splits(
-                    layout_reader.as_ref(),
-                    &split_range,
-                    &field_mask,
-                )?)
+        let splits = if !self.split_row_indices
+            && matches!(self.selection, Selection::IncludeByIndex(_))
+            && self.row_range.is_none()
+        {
+            // Per-index tight ranges for maximum range-read benefit.
+            let indices = match &self.selection {
+                Selection::IncludeByIndex(indices) => indices,
+                _ => unreachable!(),
             };
+            let ranges: Vec<_> = indices
+                .as_slice()
+                .iter()
+                .copied()
+                .map(|idx| idx..idx + 1)
+                .collect();
+            Splits::Ranges(ranges)
+        } else if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref())
+        {
+            Splits::Ranges(ranges)
+        } else {
+            let split_range = self
+                .row_range
+                .clone()
+                .unwrap_or_else(|| 0..layout_reader.row_count());
+            Splits::Natural(self.split_by.splits(
+                layout_reader.as_ref(),
+                &split_range,
+                &field_mask,
+            )?)
+        };
 
         Ok(RepeatedScan::new(
             self.session.clone(),

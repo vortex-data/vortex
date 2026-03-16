@@ -68,6 +68,8 @@ pub fn vortex_bytebool::ByteBool::nbuffers(_array: &vortex_bytebool::ByteBoolArr
 
 pub fn vortex_bytebool::ByteBool::nchildren(array: &vortex_bytebool::ByteBoolArray) -> usize
 
+pub fn vortex_bytebool::ByteBool::plan_range_read(_metadata: &vortex_array::metadata::EmptyMetadata, row_range: core::ops::range::Range<usize>, _row_count: usize, _dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
+
 pub fn vortex_bytebool::ByteBool::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_bytebool::ByteBool::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>

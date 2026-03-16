@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -22,6 +24,9 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::BufferSubRange;
+use crate::vtable::EncodingRangeRead;
+use crate::vtable::RangeDecodeInfo;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
@@ -204,6 +209,30 @@ impl VTable for Bool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        metadata: &ProstMetadata<BoolMetadata>,
+        row_range: Range<usize>,
+        _row_count: usize,
+        _dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        // Only support offset=0 and byte-aligned start.
+        if metadata.0.offset != 0 || !row_range.start.is_multiple_of(8) {
+            return None;
+        }
+
+        let byte_start = row_range.start / 8;
+        let byte_end = row_range.end.div_ceil(8);
+
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![BufferSubRange::Range(byte_start..byte_end)],
+            children: vec![],
+            decode_info: RangeDecodeInfo::Leaf {
+                decode_len: row_range.len(),
+                post_slice: None,
+            },
+        })
     }
 }
 

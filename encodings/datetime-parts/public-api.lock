@@ -80,6 +80,8 @@ pub fn vortex_datetime_parts::DateTimeParts::nbuffers(_array: &vortex_datetime_p
 
 pub fn vortex_datetime_parts::DateTimeParts::nchildren(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
 
+pub fn vortex_datetime_parts::DateTimeParts::plan_range_read(metadata: &vortex_array::metadata::ProstMetadata<vortex_datetime_parts::DateTimePartsMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
+
 pub fn vortex_datetime_parts::DateTimeParts::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_datetime_parts::DateTimeParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>

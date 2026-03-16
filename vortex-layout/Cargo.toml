@@ -52,9 +52,16 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-alp = { workspace = true }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
+vortex-btrblocks = { workspace = true }
+vortex-bytebool = { workspace = true }
+vortex-datetime-parts = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
+vortex-fastlanes = { workspace = true }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
 vortex-utils = { workspace = true, features = ["_test-harness"] }
+vortex-zigzag = { workspace = true }
 
 [features]
 _test-harness = []

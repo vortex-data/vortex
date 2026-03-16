@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -22,7 +23,10 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::BufferSubRange;
+use vortex_array::vtable::EncodingRangeRead;
 use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::RangeDecodeInfo;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
@@ -198,6 +202,23 @@ impl VTable for ByteBool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        _metadata: &EmptyMetadata,
+        row_range: Range<usize>,
+        _row_count: usize,
+        _dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        // 1 byte per boolean value
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![BufferSubRange::Range(row_range.start..row_range.end)],
+            children: vec![],
+            decode_info: RangeDecodeInfo::Leaf {
+                decode_len: row_range.len(),
+                post_slice: None,
+            },
+        })
     }
 }
 

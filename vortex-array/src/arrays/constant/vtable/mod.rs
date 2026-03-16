@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -37,6 +38,9 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
 use crate::vtable::ArrayId;
+use crate::vtable::BufferSubRange;
+use crate::vtable::EncodingRangeRead;
+use crate::vtable::RangeDecodeInfo;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
 mod operations;
@@ -176,6 +180,24 @@ impl VTable for Constant {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn plan_range_read(
+        _metadata: &Scalar,
+        row_range: Range<usize>,
+        _row_count: usize,
+        _dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        // Constant arrays have no data buffers to sub-range; only the scalar buffer
+        // which must be included fully.
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![BufferSubRange::Full],
+            children: vec![],
+            decode_info: RangeDecodeInfo::Leaf {
+                decode_len: row_range.len(),
+                post_slice: None,
+            },
+        })
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

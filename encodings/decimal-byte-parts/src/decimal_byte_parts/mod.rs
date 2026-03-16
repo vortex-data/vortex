@@ -6,6 +6,7 @@ mod rules;
 mod slice;
 
 use std::hash::Hash;
+use std::ops::Range;
 
 use prost::Message as _;
 use vortex_array::ArrayEq;
@@ -33,7 +34,10 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ChildRangeRead;
+use vortex_array::vtable::EncodingRangeRead;
 use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::RangeDecodeInfo;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityHelper;
@@ -201,6 +205,27 @@ impl VTable for DecimalByteParts {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        metadata: &ProstMetadata<DecimalBytesPartsMetadata>,
+        row_range: Range<usize>,
+        row_count: usize,
+        dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        let child_dtype = DType::Primitive(metadata.zeroth_child_ptype(), dtype.nullability());
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![],
+            children: vec![ChildRangeRead::Recurse {
+                row_range,
+                row_count,
+                dtype: child_dtype,
+            }],
+            decode_info: RangeDecodeInfo::FromChild {
+                child_idx: 0,
+                divisor: 1,
+            },
+        })
     }
 }
 

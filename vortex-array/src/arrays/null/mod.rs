@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -24,7 +25,9 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
+use crate::vtable::EncodingRangeRead;
 use crate::vtable::OperationsVTable;
+use crate::vtable::RangeDecodeInfo;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
@@ -134,6 +137,22 @@ impl VTable for Null {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(array.clone().into_array()))
+    }
+
+    fn plan_range_read(
+        _metadata: &EmptyMetadata,
+        row_range: Range<usize>,
+        _row_count: usize,
+        _dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![],
+            children: vec![],
+            decode_info: RangeDecodeInfo::Leaf {
+                decode_len: row_range.len(),
+                post_slice: None,
+            },
+        })
     }
 }
 

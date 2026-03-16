@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -25,6 +26,9 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ChildRangeRead;
+use vortex_array::vtable::EncodingRangeRead;
+use vortex_array::vtable::RangeDecodeInfo;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -257,6 +261,38 @@ impl VTable for ALP {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        metadata: &ProstMetadata<ALPMetadata>,
+        row_range: Range<usize>,
+        row_count: usize,
+        dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        // Patches cannot be safely sub-ranged (global indices).
+        if metadata.0.patches.is_some() {
+            return None;
+        }
+
+        // Child 0 = encoded values (f32→i32 or f64→i64).
+        let child_dtype = match dtype {
+            DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
+            DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
+            _ => return None,
+        };
+
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![],
+            children: vec![ChildRangeRead::Recurse {
+                row_range,
+                row_count,
+                dtype: child_dtype,
+            }],
+            decode_info: RangeDecodeInfo::FromChild {
+                child_idx: 0,
+                divisor: 1,
+            },
+        })
     }
 }
 

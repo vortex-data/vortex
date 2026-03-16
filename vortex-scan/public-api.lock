@@ -329,3 +329,5 @@ pub fn vortex_scan::ScanBuilder<A>::with_some_limit(self, limit: core::option::O
 pub fn vortex_scan::ScanBuilder<A>::with_some_metrics_registry(self, metrics: core::option::Option<alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>>) -> Self
 
 pub fn vortex_scan::ScanBuilder<A>::with_split_by(self, split_by: vortex_scan::SplitBy) -> Self
+
+pub fn vortex_scan::ScanBuilder<A>::with_split_row_indices(self, split: bool) -> Self

@@ -54,6 +54,22 @@ impl Default for LayoutSession {
     }
 }
 
+/// Session variable controlling whether FlatLayout range reads are enabled.
+///
+/// When `true` (the default), the reader will attempt to read only the byte range
+/// needed for the requested rows instead of reading the entire segment. This
+/// requires the `array_tree` metadata to be inlined in the layout footer at write
+/// time; when the metadata is absent, the reader falls back to a full segment read
+/// regardless of this setting.
+#[derive(Debug, Clone)]
+pub struct RangeReadEnabled(pub bool);
+
+impl Default for RangeReadEnabled {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.

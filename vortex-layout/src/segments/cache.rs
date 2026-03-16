@@ -136,6 +136,23 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
+    fn request_range(&self, id: SegmentId, range: std::ops::Range<usize>) -> SegmentFuture {
+        let cache = self.cache.clone();
+        let source = self.source.clone();
+
+        async move {
+            // Check the cache first; if the full segment is cached, slice from it.
+            if let Ok(Some(segment)) = cache.get(id).await {
+                tracing::debug!("Resolved segment {} range from cache", id);
+                let slice = segment.slice_unaligned(range);
+                return Ok(BufferHandle::new_host(slice));
+            }
+            // Cache miss: delegate to the inner source's range read.
+            source.request_range(id, range).await
+        }
+        .boxed()
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = self.cache.clone();
         let delegate = self.source.request(id);

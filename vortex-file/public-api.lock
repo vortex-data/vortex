@@ -40,6 +40,8 @@ impl vortex_layout::segments::source::SegmentSource for vortex_file::segments::F
 
 pub fn vortex_file::segments::FileSegmentSource::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::source::SegmentFuture
 
+pub fn vortex_file::segments::FileSegmentSource::request_range(&self, id: vortex_layout::segments::SegmentId, range: core::ops::range::Range<usize>) -> vortex_layout::segments::source::SegmentFuture
+
 pub struct vortex_file::segments::InitialReadSegmentCache
 
 pub vortex_file::segments::InitialReadSegmentCache::fallback: alloc::sync::Arc<dyn vortex_layout::segments::cache::SegmentCache>

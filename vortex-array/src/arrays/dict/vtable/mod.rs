@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::ops::Range;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
@@ -37,6 +38,9 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
 use crate::vtable::ArrayId;
+use crate::vtable::ChildRangeRead;
+use crate::vtable::EncodingRangeRead;
+use crate::vtable::RangeDecodeInfo;
 use crate::vtable::VTable;
 mod kernel;
 mod operations;
@@ -229,6 +233,34 @@ impl VTable for Dict {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        metadata: &ProstMetadata<DictMetadata>,
+        row_range: Range<usize>,
+        row_count: usize,
+        _dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        let codes_ptype = PType::try_from(metadata.0.codes_ptype).ok()?;
+        let codes_dtype = DType::Primitive(codes_ptype, Nullability::NonNullable);
+
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![],
+            children: vec![
+                // Child 0 = codes (row-dependent, recurse).
+                ChildRangeRead::Recurse {
+                    row_range,
+                    row_count,
+                    dtype: codes_dtype,
+                },
+                // Child 1 = values (global dictionary, include fully).
+                ChildRangeRead::Full,
+            ],
+            decode_info: RangeDecodeInfo::FromChild {
+                child_idx: 0,
+                divisor: 1,
+            },
+        })
     }
 }
 

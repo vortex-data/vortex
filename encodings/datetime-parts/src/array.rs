@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -24,6 +25,9 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ChildRangeRead;
+use vortex_array::vtable::EncodingRangeRead;
+use vortex_array::vtable::RangeDecodeInfo;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -243,6 +247,45 @@ impl VTable for DateTimeParts {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        metadata: &ProstMetadata<DateTimePartsMetadata>,
+        row_range: Range<usize>,
+        row_count: usize,
+        dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        let days_ptype = metadata.0.get_days_ptype().ok()?;
+        let seconds_ptype = metadata.0.get_seconds_ptype().ok()?;
+        let subseconds_ptype = metadata.0.get_subseconds_ptype().ok()?;
+
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![],
+            children: vec![
+                // Child 0 = days (carries validity from parent dtype).
+                ChildRangeRead::Recurse {
+                    row_range: row_range.clone(),
+                    row_count,
+                    dtype: DType::Primitive(days_ptype, dtype.nullability()),
+                },
+                // Child 1 = seconds (always non-nullable).
+                ChildRangeRead::Recurse {
+                    row_range: row_range.clone(),
+                    row_count,
+                    dtype: DType::Primitive(seconds_ptype, Nullability::NonNullable),
+                },
+                // Child 2 = subseconds (always non-nullable).
+                ChildRangeRead::Recurse {
+                    row_range,
+                    row_count,
+                    dtype: DType::Primitive(subseconds_ptype, Nullability::NonNullable),
+                },
+            ],
+            decode_info: RangeDecodeInfo::FromChild {
+                child_idx: 0,
+                divisor: 1,
+            },
+        })
     }
 }
 

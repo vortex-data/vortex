@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::ops::Range;
 
 use fastlanes::FastLanes;
 use prost::Message;
@@ -21,11 +22,13 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ChildRangeRead;
+use vortex_array::vtable::EncodingRangeRead;
+use vortex_array::vtable::RangeDecodeInfo;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -177,11 +180,16 @@ impl VTable for Delta {
         let ptype = PType::try_from(dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
 
-        // Compute the length of the bases array
-        let deltas_len = usize::try_from(metadata.0.deltas_len)
-            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.0.deltas_len))?;
+        // Compute the length of the deltas array from len + offset rather than metadata.
+        // This allows range reads to work with sub-ranged children, where the buffer is
+        // shorter than the original metadata.deltas_len.
+        let deltas_len = len + metadata.0.offset as usize;
         let num_chunks = deltas_len / 1024;
-        let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
+        let remainder_base_size = if !deltas_len.is_multiple_of(1024) {
+            1
+        } else {
+            0
+        };
         let bases_len = num_chunks * lanes + remainder_base_size;
 
         let bases = children.get(0, dtype, bases_len)?;
@@ -194,6 +202,76 @@ impl VTable for Delta {
         Ok(ExecutionStep::Done(
             delta_decompress(array, ctx)?.into_array(),
         ))
+    }
+
+    fn plan_range_read(
+        metadata: &ProstMetadata<DeltaMetadata>,
+        row_range: Range<usize>,
+        _row_count: usize,
+        dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        if metadata.0.offset != 0 {
+            return None;
+        }
+
+        let deltas_len = usize::try_from(metadata.0.deltas_len).ok()?;
+        let byte_width = match dtype {
+            DType::Primitive(ptype, _) => ptype.byte_width(),
+            _ => return None,
+        };
+        let lanes = match byte_width {
+            1 => 128,
+            2 => 64,
+            4 => 32,
+            8 => 16,
+            _ => return None,
+        };
+
+        let first_chunk = row_range.start / 1024;
+        let last_chunk = row_range.end.saturating_sub(1) / 1024;
+
+        // Child 1 = deltas (row-indexed, same dtype).
+        let deltas_row_start = first_chunk * 1024;
+        let deltas_row_end = ((last_chunk + 1) * 1024).min(deltas_len);
+
+        // Child 0 = bases (LANES values per full chunk, 1 per remainder).
+        let num_full_chunks = deltas_len / 1024;
+        let has_remainder = !deltas_len.is_multiple_of(1024);
+        let bases_len = num_full_chunks * lanes + if has_remainder { 1 } else { 0 };
+        let bases_row_start = first_chunk * lanes;
+        let bases_row_end = if last_chunk >= num_full_chunks {
+            bases_len
+        } else {
+            (last_chunk + 1) * lanes
+        }
+        .min(bases_len);
+
+        let sub_deltas_len = deltas_row_end - deltas_row_start;
+        let intra_chunk_offset = row_range.start - deltas_row_start;
+        let post_slice = (intra_chunk_offset > 0 || sub_deltas_len > row_range.len())
+            .then(|| intra_chunk_offset..(intra_chunk_offset + row_range.len()));
+
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![],
+            children: vec![
+                // Child 0 = bases.
+                ChildRangeRead::Recurse {
+                    row_range: bases_row_start..bases_row_end,
+                    row_count: bases_len,
+                    dtype: dtype.clone(),
+                },
+                // Child 1 = deltas.
+                ChildRangeRead::Recurse {
+                    row_range: deltas_row_start..deltas_row_end,
+                    row_count: deltas_len,
+                    dtype: dtype.clone(),
+                },
+            ],
+            decode_info: RangeDecodeInfo::Leaf {
+                decode_len: sub_deltas_len,
+                post_slice,
+            },
+        })
     }
 }
 

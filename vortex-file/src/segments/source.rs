@@ -134,6 +134,45 @@ impl FileSegmentSource {
 }
 
 impl SegmentSource for FileSegmentSource {
+    fn request_range(&self, id: SegmentId, range: std::ops::Range<usize>) -> SegmentFuture {
+        let spec = *match self.segments.get(*id as usize) {
+            Some(spec) => spec,
+            None => {
+                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+            }
+        };
+
+        // Issue a targeted read for only the requested byte range within the segment.
+        let offset = spec.offset + range.start as u64;
+        let length = range.len();
+
+        let (send, recv) = oneshot::channel();
+        let req_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let event = ReadEvent::Request(ReadRequest {
+            id: req_id,
+            offset,
+            length,
+            // No alignment requirement for partial reads; the caller is responsible
+            // for re-aligning individual buffers extracted from the partial segment.
+            alignment: Alignment::none(),
+            callback: send,
+        });
+
+        if let Err(e) = self.events.unbounded_send(event) {
+            return future::ready(Err(vortex_err!("Failed to submit read request: {e}"))).boxed();
+        }
+
+        let fut = ReadFuture {
+            id: req_id,
+            recv,
+            polled: false,
+            finished: false,
+            events: self.events.clone(),
+        };
+
+        fut.boxed()
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileRead`], where
         // coalescing becomes effective prior to the future being polled.
@@ -270,6 +309,31 @@ impl BufferSegmentSource {
 }
 
 impl SegmentSource for BufferSegmentSource {
+    fn request_range(&self, id: SegmentId, range: std::ops::Range<usize>) -> SegmentFuture {
+        let spec = match self.segments.get(*id as usize) {
+            Some(spec) => spec,
+            None => {
+                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+            }
+        };
+
+        let start = spec.offset as usize + range.start;
+        let end = spec.offset as usize + range.end;
+        if end > self.buffer.len() {
+            return future::ready(Err(vortex_err!(
+                "Segment {} range {}..{} out of bounds for buffer of length {}",
+                *id,
+                start,
+                end,
+                self.buffer.len()
+            )))
+            .boxed();
+        }
+
+        let slice = self.buffer.slice_unaligned(start..end);
+        future::ready(Ok(BufferHandle::new_host(slice))).boxed()
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let spec = match self.segments.get(*id as usize) {
             Some(spec) => spec,

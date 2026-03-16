@@ -80,6 +80,8 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::nbuffers(_array: &vortex_dec
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::nchildren(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
 
+pub fn vortex_decimal_byte_parts::DecimalByteParts::plan_range_read(metadata: &vortex_array::metadata::ProstMetadata<vortex_decimal_byte_parts::DecimalBytesPartsMetadata>, row_range: core::ops::range::Range<usize>, row_count: usize, dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::vtable::range_read::EncodingRangeRead>
+
 pub fn vortex_decimal_byte_parts::DecimalByteParts::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>

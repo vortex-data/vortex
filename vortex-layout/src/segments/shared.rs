@@ -38,6 +38,12 @@ impl<S: SegmentSource> SharedSegmentSource<S> {
 }
 
 impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
+    fn request_range(&self, id: SegmentId, range: std::ops::Range<usize>) -> SegmentFuture {
+        // Range requests are not deduplicated since each caller may request
+        // different byte ranges within the same segment.
+        self.inner.request_range(id, range)
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         loop {
             match self.in_flight.entry(id) {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -20,6 +22,9 @@ use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::BufferSubRange;
+use crate::vtable::EncodingRangeRead;
+use crate::vtable::RangeDecodeInfo;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
@@ -218,6 +223,28 @@ impl VTable for Primitive {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn plan_range_read(
+        _metadata: &EmptyMetadata,
+        row_range: Range<usize>,
+        _row_count: usize,
+        dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        let byte_width = match dtype {
+            DType::Primitive(ptype, _) => ptype.byte_width(),
+            _ => return None,
+        };
+        Some(EncodingRangeRead {
+            buffer_sub_ranges: vec![BufferSubRange::Range(
+                row_range.start * byte_width..row_range.end * byte_width,
+            )],
+            children: vec![],
+            decode_info: RangeDecodeInfo::Leaf {
+                decode_len: row_range.len(),
+                post_slice: None,
+            },
+        })
     }
 }
 

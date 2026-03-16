@@ -5,14 +5,17 @@
 
 mod dyn_;
 mod operations;
+pub mod range_read;
 mod validity;
 
 use std::fmt::Debug;
 use std::hash::Hasher;
 use std::ops::Deref;
+use std::ops::Range;
 
 pub use dyn_::*;
 pub use operations::*;
+pub use range_read::*;
 pub use validity::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -238,6 +241,28 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx);
         Ok(None)
+    }
+
+    /// Plan a sub-segment range read for the given row range.
+    ///
+    /// This method is called during I/O planning to determine which byte ranges of a
+    /// segment's buffers are needed for a given row range, allowing targeted reads instead
+    /// of fetching the entire segment.
+    ///
+    /// The returned [`EncodingRangeRead::children`] should cover the encoding's own
+    /// children (e.g., codes + values for Dict). The planner will detect any additional
+    /// children (e.g., validity) not covered by the plan and fall back to a full read.
+    ///
+    /// Returns `None` if the encoding does not support range reads, in which case the
+    /// caller falls back to reading the full segment.
+    fn plan_range_read(
+        metadata: &Self::Metadata,
+        row_range: Range<usize>,
+        row_count: usize,
+        dtype: &DType,
+    ) -> Option<EncodingRangeRead> {
+        _ = (metadata, row_range, row_count, dtype);
+        None
     }
 }
 

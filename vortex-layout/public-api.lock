@@ -1012,6 +1012,8 @@ impl vortex_layout::segments::SegmentSource for vortex_layout::segments::Segment
 
 pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request_range(&self, id: vortex_layout::segments::SegmentId, range: core::ops::range::Range<usize>) -> vortex_layout::segments::SegmentFuture
+
 pub struct vortex_layout::segments::SegmentId(_)
 
 impl core::clone::Clone for vortex_layout::segments::SegmentId
@@ -1078,6 +1080,8 @@ impl<S: vortex_layout::segments::SegmentSource> vortex_layout::segments::Segment
 
 pub fn vortex_layout::segments::SharedSegmentSource<S>::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SharedSegmentSource<S>::request_range(&self, id: vortex_layout::segments::SegmentId, range: core::ops::range::Range<usize>) -> vortex_layout::segments::SegmentFuture
+
 pub trait vortex_layout::segments::SegmentCache: core::marker::Send + core::marker::Sync
 
 pub fn vortex_layout::segments::SegmentCache::get<'life0, 'async_trait>(&'life0 self, id: vortex_layout::segments::SegmentId) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<core::option::Option<vortex_buffer::ByteBuffer>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
@@ -1110,13 +1114,19 @@ pub trait vortex_layout::segments::SegmentSource: 'static + core::marker::Send +
 
 pub fn vortex_layout::segments::SegmentSource::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SegmentSource::request_range(&self, id: vortex_layout::segments::SegmentId, range: core::ops::range::Range<usize>) -> vortex_layout::segments::SegmentFuture
+
 impl vortex_layout::segments::SegmentSource for vortex_layout::segments::SegmentCacheSourceAdapter
 
 pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request_range(&self, id: vortex_layout::segments::SegmentId, range: core::ops::range::Range<usize>) -> vortex_layout::segments::SegmentFuture
+
 impl<S: vortex_layout::segments::SegmentSource> vortex_layout::segments::SegmentSource for vortex_layout::segments::SharedSegmentSource<S>
 
 pub fn vortex_layout::segments::SharedSegmentSource<S>::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
+
+pub fn vortex_layout::segments::SharedSegmentSource<S>::request_range(&self, id: vortex_layout::segments::SegmentId, range: core::ops::range::Range<usize>) -> vortex_layout::segments::SegmentFuture
 
 pub type vortex_layout::segments::SegmentFuture = futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
 
@@ -1245,6 +1255,20 @@ pub fn vortex_layout::session::LayoutSession::default() -> Self
 impl core::fmt::Debug for vortex_layout::session::LayoutSession
 
 pub fn vortex_layout::session::LayoutSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_layout::session::RangeReadEnabled(pub bool)
+
+impl core::clone::Clone for vortex_layout::session::RangeReadEnabled
+
+pub fn vortex_layout::session::RangeReadEnabled::clone(&self) -> vortex_layout::session::RangeReadEnabled
+
+impl core::default::Default for vortex_layout::session::RangeReadEnabled
+
+pub fn vortex_layout::session::RangeReadEnabled::default() -> Self
+
+impl core::fmt::Debug for vortex_layout::session::RangeReadEnabled
+
+pub fn vortex_layout::session::RangeReadEnabled::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub trait vortex_layout::session::LayoutSessionExt: vortex_session::SessionExt
 

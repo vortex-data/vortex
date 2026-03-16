@@ -6,6 +6,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
+use std::ops::Range;
 
 use arcref::ArcRef;
 use vortex_error::VortexExpect;
@@ -23,6 +24,7 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::VTable;
+use crate::vtable::range_read::EncodingRangeRead;
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
@@ -71,6 +73,16 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
+
+    /// See [`VTable::plan_range_read`]
+    fn plan_range_read(
+        &self,
+        metadata_bytes: &[u8],
+        row_range: Range<usize>,
+        row_count: usize,
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> Option<EncodingRangeRead>;
 }
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
@@ -196,6 +208,18 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         }
 
         Ok(Some(result))
+    }
+
+    fn plan_range_read(
+        &self,
+        metadata_bytes: &[u8],
+        row_range: Range<usize>,
+        row_count: usize,
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> Option<EncodingRangeRead> {
+        let metadata = V::deserialize(metadata_bytes, dtype, row_count, &[], session).ok()?;
+        V::plan_range_read(&metadata, row_range, row_count, dtype)
     }
 }
 
