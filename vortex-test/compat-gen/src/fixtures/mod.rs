@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod clickbench;
-mod synthetic;
-mod tpch;
+mod arrays;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVisitorExt;
@@ -65,9 +63,5 @@ pub fn check_expected_encodings(array: &ArrayRef, fixture: &dyn ArrayFixture) ->
 
 /// All registered fixtures.
 pub fn all_fixtures() -> Vec<Box<dyn ArrayFixture>> {
-    let mut fixtures = Vec::new();
-    fixtures.extend(synthetic::fixtures());
-    fixtures.extend(tpch::fixtures());
-    fixtures.extend(clickbench::fixtures());
-    fixtures
+    arrays::fixtures()
 }

@@ -14,7 +14,7 @@ use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use super::ArrayFixture;
+use crate::fixtures::ArrayFixture;
 
 /// First partition of ClickBench hits, limited to 1000 rows.
 const CLICKBENCH_URL: &str =

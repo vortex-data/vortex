@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::dtype::DecimalDType;
+use vortex::array::dtype::FieldNames;
+use vortex::array::validity::Validity;
+use vortex::array::vtable::ArrayId;
+use vortex::buffer::Buffer;
+use vortex::encodings::decimal_byte_parts::DecimalByteParts;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsArray;
+use vortex::error::VortexResult;
+
+use super::N;
+use crate::fixtures::ArrayFixture;
+
+pub struct DecimalBytePartsFixture;
+
+impl ArrayFixture for DecimalBytePartsFixture {
+    fn name(&self) -> &str {
+        "decimal_byte_parts.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Fixed-precision decimal arrays for DecimalByteParts encoding"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![DecimalByteParts::ID]
+    }
+
+    fn build(&self) -> VortexResult<ArrayRef> {
+        let decimal_dtype = DecimalDType::new(10, 2);
+        let values: Vec<i64> = (0..N as i64).map(|i| i * 100 + (i % 100)).collect();
+        let msp_arr = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
+        let decimal_arr = DecimalBytePartsArray::try_new(msp_arr, decimal_dtype)?;
+
+        let hi_prec_dtype = DecimalDType::new(18, 6);
+        let hi_prec_values: Vec<i64> = (0..N as i64)
+            .map(|i| i * 1_000_000 + (i * 7 % 999_999))
+            .collect();
+        let hi_prec_msp =
+            PrimitiveArray::new(Buffer::from(hi_prec_values), Validity::NonNullable).into_array();
+        let hi_prec_arr = DecimalBytePartsArray::try_new(hi_prec_msp, hi_prec_dtype)?;
+
+        let neg_dtype = DecimalDType::new(10, 2);
+        let neg_values: Vec<i64> = (0..N as i64).map(|i| -5000 + (i * 3 % 10000)).collect();
+        let neg_msp =
+            PrimitiveArray::new(Buffer::from(neg_values), Validity::NonNullable).into_array();
+        let neg_arr = DecimalBytePartsArray::try_new(neg_msp, neg_dtype)?;
+
+        let arr = StructArray::try_new(
+            FieldNames::from(["dec_10_2", "dec_18_6", "dec_negative"]),
+            vec![
+                decimal_arr.into_array(),
+                hi_prec_arr.into_array(),
+                neg_arr.into_array(),
+            ],
+            N,
+            Validity::NonNullable,
+        )?;
+        Ok(arr.into_array())
+    }
+}
