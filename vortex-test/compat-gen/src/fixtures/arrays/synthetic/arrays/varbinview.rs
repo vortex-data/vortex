@@ -21,7 +21,7 @@ impl FlatLayoutFixture for VarBinViewFixture {
     }
 
     fn description(&self) -> &str {
-        "VarBinView-encoded strings including empty, unicode, emoji, and a nullable column"
+        "VarBinView-encoded strings including empty, unicode, emoji, long (>12 byte) strings, and a nullable column"
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
@@ -36,9 +36,20 @@ impl FlatLayoutFixture for VarBinViewFixture {
             Some("world"),
             Some(""),
         ]);
+        // Strings >12 bytes exercise VarBinView's buffer-reference mechanism (out-of-line storage).
+        let long_strings = VarBinViewArray::from_iter_str(vec![
+            "short",
+            "this string is definitely longer than twelve bytes",
+            "another-long-string-that-exceeds-inline-limit",
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789",
+        ]);
         let arr = StructArray::try_new(
-            FieldNames::from(["text", "nullable_text"]),
-            vec![strings.into_array(), nullable_strings.into_array()],
+            FieldNames::from(["text", "nullable_text", "long_text"]),
+            vec![
+                strings.into_array(),
+                nullable_strings.into_array(),
+                long_strings.into_array(),
+            ],
             4,
             Validity::NonNullable,
         )?;

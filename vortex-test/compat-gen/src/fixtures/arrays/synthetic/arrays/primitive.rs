@@ -41,6 +41,8 @@ impl FlatLayoutFixture for PrimitivesFixture {
                 "f32",
                 "f64",
                 "nullable_i32",
+                "f32_special",
+                "f64_special",
             ]),
             vec![
                 PrimitiveArray::new(buffer![0u8, 128, 255], Validity::NonNullable).into_array(),
@@ -65,6 +67,17 @@ impl FlatLayoutFixture for PrimitivesFixture {
                 PrimitiveArray::new(buffer![f64::MIN, 0.0f64, f64::MAX], Validity::NonNullable)
                     .into_array(),
                 PrimitiveArray::from_option_iter([Some(1i32), None, Some(42)]).into_array(),
+                // Special float values: NaN, infinities, negative zero, subnormal
+                PrimitiveArray::new(
+                    buffer![f32::NAN, f32::INFINITY, f32::NEG_INFINITY],
+                    Validity::NonNullable,
+                )
+                .into_array(),
+                PrimitiveArray::new(
+                    buffer![f64::NAN, -0.0f64, f64::MIN_POSITIVE / 2.0],
+                    Validity::NonNullable,
+                )
+                .into_array(),
             ],
             3,
             Validity::NonNullable,

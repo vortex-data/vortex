@@ -57,9 +57,25 @@ impl FlatLayoutFixture for ListViewFixture {
             Validity::NonNullable,
         )?;
 
+        // Nullable ListView of i32: [[10,20], null, [30], [40,50,60]]
+        let nullable_elements =
+            PrimitiveArray::new(buffer![10i32, 20, 30, 40, 50, 60], Validity::NonNullable);
+        let nullable_offsets = PrimitiveArray::new(buffer![0u32, 2, 2, 3], Validity::NonNullable);
+        let nullable_sizes = PrimitiveArray::new(buffer![2u32, 0, 1, 3], Validity::NonNullable);
+        let nullable_listview = ListViewArray::try_new(
+            nullable_elements.into_array(),
+            nullable_offsets.into_array(),
+            nullable_sizes.into_array(),
+            Validity::from_iter([true, false, true, true]),
+        )?;
+
         let arr = StructArray::try_new(
-            FieldNames::from(["int_listview", "str_listview"]),
-            vec![int_listview.into_array(), str_listview.into_array()],
+            FieldNames::from(["int_listview", "str_listview", "nullable_int_listview"]),
+            vec![
+                int_listview.into_array(),
+                str_listview.into_array(),
+                nullable_listview.into_array(),
+            ],
             4,
             Validity::NonNullable,
         )?;

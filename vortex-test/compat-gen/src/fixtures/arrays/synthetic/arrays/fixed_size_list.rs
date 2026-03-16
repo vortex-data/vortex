@@ -40,9 +40,21 @@ impl FlatLayoutFixture for FixedSizeListFixture {
         );
         let fsl = FixedSizeListArray::try_new(elements.into_array(), 3, Validity::NonNullable, 4)?;
 
+        // Nullable FSL: 4 vectors of 2 i32, second entry is null
+        let nullable_elements = PrimitiveArray::new(
+            buffer![10i32, 20, 0, 0, 50, 60, 70, 80],
+            Validity::NonNullable,
+        );
+        let nullable_fsl = FixedSizeListArray::try_new(
+            nullable_elements.into_array(),
+            2,
+            Validity::from_iter([true, false, true, true]),
+            4,
+        )?;
+
         let arr = StructArray::try_new(
-            FieldNames::from(["vectors"]),
-            vec![fsl.into_array()],
+            FieldNames::from(["vectors", "nullable_vectors"]),
+            vec![fsl.into_array(), nullable_fsl.into_array()],
             4,
             Validity::NonNullable,
         )?;

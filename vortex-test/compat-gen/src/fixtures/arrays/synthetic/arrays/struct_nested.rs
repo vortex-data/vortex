@@ -41,10 +41,22 @@ impl FlatLayoutFixture for StructNestedFixture {
             Validity::NonNullable,
         )?;
 
+        // Nullable inner struct: second row is null at the struct level.
+        let nullable_inner = StructArray::try_new(
+            FieldNames::from(["c", "d"]),
+            vec![
+                PrimitiveArray::new(buffer![100i64, 0, 300], Validity::NonNullable).into_array(),
+                PrimitiveArray::new(buffer![1.0f32, 0.0, 3.0], Validity::NonNullable).into_array(),
+            ],
+            3,
+            Validity::from_iter([true, false, true]),
+        )?;
+
         let arr = StructArray::try_new(
-            FieldNames::from(["inner", "value"]),
+            FieldNames::from(["inner", "nullable_inner", "value"]),
             vec![
                 inner.into_array(),
+                nullable_inner.into_array(),
                 PrimitiveArray::new(buffer![1.1f64, 2.2, 3.3], Validity::NonNullable).into_array(),
             ],
             3,

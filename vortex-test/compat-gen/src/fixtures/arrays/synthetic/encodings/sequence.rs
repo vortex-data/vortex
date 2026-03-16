@@ -23,7 +23,7 @@ impl FlatLayoutFixture for SequenceFixture {
     }
 
     fn description(&self) -> &str {
-        "Arithmetic sequences (0,1,2,... and stepped) for Sequence encoding"
+        "Arithmetic sequences (0,1,2,... and stepped) for Sequence encoding, including nullable"
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
@@ -48,6 +48,8 @@ impl FlatLayoutFixture for SequenceFixture {
         )?;
         let small_negative_i16 =
             SequenceArray::try_new_typed::<i16>(1200, -2, Nullability::NonNullable, N)?;
+        let nullable_i64 = SequenceArray::try_new_typed::<i64>(0, 2, Nullability::Nullable, N)?;
+        let nullable_u32 = SequenceArray::try_new_typed::<u32>(100, 7, Nullability::Nullable, N)?;
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -60,6 +62,8 @@ impl FlatLayoutFixture for SequenceFixture {
                 "zero_crossing",
                 "near_overflow",
                 "small_negative_i16",
+                "nullable_i64",
+                "nullable_u32",
             ]),
             vec![
                 row_ids.into_array(),
@@ -71,6 +75,8 @@ impl FlatLayoutFixture for SequenceFixture {
                 zero_crossing.into_array(),
                 near_overflow.into_array(),
                 small_negative_i16.into_array(),
+                nullable_i64.into_array(),
+                nullable_u32.into_array(),
             ],
             N,
             Validity::NonNullable,

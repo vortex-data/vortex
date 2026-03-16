@@ -81,6 +81,32 @@ impl FlatLayoutFixture for DateTimeFixture {
             TimeUnit::Seconds,
         );
 
+        // Timestamps in nanoseconds (i64)
+        let ts_nanos = TemporalArray::new_timestamp(
+            PrimitiveArray::new(
+                buffer![
+                    1704067200000000000i64,
+                    1718451000000000000,
+                    1735689599000000000
+                ],
+                Validity::NonNullable,
+            )
+            .into_array(),
+            TimeUnit::Nanoseconds,
+            None,
+        );
+
+        // Timestamps with non-UTC timezone
+        let ts_eastern = TemporalArray::new_timestamp(
+            PrimitiveArray::new(
+                buffer![1704067200i64, 1718451000, 1735689599],
+                Validity::NonNullable,
+            )
+            .into_array(),
+            TimeUnit::Seconds,
+            Some(Arc::from("America/New_York")),
+        );
+
         let arr = StructArray::try_new(
             FieldNames::from([
                 "ts_seconds",
@@ -88,6 +114,8 @@ impl FlatLayoutFixture for DateTimeFixture {
                 "ts_nullable_micros",
                 "date_days",
                 "time_seconds",
+                "ts_nanos",
+                "ts_eastern",
             ]),
             vec![
                 ts_seconds.into_array(),
@@ -95,6 +123,8 @@ impl FlatLayoutFixture for DateTimeFixture {
                 ts_nullable.into_array(),
                 date_days.into_array(),
                 time_secs.into_array(),
+                ts_nanos.into_array(),
+                ts_eastern.into_array(),
             ],
             3,
             Validity::NonNullable,

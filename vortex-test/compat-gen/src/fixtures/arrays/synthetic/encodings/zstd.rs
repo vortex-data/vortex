@@ -68,9 +68,24 @@ impl FlatLayoutFixture for ZstdFixture {
                 Some("another-string")
             }
         }));
+        // Highly compressible: all zeros
+        let all_zeros: Vec<i64> = vec![0; N];
+        // All-null column
+        let all_null_i32 = PrimitiveArray::from_option_iter((0..N).map(|_| None::<i32>));
+        // Pseudo-random data (low compressibility)
+        let pseudo_random: Vec<u32> = (0..N as u32).map(|i| i.wrapping_mul(2654435761)).collect();
 
         let arr = StructArray::try_new(
-            FieldNames::from(["ints", "floats", "nullable_i64", "utf8", "nullable_utf8"]),
+            FieldNames::from([
+                "ints",
+                "floats",
+                "nullable_i64",
+                "utf8",
+                "nullable_utf8",
+                "all_zeros",
+                "all_null_i32",
+                "pseudo_random",
+            ]),
             vec![
                 ZstdArray::from_primitive(
                     &PrimitiveArray::new(Buffer::from(ints), Validity::NonNullable),
@@ -87,6 +102,19 @@ impl FlatLayoutFixture for ZstdFixture {
                 ZstdArray::from_primitive(&nullable_i64, 3, 128)?.into_array(),
                 ZstdArray::from_var_bin_view(&utf8, 3, 128)?.into_array(),
                 ZstdArray::from_var_bin_view(&nullable_utf8, 3, 128)?.into_array(),
+                ZstdArray::from_primitive(
+                    &PrimitiveArray::new(Buffer::from(all_zeros), Validity::NonNullable),
+                    3,
+                    128,
+                )?
+                .into_array(),
+                ZstdArray::from_primitive(&all_null_i32, 3, 128)?.into_array(),
+                ZstdArray::from_primitive(
+                    &PrimitiveArray::new(Buffer::from(pseudo_random), Validity::NonNullable),
+                    3,
+                    128,
+                )?
+                .into_array(),
             ],
             N,
             Validity::NonNullable,

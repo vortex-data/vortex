@@ -53,9 +53,24 @@ impl FlatLayoutFixture for ListFixture {
             Validity::NonNullable,
         )?;
 
+        // Nullable list of i32: [[100,200], null, [], [300]]
+        let nullable_elements =
+            PrimitiveArray::new(buffer![100i32, 200, 300], Validity::NonNullable);
+        let nullable_offsets =
+            PrimitiveArray::new(buffer![0i64, 2, 2, 2, 3], Validity::NonNullable);
+        let nullable_int_list = ListArray::try_new(
+            nullable_elements.into_array(),
+            nullable_offsets.into_array(),
+            Validity::from_iter([true, false, true, true]),
+        )?;
+
         let arr = StructArray::try_new(
-            FieldNames::from(["int_list", "str_list"]),
-            vec![int_list.into_array(), str_list.into_array()],
+            FieldNames::from(["int_list", "str_list", "nullable_int_list"]),
+            vec![
+                int_list.into_array(),
+                str_list.into_array(),
+                nullable_int_list.into_array(),
+            ],
             4,
             Validity::NonNullable,
         )?;
