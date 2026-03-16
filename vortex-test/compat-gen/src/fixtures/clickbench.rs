@@ -27,6 +27,10 @@ impl ArrayFixture for ClickBenchHits1kFixture {
         "clickbench_hits_1k.vortex"
     }
 
+    fn description(&self) -> &str {
+        "First 1000 rows of ClickBench hits dataset with wide schema of primitives and strings"
+    }
+
     fn expected_encodings(&self) -> Vec<ArrayId> {
         vec![Struct::ID, Primitive::ID, VarBin::ID]
     }

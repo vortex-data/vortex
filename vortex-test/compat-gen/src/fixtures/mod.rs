@@ -16,6 +16,9 @@ pub trait ArrayFixture: Send + Sync {
     /// The filename for this fixture, e.g. "primitives.vortex".
     fn name(&self) -> &str;
 
+    /// A short human-readable description of what this fixture tests.
+    fn description(&self) -> &str;
+
     /// Build the expected arrays. Must be deterministic under all version of vortex.
     fn build(&self) -> VortexResult<ArrayRef>;
 

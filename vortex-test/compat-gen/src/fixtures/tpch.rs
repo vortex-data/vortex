@@ -39,6 +39,10 @@ impl ArrayFixture for TpchLineitemFixture {
         "tpch_lineitem.vortex"
     }
 
+    fn description(&self) -> &str {
+        "TPC-H lineitem table at scale factor 0.01 with decimals, dates, and strings"
+    }
+
     fn expected_encodings(&self) -> Vec<ArrayId> {
         vec![
             Struct::ID,
@@ -61,6 +65,10 @@ struct TpchOrdersFixture;
 impl ArrayFixture for TpchOrdersFixture {
     fn name(&self) -> &str {
         "tpch_orders.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "TPC-H orders table at scale factor 0.01 with decimals, dates, and strings"
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {

@@ -29,6 +29,10 @@ impl ArrayFixture for PrimitivesFixture {
         "primitives.vortex"
     }
 
+    fn description(&self) -> &str {
+        "All primitive types (u8-u64, i32, i64, f32, f64) including a nullable i32 column"
+    }
+
     fn expected_encodings(&self) -> Vec<ArrayId> {
         vec![Primitive::ID]
     }
@@ -84,6 +88,10 @@ impl ArrayFixture for VarBinFixture {
         "varbin.vortex"
     }
 
+    fn description(&self) -> &str {
+        "VarBin-encoded strings including empty, unicode, emoji, and a nullable column"
+    }
+
     fn expected_encodings(&self) -> Vec<ArrayId> {
         vec![VarBin::ID]
     }
@@ -109,6 +117,10 @@ impl ArrayFixture for VarBinViewFixture {
         "varbinview.vortex"
     }
 
+    fn description(&self) -> &str {
+        "VarBinView-encoded strings including empty, unicode, and emoji"
+    }
+
     fn expected_encodings(&self) -> Vec<ArrayId> {
         vec![VarBinView::ID]
     }
@@ -132,6 +144,10 @@ impl ArrayFixture for BooleansFixture {
         "booleans.vortex"
     }
 
+    fn description(&self) -> &str {
+        "Boolean array with mixed true/false values"
+    }
+
     fn expected_encodings(&self) -> Vec<ArrayId> {
         vec![Bool::ID]
     }
@@ -153,6 +169,10 @@ struct StructNestedFixture;
 impl ArrayFixture for StructNestedFixture {
     fn name(&self) -> &str {
         "struct_nested.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "Nested struct: outer struct containing an inner struct with primitive and string fields"
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
@@ -188,6 +208,10 @@ struct ChunkedFixture;
 impl ArrayFixture for ChunkedFixture {
     fn name(&self) -> &str {
         "chunked.vortex"
+    }
+
+    fn description(&self) -> &str {
+        "ChunkedArray with 3 chunks of 1000 rows each containing deterministic u32 values"
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {

@@ -29,8 +29,23 @@ struct Cli {
 fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
-    std::fs::create_dir_all(&cli.output)
-        .map_err(|e| vortex_error::vortex_err!("failed to create output dir: {e}"))?;
+    if cli.output.exists() {
+        let is_empty = cli
+            .output
+            .read_dir()
+            .map_err(|e| vortex_error::vortex_err!("failed to read output dir: {e}"))?
+            .next()
+            .is_none();
+        if !is_empty {
+            vortex_error::vortex_bail!(
+                "output directory '{}' is not empty; use a fresh directory",
+                cli.output.display()
+            );
+        }
+    } else {
+        std::fs::create_dir_all(&cli.output)
+            .map_err(|e| vortex_error::vortex_err!("failed to create output dir: {e}"))?;
+    }
 
     let fixtures = all_fixtures();
     let mut entries = Vec::with_capacity(fixtures.len());
@@ -43,7 +58,7 @@ fn main() -> VortexResult<()> {
 
         entries.push(FixtureEntry {
             name: fixture.name().to_string(),
-            since: cli.version.clone(),
+            description: fixture.description().to_string(),
         });
         eprintln!("  wrote {}", fixture.name());
     }

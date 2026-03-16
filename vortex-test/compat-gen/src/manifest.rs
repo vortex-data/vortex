@@ -19,6 +19,6 @@ pub struct Manifest {
 pub struct FixtureEntry {
     /// Filename, e.g. "primitives.vortex".
     pub name: String,
-    /// First version that introduced this fixture, e.g. "0.62.0".
-    pub since: String,
+    /// Short description of what this fixture tests.
+    pub description: String,
 }
