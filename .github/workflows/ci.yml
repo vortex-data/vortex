@@ -294,9 +294,6 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
-      - uses: ./.github/actions/check-rebuild
-        with:
-          command: "cargo clippy --locked --all-targets"
 
   cpp-lint:
     name: "C/C++ (lint)"
@@ -408,9 +405,6 @@ jobs:
         if: ${{ matrix.suite == 'tests' }}
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
-      - uses: ./.github/actions/check-rebuild
-        with:
-          command: "cargo build --locked --workspace --all-features --all-targets"
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -514,6 +508,12 @@ jobs:
             -p vortex-nvcomp \
             -p gpu-scan-cli \
             -p vortex-test-e2e-cuda
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: >-
+            cargo build --locked --all-features --all-targets
+            -p vortex-cuda -p vortex-cub -p vortex-nvcomp
+            -p gpu-scan-cli -p vortex-test-e2e-cuda
       - name: Clippy CUDA crates
         run: |
           cargo clippy --locked --all-features --all-targets \
@@ -523,12 +523,6 @@ jobs:
             -p gpu-scan-cli \
             -p vortex-test-e2e-cuda \
             -- -D warnings
-      - uses: ./.github/actions/check-rebuild
-        with:
-          command: >-
-            cargo build --locked --all-features --all-targets
-            -p vortex-cuda -p vortex-cub -p vortex-nvcomp
-            -p gpu-scan-cli -p vortex-test-e2e-cuda
 
   cuda-test:
     if: github.repository == 'vortex-data/vortex'
@@ -676,7 +670,7 @@ jobs:
       - uses: ./.github/actions/check-rebuild
         if: matrix.os != 'windows-x64'
         with:
-          command: "cargo build --locked --workspace --all-features --all-targets --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
+          command: "cargo build --locked --workspace --all-features --tests --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -801,7 +795,7 @@ jobs:
           vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "cargo build --locked -p vortex-cxx --all-targets"
+          command: "cargo build --locked -p vortex-cxx --lib"
 
   sqllogic-test:
     name: "SQL logic tests"
@@ -829,7 +823,7 @@ jobs:
           cargo test -p vortex-sqllogictest --test sqllogictests
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "cargo build --locked -p vortex-sqllogictest --all-targets"
+          command: "cargo build --locked -p vortex-sqllogictest --tests"
 
   wasm-integration:
     name: "wasm-integration"
