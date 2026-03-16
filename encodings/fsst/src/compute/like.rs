@@ -1,6 +1,141 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! # FSST LIKE Pushdown via DFA Construction
+//!
+//! This module implements SQL `LIKE` pattern matching directly on FSST-compressed
+//! strings, without decompressing them. It handles two pattern shapes:
+//!
+//! - **Prefix**: `'prefix%'`  — matches strings starting with a literal prefix.
+//! - **Contains**: `'%needle%'` — matches strings containing a literal substring.
+//!
+//! ## Background: FSST Encoding
+//!
+//! [FSST](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf) compresses strings by
+//! replacing frequent byte sequences with single-byte **symbol codes** (0–254). Code
+//! byte 255 is reserved as the **escape code**: the next byte is a literal (uncompressed)
+//! byte. So a compressed string is a stream of:
+//!
+//! ```text
+//! [symbol_code] [symbol_code] [ESCAPE literal_byte] [symbol_code] ...
+//! ```
+//!
+//! A single symbol can expand to 1–8 bytes. Matching on compressed codes requires
+//! the DFA to handle multi-byte symbol expansions and the escape mechanism.
+//!
+//! ## The Algorithm: KMP → Byte Table → Symbol Table → Packed DFA
+//!
+//! Construction proceeds through four stages:
+//!
+//! ### Stage 1: KMP Failure Function
+//!
+//! We compute the standard [KMP](https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm)
+//! failure function for the needle bytes. This tells us, on a mismatch at
+//! position `i`, the longest proper prefix of `needle[0..i]` that is also a
+//! suffix — i.e., where to resume matching instead of starting over.
+//!
+//! ```text
+//! Needle: "abcabd"
+//! Failure: [0, 0, 0, 1, 2, 0]
+//!                      ^  ^
+//!                      At position 3 ('a'), the prefix "a" matches suffix "a"
+//!                      At position 4 ('b'), the prefix "ab" matches suffix "ab"
+//! ```
+//!
+//! ### Stage 2: Byte-Level Transition Table
+//!
+//! From the failure function, we build a full `(state × byte) → state` transition
+//! table. State `i` means "we have matched `needle[0..i]`". State `n` (= needle
+//! length) is the **accept** state.
+//!
+//! ```text
+//! Needle: "aba"  (3 states + accept)
+//!
+//!         Input byte
+//! State   'a'    'b'    other
+//! ─────   ────   ────   ─────
+//!   0      1      0      0      ← looking for first 'a'
+//!   1      1      2      0      ← matched "a", want 'b'
+//!   2      3✓     0      0      ← matched "ab", want 'a'
+//!   3✓     3✓     3✓     3✓     ← accept (sticky)
+//! ```
+//!
+//! For prefix matching, a mismatch at any state goes to a **fail** state (no
+//! fallback). For contains matching, mismatches follow KMP fallback transitions
+//! so we can find the needle anywhere in the string.
+//!
+//! ### Stage 3: Symbol-Level Transition Table
+//!
+//! FSST symbols can be multi-byte. To compute the transition for symbol code `c`
+//! in state `s`, we simulate feeding each byte of the symbol through the byte
+//! table:
+//!
+//! ```text
+//! Symbol #42 = "the" (3 bytes)
+//! State 0 + 't' → 0, + 'h' → 0, + 'e' → 0  ⟹ sym_trans[0][42] = 0
+//!
+//! If needle = "them":
+//! State 0 + 't' → 1, + 'h' → 2, + 'e' → 3  ⟹ sym_trans[0][42] = 3
+//! ```
+//!
+//! We then build a **fused 256-wide table**: for code bytes 0–254, use the
+//! symbol transition; for code byte 255 (ESCAPE_CODE), transition to a
+//! special sentinel that tells the scanner to read the next literal byte.
+//!
+//! ### Stage 4: Packing into the Final Representation
+//!
+//! The fused table can be stored in different layouts depending on the number
+//! of states:
+//!
+//! - **Shift-packed `u64`** (≤16 states): Each state needs 4 bits. All state
+//!   transitions for one input byte fit in a single `u64`. Lookup:
+//!   `next = (table[byte] >> (state * 4)) & 0xF`. One cache line per lookup.
+//!
+//! - **Flat `u8` table** (≤255 states): `transitions[state * 256 + byte]`.
+//!   Larger but works for any needle length.
+//!
+//! ## DFA Variants and When Each Is Used
+//!
+//! ```text
+//! ┌───────────────┬──────────────────────────────────────────────────────┐
+//! │ Pattern       │ Needle length → DFA variant                        │
+//! ├───────────────┼──────────────────────────────────────────────────────┤
+//! │ prefix%       │ 0–13 → FsstPrefixDfa (shift-packed, no KMP)        │
+//! ├───────────────┼──────────────────────────────────────────────────────┤
+//! │ %needle%      │ 1–7  → BranchlessShiftDfa (hierarchical 4-byte)    │
+//! │               │ 8–14 → FlatBranchlessDfa  (flat u8, escape-folded) │
+//! │               │ 15+  → ShiftDfa or FusedDfa (escape sentinel)      │
+//! └───────────────┴──────────────────────────────────────────────────────┘
+//! ```
+//!
+//! ## Escape Handling Strategies
+//!
+//! There are two ways to handle the FSST escape code in the DFA:
+//!
+//! **Escape sentinel** (used by `ShiftDfa`, `FusedDfa`, `FsstPrefixDfa`):
+//! The escape code maps to a sentinel state. The scanner checks for it and
+//! reads the next byte from a separate escape transition table.
+//!
+//! ```text
+//! loop:
+//!   state = transitions[byte]       // might be sentinel
+//!   if state == SENTINEL:
+//!     state = escape_transitions[next_byte]  // branch
+//! ```
+//!
+//! **Escape folding** (used by `BranchlessShiftDfa`, `FlatBranchlessDfa`):
+//! Escape states are folded into the state space. State `s+N+1` means "was in
+//! state `s`, just consumed ESCAPE_CODE". The next byte's transition from an
+//! escape state uses the byte-level table. No branch needed in the scanner.
+//!
+//! ```text
+//! States: [0..N-1: normal] [N: accept] [N+1..2N: escape shadows]
+//! Total: 2N+1 states. With 4-bit packing, max N=7.
+//!
+//! loop:
+//!   state = transitions[state][byte]   // branchless!
+//! ```
+
 #![allow(clippy::cast_possible_truncation)]
 
 use fsst::ESCAPE_CODE;
@@ -203,6 +338,101 @@ impl<'a> LikeKind<'a> {
 }
 
 // ---------------------------------------------------------------------------
+// Shared DFA construction helpers
+// ---------------------------------------------------------------------------
+
+/// Builds the per-symbol transition table for FSST symbols.
+///
+/// For each `(state, symbol_code)` pair, simulates feeding the symbol's bytes
+/// through the byte-level transition table to compute the resulting state.
+///
+/// Returns a flat `Vec<u8>` indexed as `[state * n_symbols + code]`.
+fn build_symbol_transitions(
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    byte_table: &[u16],
+    n_states: usize,
+    accept_state: u8,
+) -> Vec<u8> {
+    let n_symbols = symbols.len();
+    let mut sym_trans = vec![0u8; n_states * n_symbols];
+    for state in 0..n_states {
+        for code in 0..n_symbols {
+            if state as u8 == accept_state {
+                sym_trans[state * n_symbols + code] = accept_state;
+                continue;
+            }
+            let sym = symbols[code].to_u64().to_le_bytes();
+            let sym_len = symbol_lengths[code] as usize;
+            let mut s = state as u16;
+            for &b in &sym[..sym_len] {
+                if s == accept_state as u16 {
+                    break;
+                }
+                s = byte_table[s as usize * 256 + b as usize];
+            }
+            sym_trans[state * n_symbols + code] = s as u8;
+        }
+    }
+    sym_trans
+}
+
+/// Builds a fused 256-wide transition table from symbol transitions.
+///
+/// For each `(state, code_byte)`:
+/// - Code bytes `0..n_symbols`: use the symbol transition
+/// - `ESCAPE_CODE`: maps to `escape_value` (either a sentinel or escape state)
+/// - All others: use `default` (typically 0 for contains, fail_state for prefix)
+///
+/// Returns a flat `Vec<u8>` indexed as `[state * 256 + code_byte]`.
+fn build_fused_table(
+    sym_trans: &[u8],
+    n_symbols: usize,
+    n_states: usize,
+    escape_value_fn: impl Fn(usize) -> u8,
+    default: u8,
+) -> Vec<u8> {
+    let mut fused = vec![default; n_states * 256];
+    for state in 0..n_states {
+        for code in 0..n_symbols {
+            fused[state * 256 + code] = sym_trans[state * n_symbols + code];
+        }
+        fused[state * 256 + ESCAPE_CODE as usize] = escape_value_fn(state);
+    }
+    fused
+}
+
+/// Packs a fused table into shift-encoded `u64` arrays.
+///
+/// Each `u64` encodes transitions for ALL states for one input byte.
+/// Lookup: `next = (table[byte] >> (state * BITS)) & MASK`.
+fn pack_shift_table(fused: &[u8], n_states: usize, bits: u32) -> [u64; 256] {
+    let mut packed = [0u64; 256];
+    for code_byte in 0..256usize {
+        let mut val = 0u64;
+        for state in 0..n_states {
+            val |= (fused[state * 256 + code_byte] as u64) << (state as u32 * bits);
+        }
+        packed[code_byte] = val;
+    }
+    packed
+}
+
+/// Packs a byte-level KMP table into shift-encoded `u64` arrays for escape handling.
+fn pack_escape_shift_table(byte_table: &[u16], n_states: usize, bits: u32) -> [u64; 256] {
+    let mut packed = [0u64; 256];
+    for byte_val in 0..256usize {
+        let mut val = 0u64;
+        for state in 0..n_states {
+            let next = byte_table[state * 256 + byte_val] as u8;
+            val |= (next as u64) << (state as u32 * bits);
+        }
+        packed[byte_val] = val;
+    }
+    packed
+}
+
+// ---------------------------------------------------------------------------
 // DFA for prefix matching (LIKE 'prefix%')
 // ---------------------------------------------------------------------------
 
@@ -229,85 +459,59 @@ impl FsstPrefixDfa {
         // prefix.len() + 2 states (0..prefix_len, accept, fail) must fit in 4 bits.
         debug_assert!(prefix.len() + 2 <= (1 << Self::BITS));
 
-        let n_symbols = symbols.len();
         let accept_state = prefix.len() as u8;
         let fail_state = prefix.len() as u8 + 1;
         let n_states = prefix.len() + 2;
 
-        // Build per-symbol and per-escape-byte transitions into flat tables.
-        let mut sym_trans = vec![fail_state; n_states * n_symbols];
-        let mut esc_trans = vec![fail_state; n_states * 256];
+        // Prefix matching uses a simpler transition rule than KMP: on mismatch
+        // we go to fail_state (no fallback). Build the byte table inline.
+        let byte_table = Self::build_prefix_byte_table(prefix, accept_state, fail_state);
 
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
+
+        // Override fail_state rows: fail is sticky.
+        let escape_sentinel = fail_state + 1;
+        let mut fused = build_fused_table(
+            &sym_trans,
+            symbols.len(),
+            n_states,
+            |_| escape_sentinel,
+            fail_state,
+        );
+
+        // Accept state is sticky for all inputs.
+        for code_byte in 0..256usize {
+            fused[accept_state as usize * 256 + code_byte] = accept_state;
+        }
+        // Fail state is sticky for all inputs.
+        for code_byte in 0..256usize {
+            fused[fail_state as usize * 256 + code_byte] = fail_state;
+        }
+
+        let transitions = pack_shift_table(&fused, n_states, Self::BITS);
+
+        // Build escape transitions from the byte table.
+        let mut esc_trans = vec![fail_state; n_states * 256];
         for state in 0..n_states {
             if state as u8 == accept_state {
-                for code in 0..n_symbols {
-                    sym_trans[state * n_symbols + code] = accept_state;
-                }
                 for b in 0..256 {
                     esc_trans[state * 256 + b] = accept_state;
                 }
-                continue;
-            }
-            if state as u8 == fail_state {
-                continue;
-            }
-
-            for code in 0..n_symbols {
-                let sym = symbols[code].to_u64().to_le_bytes();
-                let sym_len = symbol_lengths[code] as usize;
-                let remaining = prefix.len() - state;
-                let cmp = sym_len.min(remaining);
-
-                if sym[..cmp] == prefix[state..state + cmp] {
-                    let next = state + cmp;
-                    sym_trans[state * n_symbols + code] = if next >= prefix.len() {
-                        accept_state
-                    } else {
-                        next as u8
-                    };
-                }
-            }
-
-            for b in 0..256usize {
-                if b as u8 == prefix[state] {
-                    let next = state + 1;
-                    esc_trans[state * 256 + b] = if next >= prefix.len() {
-                        accept_state
-                    } else {
-                        next as u8
-                    };
+            } else if state as u8 != fail_state {
+                for b in 0..256usize {
+                    if b as u8 == prefix[state] {
+                        let next = state + 1;
+                        esc_trans[state * 256 + b] = if next >= prefix.len() {
+                            accept_state
+                        } else {
+                            next as u8
+                        };
+                    }
                 }
             }
         }
-
-        // Fuse symbol transitions into a 256-wide table.
-        let escape_sentinel = fail_state + 1;
-        let mut fused = vec![fail_state; n_states * 256];
-        for state in 0..n_states {
-            for code in 0..n_symbols {
-                fused[state * 256 + code] = sym_trans[state * n_symbols + code];
-            }
-            fused[state * 256 + ESCAPE_CODE as usize] = escape_sentinel;
-        }
-
-        // Pack into u64 shift tables.
-        let mut transitions = [0u64; 256];
-        for code_byte in 0..256usize {
-            let mut packed = 0u64;
-            for state in 0..n_states {
-                packed |= (fused[state * 256 + code_byte] as u64) << (state as u32 * Self::BITS);
-            }
-            transitions[code_byte] = packed;
-        }
-
-        let mut escape_transitions = [0u64; 256];
-        for byte_val in 0..256usize {
-            let mut packed = 0u64;
-            for state in 0..n_states {
-                packed |= (esc_trans[state * 256 + byte_val] as u64) << (state as u32 * Self::BITS);
-            }
-            escape_transitions[byte_val] = packed;
-        }
+        let escape_transitions = pack_shift_table(&esc_trans, n_states, Self::BITS);
 
         Self {
             transitions,
@@ -315,6 +519,30 @@ impl FsstPrefixDfa {
             accept_state,
             fail_state,
         }
+    }
+
+    /// Build a byte-level transition table for prefix matching (no KMP fallback).
+    fn build_prefix_byte_table(prefix: &[u8], accept_state: u8, fail_state: u8) -> Vec<u16> {
+        let n_states = prefix.len() + 2;
+        let mut table = vec![fail_state as u16; n_states * 256];
+
+        for state in 0..n_states {
+            if state as u8 == accept_state {
+                for byte in 0..256 {
+                    table[state * 256 + byte] = accept_state as u16;
+                }
+            } else if state as u8 != fail_state {
+                // Only the correct next byte advances; everything else fails.
+                let next_byte = prefix[state];
+                let next_state = if state + 1 >= prefix.len() {
+                    accept_state as u16
+                } else {
+                    (state + 1) as u16
+                };
+                table[state * 256 + next_byte as usize] = next_state;
+            }
+        }
+        table
     }
 
     #[inline]
@@ -442,7 +670,7 @@ impl BranchlessShiftDfa {
         debug_assert!(total_states <= (1 << Self::BITS));
 
         let transitions_1b =
-            Self::build_1b_transitions(symbols, symbol_lengths, needle, total_states);
+            Self::build_escape_folded_transitions(symbols, symbol_lengths, needle, total_states);
 
         // Build equivalence classes: group bytes with identical transition u64.
         let mut eq_class = [0u8; 256];
@@ -482,43 +710,29 @@ impl BranchlessShiftDfa {
         }
     }
 
-    /// Build the 1-byte packed transition table from FSST symbols and
-    /// a byte-level KMP table, folding escape handling into the state space.
-    fn build_1b_transitions(
+    /// Build the 1-byte packed transition table with escape handling folded
+    /// into the state space (no branch needed in the scanner).
+    fn build_escape_folded_transitions(
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         needle: &[u8],
         total_states: usize,
     ) -> [u64; 256] {
         let n = needle.len();
-        let n_symbols = symbols.len();
-        let accept_state = n as u8;
         let n_normal_states = n + 1;
+        let accept_state = n as u8;
 
         let byte_table = kmp_byte_transitions(needle);
-
-        // Build per-symbol transitions for normal states.
-        let mut sym_trans = vec![0u8; n_normal_states * n_symbols];
-        for state in 0..n_normal_states {
-            for code in 0..n_symbols {
-                if state as u8 == accept_state {
-                    sym_trans[state * n_symbols + code] = accept_state;
-                    continue;
-                }
-                let sym = symbols[code].to_u64().to_le_bytes();
-                let sym_len = symbol_lengths[code] as usize;
-                let mut s = state as u16;
-                for &b in &sym[..sym_len] {
-                    if s == accept_state as u16 {
-                        break;
-                    }
-                    s = byte_table[s as usize * 256 + b as usize];
-                }
-                sym_trans[state * n_symbols + code] = s as u8;
-            }
-        }
+        let sym_trans = build_symbol_transitions(
+            symbols,
+            symbol_lengths,
+            &byte_table,
+            n_normal_states,
+            accept_state,
+        );
 
         // Build fused transition table with escape folding.
+        let n_symbols = symbols.len();
         let mut fused = vec![0u8; total_states * 256];
         for code_byte in 0..256usize {
             for s in 0..n {
@@ -537,15 +751,7 @@ impl BranchlessShiftDfa {
         }
 
         // Pack into u64 shift table.
-        let mut transitions = [0u64; 256];
-        for code_byte in 0..256usize {
-            let mut packed = 0u64;
-            for state in 0..total_states {
-                packed |= (fused[state * 256 + code_byte] as u64) << (state as u32 * Self::BITS);
-            }
-            transitions[code_byte] = packed;
-        }
-        transitions
+        pack_shift_table(&fused, total_states, Self::BITS)
     }
 
     /// Build the pair-compose table and 2-byte palette from equivalence
@@ -668,27 +874,8 @@ impl FlatBranchlessDfa {
         let n_symbols = symbols.len();
 
         let byte_table = kmp_byte_transitions(needle);
-
-        // Build per-symbol transitions for normal states.
-        let mut sym_trans = vec![0u8; (n + 1) * n_symbols];
-        for state in 0..=n {
-            for code in 0..n_symbols {
-                if state as u8 == accept_state {
-                    sym_trans[state * n_symbols + code] = accept_state;
-                    continue;
-                }
-                let sym = symbols[code].to_u64().to_le_bytes();
-                let sym_len = symbol_lengths[code] as usize;
-                let mut s = state as u16;
-                for &b in &sym[..sym_len] {
-                    if s == accept_state as u16 {
-                        break;
-                    }
-                    s = byte_table[s as usize * 256 + b as usize];
-                }
-                sym_trans[state * n_symbols + code] = s as u8;
-            }
-        }
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n + 1, accept_state);
 
         // Build fused transition table with escape folding.
         let mut transitions = vec![0u8; total_states * 256];
@@ -753,62 +940,18 @@ impl ShiftDfa {
     fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
         debug_assert!(needle.len() <= Self::MAX_NEEDLE_LEN);
 
-        let n_symbols = symbols.len();
         let n_states = needle.len() + 1;
         let accept_state = needle.len() as u8;
         let escape_sentinel = needle.len() as u8 + 1;
 
         let byte_table = kmp_byte_transitions(needle);
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
 
-        // Build per-symbol transitions into a flat table first.
-        let mut sym_trans = vec![0u16; n_states * n_symbols];
-        for state in 0..n_states {
-            for code in 0..n_symbols {
-                if state as u8 == accept_state {
-                    sym_trans[state * n_symbols + code] = accept_state as u16;
-                    continue;
-                }
-                let sym = symbols[code].to_u64().to_le_bytes();
-                let sym_len = symbol_lengths[code] as usize;
-                let mut s = state as u16;
-                for &b in &sym[..sym_len] {
-                    if s == accept_state as u16 {
-                        break;
-                    }
-                    s = byte_table[s as usize * 256 + b as usize];
-                }
-                sym_trans[state * n_symbols + code] = s;
-            }
-        }
+        let fused = build_fused_table(&sym_trans, symbols.len(), n_states, |_| escape_sentinel, 0);
 
-        // Build fused 256-wide table, then pack into u64 shift tables.
-        let mut fused = vec![0u8; n_states * 256];
-        for state in 0..n_states {
-            for code in 0..n_symbols {
-                fused[state * 256 + code] = sym_trans[state * n_symbols + code] as u8;
-            }
-            fused[state * 256 + ESCAPE_CODE as usize] = escape_sentinel;
-        }
-
-        let mut transitions = [0u64; 256];
-        for code_byte in 0..256usize {
-            let mut packed = 0u64;
-            for state in 0..n_states {
-                let next = fused[state * 256 + code_byte];
-                packed |= (next as u64) << (state as u32 * Self::BITS);
-            }
-            transitions[code_byte] = packed;
-        }
-
-        let mut escape_transitions = [0u64; 256];
-        for byte_val in 0..256usize {
-            let mut packed = 0u64;
-            for state in 0..n_states {
-                let next = byte_table[state * 256 + byte_val] as u8;
-                packed |= (next as u64) << (state as u32 * Self::BITS);
-            }
-            escape_transitions[byte_val] = packed;
-        }
+        let transitions = pack_shift_table(&fused, n_states, Self::BITS);
+        let escape_transitions = pack_escape_shift_table(&byte_table, n_states, Self::BITS);
 
         Self {
             transitions,
@@ -853,41 +996,16 @@ struct FusedDfa {
 
 impl FusedDfa {
     fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
-        let n_symbols = symbols.len();
-        let accept_state = needle.len() as u8;
         let n_states = needle.len() + 1;
+        let accept_state = needle.len() as u8;
         let escape_sentinel = needle.len() as u8 + 1;
 
         let byte_table = kmp_byte_transitions(needle);
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
 
-        let mut symbol_transitions = vec![0u16; n_states * n_symbols];
-        for state in 0..n_states {
-            for code in 0..n_symbols {
-                if state as u8 == accept_state {
-                    symbol_transitions[state * n_symbols + code] = accept_state as u16;
-                    continue;
-                }
-                let sym = symbols[code].to_u64().to_le_bytes();
-                let sym_len = symbol_lengths[code] as usize;
-                let mut s = state as u16;
-                for &b in &sym[..sym_len] {
-                    if s == accept_state as u16 {
-                        break;
-                    }
-                    s = byte_table[s as usize * 256 + b as usize];
-                }
-                symbol_transitions[state * n_symbols + code] = s;
-            }
-        }
-
-        let mut transitions = vec![0u8; n_states * 256];
-        for state in 0..n_states {
-            for code in 0..n_symbols {
-                transitions[state * 256 + code] =
-                    symbol_transitions[state * n_symbols + code] as u8;
-            }
-            transitions[state * 256 + ESCAPE_CODE as usize] = escape_sentinel;
-        }
+        let transitions =
+            build_fused_table(&sym_trans, symbols.len(), n_states, |_| escape_sentinel, 0);
 
         let escape_transitions: Vec<u8> = byte_table.iter().map(|&v| v as u8).collect();
 
@@ -977,6 +1095,9 @@ fn kmp_failure_table(needle: &[u8]) -> Vec<usize> {
 mod tests {
     use std::sync::LazyLock;
 
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -1180,10 +1301,6 @@ mod tests {
     // -----------------------------------------------------------------------
     // Fuzz tests: compare FSST kernel against naive string matching
     // -----------------------------------------------------------------------
-
-    use rand::Rng;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
 
     fn random_string(rng: &mut StdRng, max_len: usize) -> String {
         let len = rng.random_range(0..=max_len);
