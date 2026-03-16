@@ -17,7 +17,7 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 
-use super::ArrayFixture;
+use crate::fixtures::ArrayFixture;
 
 const SCALE_FACTOR: f64 = 0.01;
 
