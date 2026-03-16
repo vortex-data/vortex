@@ -723,6 +723,55 @@ impl Compressor {
         &self.lengths[0..self.n_symbols as usize]
     }
 
+    /// Count escape codes and symbol uses in the compressed output.
+    ///
+    /// Returns `(escape_count, symbol_count, escape_bytes)` where:
+    /// - `escape_count`: number of escape codes emitted
+    /// - `symbol_count`: number of symbol codes emitted
+    /// - `escape_bytes`: distinct byte values that required escaping
+    pub fn count_escapes(&self, compressed: &[u8]) -> (usize, usize, Vec<u8>) {
+        let mut escapes = 0usize;
+        let mut symbols = 0usize;
+        let mut escape_byte_counts = [0u32; 256];
+        let mut i = 0;
+        while i < compressed.len() {
+            if compressed[i] == ESCAPE_CODE {
+                escapes += 1;
+                if i + 1 < compressed.len() {
+                    escape_byte_counts[compressed[i + 1] as usize] += 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            } else {
+                symbols += 1;
+                i += 1;
+            }
+        }
+        let mut escape_bytes: Vec<u8> = (0..=255u8)
+            .filter(|&b| escape_byte_counts[b as usize] > 0)
+            .collect();
+        escape_bytes
+            .sort_by(|a, b| escape_byte_counts[*b as usize].cmp(&escape_byte_counts[*a as usize]));
+        (escapes, symbols, escape_bytes)
+    }
+
+    /// Returns the number of symbols in the table.
+    pub fn num_symbols(&self) -> u8 {
+        self.n_symbols
+    }
+
+    /// Returns the number of symbols of each length (index 0 = length 1, etc).
+    pub fn length_histogram(&self) -> [u32; 8] {
+        let mut hist = [0u32; 8];
+        for &len in self.symbol_lengths() {
+            if len >= 1 && len <= 8 {
+                hist[(len - 1) as usize] += 1;
+            }
+        }
+        hist
+    }
+
     /// Rebuild a compressor from an existing symbol table.
     ///
     /// This will not attempt to optimize or re-order the codes.

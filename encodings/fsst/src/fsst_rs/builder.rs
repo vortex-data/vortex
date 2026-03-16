@@ -766,15 +766,40 @@ impl CompressorBuilder {
     /// Using a set of counters and the existing set of symbols, build a new
     /// set of symbols/codes that optimizes the gain over the distribution in `counter`.
     ///
-    /// The gain heuristic accounts for the escape overhead: each unmatched byte costs 2 bytes
-    /// in the compressed output (escape code + raw byte), while a matched symbol costs 1 byte.
-    /// Single-byte symbols are boosted because they eliminate escape overhead entirely.
+    /// Using a set of counters and the existing set of symbols, build a new
+    /// set of symbols/codes that optimizes the gain over the distribution in `counter`.
+    ///
+    /// The gain heuristic scores candidates by total bytes saved in the compressed output.
+    /// A symbol of length L replaces L input bytes with 1 output code byte, saving (L-1)
+    /// bytes per occurrence. Single-byte symbols save 1 byte per escape avoided.
+    ///
+    /// To maximize compression ratio, we progressively reduce the single-byte boost
+    /// across generations: early rounds boost escapes to quickly establish a baseline,
+    /// while later rounds favor longer symbols that save more bytes per slot.
     fn optimize(
         &mut self,
         counters: &Counter,
         sample_frac: usize,
         pqueue: &mut BinaryHeap<Candidate>,
     ) {
+        // Progressive single-byte boost: high in early rounds (need to cover the byte
+        // space to avoid escapes), lower in later rounds (prefer longer symbols once
+        // escape coverage is established).
+        //
+        // Early (sample_frac=4):  boost = 6x
+        // Mid   (sample_frac=48): boost = 4x
+        // Late  (sample_frac=98): boost = 3x
+        // Final (sample_frac=128): boost = 2x (only marginally above multi-byte)
+        let single_byte_boost = if sample_frac <= 12 {
+            8
+        } else if sample_frac <= 48 {
+            5
+        } else if sample_frac < 128 {
+            4
+        } else {
+            3
+        };
+
         for code1 in counters.first_codes() {
             let symbol1 = self.symbols[code1 as usize];
             let symbol1_len = symbol1.len();
@@ -782,24 +807,25 @@ impl CompressorBuilder {
 
             // From the c++ impl:
             // "improves both compression speed (less candidates), but also quality!!"
-            if count < (5 * sample_frac / 128) {
+            // For longer symbols, we use a lower threshold since they're more valuable
+            // per slot (each occurrence saves more bytes).
+            let min_count = if symbol1_len >= 4 {
+                2 * sample_frac / 128
+            } else {
+                5 * sample_frac / 128
+            };
+            if count < min_count {
                 continue;
             }
 
-            // For multi-byte symbols: gain = count * (symbol_len - 1), because using
-            // a 1-byte code replaces symbol_len bytes of input, saving (symbol_len - 1).
-            //
-            // For single-byte symbols (escapes): the gain of having a 1-byte code vs
-            // an escape is count * 1 (saves one escape byte per occurrence), but we
-            // boost it more aggressively to reduce escape overhead which hurts
-            // decompression throughput.
             let gain = if code1 < 256 {
-                // Single-byte escape: each occurrence saves 1 escape byte.
-                // Boost by 12x (up from 8x) to more aggressively capture frequent bytes.
-                count * 12
+                // Single-byte: saves 1 escape byte per occurrence.
+                count * single_byte_boost
             } else {
                 // Multi-byte symbol: saves (len - 1) bytes per occurrence.
-                count * symbol1_len
+                // Add a length bonus to prefer longer symbols per slot.
+                let len_bonus = (symbol1_len * symbol1_len) / 4;
+                count * (symbol1_len + len_bonus)
             };
 
             pqueue.push(Candidate {
@@ -807,8 +833,8 @@ impl CompressorBuilder {
                 gain,
             });
 
-            // Skip merges on last round, or when symbol cannot be extended.
-            if sample_frac >= 128 || symbol1_len == 8 {
+            // Skip merges when symbol cannot be extended.
+            if symbol1_len == 8 {
                 continue;
             }
 
@@ -824,16 +850,16 @@ impl CompressorBuilder {
                 let pair_count = counters.count2(code1, code2);
                 let merged_len = new_symbol.len();
 
-                // The gain of merging: a merged symbol of length L uses 1 code byte
-                // instead of the current encoding which uses some number of code bytes
-                // for the two parts. The net gain per pair occurrence is (merged_len - 1)
-                // since we replace L input bytes with 1 code byte (saving L-1 vs 1 code
-                // for each original symbol separately).
+                // The gain of a merged symbol: each occurrence replaces `merged_len`
+                // input bytes with 1 code byte, compared to the 2+ code bytes that
+                // the constituent symbols would use separately.
                 //
-                // We also add a small bonus for longer merged symbols since they
-                // reduce the total number of codes emitted, improving decompression
-                // throughput.
-                let gain = pair_count * merged_len + pair_count * (merged_len / 4);
+                // Score = pair_count * merged_len gives base bytes-covered.
+                // We add a superlinear length bonus: longer symbols are
+                // disproportionately valuable because they use fewer total codes,
+                // reducing compressed output size faster.
+                let length_bonus = (merged_len * merged_len) / 4;
+                let gain = pair_count * (merged_len + length_bonus);
 
                 pqueue.push(Candidate {
                     symbol: new_symbol,
