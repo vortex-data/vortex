@@ -71,7 +71,7 @@ jobs:
     steps:
       # Note, since we provide the job with a CloudFlare scoped API token, we run it in a separate job that doesn't
       # execute any repository code.
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v7
         with:
           name: github-pages
       - name: Extract Pages Artifact

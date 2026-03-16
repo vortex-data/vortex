@@ -2,23 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
+use crate::DynArray;
 use crate::ToCanonical;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -169,7 +167,7 @@ impl VarBinArray {
     ///
     /// This function checks all the invariants required by [`VarBinArray::new_unchecked`].
     pub fn validate(
-        offsets: &dyn Array,
+        offsets: &ArrayRef,
         bytes: &BufferHandle,
         dtype: &DType,
         validity: &Validity,
@@ -188,8 +186,8 @@ impl VarBinArray {
 
         // Check nullability matches
         vortex_ensure!(
-            dtype.is_nullable() != (validity == &Validity::NonNullable),
-            "incorrect validity {:?} for dtype {}",
+            dtype.is_nullable() != matches!(validity, Validity::NonNullable),
+            InvalidArgument: "incorrect validity {:?} for dtype {}",
             validity,
             dtype
         );
@@ -197,13 +195,8 @@ impl VarBinArray {
         // Check offsets has at least one element
         vortex_ensure!(
             !offsets.is_empty(),
-            "Offsets must have at least one element"
+            InvalidArgument: "Offsets must have at least one element"
         );
-
-        // Check offsets are sorted
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
-            vortex_ensure!(is_sorted, "offsets must be sorted");
-        }
 
         // Skip host-only validation when offsets/bytes are not host-resident.
         if offsets.is_host() && bytes.is_on_host() {
@@ -211,10 +204,12 @@ impl VarBinArray {
                 .scalar_at(offsets.len() - 1)?
                 .as_primitive()
                 .as_::<usize>()
-                .ok_or_else(|| vortex_err!("Last offset must be convertible to usize"))?;
+                .ok_or_else(
+                    || vortex_err!(InvalidArgument: "Last offset must be convertible to usize"),
+                )?;
             vortex_ensure!(
                 last_offset <= bytes.len(),
-                "Last offset {} exceeds bytes length {}",
+                InvalidArgument: "Last offset {} exceeds bytes length {}",
                 last_offset,
                 bytes.len()
             );
@@ -377,39 +372,6 @@ impl VarBinArray {
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(self) -> (DType, BufferHandle, ArrayRef, Validity) {
         (self.dtype, self.bytes, self.offsets, self.validity)
-    }
-}
-
-impl VarBinArray {
-    /// Return an array containing the same data, but where the internal `offsets` start at zero
-    /// and all wasted space in the bytes child has been clipped.
-    #[doc(hidden)]
-    pub fn zero_offsets(self) -> Self {
-        if self.is_empty() {
-            return self;
-        }
-
-        let first = self.offset_at(0);
-
-        let bytes = self.sliced_bytes();
-        let dtype = self.dtype;
-        let validity = self.validity;
-        let offsets = self.offsets;
-
-        let offsets = if first == 0 {
-            offsets
-        } else {
-            let offsets = offsets.to_primitive();
-            match_each_integer_ptype!(offsets.ptype(), |P| {
-                let offsets = offsets.as_slice::<P>();
-                let buffer: Buffer<P> = offsets.iter().map(|index| index - offsets[0]).collect();
-                buffer.into_array()
-            })
-        };
-
-        // SAFETY: we make the first offset start at zero, and slice the bytes accordingly,
-        //  so all offsets stay valid.
-        unsafe { Self::new_unchecked(offsets, bytes, dtype, validity) }
     }
 }
 

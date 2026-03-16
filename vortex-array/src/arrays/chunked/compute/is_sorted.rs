@@ -3,16 +3,17 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::ArrayRef;
+use crate::DynArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::compute::is_sorted;
 use crate::compute::is_strict_sorted;
 use crate::register_kernel;
 
-impl IsSortedKernel for ChunkedVTable {
+impl IsSortedKernel for Chunked {
     fn is_sorted(&self, array: &ChunkedArray) -> VortexResult<Option<bool>> {
         is_sorted_impl(array, false, is_sorted)
     }
@@ -22,12 +23,12 @@ impl IsSortedKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ChunkedVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Chunked).lift());
 
 fn is_sorted_impl(
     array: &ChunkedArray,
     strict: bool,
-    reentry_fn: impl Fn(&dyn Array) -> VortexResult<Option<bool>>,
+    reentry_fn: impl Fn(&ArrayRef) -> VortexResult<Option<bool>>,
 ) -> VortexResult<Option<bool>> {
     let mut first_last = Vec::default();
 

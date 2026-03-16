@@ -5,10 +5,10 @@ use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
 use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::stats::ArrayStats;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -54,16 +54,16 @@ mod test {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::stats::StatsProvider;
+    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -130,7 +130,7 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
+        let bp = BitPackedArray::encode(&array.into_array(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
         assert_arrays_eq!(compressed, expect);
     }
@@ -140,7 +140,7 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(array.as_ref(), 2).unwrap();
+        let bp = BitPackedArray::encode(&array.into_array(), 2).unwrap();
         let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
         let decompressed =
             fused_decompress::<u32>(&compressed, &bp, &mut SESSION.create_execution_ctx())?;

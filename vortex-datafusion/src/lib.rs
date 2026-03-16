@@ -10,6 +10,7 @@ use vortex::expr::stats::Precision;
 
 mod convert;
 mod persistent;
+pub mod v2;
 
 #[cfg(test)]
 mod tests;
@@ -70,12 +71,12 @@ mod common_tests {
     use vortex::array::ArrayRef;
     use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
-    use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
+    use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
 
     use crate::VortexFormatFactory;
-    use crate::VortexOptions;
+    use crate::VortexTableOptions;
 
     static VX_SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
@@ -94,7 +95,7 @@ mod common_tests {
         /// Create a new test session context with the given projection pushdown setting.
         pub fn new(projection_pushdown: bool) -> Self {
             let store = Arc::new(InMemory::new());
-            let opts = VortexOptions {
+            let opts = VortexTableOptions {
                 projection_pushdown,
                 ..Default::default()
             };
@@ -123,7 +124,7 @@ mod common_tests {
             P: Into<object_store::path::Path>,
         {
             let array = ArrayRef::from_arrow(batch, false)?;
-            let mut write = ObjectStoreWriter::new(self.store.clone(), &path.into()).await?;
+            let mut write = ObjectStoreWrite::new(self.store.clone(), &path.into()).await?;
             VX_SESSION
                 .write_options()
                 .write(&mut write, array.to_array_stream())

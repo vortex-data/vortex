@@ -6,25 +6,26 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use vortex_alp::ALP;
 // Compressed encodings from encoding crates
 // Canonical array encodings from vortex-array
-use vortex_alp::ALPRDVTable;
-use vortex_alp::ALPVTable;
-use vortex_array::arrays::BoolVTable;
-use vortex_array::arrays::ChunkedVTable;
-use vortex_array::arrays::ConstantVTable;
-use vortex_array::arrays::DecimalVTable;
-use vortex_array::arrays::DictVTable;
-use vortex_array::arrays::ExtensionVTable;
-use vortex_array::arrays::FixedSizeListVTable;
-use vortex_array::arrays::ListVTable;
-use vortex_array::arrays::ListViewVTable;
-use vortex_array::arrays::MaskedVTable;
-use vortex_array::arrays::NullVTable;
-use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::arrays::StructVTable;
-use vortex_array::arrays::VarBinVTable;
-use vortex_array::arrays::VarBinViewVTable;
+use vortex_alp::ALPRD;
+use vortex_array::arrays::Bool;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Decimal;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Extension;
+use vortex_array::arrays::FixedSizeList;
+use vortex_array::arrays::List;
+use vortex_array::arrays::ListView;
+use vortex_array::arrays::Masked;
+use vortex_array::arrays::Null;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBin;
+use vortex_array::arrays::VarBinView;
+use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -34,15 +35,14 @@ use vortex_btrblocks::FloatCode;
 use vortex_btrblocks::IntCode;
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::StringCode;
-use vortex_bytebool::ByteBoolVTable;
-use vortex_datetime_parts::DateTimePartsVTable;
-use vortex_decimal_byte_parts::DecimalBytePartsVTable;
-use vortex_dtype::FieldPath;
-use vortex_fastlanes::BitPackedVTable;
-use vortex_fastlanes::DeltaVTable;
-use vortex_fastlanes::FoRVTable;
-use vortex_fastlanes::RLEVTable;
-use vortex_fsst::FSSTVTable;
+use vortex_bytebool::ByteBool;
+use vortex_datetime_parts::DateTimeParts;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::Delta;
+use vortex_fastlanes::FoR;
+use vortex_fastlanes::RLE;
+use vortex_fsst::FSST;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -56,16 +56,16 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
-use vortex_pco::PcoVTable;
-use vortex_runend::RunEndVTable;
-use vortex_sequence::SequenceVTable;
-use vortex_sparse::SparseVTable;
+use vortex_pco::Pco;
+use vortex_runend::RunEnd;
+use vortex_sequence::Sequence;
+use vortex_sparse::Sparse;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_zigzag::ZigZagVTable;
-#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-use vortex_zstd::ZstdBuffersVTable;
+use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
-use vortex_zstd::ZstdVTable;
+use vortex_zstd::Zstd;
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+use vortex_zstd::ZstdBuffers;
 
 const ONE_MEG: u64 = 1 << 20;
 
@@ -77,43 +77,43 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     let registry = ArrayRegistry::default();
 
     // Canonical encodings from vortex-array
-    registry.register(NullVTable::ID, NullVTable);
-    registry.register(BoolVTable::ID, BoolVTable);
-    registry.register(PrimitiveVTable::ID, PrimitiveVTable);
-    registry.register(DecimalVTable::ID, DecimalVTable);
-    registry.register(VarBinVTable::ID, VarBinVTable);
-    registry.register(VarBinViewVTable::ID, VarBinViewVTable);
-    registry.register(ListVTable::ID, ListVTable);
-    registry.register(ListViewVTable::ID, ListViewVTable);
-    registry.register(FixedSizeListVTable::ID, FixedSizeListVTable);
-    registry.register(StructVTable::ID, StructVTable);
-    registry.register(ExtensionVTable::ID, ExtensionVTable);
-    registry.register(ChunkedVTable::ID, ChunkedVTable);
-    registry.register(ConstantVTable::ID, ConstantVTable);
-    registry.register(MaskedVTable::ID, MaskedVTable);
-    registry.register(DictVTable::ID, DictVTable);
+    registry.register(Null::ID, Null);
+    registry.register(Bool::ID, Bool);
+    registry.register(Primitive::ID, Primitive);
+    registry.register(Decimal::ID, Decimal);
+    registry.register(VarBin::ID, VarBin);
+    registry.register(VarBinView::ID, VarBinView);
+    registry.register(List::ID, List);
+    registry.register(ListView::ID, ListView);
+    registry.register(FixedSizeList::ID, FixedSizeList);
+    registry.register(Struct::ID, Struct);
+    registry.register(Extension::ID, Extension);
+    registry.register(Chunked::ID, Chunked);
+    registry.register(Constant::ID, Constant);
+    registry.register(Masked::ID, Masked);
+    registry.register(Dict::ID, Dict);
 
     // Compressed encodings from encoding crates
-    registry.register(ALPVTable::ID, ALPVTable);
-    registry.register(ALPRDVTable::ID, ALPRDVTable);
-    registry.register(BitPackedVTable::ID, BitPackedVTable);
-    registry.register(ByteBoolVTable::ID, ByteBoolVTable);
-    registry.register(DateTimePartsVTable::ID, DateTimePartsVTable);
-    registry.register(DecimalBytePartsVTable::ID, DecimalBytePartsVTable);
-    registry.register(DeltaVTable::ID, DeltaVTable);
-    registry.register(FoRVTable::ID, FoRVTable);
-    registry.register(FSSTVTable::ID, FSSTVTable);
-    registry.register(PcoVTable::ID, PcoVTable);
-    registry.register(RLEVTable::ID, RLEVTable);
-    registry.register(RunEndVTable::ID, RunEndVTable);
-    registry.register(SequenceVTable::ID, SequenceVTable);
-    registry.register(SparseVTable::ID, SparseVTable);
-    registry.register(ZigZagVTable::ID, ZigZagVTable);
+    registry.register(ALP::ID, ALP);
+    registry.register(ALPRD::ID, ALPRD);
+    registry.register(BitPacked::ID, BitPacked);
+    registry.register(ByteBool::ID, ByteBool);
+    registry.register(DateTimeParts::ID, DateTimeParts);
+    registry.register(DecimalByteParts::ID, DecimalByteParts);
+    registry.register(Delta::ID, Delta);
+    registry.register(FoR::ID, FoR);
+    registry.register(FSST::ID, FSST);
+    registry.register(Pco::ID, Pco);
+    registry.register(RLE::ID, RLE);
+    registry.register(RunEnd::ID, RunEnd);
+    registry.register(Sequence::ID, Sequence);
+    registry.register(Sparse::ID, Sparse);
+    registry.register(ZigZag::ID, ZigZag);
 
     #[cfg(feature = "zstd")]
-    registry.register(ZstdVTable::ID, ZstdVTable);
+    registry.register(Zstd::ID, Zstd);
     #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    registry.register(ZstdBuffersVTable::ID, ZstdBuffersVTable);
+    registry.register(ZstdBuffers::ID, ZstdBuffers);
 
     registry
 });
@@ -128,6 +128,7 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
+    flat_strategy: Option<Arc<dyn LayoutStrategy>>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -138,7 +139,8 @@ impl Default for WriteStrategyBuilder {
             compressor: None,
             row_block_size: 8192,
             field_writers: HashMap::new(),
-            allow_encodings: None,
+            allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
+            flat_strategy: None,
         }
     }
 }
@@ -176,6 +178,15 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Override the flat layout strategy used for leaf chunks.
+    ///
+    /// By default, this uses [`FlatLayoutStrategy`]. This can be used to substitute a custom
+    /// layout strategy, e.g. one that inlines constant array buffers for GPU reads.
+    pub fn with_flat_strategy(mut self, flat: Arc<dyn LayoutStrategy>) -> Self {
+        self.flat_strategy = Some(flat);
+        self
+    }
+
     /// Configure a write strategy that emits only CUDA-compatible encodings.
     ///
     /// This configures BtrBlocks to exclude schemes without CUDA kernel support.
@@ -186,7 +197,7 @@ impl WriteStrategyBuilder {
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
         let mut builder = BtrBlocksCompressorBuilder::default()
             .exclude_int([IntCode::Sparse, IntCode::Rle])
-            .exclude_float([FloatCode::AlpRd, FloatCode::Rle, FloatCode::Sparse])
+            .exclude_float([FloatCode::Rle, FloatCode::Sparse])
             .exclude_string([StringCode::Dict, StringCode::Fsst]);
 
         #[cfg(feature = "unstable_encodings")]
@@ -222,10 +233,12 @@ impl WriteStrategyBuilder {
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
-        let flat = if let Some(allow_encodings) = self.allow_encodings {
-            FlatLayoutStrategy::default().with_allow_encodings(allow_encodings)
+        let flat: Arc<dyn LayoutStrategy> = if let Some(flat) = self.flat_strategy {
+            flat
+        } else if let Some(allow_encodings) = self.allow_encodings {
+            Arc::new(FlatLayoutStrategy::default().with_allow_encodings(allow_encodings))
         } else {
-            FlatLayoutStrategy::default()
+            Arc::new(FlatLayoutStrategy::default())
         };
 
         // 7. for each chunk create a flat layout

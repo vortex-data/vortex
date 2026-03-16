@@ -4,23 +4,25 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::ListVTable;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::List;
+use crate::arrays::Primitive;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::min_max;
-use crate::compute::sub_scalar;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::match_each_integer_ptype;
+use crate::match_each_native_ptype;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -156,20 +158,20 @@ impl ListArray {
     ///
     /// This function checks all the invariants required by [`ListArray::new_unchecked`].
     pub fn validate(
-        elements: &dyn Array,
-        offsets: &dyn Array,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
         validity: &Validity,
     ) -> VortexResult<()> {
         // Offsets must have at least one element
         vortex_ensure!(
             !offsets.is_empty(),
-            "Offsets must have at least one element, [0] for an empty list"
+            InvalidArgument: "Offsets must have at least one element, [0] for an empty list"
         );
 
         // Offsets must be of integer type, and cannot go lower than 0.
         vortex_ensure!(
             offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
-            "offsets have invalid type {}",
+            InvalidArgument: "offsets have invalid type {}",
             offsets.dtype()
         );
 
@@ -178,9 +180,9 @@ impl ListArray {
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
         if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
-            vortex_ensure!(is_sorted, "offsets must be sorted");
+            vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
         } else {
-            vortex_bail!("offsets must report is_sorted statistic");
+            vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
         }
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
@@ -202,7 +204,7 @@ impl ListArray {
 
                     vortex_ensure!(
                         min >= 0,
-                        "offsets minimum {min} outside valid range [0, {max}]"
+                        InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
                     );
 
                     vortex_ensure!(
@@ -211,7 +213,7 @@ impl ListArray {
                             <P as NativePType>::PTYPE,
                             elements.len()
                         )),
-                        "Max offset {max} is beyond the length of the elements array {}",
+                        InvalidArgument: "Max offset {max} is beyond the length of the elements array {}",
                         elements.len()
                     );
                 }
@@ -219,7 +221,7 @@ impl ListArray {
         } else {
             // TODO(aduffy): fallback to slower validation pathway?
             vortex_bail!(
-                "offsets array with encoding {} must support min_max compute function",
+                InvalidArgument: "offsets array with encoding {} must support min_max compute function",
                 offsets.encoding_id()
             );
         };
@@ -228,7 +230,7 @@ impl ListArray {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == offsets.len() - 1,
-                "validity with size {validity_len} does not match array size {}",
+                InvalidArgument: "validity with size {validity_len} does not match array size {}",
                 offsets.len() - 1
             );
         }
@@ -256,7 +258,7 @@ impl ListArray {
             self.len()
         );
 
-        if let Some(p) = self.offsets().as_opt::<PrimitiveVTable>() {
+        if let Some(p) = self.offsets().as_opt::<Primitive>() {
             Ok(match_each_native_ptype!(p.ptype(), |P| {
                 p.as_slice::<P>()[index].as_()
             }))
@@ -315,13 +317,16 @@ impl ListArray {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
             elements = elements.to_canonical()?.compact()?.into_array();
-        } else if recurse && let Some(child_list_array) = elements.as_opt::<ListVTable>() {
+        } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
             elements = child_list_array.reset_offsets(recurse)?.into_array();
         }
 
         let offsets = self.offsets();
         let first_offset = offsets.scalar_at(0)?;
-        let adjusted_offsets = sub_scalar(offsets, first_offset)?;
+        let adjusted_offsets = offsets.to_array().binary(
+            ConstantArray::new(first_offset, offsets.len()).into_array(),
+            Operator::Sub,
+        )?;
 
         Self::try_new(elements, adjusted_offsets, self.validity.clone())
     }

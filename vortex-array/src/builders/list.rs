@@ -4,22 +4,16 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::builders::ArrayBuilder;
@@ -28,6 +22,13 @@ use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::dtype::Nullability::NonNullable;
+use crate::match_each_integer_ptype;
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`ListArray`], parametrized by the [`IntegerPType`] of the `offsets`
 /// builder.
@@ -91,7 +92,7 @@ impl<O: IntegerPType> ListBuilder<O> {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] in nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -213,7 +214,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let list = array.to_listview();
         if list.is_empty() {
             return;
@@ -298,6 +299,10 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_list().into_array()
     }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::List(self.finish_into_list().to_listview())
+    }
 }
 
 #[cfg(test)]
@@ -307,21 +312,23 @@ mod tests {
     use Nullability::NonNullable;
     use Nullability::Nullable;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::IntegerPType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::list::ListArray;
     use crate::builders::list::ListBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::IntegerPType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType::I32;
+    use crate::executor::VortexSessionExecute;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -431,8 +438,9 @@ mod tests {
         .unwrap();
         assert_eq!(list.len(), 3);
 
-        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
+        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
         builder.extend_from_array(&list);
         builder.extend_from_array(&list);
         builder.extend_from_array(&list.slice(0..0).unwrap());
@@ -460,7 +468,12 @@ mod tests {
 
         assert_arrays_eq!(actual.offsets(), expected.offsets());
 
-        assert_eq!(actual.validity(), expected.validity())
+        assert!(
+            actual
+                .validity()
+                .mask_eq(expected.validity(), &mut ctx)
+                .unwrap(),
+        );
     }
 
     #[test]

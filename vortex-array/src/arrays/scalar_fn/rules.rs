@@ -5,32 +5,31 @@ use std::any::Any;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::Canonical;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
-use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
-use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
-use crate::expr::Pack;
-use crate::expr::ReduceCtx;
-use crate::expr::ReduceNode;
-use crate::expr::ReduceNodeRef;
-use crate::expr::ScalarFn;
+use crate::arrays::slice::SliceReduceAdaptor;
+use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
+use crate::scalar_fn::ReduceCtx;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
@@ -54,8 +53,8 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
         };
 
         let validity = match pack_options.nullability {
-            vortex_dtype::Nullability::NonNullable => Validity::NonNullable,
-            vortex_dtype::Nullability::Nullable => Validity::AllValid,
+            crate::dtype::Nullability::NonNullable => Validity::NonNullable,
+            crate::dtype::Nullability::Nullable => Validity::AllValid,
         };
 
         Ok(Some(
@@ -74,7 +73,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 struct ScalarFnConstantRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
     fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if !array.children.iter().all(|c| c.is::<ConstantVTable>()) {
+        if !array.children.iter().all(|c| c.is::<Constant>()) {
             return Ok(None);
         }
         if array.is_empty() {
@@ -90,11 +89,10 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if let Some(reduced) = array.scalar_fn.reduce(
-            // Blergh, re-boxing
-            &array.to_array(),
-            &ArrayReduceCtx { len: array.len },
-        )? {
+        if let Some(reduced) = array
+            .scalar_fn
+            .reduce(array, &ArrayReduceCtx { len: array.len })?
+        {
             return Ok(Some(
                 reduced
                     .as_any()
@@ -107,25 +105,48 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     }
 }
 
+impl ReduceNode for ScalarFnArray {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(self.dtype().clone())
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        Some(ScalarFnArray::scalar_fn(self))
+    }
+
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        Arc::new(self.children()[idx].clone())
+    }
+
+    fn child_count(&self) -> usize {
+        self.children.len()
+    }
+}
+
 impl ReduceNode for ArrayRef {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.as_ref().dtype().clone())
+        self.as_ref().node_dtype()
     }
 
-    fn scalar_fn(&self) -> Option<&ScalarFn> {
-        self.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        self.as_ref().scalar_fn()
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(<dyn Array>::children(self)[idx].clone())
+        self.as_ref().child(idx)
     }
 
     fn child_count(&self) -> usize {
-        self.nchildren()
+        self.as_ref().child_count()
     }
 }
 
@@ -136,7 +157,7 @@ struct ArrayReduceCtx {
 impl ReduceCtx for ArrayReduceCtx {
     fn new_node(
         &self,
-        scalar_fn: ScalarFn,
+        scalar_fn: ScalarFnRef,
         children: &[ReduceNodeRef],
     ) -> VortexResult<ReduceNodeRef> {
         Ok(Arc::new(
@@ -162,7 +183,7 @@ impl ReduceCtx for ArrayReduceCtx {
 struct ScalarFnUnaryFilterPushDownRule;
 
 impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
-    type Parent = FilterVTable;
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,
@@ -175,14 +196,14 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
         if child
             .children
             .iter()
-            .filter(|c| !c.is::<ConstantVTable>())
+            .filter(|c| !c.is::<Constant>())
             .count()
             == 1
         {
             let new_children: Vec<_> = child
                 .children
                 .iter()
-                .map(|c| match c.as_opt::<ConstantVTable>() {
+                .map(|c| match c.as_opt::<Constant>() {
                     Some(array) => {
                         Ok(ConstantArray::new(array.scalar().clone(), parent.len()).into_array())
                     }
@@ -203,15 +224,15 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::scalar_fn::rules::ConstantArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::cast;
     use crate::expr::is_null;
     use crate::expr::root;
@@ -232,7 +253,7 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::Nullable),
         )
         .vortex_expect("construction")
-        .to_array();
+        .into_array();
 
         let expr = is_null(root());
         array.apply(&expr).vortex_expect("expr evaluation");

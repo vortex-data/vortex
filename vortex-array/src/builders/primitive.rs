@@ -5,16 +5,11 @@ use std::any::Any;
 use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
@@ -23,6 +18,10 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
 pub struct PrimitiveBuilder<T> {
@@ -52,6 +51,12 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.nulls.append_non_null();
     }
 
+    /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
+    pub fn append_n_values(&mut self, value: T, n: usize) {
+        self.values.push_n(value, n);
+        self.nulls.append_n_non_nulls(n);
+    }
+
     /// Returns the raw primitive values in this builder as a slice.
     pub fn values(&self) -> &[T] {
         self.values.as_ref()
@@ -72,7 +77,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// ```
     /// use std::mem::MaybeUninit;
     /// use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
-    /// use vortex_dtype::Nullability;
+    /// use vortex_array::dtype::Nullability;
     ///
     /// // Create a new builder.
     /// let mut builder: PrimitiveBuilder<i32> =
@@ -155,15 +160,16 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             scalar.dtype()
         );
 
-        match scalar.as_primitive().pvalue() {
-            Some(pv) => self.append_value(pv.cast::<T>()),
-            None => self.append_null(),
+        if let Some(pv) = scalar.as_primitive().pvalue() {
+            self.append_value(pv.cast::<T>()?)
+        } else {
+            self.append_null()
         }
 
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_primitive();
 
         // This should be checked in `extend_from_array` but we can check it again.
@@ -578,8 +584,8 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_dtype::DType;
-        use vortex_scalar::Scalar;
+        use crate::dtype::DType;
+        use crate::scalar::Scalar;
 
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
 
@@ -593,7 +599,7 @@ mod tests {
 
         // Test appending null value.
         let null_scalar = Scalar::null(DType::Primitive(
-            vortex_dtype::PType::I32,
+            crate::dtype::PType::I32,
             Nullability::Nullable,
         ));
         builder.append_scalar(&null_scalar).unwrap();

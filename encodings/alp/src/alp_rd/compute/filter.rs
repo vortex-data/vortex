@@ -4,22 +4,22 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterKernel;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ALPRD;
 use crate::ALPRDArray;
-use crate::ALPRDVTable;
 
-impl FilterKernel for ALPRDVTable {
+impl FilterKernel for ALPRD {
     fn filter(
         array: &ALPRDArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let left_parts_exceptions = array
             .left_parts_patches()
-            .map(|patches| patches.filter(mask))
+            .map(|patches| patches.filter(mask, ctx))
             .transpose()?
             .flatten();
 

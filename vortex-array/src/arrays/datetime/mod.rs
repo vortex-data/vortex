@@ -6,23 +6,23 @@ mod test;
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::datetime::AnyTemporal;
-use vortex_dtype::datetime::Date;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::Time;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::Timestamp;
-use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
+use crate::dtype::DType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///
@@ -125,7 +125,7 @@ impl TemporalArray {
     /// These values are to be interpreted based on the time unit and optional time-zone stored
     /// in the TemporalMetadata.
     pub fn temporal_values(&self) -> &ArrayRef {
-        self.ext.storage()
+        self.ext.storage_array()
     }
 
     /// Retrieve the temporal metadata.
@@ -147,8 +147,8 @@ impl TemporalArray {
     }
 }
 
-impl AsRef<dyn Array> for TemporalArray {
-    fn as_ref(&self) -> &dyn Array {
+impl AsRef<dyn DynArray> for TemporalArray {
+    fn as_ref(&self) -> &dyn DynArray {
         self.ext.as_ref()
     }
 }
@@ -178,7 +178,7 @@ impl TryFrom<ArrayRef> for TemporalArray {
     /// `TemporalMetadata` variants, an error is returned.
     fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
         let ext = value
-            .as_opt::<ExtensionVTable>()
+            .as_opt::<Extension>()
             .ok_or_else(|| vortex_err!("array must be an ExtensionArray"))?;
         if !ext.ext_dtype().is::<AnyTemporal>() {
             vortex_bail!(

@@ -17,6 +17,7 @@ use futures::select;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
@@ -27,7 +28,6 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -45,6 +45,7 @@ use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::Footer;
 use crate::MAGIC_BYTES;
@@ -200,7 +201,7 @@ impl VortexWriteOptions {
         let (layout, segment_specs) = layout_fut.await?;
 
         // Assemble the Footer object now that we have all the segments.
-        let footer = Footer::new(
+        let mut footer = Footer::new(
             layout.clone(),
             segment_specs,
             if self.file_statistics.is_empty() {
@@ -211,7 +212,7 @@ impl VortexWriteOptions {
                     &dtype,
                 ))
             },
-            ctx,
+            ReadContext::new(ctx.to_ids()),
         );
 
         // Emit the footer buffers and EOF.
@@ -221,6 +222,11 @@ impl VortexWriteOptions {
             .with_offset(position)
             .with_exclude_dtype(self.exclude_dtype)
             .serialize()?;
+
+        // Update the approx footer size in the footer object, so it can be used for caching and
+        // memory management in the future.
+        footer = footer.with_approx_byte_size(footer_buffers.iter().map(|b| b.len()).sum());
+
         for buffer in footer_buffers {
             position += buffer.len() as u64;
             write.write_all(buffer).await?;
@@ -460,7 +466,7 @@ impl WriteSummary {
         self.size
     }
 
-    /// The footer of the written Vortex file.
+    /// The total number of rows in the written Vortex file.
     pub fn row_count(&self) -> u64 {
         self.footer.row_count()
     }

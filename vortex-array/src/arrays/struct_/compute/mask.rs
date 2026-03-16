@@ -2,28 +2,26 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskKernel for StructVTable {
-    fn mask(&self, array: &StructArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
-        let validity = array.validity().mask(filter_mask);
-
+impl MaskReduce for Struct {
+    fn mask(array: &StructArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         StructArray::try_new_with_dtype(
             array.unmasked_fields().clone(),
             array.struct_fields().clone(),
             array.len(),
-            validity,
+            array
+                .validity()
+                .clone()
+                .and(Validity::Array(mask.clone()))?,
         )
-        .map(|a| a.into_array())
+        .map(|a| Some(a.into_array()))
     }
 }
-register_kernel!(MaskKernelAdapter(StructVTable).lift());

@@ -19,19 +19,19 @@ use crate::cpp;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::lifetime_wrapper;
 
-lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value, [owned, ref]);
+lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
 
-impl<'a> ValueRef<'a> {
-    /// Note the lifetime of logical type is tied to &self
-    pub fn logical_type(&self) -> LogicalType {
+impl ValueRef {
+    pub fn logical_type(&self) -> &LogicalTypeRef {
         unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
 
     pub fn as_string(&self) -> BufferString {
         let ExtractedValue::Varchar(string) = self.extract() else {
-            vortex_panic!("Value is not a string");
+            vortex_panic!("ValueRef is not a string");
         };
         string
     }
@@ -59,6 +59,10 @@ impl<'a> ValueRef<'a> {
             DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {
                 ExtractedValue::BigInt(unsafe { cpp::duckdb_get_int64(self.as_ptr()) })
             }
+            DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT => {
+                let huge_int = unsafe { cpp::duckdb_get_hugeint(self.as_ptr()) };
+                ExtractedValue::HugeInt(i128_from_parts(huge_int.upper, huge_int.lower))
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => {
                 ExtractedValue::UTinyInt(unsafe { cpp::duckdb_get_uint8(self.as_ptr()) })
             }
@@ -70,6 +74,10 @@ impl<'a> ValueRef<'a> {
             }
             DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => {
                 ExtractedValue::UBigInt(unsafe { cpp::duckdb_get_uint64(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT => {
+                let huge_uint = unsafe { cpp::duckdb_get_uhugeint(self.as_ptr()) };
+                ExtractedValue::UHugeInt(u128_from_parts(huge_uint.upper, huge_uint.lower))
             }
             DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => {
                 ExtractedValue::Float(unsafe { cpp::duckdb_get_float(self.as_ptr()) })
@@ -89,9 +97,6 @@ impl<'a> ValueRef<'a> {
                 ExtractedValue::Varchar(string)
             }
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
-                // TODO(ngates): for blobs and strings, we could write our own C functions to
-                //  get the values by reference, avoiding a double copy since these C functions
-                //  also copy on the CPP side.
                 let blob = unsafe { cpp::duckdb_get_blob(self.as_ptr()) };
                 let slice =
                     unsafe { std::slice::from_raw_parts(blob.data.cast::<u8>(), blob.size.as_()) };
@@ -152,12 +157,12 @@ impl<'a> ValueRef<'a> {
                     .collect::<Vec<_>>(),
             ),
             // ...other types remain unimplemented..
-            _ => vortex_panic!("Unsupported DuckDB value type {:?}", self),
+            other => vortex_panic!("Unsupported DuckDB value type {other:?}"),
         }
     }
 }
 
-impl<'a> Debug for ValueRef<'a> {
+impl Debug for ValueRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
         write!(f, "{}", unsafe { CStr::from_ptr(ptr).to_string_lossy() })?;
@@ -166,18 +171,19 @@ impl<'a> Debug for ValueRef<'a> {
     }
 }
 
+impl Debug for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&**self, f)
+    }
+}
+
 impl Value {
     pub fn sql_null() -> Self {
         unsafe { Self::own(cpp::duckdb_create_null_value()) }
     }
 
-    pub fn null(logical_type: &LogicalType) -> Self {
+    pub fn null(logical_type: &LogicalTypeRef) -> Self {
         unsafe { Self::own(cpp::duckdb_vx_value_create_null(logical_type.as_ptr())) }
-    }
-
-    /// Note the lifetime of logical type if tied to &self
-    pub fn logical_type(&self) -> LogicalType {
-        unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
 
     pub fn new_decimal(precision: u8, scale: i8, value: i128) -> Self {
@@ -246,13 +252,18 @@ impl Value {
     }
 }
 
-impl Display for Value {
+impl Display for ValueRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
         write!(f, "{}", unsafe { CStr::from_ptr(ptr) }.to_string_lossy())?;
         unsafe { cpp::duckdb_free(ptr.cast()) };
-
         Ok(())
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&**self, f)
     }
 }
 
@@ -261,10 +272,9 @@ pub fn i128_from_parts(high: i64, low: u64) -> i128 {
     ((high as i128) << 64) | (low as i128)
 }
 
-impl Debug for Value {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}",)
-    }
+#[inline]
+pub fn u128_from_parts(high: u64, low: u64) -> u128 {
+    ((high as u128) << 64) | (low as u128)
 }
 
 impl<T> TryFrom<Option<T>> for Value
@@ -276,7 +286,10 @@ where
     fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
         match value {
             Some(v) => Ok(v.into()),
-            None => Ok(Value::null(&LogicalType::try_from(&T::dtype())?)),
+            None => {
+                let lt = LogicalType::try_from(&T::dtype())?;
+                Ok(Value::null(&lt))
+            }
         }
     }
 }
@@ -376,6 +389,7 @@ pub enum ExtractedValue {
     USmallInt(u16),
     UInteger(u32),
     UBigInt(u64),
+    UHugeInt(u128),
     Float(f32),
     Double(f64),
     Boolean(bool),
@@ -394,6 +408,7 @@ pub enum ExtractedValue {
 #[cfg(test)]
 mod tests {
     use crate::duckdb::i128_from_parts;
+    use crate::duckdb::u128_from_parts;
 
     #[test]
     fn test_huge_int_from_parts() {
@@ -407,5 +422,18 @@ mod tests {
             i128_from_parts(1, u64::MAX),
             (1i128 << 64) + (u64::MAX as i128)
         );
+    }
+
+    #[test]
+    fn test_uhuge_int_from_parts() {
+        assert_eq!(u128_from_parts(0, 0), 0u128);
+        assert_eq!(u128_from_parts(0, 34534912), 34534912u128);
+        assert_eq!(u128_from_parts(0, u64::MAX), u64::MAX as u128);
+        assert_eq!(u128_from_parts(u64::MAX, u64::MAX), u128::MAX);
+        assert_eq!(
+            u128_from_parts(1, u64::MAX),
+            (1u128 << 64) + (u64::MAX as u128)
+        );
+        assert_eq!(u128_from_parts(1, 0), 1u128 << 64);
     }
 }

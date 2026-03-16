@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, TypeVar, final
 
 from ray.data import Datasource, ReadTask
 from ray.data.block import BlockMetadata
+from ray.data.context import DataContext
 from ray.data.datasource import BaseFileMetadataProvider, DefaultFileMetadataProvider
 from ray.data.datasource.path_util import (
     _resolve_paths_and_filesystem,  # pyright: ignore[reportPrivateUsage, reportUnknownVariableType]
@@ -22,7 +23,6 @@ from ..type_aliases import IntoProjection
 if TYPE_CHECKING:
     import pandas
     import pyarrow.compute as pc
-
 
 T = TypeVar("T")
 
@@ -81,7 +81,9 @@ class VortexDatasource(Datasource):
         return None
 
     @override
-    def get_read_tasks(self, parallelism: int, per_task_row_limit: int | None = None) -> list[ReadTask]:
+    def get_read_tasks(
+        self, parallelism: int, per_task_row_limit: int | None = None, data_context: DataContext | None = None
+    ) -> list[ReadTask]:
         """Execute the read and return read tasks.
 
         Args:

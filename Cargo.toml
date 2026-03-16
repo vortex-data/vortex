@@ -10,11 +10,8 @@ members = [
     "vortex-metrics",
     "vortex-io",
     "vortex-proto",
-    "vortex-dtype",
-    "vortex-vector",
-    "vortex-scalar",
-    "vortex-compute",
     "vortex-array",
+    "vortex-tensor",
     "vortex-btrblocks",
     "vortex-layout",
     "vortex-scan",
@@ -27,6 +24,7 @@ members = [
     "vortex-clickhouse",
     "vortex-cuda",
     "vortex-cuda/cub",
+    "vortex-cuda/gpu-scan-cli",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
     "vortex-cxx",
@@ -35,6 +33,7 @@ members = [
     "vortex-jni",
     "vortex-python",
     "vortex-tui",
+    "vortex-test/compat-gen",
     "vortex-test/e2e",
     "vortex-test/e2e-cuda",
     "xtask",
@@ -57,6 +56,7 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
+    "vortex-sqllogictest",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -79,11 +79,12 @@ keywords = ["vortex"]
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/spiraldb/vortex"
-rust-version = "1.89"
+rust-version = "1.90"
 version = "0.1.0"
 
 [workspace.dependencies]
-anyhow = "1.0.95"
+aho-corasick = "1.1.3"
+anyhow = "1.0.97"
 arbitrary = "1.3.2"
 arc-swap = "1.8"
 arcref = "0.2.0"
@@ -98,15 +99,17 @@ arrow-ord = "57.1"
 arrow-schema = "57.1"
 arrow-select = "57.1"
 arrow-string = "57.1"
-async-compat = "0.2.5"
 async-fs = "2.2.0"
+async-lock = "3.4"
 async-stream = "0.3.6"
 async-trait = "0.1.89"
+bigdecimal = "0.4.8"
 bindgen = "0.72.0"
-bit-vec = "0.8.0"
+bit-vec = "0.9.0"
 bitvec = "1.0.1"
 bytes = "1.11.1"
 bzip2 = "0.6.0"
+cargo_metadata = "0.23.1"
 cbindgen = "0.29.0"
 cc = "1.2"
 cfg-if = "1.0.1"
@@ -115,12 +118,13 @@ clap = "4.5"
 criterion = "0.7"
 crossterm = "0.29"
 cudarc = { version = "0.18.2", features = [
-    # 12.8 matches the CUDA toolkit version pre-installed on the lambda.ai GPU base
-    # image. The version does not have to match exactly. Lower toolkit versions can
-    # be specified if a later toolkit version is installed on the system.
-    "cuda-12080",
+    # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
+    # several functions that cudarc expects to load when this is set to "cuda-12080". We
+    # don't use any CUDA 12.8 specific features currently so this is fine.
+    "cuda-12050",
 ] }
 custom-labels = "0.4.4"
+daachorse = "1.0.0"
 dashmap = "6.1.0"
 datafusion = { version = "52", default-features = false, features = ["sql"] }
 datafusion-catalog = { version = "52" }
@@ -135,9 +139,11 @@ datafusion-physical-expr-adapter = { version = "52" }
 datafusion-physical-expr-common = { version = "52" }
 datafusion-physical-plan = { version = "52" }
 datafusion-pruning = { version = "52" }
+datafusion-sqllogictest = { version = "52" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
+env_logger = "0.11"
 fastlanes = "0.5"
 flatbuffers = "25.2.10"
 fsst-rs = "0.5.5"
@@ -153,6 +159,7 @@ indicatif = "0.18.0"
 insta = "1.43"
 inventory = "0.3.20"
 itertools = "0.14.0"
+jetscii = "0.5.3"
 jiff = "0.2.0"
 kanal = "0.1.1"
 lending-iterator = "0.1.7"
@@ -161,6 +168,7 @@ libloading = "0.8"
 liblzma = "0.4"
 log = { version = "0.4.21" }
 loom = { version = "0.7", features = ["checkpoint"] }
+memchr = "2.8.0"
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
@@ -185,14 +193,16 @@ proc-macro2 = "1.0.95"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
+public-api = "0.51"
 pyo3 = { version = "0.27.0" }
 pyo3-bytes = "0.5"
 pyo3-log = "0.13.0"
 quote = "1.0.41"
 rand = "0.9.0"
 rand_distr = "0.5"
-ratatui = "0.30"
+ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
+regex-automata = "0.4"
 reqwest = { version = "0.12.4", features = [
     "charset",
     "http2",
@@ -205,7 +215,7 @@ rstest = "0.26.1"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1"
 serde = "1.0.220"
-serde_json = "1.0.116"
+serde_json = "1.0.138"
 serde_test = "1.0.176"
 simdutf8 = "0.1.5"
 similar = "2.7.0"
@@ -234,8 +244,7 @@ tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
 url = "2.5.7"
 uuid = { version = "1.19", features = ["js"] }
-walkdir = "2.5.0"
-wasm-bindgen-futures = "0.4.39"
+wasm-bindgen-futures = "0.4.54"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zip = "6.0.0"
@@ -250,11 +259,9 @@ vortex-array = { version = "0.1.0", path = "./vortex-array", default-features = 
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
-vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
-vortex-dtype = { version = "0.1.0", path = "./vortex-dtype", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
@@ -268,13 +275,12 @@ vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-feature
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
-vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
+vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
-vortex-vector = { version = "0.1.0", path = "./vortex-vector", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
 # END crates published by this project
@@ -282,6 +288,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # No version constraints for unpublished crates.
 vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-clickhouse = { path = "./vortex-clickhouse" }
+vortex-compat = { path = "./vortex-test/compat-gen" }
 vortex-cuda = { path = "./vortex-cuda", default-features = false }
 vortex-cuda-macros = { path = "./vortex-cuda/macros" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }

@@ -10,15 +10,15 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -26,9 +26,12 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
-use vortex_array::expr::Pack;
-use vortex_array::expr::PackOptions;
-use vortex_array::expr::VTableExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::PType::I32;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::eq;
@@ -41,7 +44,14 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
-use vortex_array::expr::session::ExprSession;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
+use vortex_array::extension::datetime::TimestampOptions;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::fns::pack::PackOptions;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -50,21 +60,9 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
-#[cfg(unix)]
-use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::PType::I32;
-use vortex_dtype::StructFields;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::Timestamp;
-use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
-use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 use vortex_session::VortexSession;
 
@@ -78,7 +76,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let mut session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
-        .with::<ExprSession>()
+        .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&mut session);
@@ -1200,7 +1198,7 @@ async fn write_nullable_top_level_struct() {
 }
 
 async fn round_trip(
-    array: &dyn Array,
+    array: &ArrayRef,
     f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
@@ -1231,7 +1229,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         Nullability::Nullable,
     );
 
-    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).to_array();
+    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).into_array();
 
     let array = StructArray::try_new(
         ["struct"].into(),
@@ -1259,7 +1257,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
 
-    let result = round_trip(array.as_ref(), |scan| {
+    let result = round_trip(&array.clone().into_array(), |scan| {
         Ok(scan.with_projection(Pack.new_expr(
             PackOptions {
                 names: Default::default(),
@@ -1322,10 +1320,10 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let read_array = file.scan()?.into_array_stream()?.read_all().await?;
 
     let dict = read_array
-        .as_opt::<DictVTable>()
+        .as_opt::<Dict>()
         .expect("expected root to be dictionary");
     assert!(
-        !dict.codes().is::<DictVTable>(),
+        !dict.codes().is::<Dict>(),
         "dictionary codes should not be dictionary encoded"
     );
     Ok(())
@@ -1635,131 +1633,4 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
     assert!(results.is_err());
 
     Ok(())
-}
-
-#[cfg(unix)]
-#[cuda_tests]
-mod cuda_tests {
-    use std::sync::Arc;
-    use std::sync::LazyLock;
-
-    use futures::StreamExt;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::expr::session::ExprSession;
-    use vortex_array::session::ArraySession;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
-    use vortex_cuda::CanonicalCudaExt;
-    use vortex_cuda::CopyDeviceReadAt;
-    use vortex_cuda::CudaSession;
-    use vortex_cuda::CudaSessionExt;
-    use vortex_cuda::executor::CudaArrayExt;
-    use vortex_dtype::FieldNames;
-    use vortex_error::VortexResult;
-    use vortex_io::file::std_file::FileReadAdapter;
-    use vortex_io::session::RuntimeSession;
-    use vortex_io::session::RuntimeSessionExt;
-    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::session::LayoutSession;
-    use vortex_session::VortexSession;
-
-    use crate::OpenOptionsSessionExt;
-    use crate::WriteOptionsSessionExt;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let mut session = VortexSession::empty()
-            .with::<ArraySession>()
-            .with::<LayoutSession>()
-            .with::<ExprSession>()
-            .with::<RuntimeSession>()
-            .with::<CudaSession>();
-
-        vortex_cuda::initialize_cuda(&session.cuda_session());
-        crate::register_default_encodings(&mut session);
-
-        session
-    });
-
-    #[tokio::test]
-    async fn gpu_scan() -> VortexResult<()> {
-        use vortex_alp::alp_encode;
-
-        assert!(
-            std::env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok(),
-            "gpu_scan test must be run with FLAT_LAYOUT_INLINE_ARRAY_NODE=1"
-        );
-
-        // Create an ALP-encoded array from primitive f64 values
-        let primitive = PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 1.1));
-        let alp_array = alp_encode(&primitive, None)?;
-        let str_array = VarBinViewArray::from_iter_str((0..100).map(|i| format!("number {i}")));
-        let array = StructArray::new(
-            FieldNames::from(vec!["float_col", "int_col", "str_col"]),
-            vec![
-                primitive.into_array(),
-                alp_array.into_array(),
-                str_array.into_array(),
-            ],
-            100,
-            Validity::NonNullable,
-        );
-
-        let flat_strategy = Arc::new(FlatLayoutStrategy::default());
-
-        // Write to a buffer, then to a temp file
-        let temp_path = std::env::temp_dir().join("gpu_scan_test.vortex");
-        let mut buf = Vec::new();
-        SESSION
-            .write_options()
-            // write with flat strategy, don't try and compress
-            .with_strategy(flat_strategy)
-            .write(&mut buf, array.to_array_stream())
-            .await?;
-        std::fs::write(&temp_path, &buf)?;
-
-        // Read back via GPU
-        let handle = SESSION.handle();
-        let source = Arc::new(FileReadAdapter::open(&temp_path, handle)?);
-        let gpu_reader =
-            CopyDeviceReadAt::new(source.clone(), SESSION.cuda_session().new_stream()?);
-        let cpu_reader = source;
-
-        let cpu_file = SESSION.open_options().open_read(cpu_reader).await?;
-        let gpu_file = SESSION
-            .open_options()
-            .with_footer(cpu_file.footer)
-            .open_read(gpu_reader)
-            .await?;
-
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)?;
-
-        let mut res = Vec::new();
-        let mut stream = gpu_file
-            .scan()?
-            // filter with a predefined mask
-            .with_row_indices(buffer![0, 10, 20, 30, 40, 50, 60, 70, 80, 90])
-            .into_array_stream()?;
-        while let Some(a) = stream.next().await {
-            let a = a?;
-            let array = a
-                .execute_cuda(&mut cuda_ctx)
-                .await?
-                .into_host()
-                .await?
-                .into_array();
-            res.push(array);
-        }
-
-        for a in res {
-            println!("a {} ", a.display_tree())
-        }
-
-        // Cleanup
-        std::fs::remove_file(&temp_path)?;
-
-        Ok(())
-    }
 }

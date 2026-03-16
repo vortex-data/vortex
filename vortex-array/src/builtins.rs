@@ -9,27 +9,39 @@
 //! This set of functions should cover the basics, and in general leans towards the semantics of
 //! the equivalent Arrow compute function.
 
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::arrays::ScalarFnArrayExt;
-use crate::expr::Cast;
-use crate::expr::EmptyOptions;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::expr::Expression;
-use crate::expr::GetItem;
-use crate::expr::IsNull;
-use crate::expr::Mask;
-use crate::expr::Not;
-use crate::expr::VTableExt;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::Scalar;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::between::Between;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::fill_null::FillNull;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_null::IsNull;
+use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::mask::Mask;
+use crate::scalar_fn::fns::not::Not;
+use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::zip::Zip;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {
     /// Cast to the given data type.
     fn cast(&self, dtype: DType) -> VortexResult<Expression>;
+
+    /// Replace null values with the given fill value.
+    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression>;
 
     /// Get item by field name (for struct types).
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression>;
@@ -44,11 +56,24 @@ pub trait ExprBuiltins: Sized {
 
     /// Boolean negation.
     fn not(&self) -> VortexResult<Expression>;
+
+    /// Check if a list contains a value.
+    fn list_contains(&self, value: Expression) -> VortexResult<Expression>;
+
+    /// Conditional selection: `result[i] = if mask[i] then if_true[i] else if_false[i]`.
+    fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression>;
+
+    /// Apply a binary operator to this expression and another.
+    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
 }
 
 impl ExprBuiltins for Expression {
     fn cast(&self, dtype: DType) -> VortexResult<Expression> {
         Cast.try_new_expr(dtype, [self.clone()])
+    }
+
+    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression> {
+        FillNull.try_new_expr(EmptyOptions, [self.clone(), fill_value])
     }
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression> {
@@ -66,11 +91,26 @@ impl ExprBuiltins for Expression {
     fn not(&self) -> VortexResult<Expression> {
         Not.try_new_expr(EmptyOptions, [self.clone()])
     }
+
+    fn list_contains(&self, value: Expression) -> VortexResult<Expression> {
+        ListContains.try_new_expr(EmptyOptions, [self.clone(), value])
+    }
+
+    fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression> {
+        Zip.try_new_expr(EmptyOptions, [if_true, if_false, self.clone()])
+    }
+
+    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
+        Binary.try_new_expr(op, [self.clone(), rhs])
+    }
 }
 
 pub trait ArrayBuiltins: Sized {
     /// Cast to the given data type.
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef>;
+
+    /// Replace null values with the given fill value.
+    fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef>;
 
     /// Get item by field name (for struct types).
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef>;
@@ -85,11 +125,48 @@ pub trait ArrayBuiltins: Sized {
 
     /// Boolean negation.
     fn not(&self) -> VortexResult<ArrayRef>;
+
+    /// Conditional selection: `result[i] = if mask[i] then if_true[i] else if_false[i]`.
+    fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Check if a list contains a value.
+    fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Apply a binary operator to this array and another.
+    fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef>;
+
+    /// Compare a values between lower </<= value </<= upper
+    fn between(
+        self,
+        lower: ArrayRef,
+        upper: ArrayRef,
+        options: BetweenOptions,
+    ) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayBuiltins for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef> {
+        if self.dtype() == &dtype {
+            return Ok(self.clone());
+        }
         Cast.try_new_array(self.len(), dtype, [self.clone()])?
+            .optimize()
+    }
+
+    fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
+        let fill_value = fill_value.into();
+        if !self.dtype().is_nullable() {
+            return self.cast(fill_value.dtype().clone());
+        }
+        FillNull
+            .try_new_array(
+                self.len(),
+                EmptyOptions,
+                [
+                    self.clone(),
+                    ConstantArray::new(fill_value, self.len()).into_array(),
+                ],
+            )?
             .optimize()
     }
 
@@ -112,6 +189,33 @@ impl ArrayBuiltins for ArrayRef {
 
     fn not(&self) -> VortexResult<ArrayRef> {
         Not.try_new_array(self.len(), EmptyOptions, [self.clone()])?
+            .optimize()
+    }
+
+    fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef> {
+        Zip.try_new_array(self.len(), EmptyOptions, [if_true, if_false, self.clone()])
+    }
+
+    fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
+        ListContains
+            .try_new_array(self.len(), EmptyOptions, [self.clone(), value])?
+            .optimize()
+    }
+
+    fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
+        Binary
+            .try_new_array(self.len(), op, [self.clone(), rhs])?
+            .optimize()
+    }
+
+    fn between(
+        self,
+        lower: ArrayRef,
+        upper: ArrayRef,
+        options: BetweenOptions,
+    ) -> VortexResult<ArrayRef> {
+        Between
+            .try_new_array(self.len(), options, [self, lower, upper])?
             .optimize()
     }
 }

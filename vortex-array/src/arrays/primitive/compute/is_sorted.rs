@@ -2,19 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
+use crate::dtype::NativePType;
+use crate::match_each_native_ptype;
 use crate::register_kernel;
 
-impl IsSortedKernel for PrimitiveVTable {
+impl IsSortedKernel for Primitive {
     fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<Option<bool>> {
         match_each_native_ptype!(array.ptype(), |P| {
             compute_is_sorted::<P>(array, false).map(Some)
@@ -28,7 +28,7 @@ impl IsSortedKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(PrimitiveVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Primitive).lift());
 
 #[derive(Copy, Clone)]
 struct ComparablePrimitive<T: NativePType>(T);
@@ -95,6 +95,7 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::IntoArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
 
@@ -106,7 +107,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(
-            is_sorted(array.as_ref()).vortex_expect("operation should succeed in test"),
+            is_sorted(&array.into_array()).vortex_expect("operation should succeed in test"),
             Some(expected)
         );
     }
@@ -119,7 +120,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_strict_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(
-            is_strict_sorted(array.as_ref()).vortex_expect("operation should succeed in test"),
+            is_strict_sorted(&array.into_array()).vortex_expect("operation should succeed in test"),
             Some(expected)
         );
     }

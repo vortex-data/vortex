@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::FieldName;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::dtype::FieldName;
+use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
 use crate::expr::descendent_annotations;
-use crate::expr::exprs::get_item::GetItem;
-use crate::expr::exprs::root::Root;
-use crate::expr::exprs::select::Select;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::root::Root;
+use crate::scalar_fn::fns::select::Select;
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 

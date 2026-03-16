@@ -27,7 +27,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub(crate) fn new(runtime: Weak<dyn Executor>) -> Self {
+    pub fn new(runtime: Weak<dyn Executor>) -> Self {
         Self { runtime }
     }
 
@@ -123,7 +123,7 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.runtime().spawn_blocking(Box::new(move || {
+        let abort_handle = self.runtime().spawn_blocking_io(Box::new(move || {
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.

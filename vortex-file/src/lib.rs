@@ -24,7 +24,7 @@
 //!
 //! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They
 //! neither contain a description of the kind of layout (e.g. flat, column of flat, chunked of
-//! column of flat) nor a data type ([`DType`](vortex_dtype::DType)).
+//! column of flat) nor a data type ([`DType`](vortex_array::dtype::DType)).
 //!
 //! # Reading
 //!
@@ -93,6 +93,7 @@
 mod counting;
 mod file;
 mod footer;
+pub mod multi;
 mod open;
 mod pruning;
 mod read;
@@ -100,6 +101,7 @@ pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;
+pub mod v2;
 mod writer;
 
 pub use file::*;
@@ -107,23 +109,23 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::ALPRDVTable;
-use vortex_alp::ALPVTable;
-use vortex_array::arrays::DictVTable;
+use vortex_alp::ALP;
+use vortex_alp::ALPRD;
+use vortex_array::arrays::Dict;
 use vortex_array::session::ArraySessionExt;
-use vortex_bytebool::ByteBoolVTable;
-use vortex_datetime_parts::DateTimePartsVTable;
-use vortex_decimal_byte_parts::DecimalBytePartsVTable;
-use vortex_fastlanes::BitPackedVTable;
-use vortex_fastlanes::DeltaVTable;
-use vortex_fastlanes::FoRVTable;
-use vortex_fastlanes::RLEVTable;
-use vortex_fsst::FSSTVTable;
-use vortex_pco::PcoVTable;
-use vortex_sequence::SequenceVTable;
+use vortex_bytebool::ByteBool;
+use vortex_datetime_parts::DateTimeParts;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::Delta;
+use vortex_fastlanes::FoR;
+use vortex_fastlanes::RLE;
+use vortex_fsst::FSST;
+use vortex_pco::Pco;
+use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
-use vortex_sparse::SparseVTable;
-use vortex_zigzag::ZigZagVTable;
+use vortex_sparse::Sparse;
+use vortex_zigzag::ZigZag;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -165,23 +167,25 @@ mod forever_constant {
 pub fn register_default_encodings(session: &mut VortexSession) {
     {
         let arrays = session.arrays();
-        arrays.register(ALPVTable::ID, ALPVTable);
-        arrays.register(ALPRDVTable::ID, ALPRDVTable);
-        arrays.register(BitPackedVTable::ID, BitPackedVTable);
-        arrays.register(ByteBoolVTable::ID, ByteBoolVTable);
-        arrays.register(DateTimePartsVTable::ID, DateTimePartsVTable);
-        arrays.register(DecimalBytePartsVTable::ID, DecimalBytePartsVTable);
-        arrays.register(DeltaVTable::ID, DeltaVTable);
-        arrays.register(DictVTable::ID, DictVTable);
-        arrays.register(FSSTVTable::ID, FSSTVTable);
-        arrays.register(FoRVTable::ID, FoRVTable);
-        arrays.register(PcoVTable::ID, PcoVTable);
-        arrays.register(RLEVTable::ID, RLEVTable);
-        arrays.register(SequenceVTable::ID, SequenceVTable);
-        arrays.register(SparseVTable::ID, SparseVTable);
-        arrays.register(ZigZagVTable::ID, ZigZagVTable);
+        arrays.register(ALP::ID, ALP);
+        arrays.register(ALPRD::ID, ALPRD);
+        arrays.register(BitPacked::ID, BitPacked);
+        arrays.register(ByteBool::ID, ByteBool);
+        arrays.register(DateTimeParts::ID, DateTimeParts);
+        arrays.register(DecimalByteParts::ID, DecimalByteParts);
+        arrays.register(Delta::ID, Delta);
+        arrays.register(Dict::ID, Dict);
+        arrays.register(FSST::ID, FSST);
+        arrays.register(FoR::ID, FoR);
+        arrays.register(Pco::ID, Pco);
+        arrays.register(RLE::ID, RLE);
+        arrays.register(Sequence::ID, Sequence);
+        arrays.register(Sparse::ID, Sparse);
+        arrays.register(ZigZag::ID, ZigZag);
         #[cfg(feature = "zstd")]
-        arrays.register(vortex_zstd::ZstdVTable::ID, vortex_zstd::ZstdVTable);
+        arrays.register(vortex_zstd::Zstd::ID, vortex_zstd::Zstd);
+        #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+        arrays.register(vortex_zstd::ZstdBuffers::ID, vortex_zstd::ZstdBuffers);
     }
 
     // Eventually all encodings crates should expose an initialize function. For now it's only

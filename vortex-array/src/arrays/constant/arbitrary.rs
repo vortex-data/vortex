@@ -4,10 +4,10 @@
 use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
-use vortex_dtype::DType;
-use vortex_scalar::arbitrary::random_scalar;
 
 use super::ConstantArray;
+use crate::dtype::DType;
+use crate::scalar::arbitrary::random_scalar;
 
 /// A wrapper type to implement `Arbitrary` for `ConstantArray`.
 #[derive(Clone, Debug)]

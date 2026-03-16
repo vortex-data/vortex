@@ -2,27 +2,26 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
-use vortex_dtype::DType;
+use vortex_array::DynArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::rle::RLE;
 use crate::rle::RLEArray;
-use crate::rle::RLEVTable;
 
-impl CastKernel for RLEVTable {
-    fn cast(&self, array: &RLEArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for RLE {
+    fn cast(array: &RLEArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast RLE values.
-        let casted_values = cast(array.values(), dtype)?;
+        let casted_values = array.values().cast(dtype.clone())?;
 
         // Cast RLE indices such that validity matches the target dtype.
         let casted_indices = if array.indices().dtype().nullability() != dtype.nullability() {
-            cast(
-                array.indices(),
-                &DType::Primitive(array.indices().dtype().as_ptype(), dtype.nullability()),
-            )?
+            array.indices().cast(DType::Primitive(
+                array.indices().dtype().as_ptype(),
+                dtype.nullability(),
+            ))?
         } else {
             array.indices().clone()
         };
@@ -41,19 +40,20 @@ impl CastKernel for RLEVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(RLEVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::cast;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::rle::RLEArray;
 
@@ -65,15 +65,11 @@ mod tests {
         );
         let rle = RLEArray::encode(&primitive).unwrap();
 
-        let res = cast(
-            rle.as_ref(),
-            &DType::Primitive(PType::U16, Nullability::NonNullable),
-        );
-        assert!(res.is_ok());
-        assert_eq!(
-            res.unwrap().dtype(),
-            &DType::Primitive(PType::U16, Nullability::NonNullable)
-        );
+        let casted = rle
+            .into_array()
+            .cast(DType::Primitive(PType::U16, Nullability::NonNullable))
+            .unwrap();
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]));
     }
 
     #[test]
@@ -84,11 +80,10 @@ mod tests {
             Validity::from_iter([true, false, true, true, false]),
         );
         let rle = RLEArray::encode(&primitive).unwrap();
-        cast(
-            rle.as_ref(),
-            &DType::Primitive(PType::U8, Nullability::NonNullable),
-        )
-        .unwrap();
+        rle.into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap();
     }
 
     #[rstest]
@@ -142,6 +137,6 @@ mod tests {
     )]
     fn test_cast_rle_conformance(#[case] primitive: PrimitiveArray) {
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        test_cast_conformance(rle_array.as_ref());
+        test_cast_conformance(&rle_array.into_array());
     }
 }

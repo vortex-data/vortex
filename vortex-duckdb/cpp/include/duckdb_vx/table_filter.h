@@ -3,7 +3,12 @@
 
 #pragma once
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
+DUCKDB_INCLUDES_END
+
 #include "duckdb_vx/expr.h"
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
@@ -20,15 +25,23 @@ typedef enum DUCKDB_VX_TABLE_FILTER_TYPE {
     DUCKDB_VX_TABLE_FILTER_TYPE_OPTIONAL_FILTER = 6, // executing filter is not required for query correctness
     DUCKDB_VX_TABLE_FILTER_TYPE_IN_FILTER = 7,       // col IN (C1, C2, C3, ...)
     DUCKDB_VX_TABLE_FILTER_TYPE_DYNAMIC_FILTER = 8,  // dynamic filters can be updated at run-time
-    DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER = 9 // an arbitrary expression
+    DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER = 9, // an arbitrary expression
+    DUCKDB_VX_TABLE_FILTER_TYPE_BLOOM_FILTER =
+        10 // a probabilistic filter that can test whether a value is in a set of other value
 } duckdb_vx_table_filter_type;
 
 typedef struct duckdb_vx_table_filter_set_ *duckdb_vx_table_filter_set;
 
 typedef struct duckdb_vx_table_filter_ *duckdb_vx_table_filter;
 
-/// Returns the column index associated with idx, if `table_filter_out` is null then the idx is out of bounds.
-idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set filter_set, size_t idx,
+/// If a table filter with position idx exists, return its column index,
+/// assign the filter to table_filter_out.
+/// If such filter doesn't exist, set table_filter_out to nullptr and return 0
+/// idx is a position in a filter array sorted by increasing column indices.
+///
+/// TODO(myrrc) is idx really filter's position or it's a column's idx?
+idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set filter_set,
+                                     size_t idx,
                                      duckdb_vx_table_filter *table_filter_out);
 
 duckdb_vx_table_filter_type duckdb_vx_table_filter_get_type(duckdb_vx_table_filter ffi_filter);

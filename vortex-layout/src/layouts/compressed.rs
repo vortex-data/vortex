@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -27,26 +27,26 @@ use crate::sequence::SequentialStreamExt;
 ///
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef>;
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef>;
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
         self.as_ref().compress_chunk(chunk)
     }
 }
 
 impl<F> CompressorPlugin for F
 where
-    F: Fn(&dyn Array) -> VortexResult<ArrayRef> + Send + Sync + 'static,
+    F: Fn(&ArrayRef) -> VortexResult<ArrayRef> + Send + Sync + 'static,
 {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
         self(chunk)
     }
 }
 
 impl CompressorPlugin for BtrBlocksCompressor {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
         self.compress(chunk)
     }
 }

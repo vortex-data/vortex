@@ -15,49 +15,84 @@ mod validation_tests;
 #[cfg(any(test, feature = "_test-harness"))]
 pub mod dict_test;
 
-mod bool;
-mod chunked;
-mod constant;
-mod datetime;
-mod decimal;
-mod dict;
-mod extension;
-mod filter;
-mod fixed_size_list;
-mod list;
-mod listview;
-mod masked;
-mod null;
-mod primitive;
-mod scalar_fn;
-mod shared;
-mod slice;
-mod struct_;
-mod varbin;
-mod varbinview;
+pub mod bool;
+pub use bool::Bool;
+pub use bool::BoolArray;
+
+pub mod chunked;
+pub use chunked::Chunked;
+pub use chunked::ChunkedArray;
+
+pub mod constant;
+pub use constant::Constant;
+pub use constant::ConstantArray;
+
+pub mod datetime;
+pub use datetime::TemporalArray;
+
+pub mod decimal;
+pub use decimal::Decimal;
+pub use decimal::DecimalArray;
+
+pub mod dict;
+pub use dict::Dict;
+pub use dict::DictArray;
+
+pub mod extension;
+pub use extension::Extension;
+pub use extension::ExtensionArray;
+
+pub mod filter;
+pub use filter::Filter;
+pub use filter::FilterArray;
+
+pub mod fixed_size_list;
+pub use fixed_size_list::FixedSizeList;
+pub use fixed_size_list::FixedSizeListArray;
+
+pub mod list;
+pub use list::List;
+pub use list::ListArray;
+
+pub mod listview;
+pub use listview::ListView;
+pub use listview::ListViewArray;
+
+pub mod masked;
+pub use masked::Masked;
+pub use masked::MaskedArray;
+
+pub mod null;
+pub use null::Null;
+pub use null::NullArray;
+
+pub mod primitive;
+pub use primitive::Primitive;
+pub use primitive::PrimitiveArray;
+
+pub mod scalar_fn;
+pub use scalar_fn::ScalarFnArray;
+pub use scalar_fn::ScalarFnVTable;
+
+pub mod shared;
+pub use shared::Shared;
+pub use shared::SharedArray;
+
+pub mod slice;
+pub use slice::Slice;
+pub use slice::SliceArray;
+
+pub mod struct_;
+pub use struct_::Struct;
+pub use struct_::StructArray;
+
+pub mod varbin;
+pub use varbin::VarBin;
+pub use varbin::VarBinArray;
+
+pub mod varbinview;
+pub use varbinview::VarBinView;
+pub use varbinview::VarBinViewArray;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-// pub mod pipeline;
-// TODO(connor): Export exact types, not glob.
-
-pub use bool::*;
-pub use chunked::*;
-pub use constant::*;
-pub use datetime::*;
-pub use decimal::*;
-pub use dict::*;
-pub use extension::*;
-pub use filter::*;
-pub use fixed_size_list::*;
-pub use list::*;
-pub use listview::*;
-pub use masked::*;
-pub use null::*;
-pub use primitive::*;
-pub use scalar_fn::*;
-pub use shared::*;
-pub use slice::*;
-pub use struct_::*;
-pub use varbin::*;
-pub use varbinview::*;

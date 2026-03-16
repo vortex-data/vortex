@@ -6,35 +6,31 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use prost::Message as _;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ZstdBuffersMetadata;
@@ -42,9 +38,9 @@ use crate::ZstdBuffersMetadata;
 vtable!(ZstdBuffers);
 
 #[derive(Debug)]
-pub struct ZstdBuffersVTable;
+pub struct ZstdBuffers;
 
-impl ZstdBuffersVTable {
+impl ZstdBuffers {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd_buffers");
 }
 
@@ -267,8 +263,7 @@ impl ZstdBuffersArray {
     pub fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
-        self.validate()
-            .vortex_expect("zstd_buffers invariant violated before decode_plan");
+        self.validate()?;
 
         let output_sizes = self
             .uncompressed_sizes
@@ -328,84 +323,17 @@ fn array_id_from_string(s: &str) -> ArrayId {
     ArrayId::new_arc(Arc::from(s))
 }
 
-impl VTable for ZstdBuffersVTable {
+impl VTable for ZstdBuffers {
     type Array = ZstdBuffersArray;
 
     type Metadata = ProstMetadata<ZstdBuffersMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
 
-    fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ZstdBuffersMetadata {
-            inner_encoding_id: array.inner_encoding_id.to_string(),
-            inner_metadata: array.inner_metadata.clone(),
-            uncompressed_sizes: array.uncompressed_sizes.clone(),
-            buffer_alignments: array.buffer_alignments.clone(),
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.0.encode_to_vec()))
-    }
-
-    fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ZstdBuffersMetadata::decode(bytes)?))
-    }
-
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ZstdBuffersArray> {
-        let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
-
-        let child_arrays: Vec<ArrayRef> = (0..children.len())
-            .map(|i| children.get(i, dtype, len))
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        let array = ZstdBuffersArray {
-            inner_encoding_id: array_id_from_string(&metadata.0.inner_encoding_id),
-            inner_metadata: metadata.0.inner_metadata.clone(),
-            compressed_buffers,
-            uncompressed_sizes: metadata.0.uncompressed_sizes.clone(),
-            buffer_alignments: metadata.0.buffer_alignments.clone(),
-            children: child_arrays,
-            dtype: dtype.clone(),
-            len,
-            stats_set: Default::default(),
-        };
-
-        array.validate()?;
-        Ok(array)
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        array.children = children;
-        Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let session = ctx.session();
-        let inner_array = array.decompress_and_build_inner(session)?;
-        inner_array.execute::<ArrayRef>(ctx)
-    }
-}
-
-impl BaseArrayVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
     fn len(array: &ZstdBuffersArray) -> usize {
         array.len
     }
@@ -457,9 +385,98 @@ impl BaseArrayVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
                 .zip(&other.children)
                 .all(|(a, b)| a.array_eq(b, precision))
     }
+
+    fn nbuffers(array: &ZstdBuffersArray) -> usize {
+        array.compressed_buffers.len()
+    }
+
+    fn buffer(array: &ZstdBuffersArray, idx: usize) -> BufferHandle {
+        array.compressed_buffers[idx].clone()
+    }
+
+    fn buffer_name(_array: &ZstdBuffersArray, idx: usize) -> Option<String> {
+        Some(format!("compressed_{idx}"))
+    }
+
+    fn nchildren(array: &ZstdBuffersArray) -> usize {
+        array.children.len()
+    }
+
+    fn child(array: &ZstdBuffersArray, idx: usize) -> ArrayRef {
+        array.children[idx].clone()
+    }
+
+    fn child_name(_array: &ZstdBuffersArray, idx: usize) -> String {
+        format!("child_{idx}")
+    }
+
+    fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(ZstdBuffersMetadata {
+            inner_encoding_id: array.inner_encoding_id.to_string(),
+            inner_metadata: array.inner_metadata.clone(),
+            uncompressed_sizes: array.uncompressed_sizes.clone(),
+            buffer_alignments: array.buffer_alignments.clone(),
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.0.encode_to_vec()))
+    }
+
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(ZstdBuffersMetadata::decode(bytes)?))
+    }
+
+    fn build(
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ZstdBuffersArray> {
+        let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
+
+        let child_arrays: Vec<ArrayRef> = (0..children.len())
+            .map(|i| children.get(i, dtype, len))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        let array = ZstdBuffersArray {
+            inner_encoding_id: array_id_from_string(&metadata.0.inner_encoding_id),
+            inner_metadata: metadata.0.inner_metadata.clone(),
+            compressed_buffers,
+            uncompressed_sizes: metadata.0.uncompressed_sizes.clone(),
+            buffer_alignments: metadata.0.buffer_alignments.clone(),
+            children: child_arrays,
+            dtype: dtype.clone(),
+            len,
+            stats_set: Default::default(),
+        };
+
+        array.validate()?;
+        Ok(array)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        array.children = children;
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        let session = ctx.session();
+        let inner_array = array.decompress_and_build_inner(session)?;
+        inner_array
+            .execute::<ArrayRef>(ctx)
+            .map(ExecutionStep::Done)
+    }
 }
 
-impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
+impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
     fn scalar_at(array: &ZstdBuffersArray, index: usize) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
@@ -469,7 +486,7 @@ impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
     }
 }
 
-impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
+impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
     fn validity(array: &ZstdBuffersArray) -> VortexResult<vortex_array::validity::Validity> {
         if !array.dtype.is_nullable() {
             return Ok(vortex_array::validity::Validity::NonNullable);
@@ -477,20 +494,6 @@ impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 
         let inner_array = array.decompress_and_build_inner(&vortex_array::LEGACY_SESSION)?;
         inner_array.validity()
-    }
-}
-
-impl VisitorVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
-    fn visit_buffers(array: &ZstdBuffersArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for (i, buffer) in array.compressed_buffers.iter().enumerate() {
-            visitor.visit_buffer_handle(&format!("compressed_{i}"), buffer);
-        }
-    }
-
-    fn visit_children(array: &ZstdBuffersArray, visitor: &mut dyn ArrayChildVisitor) {
-        for (i, child) in array.children.iter().enumerate() {
-            visitor.visit_child(&format!("child_{i}"), child);
-        }
     }
 }
 

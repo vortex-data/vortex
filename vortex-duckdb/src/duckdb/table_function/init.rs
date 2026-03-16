@@ -12,9 +12,11 @@ use vortex::error::vortex_bail;
 
 use crate::cpp;
 use crate::duckdb::ClientContext;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::Data;
 use crate::duckdb::TableFilterSet;
+use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
-use crate::duckdb::data::Data;
 
 /// Native callback for the global initialization of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
@@ -47,7 +49,7 @@ pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
         unsafe { init_input.as_ref() }.vortex_expect("init_input null pointer"),
     );
 
-    let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
+    let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_ref() }
         .vortex_expect("global_init_data null pointer");
 
     match T::init_local(&init_input, global_init_data) {
@@ -73,7 +75,7 @@ impl<T: TableFunction> Debug for TableInitInput<'_, T> {
             .field("table_function", &std::any::type_name::<T>())
             .field("column_ids", &self.column_ids())
             .field("projection_ids", &self.projection_ids())
-            // .field("table_filter_set", &self.table_filter_set())
+            .field("table_filter_set", &self.table_filter_set())
             .finish()
     }
 }
@@ -91,12 +93,10 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
         unsafe { &*self.input.bind_data.cast::<T::BindData>() }
     }
 
-    /// Returns the column_ids for the table function.
     pub fn column_ids(&self) -> &[u64] {
         unsafe { std::slice::from_raw_parts(self.input.column_ids, self.input.column_ids_count) }
     }
 
-    /// Returns the projection_ids for the table function.
     pub fn projection_ids(&self) -> Option<&[u64]> {
         if self.input.projection_ids.is_null() {
             return None;
@@ -107,7 +107,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
     }
 
     /// Returns the table filter set for the table function.
-    pub fn table_filter_set(&self) -> Option<TableFilterSet> {
+    pub fn table_filter_set(&self) -> Option<&TableFilterSetRef> {
         let ptr = self.input.filters;
         if ptr.is_null() {
             None
@@ -117,7 +117,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
     }
 
     /// Returns the object cache from the client context for the table function.
-    pub fn client_context(&self) -> VortexResult<ClientContext> {
+    pub fn client_context(&self) -> VortexResult<&ClientContextRef> {
         unsafe {
             if self.input.client_context.is_null() {
                 vortex_bail!("Client context is null");

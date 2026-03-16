@@ -1,23 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::compute::cast;
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastReduce;
 
-impl CastKernel for ChunkedVTable {
-    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for Chunked {
+    fn cast(array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let mut cast_chunks = Vec::new();
         for chunk in array.chunks() {
-            cast_chunks.push(cast(chunk, dtype)?);
+            cast_chunks.push(chunk.cast(dtype.clone())?);
         }
 
         // SAFETY: casting all chunks retains all chunks have same DType
@@ -29,22 +27,20 @@ impl CastKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(ChunkedVTable).lift());
-
 #[cfg(test)]
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::IntoArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
-    use crate::compute::cast;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[test]
     fn test_cast_chunked() {
@@ -66,11 +62,9 @@ mod test {
         .unwrap()
         .into_array();
 
-        let result = cast(
-            &root,
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let result = root
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
+            .unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([0u64, 1, 2, 3]));
     }
 
@@ -98,6 +92,6 @@ mod test {
         DType::Primitive(PType::U8, Nullability::NonNullable)
     ).unwrap().into_array())]
     fn test_cast_chunked_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array);
     }
 }

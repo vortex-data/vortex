@@ -1,5 +1,5 @@
 [default]
-extend-ignore-identifiers-re = ["FoR", "typ"]
+extend-ignore-identifiers-re = ["ffor", "FFOR", "FoR", "typ", "ratatui"]
 # We support a few common special comments to tell the checker to ignore sections of code
 extend-ignore-re = [
     "(#|//)\\s*spellchecker:ignore-next-line\\n.*",                      # Ignore the next line
@@ -8,7 +8,7 @@ extend-ignore-re = [
 ]
 
 [files]
-extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**"]
+extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**", "vortex-sqllogictest/slt/**"]
 
 [type.py]
 extend-ignore-identifiers-re = [

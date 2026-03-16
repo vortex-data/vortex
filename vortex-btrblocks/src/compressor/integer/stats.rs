@@ -5,20 +5,21 @@ use std::hash::Hash;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::NativeValue;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CompressorStats;
@@ -93,6 +94,28 @@ impl ErasedStats {
         }
     }
 
+    /// Returns the ilog2 of the max value when transmuted to unsigned, or None if zero.
+    ///
+    /// This matches how BitPacking computes bit width: it reinterprets signed values as
+    /// unsigned (preserving bit pattern) and uses leading_zeros. For non-negative signed
+    /// values, the transmuted value equals the original value.
+    ///
+    /// This is used to determine if FOR encoding would reduce bit width compared to
+    /// direct BitPacking. If `max_ilog2() == max_minus_min_ilog2()`, FOR doesn't help.
+    pub fn max_ilog2(&self) -> Option<u32> {
+        match &self {
+            ErasedStats::U8(x) => x.max.checked_ilog2(),
+            ErasedStats::U16(x) => x.max.checked_ilog2(),
+            ErasedStats::U32(x) => x.max.checked_ilog2(),
+            ErasedStats::U64(x) => x.max.checked_ilog2(),
+            // Transmute signed to unsigned (bit pattern preserved) to match BitPacking behavior
+            ErasedStats::I8(x) => (x.max as u8).checked_ilog2(),
+            ErasedStats::I16(x) => (x.max as u16).checked_ilog2(),
+            ErasedStats::I32(x) => (x.max as u32).checked_ilog2(),
+            ErasedStats::I64(x) => (x.max as u64).checked_ilog2(),
+        }
+    }
+
     /// Get the most commonly occurring value and its count
     pub fn top_value_and_count(&self) -> (PValue, u32) {
         match &self {
@@ -152,7 +175,7 @@ impl IntegerStats {
 }
 
 impl CompressorStats for IntegerStats {
-    type ArrayVTable = PrimitiveVTable;
+    type ArrayVTable = Primitive;
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
@@ -164,7 +187,8 @@ impl CompressorStats for IntegerStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
+        let sampled =
+            sample(&self.src.clone().into_array(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -255,7 +279,7 @@ where
         AllOr::All => {
             for chunk in &mut chunks {
                 inner_loop_nonnull(
-                    chunk.try_into().vortex_expect("chunk size must be 64"),
+                    chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                     count_distinct_values,
                     &mut loop_state,
                 )
@@ -281,13 +305,13 @@ where
                     0 => continue,
                     // Inner loop for when validity check can be elided
                     64 => inner_loop_nonnull(
-                        chunk.try_into().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &mut loop_state,
                     ),
                     // Inner loop for when we need to check validity
                     _ => inner_loop_nullable(
-                        chunk.try_into().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &validity,
                         &mut loop_state,

@@ -4,7 +4,6 @@
 mod cast;
 mod fill_null;
 pub(crate) mod filter;
-mod invert;
 mod is_constant;
 mod is_sorted;
 mod mask;
@@ -18,6 +17,7 @@ mod take;
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::compute::conformance::consistency::test_array_consistency;
 
@@ -43,6 +43,6 @@ mod tests {
         None, None, Some(true), None, None, None, Some(false), None, None
     ]))]
     fn test_bool_consistency(#[case] array: BoolArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

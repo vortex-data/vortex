@@ -6,16 +6,16 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
 use crate::arrays::filter::FilterReduce;
 
-impl FilterReduce for ExtensionVTable {
+impl FilterReduce for Extension {
     fn filter(array: &ExtensionArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ExtensionArray::new(
                 array.ext_dtype().clone(),
-                array.storage().filter(mask.clone())?,
+                array.storage_array().filter(mask.clone())?,
             )
             .into_array(),
         ))

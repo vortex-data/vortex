@@ -4,30 +4,30 @@
 use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
 use num_traits::CheckedMul;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::i256;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::DecimalScalar;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::PrimitiveScalar;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::i256;
 use crate::expr::stats::Stat;
+use crate::match_each_native_ptype;
 use crate::register_kernel;
+use crate::scalar::DecimalScalar;
+use crate::scalar::DecimalValue;
+use crate::scalar::PrimitiveScalar;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
-impl SumKernel for ConstantVTable {
+impl SumKernel for Constant {
     fn sum(&self, array: &ConstantArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         // Compute the expected dtype of the sum.
         let sum_dtype = Stat::Sum
@@ -60,6 +60,7 @@ fn sum_scalar(
                 .map(|v| ScalarValue::Primitive(v.into())))
         }
         DType::Primitive(ptype, _) => {
+            #[expect(dead_code, reason = "TODO(connor): good question")]
             let result = match_each_native_ptype!(
                 ptype,
                 unsigned: |T| { sum_integral::<u64>(scalar.as_primitive(), len, accumulator)?.map(|v| ScalarValue::Primitive(v.into())) },
@@ -71,7 +72,9 @@ fn sum_scalar(
         DType::Decimal(decimal_dtype, _) => {
             sum_decimal(scalar.as_decimal(), len, *decimal_dtype, accumulator)
         }
-        DType::Extension(_) => sum_scalar(&scalar.as_extension().storage(), len, accumulator),
+        DType::Extension(_) => {
+            sum_scalar(&scalar.as_extension().to_storage_scalar(), len, accumulator)
+        }
         dtype => vortex_bail!("Unsupported dtype for sum: {}", dtype),
     }
 }
@@ -162,26 +165,26 @@ fn sum_float(
     Ok(Some(initial + v * len_f64))
 }
 
-register_kernel!(SumKernelAdapter(ConstantVTable).lift());
+register_kernel!(SumKernelAdapter(Constant).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType;
-    use vortex_dtype::i256;
     use vortex_error::VortexExpect;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::sum;
     use crate::compute::sum_with_accumulator;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
+    use crate::dtype::i256;
     use crate::expr::stats::Stat;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_sum_unsigned() {
@@ -289,7 +292,7 @@ mod tests {
     fn test_sum_float_non_multiply() {
         let acc = -2048669276050936500000000000f64;
         let array = ConstantArray::new(6.1811675e16f64, 25);
-        let sum = sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable))
+        let sum = sum_with_accumulator(&array.into_array(), &Scalar::primitive(acc, Nullable))
             .vortex_expect("operation should succeed in test");
         assert_eq!(
             f64::try_from(&sum).vortex_expect("operation should succeed in test"),

@@ -3,14 +3,14 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterReduce;
+use vortex_array::arrays::filter::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-impl FilterReduce for DateTimePartsVTable {
+impl FilterReduce for DateTimeParts {
     fn filter(array: &DateTimePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             DateTimePartsArray::try_new(
@@ -30,8 +30,8 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 
@@ -51,7 +51,7 @@ mod test {
             TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
 
         // Test with nullable values
         let timestamps = PrimitiveArray::from_option_iter([
@@ -67,6 +67,6 @@ mod test {
             TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

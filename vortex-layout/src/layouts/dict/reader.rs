@@ -11,20 +11,18 @@ use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::try_join;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::SharedArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -119,16 +117,13 @@ impl DictReader {
             return fut.clone();
         }
 
-        let session = self.session.clone();
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
                     .map(move |array| {
                         let array = array?.apply(&expr)?;
-                        // We execute the array to avoid re-evaluating for every split.
-                        let mut ctx = ExecutionCtx::new(session);
-                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
+                        Ok(SharedArray::new(array).into_array())
                     })
                     .boxed()
                     .shared()
@@ -231,7 +226,7 @@ impl LayoutReader for DictReader {
                 DictArray::new_unchecked(codes, values)
                     .set_all_values_referenced(all_values_referenced)
             }
-            .to_array()
+            .into_array()
             .optimize()?;
 
             array.apply(&expr)
@@ -252,6 +247,10 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::expr::eq;
     use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
@@ -259,10 +258,6 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
@@ -303,7 +298,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+            .into_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -387,7 +382,8 @@ mod tests {
                 DictLayoutOptions::default(),
             );
 
-            let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
+            let array =
+                VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).into_array();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -408,7 +404,7 @@ mod tests {
 
             let filter = eq(
                 root(),
-                lit(vortex_scalar::Scalar::utf8(
+                lit(vortex_array::scalar::Scalar::utf8(
                     filter_value,
                     Nullability::Nullable,
                 )),
@@ -449,7 +445,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+            .into_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
 

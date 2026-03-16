@@ -10,7 +10,7 @@ use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
-use vortex::compute::cast;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
@@ -213,7 +213,8 @@ impl PyVortexFile {
         }
 
         if let Some(indices) = indices {
-            let indices = cast(indices.as_ref(), &DType::Primitive(PType::U64, NonNullable))?
+            let indices = indices
+                .cast(DType::Primitive(PType::U64, NonNullable))?
                 .to_primitive()
                 .into_buffer::<u64>();
             builder = builder.with_row_indices(indices);

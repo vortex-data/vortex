@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::IntoArray;
 use crate::array::ArrayRef;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::register_kernel;
+use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for BoolVTable {
-    fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for Bool {
+    fn cast(array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
             return Ok(None);
         }
@@ -24,28 +23,29 @@ impl CastKernel for BoolVTable {
             .clone()
             .cast_nullability(new_nullability, array.len())?;
         Ok(Some(
-            BoolArray::new(array.to_bit_buffer(), new_validity).to_array(),
+            BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),
         ))
     }
 }
 
-register_kernel!(CastKernelAdapter(BoolVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
-    use crate::compute::cast;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[test]
     fn try_cast_bool_success() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), Some(true)]);
 
-        let res = cast(bool.as_ref(), &DType::Bool(Nullability::NonNullable));
+        let res = bool
+            .into_array()
+            .cast(DType::Bool(Nullability::NonNullable));
         assert!(res.is_ok());
         assert_eq!(res.unwrap().dtype(), &DType::Bool(Nullability::NonNullable));
     }
@@ -54,7 +54,9 @@ mod tests {
     #[should_panic]
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
-        cast(bool.as_ref(), &DType::Bool(Nullability::NonNullable)).unwrap();
+        bool.into_array()
+            .cast(DType::Bool(Nullability::NonNullable))
+            .unwrap();
     }
 
     #[rstest]
@@ -63,6 +65,6 @@ mod tests {
     #[case(BoolArray::from_iter(vec![true]))]
     #[case(BoolArray::from_iter(vec![false, false]))]
     fn test_cast_bool_conformance(#[case] array: BoolArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 }

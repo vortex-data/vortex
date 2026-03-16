@@ -6,9 +6,9 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::BtrBlocksCompressor;
 use crate::CompressorContext;

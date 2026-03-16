@@ -7,6 +7,7 @@
 //! It also contains a variety of useful macros for error handling.
 
 use std::backtrace::Backtrace;
+use std::backtrace::BacktraceStatus;
 use std::borrow::Cow;
 use std::convert::Infallible;
 use std::env;
@@ -19,7 +20,6 @@ use std::io;
 use std::num::TryFromIntError;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::PoisonError;
 
 /// A string that can be used as an error message.
 #[derive(Debug)]
@@ -75,21 +75,22 @@ impl From<Infallible> for VortexError {
 const _: () = {
     assert!(size_of::<VortexError>() < 128);
 };
+
 /// The top-level error type for Vortex.
 #[non_exhaustive]
 pub enum VortexError {
-    /// A wrapped generic error
-    Generic(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
+    /// A catch-all error variant
+    Other(ErrString, Box<Backtrace>),
+    /// A wrapped external error
+    External(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
     /// An index is out of bounds.
     OutOfBounds(usize, usize, usize, Box<Backtrace>),
     /// An error occurred while executing a compute kernel.
-    ComputeError(ErrString, Box<Backtrace>),
+    Compute(ErrString, Box<Backtrace>),
     /// An invalid argument was provided.
     InvalidArgument(ErrString, Box<Backtrace>),
-    /// The system has reached an invalid state,
-    InvalidState(ErrString, Box<Backtrace>),
     /// An error occurred while serializing or deserializing.
-    InvalidSerde(ErrString, Box<Backtrace>),
+    Serde(ErrString, Box<Backtrace>),
     /// An unimplemented function was called.
     NotImplemented(ErrString, ErrString, Box<Backtrace>),
     /// A type mismatch occurred.
@@ -101,33 +102,26 @@ pub enum VortexError {
     /// A wrapper for shared errors that require cloning.
     Shared(Arc<VortexError>),
     /// A wrapper for errors from the Arrow library.
-    ArrowError(arrow_schema::ArrowError, Box<Backtrace>),
+    Arrow(arrow_schema::ArrowError, Box<Backtrace>),
     /// A wrapper for errors from the FlatBuffers library.
     #[cfg(feature = "flatbuffers")]
-    FlatBuffersError(flatbuffers::InvalidFlatbuffer, Box<Backtrace>),
+    FlatBuffers(flatbuffers::InvalidFlatbuffer, Box<Backtrace>),
     /// A wrapper for formatting errors.
-    FmtError(fmt::Error, Box<Backtrace>),
+    Fmt(fmt::Error, Box<Backtrace>),
     /// A wrapper for IO errors.
-    IOError(io::Error, Box<Backtrace>),
-    /// A wrapper for errors from the standard library when converting a slice to an array.
-    TryFromSliceError(std::array::TryFromSliceError, Box<Backtrace>),
+    Io(io::Error, Box<Backtrace>),
     /// A wrapper for errors from the Object Store library.
     #[cfg(feature = "object_store")]
     ObjectStore(object_store::Error, Box<Backtrace>),
     /// A wrapper for errors from the Jiff library.
-    JiffError(jiff::Error, Box<Backtrace>),
+    Jiff(jiff::Error, Box<Backtrace>),
     /// A wrapper for Tokio join error.
     #[cfg(feature = "tokio")]
-    JoinError(tokio::task::JoinError, Box<Backtrace>),
-    /// A wrapper for URL parsing errors.
-    UrlError(url::ParseError, Box<Backtrace>),
+    Join(tokio::task::JoinError, Box<Backtrace>),
     /// Wrap errors for fallible integer casting.
     TryFromInt(TryFromIntError, Box<Backtrace>),
     /// Wrap protobuf-related errors
     Prost(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
-    /// Wrap serde and serde json errors
-    #[cfg(feature = "serde")]
-    SerdeJsonError(serde_json::Error, Box<Backtrace>),
 }
 
 impl VortexError {
@@ -136,126 +130,162 @@ impl VortexError {
         VortexError::Context(msg.into(), Box::new(self))
     }
 
-    /// Wrap an a generic error into a Vortex error
-    pub fn generic(err: Box<dyn Error + Send + Sync + 'static>) -> Self {
-        Self::Generic(err, Box::new(Backtrace::capture()))
+    /// Error prefix by variant
+    fn variant_prefix(&self) -> &'static str {
+        use VortexError::*;
+
+        match self {
+            Other(..) => "Other error: ",
+            External(..) => "External error: ",
+            OutOfBounds(..) => "Out of bounds error: ",
+            Compute(..) => "Compute error: ",
+            InvalidArgument(..) => "Invalid argument error: ",
+            Serde(..) => "Serde error: ",
+            NotImplemented(..) => "Not implemented error: ",
+            MismatchedTypes(..) => "Mismatched types error: ",
+            AssertionFailed(..) => "Assertion failed error: ",
+            Context(..) | Shared(..) => "", // basically delegate to the underlying one
+            Arrow(..) => "Arrow error: ",
+            #[cfg(feature = "flatbuffers")]
+            FlatBuffers(..) => "Flat buffers error: ",
+            Fmt(..) => "Fmt: ",
+            Io(..) => "Io: ",
+            #[cfg(feature = "object_store")]
+            ObjectStore(..) => "Object store error: ",
+            Jiff(..) => "Jiff error: ",
+            #[cfg(feature = "tokio")]
+            Join(..) => "Tokio join error:",
+            TryFromInt(..) => "Try from int error:",
+            Prost(..) => "Prost error:",
+        }
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        use VortexError::*;
+
+        match self {
+            Other(.., bt) => Some(bt.as_ref()),
+            External(.., bt) => Some(bt.as_ref()),
+            OutOfBounds(.., bt) => Some(bt.as_ref()),
+            Compute(.., bt) => Some(bt.as_ref()),
+            InvalidArgument(.., bt) => Some(bt.as_ref()),
+            Serde(.., bt) => Some(bt.as_ref()),
+            NotImplemented(.., bt) => Some(bt.as_ref()),
+            MismatchedTypes(.., bt) => Some(bt.as_ref()),
+            AssertionFailed(.., bt) => Some(bt.as_ref()),
+            Arrow(.., bt) => Some(bt.as_ref()),
+            #[cfg(feature = "flatbuffers")]
+            FlatBuffers(.., bt) => Some(bt.as_ref()),
+            Fmt(.., bt) => Some(bt.as_ref()),
+            Io(.., bt) => Some(bt.as_ref()),
+            #[cfg(feature = "object_store")]
+            ObjectStore(.., bt) => Some(bt.as_ref()),
+            Jiff(.., bt) => Some(bt.as_ref()),
+            #[cfg(feature = "tokio")]
+            Join(.., bt) => Some(bt.as_ref()),
+            TryFromInt(.., bt) => Some(bt.as_ref()),
+            Prost(.., bt) => Some(bt.as_ref()),
+            Context(_, inner) => inner.backtrace(),
+            Shared(inner) => inner.backtrace(),
+        }
+    }
+
+    fn message(&self) -> String {
+        use VortexError::*;
+
+        match self {
+            Other(msg, _) => msg.to_string(),
+            External(err, _) => err.to_string(),
+            OutOfBounds(idx, start, stop, _) => {
+                format!("index {idx} out of bounds from {start} to {stop}")
+            }
+            Compute(msg, _) | InvalidArgument(msg, _) | Serde(msg, _) | AssertionFailed(msg, _) => {
+                format!("{msg}")
+            }
+            NotImplemented(func, by_whom, _) => {
+                format!("function {func} not implemented for {by_whom}")
+            }
+            MismatchedTypes(expected, actual, _) => {
+                format!("expected type: {expected} but instead got {actual}")
+            }
+            Context(msg, inner) => {
+                format!("{msg}:\n  {inner}")
+            }
+            Shared(inner) => inner.message(),
+            Arrow(err, _) => {
+                format!("{err}")
+            }
+            #[cfg(feature = "flatbuffers")]
+            FlatBuffers(err, _) => {
+                format!("{err}")
+            }
+            Fmt(err, _) => {
+                format!("{err}")
+            }
+            Io(err, _) => {
+                format!("{err}")
+            }
+            #[cfg(feature = "object_store")]
+            ObjectStore(err, _) => {
+                format!("{err}")
+            }
+            Jiff(err, _) => {
+                format!("{err}")
+            }
+            #[cfg(feature = "tokio")]
+            Join(err, _) => {
+                format!("{err}")
+            }
+            TryFromInt(err, _) => {
+                format!("{err}")
+            }
+            Prost(err, _) => {
+                format!("{err}")
+            }
+        }
     }
 }
 
 impl Display for VortexError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            VortexError::Generic(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::OutOfBounds(idx, start, stop, backtrace) => {
-                write!(
-                    f,
-                    "index {idx} out of bounds from {start} to {stop}\nBacktrace:\n{backtrace}",
-                )
-            }
-            VortexError::ComputeError(msg, backtrace) => {
-                write!(f, "{msg}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::InvalidArgument(msg, backtrace) => {
-                write!(f, "{msg}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::InvalidState(msg, backtrace) => {
-                write!(f, "{msg}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::InvalidSerde(msg, backtrace) => {
-                write!(f, "{msg}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::NotImplemented(func, by_whom, backtrace) => {
-                write!(
-                    f,
-                    "function {func} not implemented for {by_whom}\nBacktrace:\n{backtrace}",
-                )
-            }
-            VortexError::MismatchedTypes(expected, actual, backtrace) => {
-                write!(
-                    f,
-                    "expected type: {expected} but instead got {actual}\nBacktrace:\n{backtrace}",
-                )
-            }
-            VortexError::AssertionFailed(msg, backtrace) => {
-                write!(f, "{msg}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::Context(msg, inner) => {
-                write!(f, "{msg}:\n  {inner}")
-            }
-            VortexError::Shared(inner) => Display::fmt(inner, f),
-            VortexError::ArrowError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "flatbuffers")]
-            VortexError::FlatBuffersError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::FmtError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::IOError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::TryFromSliceError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "object_store")]
-            VortexError::ObjectStore(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::JiffError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "tokio")]
-            VortexError::JoinError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::UrlError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::TryFromInt(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "serde")]
-            VortexError::SerdeJsonError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::Prost(err, backtrace) => {
-                write!(f, "Protobuf error: {err}\nBacktrace:\n{backtrace}")
-            }
+        write!(f, "{}", self.variant_prefix())?;
+        write!(f, "{}", self.message())?;
+        if let Some(backtrace) = self.backtrace()
+            && backtrace.status() == BacktraceStatus::Captured
+        {
+            write!(f, "\nBacktrace:\n{backtrace}")?;
         }
-    }
-}
 
-impl Error for VortexError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            VortexError::Generic(err, _) => Some(err.as_ref()),
-            VortexError::Context(_, inner) => inner.source(),
-            VortexError::Shared(inner) => inner.source(),
-            VortexError::ArrowError(err, _) => Some(err),
-            #[cfg(feature = "flatbuffers")]
-            VortexError::FlatBuffersError(err, _) => Some(err),
-            VortexError::IOError(err, _) => Some(err),
-            #[cfg(feature = "object_store")]
-            VortexError::ObjectStore(err, _) => Some(err),
-            VortexError::JiffError(err, _) => Some(err),
-            #[cfg(feature = "tokio")]
-            VortexError::JoinError(err, _) => Some(err),
-            VortexError::UrlError(err, _) => Some(err),
-            #[cfg(feature = "serde")]
-            VortexError::SerdeJsonError(err, _) => Some(err),
-            VortexError::Prost(err, _) => Some(err.as_ref()),
-            _ => None,
-        }
+        Ok(())
     }
 }
 
 impl Debug for VortexError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(self, f)
+        write!(f, "{self}")
+    }
+}
+
+impl Error for VortexError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        use VortexError::*;
+
+        match self {
+            External(err, _) => Some(err.as_ref()),
+            Context(_, inner) => inner.source(),
+            Shared(inner) => inner.source(),
+            Arrow(err, _) => Some(err),
+            #[cfg(feature = "flatbuffers")]
+            FlatBuffers(err, _) => Some(err),
+            Io(err, _) => Some(err),
+            #[cfg(feature = "object_store")]
+            ObjectStore(err, _) => Some(err),
+            Jiff(err, _) => Some(err),
+            #[cfg(feature = "tokio")]
+            Join(err, _) => Some(err),
+            Prost(err, _) => Some(err.as_ref()),
+            _ => None,
+        }
     }
 }
 
@@ -329,6 +359,13 @@ impl<T> VortexExpect for Option<T> {
 /// A convenient macro for creating a VortexError.
 #[macro_export]
 macro_rules! vortex_err {
+    (Other: $($tts:tt)*) => {{
+        use std::backtrace::Backtrace;
+        let err_string = format!($($tts)*);
+        $crate::__private::must_use(
+            $crate::VortexError::Other(err_string.into(), Box::new(Backtrace::capture()))
+        )
+    }};
     (AssertionFailed: $($tts:tt)*) => {{
         use std::backtrace::Backtrace;
         let err_string = format!($($tts)*);
@@ -371,6 +408,12 @@ macro_rules! vortex_err {
             $crate::VortexError::Context($msg.into(), Box::new($err))
         )
     }};
+    (External: $err:expr) => {{
+        use std::backtrace::Backtrace;
+        $crate::__private::must_use(
+            $crate::VortexError::External($err.into(), Box::new(Backtrace::capture()))
+        )
+    }};
     ($variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {{
         use std::backtrace::Backtrace;
         $crate::__private::must_use(
@@ -383,11 +426,11 @@ macro_rules! vortex_err {
         )
     };
     ($fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::vortex_err!(InvalidArgument: $fmt, $($arg),*)
+        $crate::vortex_err!(Other: $fmt, $($arg),*)
     };
 }
 
-/// A convenient macro for returning a VortexError.
+/// A convenience macro for returning a VortexError.
 #[macro_export]
 macro_rules! vortex_bail {
     ($($tt:tt)+) => {
@@ -460,26 +503,20 @@ macro_rules! vortex_panic {
 
 impl From<arrow_schema::ArrowError> for VortexError {
     fn from(value: arrow_schema::ArrowError) -> Self {
-        VortexError::ArrowError(value, Box::new(Backtrace::capture()))
+        VortexError::Arrow(value, Box::new(Backtrace::capture()))
     }
 }
 
 #[cfg(feature = "flatbuffers")]
 impl From<flatbuffers::InvalidFlatbuffer> for VortexError {
     fn from(value: flatbuffers::InvalidFlatbuffer) -> Self {
-        VortexError::FlatBuffersError(value, Box::new(Backtrace::capture()))
+        VortexError::FlatBuffers(value, Box::new(Backtrace::capture()))
     }
 }
 
 impl From<io::Error> for VortexError {
     fn from(value: io::Error) -> Self {
-        VortexError::IOError(value, Box::new(Backtrace::capture()))
-    }
-}
-
-impl From<std::array::TryFromSliceError> for VortexError {
-    fn from(value: std::array::TryFromSliceError) -> Self {
-        VortexError::TryFromSliceError(value, Box::new(Backtrace::capture()))
+        VortexError::Io(value, Box::new(Backtrace::capture()))
     }
 }
 
@@ -492,7 +529,7 @@ impl From<object_store::Error> for VortexError {
 
 impl From<jiff::Error> for VortexError {
     fn from(value: jiff::Error) -> Self {
-        VortexError::JiffError(value, Box::new(Backtrace::capture()))
+        VortexError::Jiff(value, Box::new(Backtrace::capture()))
     }
 }
 
@@ -502,27 +539,14 @@ impl From<tokio::task::JoinError> for VortexError {
         if value.is_panic() {
             std::panic::resume_unwind(value.into_panic())
         } else {
-            VortexError::JoinError(value, Box::new(Backtrace::capture()))
+            VortexError::Join(value, Box::new(Backtrace::capture()))
         }
-    }
-}
-
-impl From<url::ParseError> for VortexError {
-    fn from(value: url::ParseError) -> Self {
-        VortexError::UrlError(value, Box::new(Backtrace::capture()))
     }
 }
 
 impl From<TryFromIntError> for VortexError {
     fn from(value: TryFromIntError) -> Self {
         VortexError::TryFromInt(value, Box::new(Backtrace::capture()))
-    }
-}
-
-#[cfg(feature = "serde")]
-impl From<serde_json::Error> for VortexError {
-    fn from(value: serde_json::Error) -> Self {
-        VortexError::SerdeJsonError(value, Box::new(Backtrace::capture()))
     }
 }
 
@@ -553,12 +577,5 @@ pub mod __private {
     #[must_use]
     pub const fn must_use(error: crate::VortexError) -> crate::VortexError {
         error
-    }
-}
-
-impl<T> From<PoisonError<T>> for VortexError {
-    fn from(_value: PoisonError<T>) -> Self {
-        // We don't include the value since it may be sensitive.
-        Self::InvalidState("Lock poisoned".into(), Box::new(Backtrace::capture()))
     }
 }

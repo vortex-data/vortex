@@ -10,22 +10,17 @@ use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::arrays::filter::FilterKernel;
+use crate::arrays::filter::FilterReduce;
 use crate::vtable::ValidityHelper;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for BoolVTable {
-    fn filter(
-        array: &BoolArray,
-        mask: &Mask,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl FilterReduce for Bool {
+    fn filter(array: &BoolArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().filter(mask)?;
 
         let mask_values = mask
@@ -84,6 +79,7 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::filter_indices;
     use crate::arrays::bool::compute::filter::filter_slices;
@@ -125,6 +121,6 @@ mod test {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

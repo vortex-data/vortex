@@ -1,58 +1,143 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::arrays::varbinview::VarBinViewArray;
+use crate::ExecutionStep;
+use crate::IntoArray;
+use crate::Precision;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
-
 vtable!(VarBinView);
 
 #[derive(Debug)]
-pub struct VarBinViewVTable;
+pub struct VarBinView;
 
-impl VarBinViewVTable {
+impl VarBinView {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
 }
 
-impl VTable for VarBinViewVTable {
+impl VTable for VarBinView {
     type Array = VarBinViewArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &VarBinViewArray) -> usize {
+        array.views_handle().len() / size_of::<BinaryView>()
+    }
+
+    fn dtype(array: &VarBinViewArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &VarBinViewArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &VarBinViewArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        for buffer in array.buffers.iter() {
+            buffer.array_hash(state, precision);
+        }
+        array.views.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &VarBinViewArray, other: &VarBinViewArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.buffers.len() == other.buffers.len()
+            && array
+                .buffers
+                .iter()
+                .zip(other.buffers.iter())
+                .all(|(a, b)| a.array_eq(b, precision))
+            && array.views.array_eq(&other.views, precision)
+            && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(array: &VarBinViewArray) -> usize {
+        array.buffers().len() + 1
+    }
+
+    fn buffer(array: &VarBinViewArray, idx: usize) -> BufferHandle {
+        let ndata = array.buffers().len();
+        if idx < ndata {
+            array.buffers()[idx].clone()
+        } else if idx == ndata {
+            array.views_handle().clone()
+        } else {
+            vortex_panic!("VarBinViewArray buffer index {idx} out of bounds")
+        }
+    }
+
+    fn buffer_name(array: &VarBinViewArray, idx: usize) -> Option<String> {
+        let ndata = array.buffers().len();
+        if idx < ndata {
+            Some(format!("buffer_{idx}"))
+        } else if idx == ndata {
+            Some("views".to_string())
+        } else {
+            vortex_panic!("VarBinViewArray buffer_name index {idx} out of bounds")
+        }
+    }
+
+    fn nchildren(array: &VarBinViewArray) -> usize {
+        validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &VarBinViewArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("VarBinViewArray validity child out of bounds"),
+            _ => vortex_panic!("VarBinViewArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &VarBinViewArray, idx: usize) -> String {
+        match idx {
+            0 => "validity".to_string(),
+            _ => vortex_panic!("VarBinViewArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {
@@ -67,6 +152,7 @@ impl VTable for VarBinViewVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
@@ -157,7 +243,7 @@ impl VTable for VarBinViewVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 }

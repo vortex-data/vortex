@@ -6,11 +6,11 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::filter::FilterReduce;
 
-impl FilterReduce for ConstantVTable {
+impl FilterReduce for Constant {
     fn filter(array: &ConstantArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ConstantArray::new(array.scalar().clone(), mask.true_count()).into_array(),

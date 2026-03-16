@@ -21,16 +21,16 @@ num-traits = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 divan = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true }
@@ -47,4 +47,8 @@ harness = false
 
 [[bench]]
 name = "run_end_compress"
+harness = false
+
+[[bench]]
+name = "run_end_decode"
 harness = false

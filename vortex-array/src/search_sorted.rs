@@ -11,9 +11,9 @@ use std::fmt::Formatter;
 use std::hint;
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
-use crate::Array;
+use crate::DynArray;
+use crate::scalar::Scalar;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SearchSortedSide {
@@ -262,7 +262,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
     }
 }
 
-impl IndexOrd<Scalar> for dyn Array + '_ {
+impl IndexOrd<Scalar> for dyn DynArray + '_ {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> VortexResult<Option<Ordering>> {
         let scalar_a = self.scalar_at(idx)?;
         Ok(scalar_a.partial_cmp(elem))

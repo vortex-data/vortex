@@ -13,6 +13,7 @@ mod array;
 mod arrow;
 pub mod compress;
 mod compute;
+pub mod decompress_bool;
 mod iter;
 mod kernel;
 mod ops;
@@ -25,31 +26,19 @@ pub mod _benchmarking {
     use super::*;
 }
 
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::vtable::VisitorVTable;
 use vortex_session::VortexSession;
-
-impl VisitorVTable<RunEndVTable> for RunEndVTable {
-    fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("ends", array.ends());
-        visitor.visit_child("values", array.values());
-    }
-}
 
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(RunEndVTable::ID, RunEndVTable);
+    session.arrays().register(RunEnd::ID, RunEnd);
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::ProstMetadata;
+    use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
-    use vortex_dtype::PType;
 
     use crate::RunEndMetadata;
 

@@ -3,14 +3,14 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::register_kernel;
 
-impl IsConstantKernel for BoolVTable {
+impl IsConstantKernel for Bool {
     fn is_constant(&self, array: &BoolArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         // If the array is small, then it is a constant time operation.
         if opts.is_negligible_cost() && array.len() > 64 {
@@ -22,13 +22,14 @@ impl IsConstantKernel for BoolVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(BoolVTable).lift());
+register_kernel!(IsConstantKernelAdapter(Bool).lift());
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::IntoArray;
     use crate::compute::is_constant;
 
     #[rstest]
@@ -41,6 +42,6 @@ mod tests {
     }, false)]
     fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: bool) {
         let array = BoolArray::from_iter(input);
-        assert_eq!(is_constant(array.as_ref()).unwrap(), Some(expected));
+        assert_eq!(is_constant(&array.into_array()).unwrap(), Some(expected));
     }
 }

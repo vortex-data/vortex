@@ -2,19 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
-use crate::Array as _;
+use crate::DynArray as _;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
-use crate::compute::mask;
 use crate::compute::min_max;
 use crate::register_kernel;
+use crate::validity::Validity;
 
-impl MinMaxKernel for DictVTable {
+impl MinMaxKernel for Dict {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
         let codes_validity = array.codes().validity_mask()?;
         if codes_validity.all_false() {
@@ -27,12 +29,17 @@ impl MinMaxKernel for DictVTable {
         }
 
         // Slow path: compute which values are unreferenced and mask them out
-        let unreferenced_mask = Mask::from_buffer(array.compute_referenced_values_mask(false)?);
-        min_max(&mask(array.values(), &unreferenced_mask)?)
+        let unreferenced_mask = BoolArray::new(
+            array.compute_referenced_values_mask(true)?,
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        min_max(&array.values().clone().mask(unreferenced_mask)?)
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(DictVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Dict).lift());
 
 #[cfg(test)]
 mod tests {
@@ -40,13 +47,13 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::DictArray;
-    use crate::Array;
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::builders::dict::dict_encode;
     use crate::compute::min_max;
 
-    fn assert_min_max(array: &dyn Array, expected: Option<(i32, i32)>) {
+    fn assert_min_max(array: &ArrayRef, expected: Option<(i32, i32)>) {
         match (min_max(array).unwrap(), expected) {
             (Some(result), Some((expected_min, expected_max))) => {
                 assert_eq!(i32::try_from(&result.min).unwrap(), expected_min);
@@ -97,20 +104,20 @@ mod tests {
     )]
     #[case::nullable_values(
         dict_encode(
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).as_ref()
+            &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()
         ).unwrap(),
         (1, 2)
     )]
     fn test_min_max(#[case] dict: DictArray, #[case] expected: (i32, i32)) {
-        assert_min_max(dict.as_ref(), Some(expected));
+        assert_min_max(&dict.into_array(), Some(expected));
     }
 
     #[test]
     fn test_sliced_dict() {
         let reference = PrimitiveArray::from_iter([1, 5, 10, 50, 100]);
-        let dict = dict_encode(reference.as_ref()).unwrap();
+        let dict = dict_encode(&reference.into_array()).unwrap();
         let sliced = dict.slice(1..3).unwrap();
-        assert_min_max(sliced.as_ref(), Some((5, 10)));
+        assert_min_max(&sliced, Some((5, 10)));
     }
 
     #[rstest]
@@ -127,6 +134,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_min_max_none(#[case] dict: DictArray) {
-        assert_min_max(dict.as_ref(), None);
+        assert_min_max(&dict.into_array(), None);
     }
 }

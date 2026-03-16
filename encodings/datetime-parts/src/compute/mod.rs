@@ -18,8 +18,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 
@@ -71,6 +71,6 @@ mod tests {
     )).unwrap())]
 
     fn test_datetime_parts_consistency(#[case] array: DateTimePartsArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

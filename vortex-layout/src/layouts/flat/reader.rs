@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::serde::ArrayParts;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -250,7 +250,8 @@ mod test {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
+            let array =
+                PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -288,7 +289,8 @@ mod test {
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
+            let array =
+                PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -324,7 +326,8 @@ mod test {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
+            let array =
+                PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,

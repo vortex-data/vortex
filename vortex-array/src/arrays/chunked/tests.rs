@@ -5,10 +5,6 @@ use std::sync::Arc;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::PType::I32;
 
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
@@ -19,6 +15,10 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::assert_arrays_eq;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::PType::I32;
 use crate::validity::Validity;
 
 fn chunked_array() -> ChunkedArray {
@@ -147,7 +147,7 @@ pub fn pack_nested_structs() {
     let dtype = struct_array.dtype().clone();
     let chunked = ChunkedArray::try_new(
         vec![
-            ChunkedArray::try_new(vec![struct_array.to_array()], dtype.clone())
+            ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
                 .unwrap()
                 .into_array(),
         ],

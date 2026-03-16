@@ -57,7 +57,7 @@ fn is_cuda_available() -> bool {
 fn compile_shared_library(kernel_dir: &Path, sources: &[PathBuf], out_dir: &Path) {
     let lib_path = out_dir.join("libvortex_cub.so");
     let mut cmd = Command::new("nvcc");
-    cmd.args(["-std=c++17", "-arch=native"]);
+    cmd.args(["-std=c++20", "-arch=native"]);
 
     if env::var("PROFILE").unwrap() == "debug" {
         cmd.args(["-O0", "-g", "-G", "-lineinfo"]);
@@ -114,7 +114,7 @@ fn generate_rust_bindings(kernels_dir: &Path, out_dir: &Path) {
         .raw_line("// Functions are loaded at runtime via libloading.")
         .raw_line("")
         .raw_line("pub type cudaStream_t = *mut std::ffi::c_void;")
-        .raw_line("pub type __int256_t = vortex_dtype::i256;")
+        .raw_line("pub type __int256_t = vortex_array::dtype::i256;")
         .generate()
         .expect("Failed to generate CUB bindings");
 

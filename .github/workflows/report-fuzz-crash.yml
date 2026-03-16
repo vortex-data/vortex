@@ -33,6 +33,9 @@ on:
         required: false
       gh_token:
         required: true
+      # incident.io alert source token from Alerts > Alert sources > Custom HTTP.
+      incident_io_alert_token:
+        required: false
 
 jobs:
   report:
@@ -46,13 +49,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download fuzzer logs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.logs_artifact_name }}
           path: ./logs
 
       - name: Download crash artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}
           path: ./crash_artifacts
@@ -61,12 +64,31 @@ jobs:
         run: pip install -e .github/scripts
 
       - name: Extract crash info
+        id: extract
         run: |
           python3 -m fuzz_report extract \
             logs/fuzz_output.log \
             --crash-dir crash_artifacts \
             --crash-name "${{ inputs.crash_file }}" \
             -o crash_info.json
+
+          # Validate that extraction found a real crash.
+          error_variant=$(jq -r '.error_variant' crash_info.json)
+          panic_message=$(jq -r '.panic_message' crash_info.json)
+          echo "error_variant=$error_variant"
+          echo "panic_message=$panic_message"
+          if [ "$error_variant" = "unknown" ] && [ "$panic_message" = "unknown" ]; then
+            echo "::notice::No crash info found in fuzzer output — nothing to report."
+            echo "crash_found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "crash_found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if no crash found
+        if: steps.extract.outputs.crash_found != 'true'
+        run: |
+          echo "No parseable crash in fuzzer output — skipping remaining steps."
+          exit 1
 
       - name: Fetch existing fuzzer issues
         env:
@@ -99,7 +121,11 @@ jobs:
           github_token: ${{ secrets.gh_token }}
           show_full_output: true
           prompt: |
-            Read the file crash_info.json and the fuzzer log at logs/fuzz_output.log.
+            Read crash_info.json — it has all extracted fields (panic_location, crash_location,
+            panic_message, error_variant, stack_frames, stack_trace_raw, debug_output).
+            If you need more context, read the first 200 lines of logs/fuzz_output.log
+            (use offset=0, limit=200 — the file may be very large).
+
             Provide a brief (2-4 sentence) root cause analysis of the crash. Focus on:
             - What the crash is (the error type and location)
             - Why it likely happens (the root cause)
@@ -109,7 +135,7 @@ jobs:
           claude_args: |
             --model claude-opus-4-6
             --max-turns 5
-            --allowedTools "Read,Write,Bash(cat:*),Bash(jq:*)"
+            --allowedTools "Read,Write,Grep,Glob,Bash(cat:*),Bash(jq:*),Bash(head:*),Bash(xxd:*)"
 
       - name: Create or comment on issue
         id: report
@@ -126,3 +152,21 @@ jobs:
             -v "BRANCH=${{ inputs.branch }}" \
             -v "COMMIT=${{ inputs.commit }}" \
             -v "ARTIFACT_URL=${{ inputs.artifact_url }}"
+
+      - name: Alert incident.io on validation failure
+        if: failure() && steps.report.outputs.validation_failed == 'true'
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.incident_io_alert_token }}
+          alert-title: "Fuzzer crash report failed: missing required variables"
+          alert-description: |
+            The fuzz_report pipeline failed because required variables were missing: ${{ steps.report.outputs.missing_variables }}.
+            The fuzzer found a crash but could not file a GitHub issue.
+          deduplication-key: fuzz-report-validation-${{ inputs.fuzz_target }}
+          custom-fields: |
+            {
+              "fuzz_target": "${{ inputs.fuzz_target }}",
+              "missing_variables": "${{ steps.report.outputs.missing_variables }}",
+              "branch": "${{ inputs.branch }}",
+              "commit": "${{ inputs.commit }}"
+            }

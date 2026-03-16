@@ -10,7 +10,7 @@
 //!
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
-//! use vortex_dtype::{DType, Nullability};
+//! use vortex_array::dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
 //! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -30,18 +30,16 @@
 
 use std::any::Any;
 
-use vortex_dtype::DType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::canonical::Canonical;
+use crate::dtype::DType;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
+use crate::scalar::Scalar;
 
 mod lazy_null_builder;
 pub(crate) use lazy_null_builder::LazyBitBufferBuilder;
@@ -157,12 +155,12 @@ pub trait ArrayBuilder: Send {
     ///
     /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
     /// superset semantics).
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array);
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef);
 
     /// Extends the array with the provided array, canonicalizing if necessary.
     ///
-    /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &dyn Array) {
+    /// Implementors must validate that the passed in [`ArrayRef`] has the correct [`DType`].
+    fn extend_from_array(&mut self, array: &ArrayRef) {
         if !self.dtype().eq_with_nullability_superset(array.dtype()) {
             vortex_panic!(
                 "tried to extend a builder with `DType` {} with an array with `DType {}",
@@ -211,12 +209,8 @@ pub trait ArrayBuilder: Send {
     ///
     /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
     /// then converts it to canonical form. Specific builders can override this with optimized
-    /// implementations that avoid the intermediate [`Array`] creation.
-    fn finish_into_canonical(&mut self) -> Canonical {
-        self.finish()
-            .to_canonical()
-            .vortex_expect("finish_into_canonical failed")
-    }
+    /// implementations that avoid the intermediate [`ArrayRef`] creation.
+    fn finish_into_canonical(&mut self) -> Canonical;
 }
 
 /// Construct a new canonical builder for the given [`DType`].
@@ -226,7 +220,7 @@ pub trait ArrayBuilder: Send {
 ///
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
-/// use vortex_dtype::{DType, Nullability};
+/// use vortex_array::dtype::{DType, Nullability};
 ///
 /// // Create a new builder for string data.
 /// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);

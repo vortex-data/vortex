@@ -42,10 +42,10 @@ use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::FieldNames;
-use vortex::dtype::datetime::TimeUnit;
-use vortex::expr::session::ExprSession;
+use vortex::extension::datetime::TimeUnit;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
+use vortex::scalar_fn::session::ScalarFnSession;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -55,7 +55,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
-        .with::<ExprSession>()
+        .with::<ScalarFnSession>()
         .with::<RuntimeSession>()
         .with::<CudaSession>()
 });

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::BoolArray;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -37,7 +36,13 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for BoolExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // DuckDB uses byte bools, not bit bools.
         // maybe we can convert into these from a compressed array sometimes?.
         unsafe { vector.as_slice_mut(len) }.copy_from_slice(
@@ -45,7 +50,7 @@ impl ColumnExporter for BoolExporter {
                 .bit_buffer
                 .slice(offset..(offset + len))
                 .iter()
-                .collect_vec(),
+                .collect::<Vec<bool>>(),
         );
 
         Ok(())
@@ -68,15 +73,16 @@ mod tests {
     fn test_bool() {
         let arr = BoolArray::from_iter([true, false, true]);
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ false, true]
 "#
@@ -88,20 +94,21 @@ mod tests {
         let arr = BoolArray::from_iter([true; 128]);
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(1, 66, &mut chunk.get_vector(0))
+            .export(1, 66, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(65);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             format!(
                 r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 65 = [ {}]
 "#,
-                iter::repeat_n("true", 65).join(", ")
+                iter::repeat_n("true", 65).collect::<Vec<&str>>().join(", ")
             )
         );
     }
@@ -111,15 +118,16 @@ mod tests {
         let arr = BoolArray::from_iter([Some(true), None, Some(false)]);
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ NULL, false]
 "#
@@ -131,15 +139,16 @@ mod tests {
         let arr = BoolArray::from_iter([None; 3]);
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT BOOLEAN: 2 = [ NULL]
 "#

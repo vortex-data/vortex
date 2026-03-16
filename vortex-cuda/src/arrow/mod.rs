@@ -22,13 +22,13 @@ use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::driver::sys;
 use cudarc::runtime::sys::cudaEvent_t;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::validity::Validity;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex::array::ArrayRef;
+use vortex::array::DynArray;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::validity::Validity;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
@@ -182,7 +182,7 @@ impl PrivateData {
 }
 
 #[async_trait]
-pub trait DeviceArrayExt: Array {
+pub trait DeviceArrayExt: DynArray {
     async fn export_device_array(
         self,
         ctx: &mut CudaExecutionCtx,
@@ -224,15 +224,4 @@ pub(crate) fn check_validity_empty(validity: &Validity) -> VortexResult<()> {
     }
 
     Ok(())
-}
-
-pub(crate) async fn ensure_device_resident(
-    buffer_handle: BufferHandle,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle> {
-    if buffer_handle.is_on_device() {
-        Ok(buffer_handle)
-    } else {
-        ctx.move_to_device(buffer_handle)?.await
-    }
 }

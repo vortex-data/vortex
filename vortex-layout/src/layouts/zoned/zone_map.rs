@@ -4,21 +4,22 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -156,7 +157,8 @@ impl ZoneMap {
     pub fn prune(&self, predicate: &Expression, session: &VortexSession) -> VortexResult<Mask> {
         let mut ctx = session.create_execution_ctx();
         self.array
-            .to_array()
+            .clone()
+            .into_array()
             .apply(predicate)?
             .execute::<Mask>(&mut ctx)
     }
@@ -194,7 +196,7 @@ impl StatsAccumulator {
         }
     }
 
-    pub fn push_chunk_without_compute(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn push_chunk_without_compute(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
             if let Some(Precision::Exact(v)) = array.statistics().get(builder.stat()) {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
@@ -206,7 +208,7 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
             if let Some(v) = array.statistics().compute_stat(builder.stat())? {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
@@ -270,6 +272,11 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldPath;
+    use vortex_array::dtype::FieldPathSet;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::lit;
@@ -280,11 +287,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldPath;
-    use vortex_dtype::FieldPathSet;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
     use crate::layouts::zoned::MAX_IS_TRUNCATED;

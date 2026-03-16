@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
-use vortex_compute::filter::Filter;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;
+use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
+use crate::match_each_native_ptype;
 
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
     let validity = array
@@ -18,9 +18,7 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
     let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {
-        // TODO(connor): Ideally we should filter directly on the `BufferHandle` once we implement
-        // `Filter` for that.
-        let filtered_buffer = array.to_buffer::<T>().filter(mask.as_ref());
+        let filtered_buffer = buffer::filter_buffer(array.to_buffer::<T>(), mask.as_ref());
 
         // SAFETY: We filter both the validity and the buffer with the same mask, so they must have
         // the same length.
@@ -35,7 +33,8 @@ mod test {
     use rstest::rstest;
     use vortex_mask::Mask;
 
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::LARGE_SIZE;
     use crate::compute::conformance::filter::MEDIUM_SIZE;
@@ -75,6 +74,6 @@ mod test {
     #[case(PrimitiveArray::from_iter([0.1f32, 0.2, 0.3, 0.4, 0.5]))]
     #[case(PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]))]
     fn test_filter_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

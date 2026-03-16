@@ -4,23 +4,25 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use vortex_array::ExecutionCtx;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builders::UninitRange;
+use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked;
@@ -59,7 +61,13 @@ pub fn unpack_to_primitive_typed<P: BitPacked>(array: &BitPackedArray) -> Primit
         // - `Patches` invariant guarantees indices are sorted and within array bounds.
         // - `elements` and `validity` have equal length (both are `len` from the array).
         // - All patch indices are valid after offset adjustment (guaranteed by `Patches`).
-        unsafe { patches.apply_to_buffer(&mut elements, &mut validity) };
+        unsafe {
+            patches.apply_to_buffer(
+                &mut elements,
+                &mut validity,
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+        };
     }
 
     // Convert MaskMut -> Mask -> Validity
@@ -238,12 +246,12 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -254,7 +262,7 @@ mod tests {
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
+        let compressed = BitPackedArray::encode(&values.clone().into_array(), 11).unwrap();
         assert_arrays_eq!(compressed, values);
 
         values

@@ -9,27 +9,26 @@ use arrow_buffer::NullBuffer;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::StructFields;
-use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructArrayParts;
-use crate::arrays::StructVTable;
+use crate::arrays::struct_::StructArrayParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::Pack;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::StructFields;
+use crate::dtype::arrow::FromArrowType;
+use crate::scalar_fn::fns::pack::Pack;
 
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
@@ -39,17 +38,17 @@ pub(super) fn to_arrow_struct(
     let len = array.len();
 
     // If the array is chunked, then we invert the chunk-of-struct to struct-of-chunk.
-    let array = match array.try_into::<ChunkedVTable>() {
+    let array = match array.try_into::<Chunked>() {
         Ok(array) => {
             // NOTE(ngates): this currently uses the old into_canonical code path, but we should
             //  just call directly into the swizzle-chunks function.
-            array.to_struct().into_array()
+            array.into_array().execute::<StructArray>(ctx)?.into_array()
         }
         Err(array) => array,
     };
 
-    // Attempt to short-circuit if the array is already a StructVTable:
-    let array = match array.try_into::<StructVTable>() {
+    // Attempt to short-circuit if the array is already a Struct:
+    let array = match array.try_into::<Struct>() {
         Ok(array) => {
             let len = array.len();
             let StructArrayParts {
@@ -92,7 +91,7 @@ pub(super) fn to_arrow_struct(
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,
-            vortex_dtype::Nullability::Nullable,
+            crate::dtype::Nullability::Nullable,
         ))?
     } else {
         array
@@ -202,17 +201,19 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array;
     use crate::arrays;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::FromArrowArray;
     use crate::arrow::IntoArrowArray;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]
@@ -287,7 +288,8 @@ mod tests {
                 ),
                 (
                     "b",
-                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
+                        .into_array(),
                 ),
             ]
             .as_slice(),
@@ -317,6 +319,29 @@ mod tests {
             )?,
             &arrow_array
         );
+        Ok(())
+    }
+
+    #[test]
+    fn to_arrow_with_non_nullable_fields() -> VortexResult<()> {
+        let array = StructArray::from_fields(
+            vec![
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2)]).into_array(),
+                ),
+                (
+                    "b",
+                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
+                        .into_array(),
+                ),
+            ]
+            .as_slice(),
+        )?;
+        let orig_dtype = array.dtype().clone();
+        let arrow_array = array.into_array().into_arrow_preferred()?;
+        let from_arrow = array::ArrayRef::from_arrow(arrow_array.as_ref(), false)?;
+        assert_eq!(&orig_dtype, from_arrow.dtype());
         Ok(())
     }
 }

@@ -14,7 +14,7 @@ use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -28,7 +28,7 @@ fn main() {
 }
 
 /// Number of lists in the source array.
-const NUM_LISTS: usize = 10_000;
+const NUM_LISTS: usize = 500;
 
 /// Number of indices to take.
 const NUM_INDICES: &[usize] = &[100, 1_000];

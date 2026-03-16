@@ -7,47 +7,46 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ConstantVTable;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::validity::Validity;
-use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_simd_ptype;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use tracing::instrument;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::Constant;
+use vortex::array::arrays::ConstantArray;
+use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::match_each_decimal_value_type;
+use vortex::array::match_each_native_simd_ptype;
+use vortex::array::validity::Validity;
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
+use vortex::dtype::NativeDecimalType;
+use vortex::dtype::NativePType;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA executor for constant arrays with numeric types.
 ///
 /// Materializes a constant array by filling a device buffer with the scalar value.
 /// Supports primitive types (integers, floats) and decimal types (i128, i256).
 #[derive(Debug)]
-pub struct ConstantNumericExecutor;
+pub(crate) struct ConstantNumericExecutor;
 
 impl ConstantNumericExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ConstantArray> {
-        array.try_into::<ConstantVTable>().ok()
+        array.try_into::<Constant>().ok()
     }
 }
 
 #[async_trait]
 impl CudaExecute for ConstantNumericExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -113,17 +112,13 @@ where
 
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
-    let cuda_function = ctx.load_function_ptype("constant_numeric", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let cuda_function = ctx.load_function("constant_numeric", &kernel_ptypes)?;
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&output_view);
+        args.arg(&value);
+        args.arg(&array_len_u64);
+    })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
@@ -145,7 +140,7 @@ async fn materialize_constant_decimal<D>(
 where
     D: NativeDecimalType + DeviceRepr + Send + Sync + 'static,
 {
-    use vortex_buffer::Buffer;
+    use vortex::buffer::Buffer;
 
     let array_len = array.len();
     if array_len == 0 {
@@ -173,17 +168,14 @@ where
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
-    let cuda_function = ctx.load_function("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let cuda_function =
+        ctx.load_function_with_suffixes("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&output_view);
+        args.arg(&value);
+        args.arg(&array_len_u64);
+    })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
@@ -197,17 +189,17 @@ where
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_dtype::NativePType;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::ConstantArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::dtype::NativePType;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::scalar::Scalar;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -228,7 +220,7 @@ mod tests {
     #[case::i64(make_constant_array(-1000000i64, 2050))]
     #[case::f32(make_constant_array(1.23f32, 2050))]
     #[case::f64(make_constant_array(4.56789f64, 2050))]
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,
     ) -> VortexResult<()> {
@@ -238,7 +230,7 @@ mod tests {
         let cpu_result = constant_array.to_canonical()?;
 
         let gpu_result = ConstantNumericExecutor
-            .execute(constant_array.to_array(), &mut cuda_ctx)
+            .execute(constant_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
             .into_host()
@@ -250,7 +242,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_constant_empty_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -259,7 +251,7 @@ mod tests {
         let cpu_result = constant_array.to_canonical()?;
 
         let gpu_result = ConstantNumericExecutor
-            .execute(constant_array.to_array(), &mut cuda_ctx)
+            .execute(constant_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
             .into_host()
@@ -271,7 +263,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_constant_small_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -281,7 +273,7 @@ mod tests {
         let cpu_result = constant_array.to_canonical()?;
 
         let gpu_result = ConstantNumericExecutor
-            .execute(constant_array.to_array(), &mut cuda_ctx)
+            .execute(constant_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
             .into_host()

@@ -1,30 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::TakeExecute;
-use vortex_array::compute::fill_null;
+use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
-use vortex_dtype::Nullability;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
-    let taken_days = array.days().take(indices.to_array())?;
-    let taken_seconds = array.seconds().take(indices.to_array())?;
-    let taken_subseconds = array.subseconds().take(indices.to_array())?;
+    let taken_days = array.days().take(indices.clone().into_array())?;
+    let taken_seconds = array.seconds().take(indices.clone().into_array())?;
+    let taken_subseconds = array.subseconds().take(indices.clone().into_array())?;
 
     // Update the dtype if the nullability changed due to nullable indices
     let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
@@ -68,7 +68,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
         .map(|s| s.into_inner())
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.seconds().dtype())?;
-    let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
+    let taken_seconds = taken_seconds.fill_null(seconds_fill)?;
 
     let subseconds_fill = array
         .subseconds()
@@ -77,7 +77,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
         .map(|s| s.into_inner())
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.subseconds().dtype())?;
-    let taken_subseconds = fill_null(taken_subseconds.as_ref(), &subseconds_fill)?;
+    let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
 
     Ok(
         DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
@@ -85,10 +85,10 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
     )
 }
 
-impl TakeExecute for DateTimePartsVTable {
+impl TakeExecute for DateTimeParts {
     fn take(
         array: &DateTimePartsArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         take_datetime_parts(array, indices).map(Some)
@@ -102,8 +102,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 
@@ -136,6 +136,6 @@ mod tests {
         Some("UTC".into())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

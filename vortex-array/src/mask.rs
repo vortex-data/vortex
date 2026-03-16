@@ -3,19 +3,19 @@
 
 use std::ops::BitAnd;
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Constant;
 use crate::columnar::Columnar;
+use crate::dtype::DType;
 
 impl Executable for Mask {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
@@ -23,7 +23,7 @@ impl Executable for Mask {
             vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
         }
 
-        if let Some(constant) = array.as_opt::<ConstantVTable>() {
+        if let Some(constant) = array.as_opt::<Constant>() {
             let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
             return Ok(Mask::new(array.len(), mask_value));
         }

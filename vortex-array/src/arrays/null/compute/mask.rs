@@ -2,19 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::Null;
 use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::scalar_fn::fns::mask::MaskReduce;
 
-impl MaskKernel for NullVTable {
-    fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+impl MaskReduce for Null {
+    fn mask(array: &NullArray, _mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        // Null array is already all nulls, masking has no effect.
+        Ok(Some(array.clone().into_array()))
     }
 }
-
-register_kernel!(MaskKernelAdapter(NullVTable).lift());

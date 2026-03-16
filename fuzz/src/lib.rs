@@ -41,8 +41,19 @@ mod native_runtime {
     use vortex_session::VortexSession;
 
     pub static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
-    pub static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+    pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        #[allow(unused_mut)]
+        let mut session = VortexSession::default().with_handle(RUNTIME.handle());
+        #[cfg(all(feature = "cuda", target_os = "linux"))]
+        // Even if the CUDA feature is enabled we need to check at
+        // runtime whether CUDA is available in the current environment.
+        if vortex_cuda::cuda_available() {
+            use vortex_cuda::CudaSessionExt;
+            session = session.with::<vortex_cuda::CudaSession>();
+            vortex_cuda::initialize_cuda(&session.cuda_session());
+        }
+        session
+    });
 }
 
 #[cfg(not(target_arch = "wasm32"))]

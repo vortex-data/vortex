@@ -6,19 +6,19 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceExecuteAdaptor;
-use vortex_array::arrays::SliceKernel;
+use vortex_array::arrays::slice::SliceExecuteAdaptor;
+use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
+use crate::RLE;
 use crate::RLEArray;
-use crate::RLEVTable;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<RLEVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLEVTable))]);
+pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
+    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLE))]);
 
-impl SliceKernel for RLEVTable {
+impl SliceKernel for RLE {
     fn slice(
         array: &RLEArray,
         range: Range<usize>,

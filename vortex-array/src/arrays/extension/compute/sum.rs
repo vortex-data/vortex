@@ -2,19 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::compute::{self};
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
-impl SumKernel for ExtensionVTable {
+impl SumKernel for Extension {
     fn sum(&self, array: &ExtensionArray, accumulator: &Scalar) -> VortexResult<Scalar> {
-        compute::sum_with_accumulator(array.storage(), accumulator)
+        compute::sum_with_accumulator(array.storage_array(), accumulator)
     }
 }
 
-register_kernel!(SumKernelAdapter(ExtensionVTable).lift());
+register_kernel!(SumKernelAdapter(Extension).lift());

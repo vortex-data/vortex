@@ -5,12 +5,12 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -22,7 +22,7 @@ use crate::alp::ALPFloat;
 #[macro_export]
 macro_rules! match_each_alp_float_ptype {
     ($self:expr, | $enc:ident | $body:block) => {{
-        use vortex_dtype::PType;
+        use vortex_array::dtype::PType;
         use vortex_error::vortex_panic;
         let ptype = $self;
         match ptype {
@@ -131,12 +131,14 @@ mod tests {
 
     use f64::consts::E;
     use f64::consts::PI;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::NativePType;
 
     use super::*;
     use crate::decompress_into_array;
@@ -150,7 +152,8 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -163,7 +166,8 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         let expected = PrimitiveArray::from_option_iter(vec![None, Some(1.234f32), None]);
         assert_arrays_eq!(decoded, expected);
     }
@@ -179,7 +183,8 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         let expected_decoded = PrimitiveArray::new(values, Validity::NonNullable);
         assert_arrays_eq!(decoded, expected_decoded);
     }
@@ -196,7 +201,8 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -217,7 +223,8 @@ mod tests {
 
         assert_arrays_eq!(encoded, array);
 
-        let _decoded = decompress_into_array(encoded).unwrap();
+        let _decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
     }
 
     #[test]
@@ -439,7 +446,8 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -450,7 +458,8 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -467,7 +476,8 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -488,7 +498,8 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         for idx in 0..size {
             let decoded_val = decoded.as_slice::<f64>()[idx];
@@ -515,7 +526,8 @@ mod tests {
 
         let array = PrimitiveArray::from_option_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(decoded, array);
     }
@@ -535,7 +547,8 @@ mod tests {
 
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let encoded = alp_encode(&array, None).unwrap();
-        let decoded = decompress_into_array(encoded).unwrap();
+        let decoded =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(decoded, array);
     }

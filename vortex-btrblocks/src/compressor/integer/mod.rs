@@ -16,8 +16,9 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
@@ -30,10 +31,9 @@ use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
-use vortex_scalar::Scalar;
 use vortex_sequence::sequence_encode;
+use vortex_sparse::Sparse;
 use vortex_sparse::SparseArray;
-use vortex_sparse::SparseVTable;
 use vortex_zigzag::ZigZagArray;
 use vortex_zigzag::zigzag_encode;
 
@@ -74,7 +74,7 @@ pub struct IntCompressor<'a> {
 }
 
 impl<'a> Compressor for IntCompressor<'a> {
-    type ArrayVTable = PrimitiveVTable;
+    type ArrayVTable = Primitive;
     type SchemeType = dyn IntegerScheme;
     type StatsType = IntegerStats;
 
@@ -136,6 +136,8 @@ impl Hash for dyn IntegerScheme {
 }
 
 /// Unique identifier for integer compression schemes.
+///
+/// NOTE: Variant order matters for tie-breaking; `For` must precede `BitPacking` to avoid unnecessary patches.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum IntCode {
     /// No compression applied.
@@ -144,10 +146,10 @@ pub enum IntCode {
     Constant,
     /// Frame of Reference encoding - subtracts minimum value then bitpacks.
     For,
-    /// ZigZag encoding - transforms negative integers to positive for better bitpacking.
-    ZigZag,
     /// BitPacking encoding - compresses non-negative integers by reducing bit width.
     BitPacking,
+    /// ZigZag encoding - transforms negative integers to positive for better bitpacking.
+    ZigZag,
     /// Sparse encoding - optimizes null-dominated or single-value-dominated arrays.
     Sparse,
     /// Dictionary encoding - creates a dictionary of unique values.
@@ -249,7 +251,7 @@ impl Scheme for UncompressedScheme {
         _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().to_array())
+        Ok(stats.source().clone().into_array())
     }
 }
 
@@ -351,19 +353,28 @@ impl Scheme for FORScheme {
             .bit_width()
             .try_into()
             .vortex_expect("bit width must fit in u32");
-        let bw = match stats.typed.max_minus_min().checked_ilog2() {
+        let for_bw = match stats.typed.max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
             // If max-min == 0, it we should use a different compression scheme
             // as we don't want to bitpack down to 0 bits.
             None => return Ok(0.0),
         };
 
-        // If we're not saving at least 1 byte, don't bother with FOR
-        if full_width - bw < 8 {
-            return Ok(0.0);
+        // If BitPacking could apply (non-negative values) and FOR doesn't reduce bit width
+        // compared to BitPacking, don't use FOR since it has overhead (storing reference).
+        // Only skip FOR when min >= 0, otherwise BitPacking can't apply directly.
+        if let Some(max_log) = stats
+            .typed
+            .max_ilog2()
+            .filter(|_| !stats.typed.min_is_negative())
+        {
+            let bitpack_bw = max_log + 1;
+            if for_bw >= bitpack_bw {
+                return Ok(0.0);
+            }
         }
 
-        Ok(full_width as f64 / bw as f64)
+        Ok(full_width as f64 / for_bw as f64)
     }
 
     fn compress(
@@ -590,7 +601,7 @@ impl Scheme for SparseScheme {
         }
 
         let sparse_encoded = SparseArray::encode(
-            stats.src.as_ref(),
+            &stats.src.clone().into_array(),
             Some(Scalar::primitive_value(
                 top_pvalue,
                 top_pvalue.ptype(),
@@ -598,7 +609,7 @@ impl Scheme for SparseScheme {
             )),
         )?;
 
-        if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
+        if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the values
             let mut new_excludes = vec![SparseScheme.code(), IntCode::Dict];
             new_excludes.extend_from_slice(excludes);
@@ -846,7 +857,7 @@ impl Scheme for PcoScheme {
         // Pco does not support I8 or U8.
         if matches!(
             stats.src.ptype(),
-            vortex_dtype::PType::I8 | vortex_dtype::PType::U8
+            vortex_array::dtype::PType::I8 | vortex_array::dtype::PType::U8
         ) {
             return Ok(0.0);
         }
@@ -878,10 +889,10 @@ mod tests {
     use rand::RngCore;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -890,8 +901,8 @@ mod tests {
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_sequence::SequenceVTable;
-    use vortex_sparse::SparseVTable;
+    use vortex_sequence::Sequence;
+    use vortex_sparse::Sparse;
 
     use super::IntegerStats;
     use super::RLE_INTEGER_SCHEME;
@@ -946,7 +957,7 @@ mod tests {
             CompressorContext::default(),
             &[],
         )?;
-        assert!(compressed.is::<DictVTable>());
+        assert!(compressed.is::<Dict>());
         Ok(())
     }
 
@@ -963,7 +974,7 @@ mod tests {
             CompressorContext::default(),
             &[],
         )?;
-        assert!(compressed.is::<SparseVTable>());
+        assert!(compressed.is::<Sparse>());
         let decoded = compressed.clone();
         let expected =
             PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
@@ -987,7 +998,7 @@ mod tests {
             CompressorContext::default(),
             &[],
         )?;
-        assert!(compressed.is::<SparseVTable>());
+        assert!(compressed.is::<Sparse>());
         let decoded = compressed.clone();
         let expected = PrimitiveArray::new(
             buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46],
@@ -1009,7 +1020,7 @@ mod tests {
             CompressorContext::default(),
             &[],
         )?;
-        assert!(compressed.is::<SequenceVTable>());
+        assert!(compressed.is::<Sequence>());
         let decoded = compressed;
         let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
@@ -1052,7 +1063,7 @@ mod tests {
             .into_array();
 
         let btr = BtrBlocksCompressor::default();
-        drop(btr.compress(prim.as_ref())?);
+        drop(btr.compress(&prim)?);
 
         Ok(())
     }
@@ -1063,18 +1074,18 @@ mod tests {
 mod scheme_selection_tests {
     use std::iter;
 
-    use vortex_array::arrays::ConstantVTable;
-    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_fastlanes::BitPackedVTable;
-    use vortex_fastlanes::FoRVTable;
-    use vortex_fastlanes::RLEVTable;
-    use vortex_runend::RunEndVTable;
-    use vortex_sequence::SequenceVTable;
-    use vortex_sparse::SparseVTable;
+    use vortex_fastlanes::BitPacked;
+    use vortex_fastlanes::FoR;
+    use vortex_fastlanes::RLE;
+    use vortex_runend::RunEnd;
+    use vortex_sequence::Sequence;
+    use vortex_sparse::Sparse;
 
     use crate::BtrBlocksCompressor;
     use crate::CompressorContext;
@@ -1088,7 +1099,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<ConstantVTable>());
+        assert!(compressed.is::<Constant>());
         Ok(())
     }
 
@@ -1100,7 +1111,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<FoRVTable>());
+        assert!(compressed.is::<FoR>());
         Ok(())
     }
 
@@ -1112,7 +1123,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<BitPackedVTable>());
+        assert!(compressed.is::<BitPacked>());
         Ok(())
     }
 
@@ -1131,7 +1142,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<SparseVTable>());
+        assert!(compressed.is::<Sparse>());
         Ok(())
     }
 
@@ -1161,7 +1172,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<DictVTable>());
+        assert!(compressed.is::<Dict>());
         Ok(())
     }
 
@@ -1176,7 +1187,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<RunEndVTable>());
+        assert!(compressed.is::<RunEnd>());
         Ok(())
     }
 
@@ -1188,7 +1199,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<SequenceVTable>());
+        assert!(compressed.is::<Sequence>());
         Ok(())
     }
 
@@ -1203,7 +1214,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.integer_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<RLEVTable>());
+        assert!(compressed.is::<RLE>());
         Ok(())
     }
 }

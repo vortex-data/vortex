@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::builder::VarBinBuilder;
+use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
-use crate::FSSTVTable;
+use crate::FSST;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
@@ -53,7 +53,7 @@ fn test_fsst_array_ops() {
 
     // test slice
     let fsst_sliced = fsst_array.slice(1..3).unwrap();
-    assert!(fsst_sliced.is::<FSSTVTable>());
+    assert!(fsst_sliced.is::<FSST>());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
         fsst_sliced,

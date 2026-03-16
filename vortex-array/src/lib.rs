@@ -6,7 +6,7 @@
 //!
 //! At the heart of Vortex are [arrays](ArrayRef).
 //!
-//! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
+//! Arrays are typed views of memory buffers that hold [scalars](crate::scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
 //!
@@ -18,16 +18,18 @@ use std::sync::LazyLock;
 pub use array::*;
 pub use canonical::*;
 pub use columnar::*;
-pub use context::*;
 pub use executor::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
 use vortex_session::VortexSession;
+use vortex_session::registry::Context;
 
 use crate::session::ArraySession;
+use crate::vtable::DynVTable;
 
 pub mod accessor;
+pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
 mod array;
@@ -37,14 +39,14 @@ pub mod buffer;
 pub mod builders;
 pub mod builtins;
 mod canonical;
-pub(crate) mod canonical_to_vector;
 mod columnar;
 pub mod compute;
-mod context;
 pub mod display;
+pub mod dtype;
 mod executor;
 pub mod expr;
 mod expression;
+pub mod extension;
 mod hash;
 pub mod iter;
 pub mod kernel;
@@ -56,6 +58,8 @@ pub mod normalize;
 pub mod optimizer;
 mod partial_ord;
 pub mod patches;
+pub mod scalar;
+pub mod scalar_fn;
 pub mod search_sorted;
 pub mod serde;
 pub mod session;
@@ -65,7 +69,6 @@ pub mod stream;
 pub mod test_harness;
 pub mod validity;
 pub mod variants;
-pub mod vectors;
 pub mod vtable;
 
 pub mod flatbuffers {
@@ -78,3 +81,5 @@ pub mod flatbuffers {
 //  here...
 pub static LEGACY_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+pub type ArrayContext = Context<&'static dyn DynVTable>;

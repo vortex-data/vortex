@@ -5,32 +5,31 @@ use std::iter;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::BinaryView;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
-use crate::arrays::TakeExecute;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::dict::TakeExecute;
+use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
-impl TakeExecute for VarBinViewVTable {
+impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
     fn take(
         array: &VarBinViewArray,
-        indices: &dyn Array,
-        _ctx: &mut ExecutionCtx,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().take(indices)?;
-        let indices = indices.to_primitive();
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
 
         let indices_mask = indices.validity_mask()?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
@@ -87,16 +86,16 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
 
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
-    use crate::array::Array;
-    use crate::arrays::PrimitiveArray;
+    use crate::array::DynArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::compute::take::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
     use crate::validity::Validity;
 
     #[test]
@@ -131,7 +130,7 @@ mod tests {
             Validity::from(BitBuffer::from(vec![true, false])),
         );
 
-        let taken = arr.take(indices.to_array()).unwrap();
+        let taken = arr.take(indices.into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
@@ -160,6 +159,6 @@ mod tests {
     ))]
     #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
     fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

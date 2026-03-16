@@ -8,8 +8,8 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use enum_iterator::Sequence;
+use vortex_alp::ALP;
 use vortex_alp::ALPArray;
-use vortex_alp::ALPVTable;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
@@ -18,17 +18,17 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::DictArrayParts;
 use vortex_array::arrays::MaskedArray;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::dict::DictArrayParts;
+use vortex_array::dtype::PType;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
+use vortex_sparse::Sparse;
 use vortex_sparse::SparseArray;
-use vortex_sparse::SparseVTable;
 
 use self::dictionary::dictionary_encode;
 pub use self::stats::FloatStats;
@@ -89,7 +89,7 @@ pub struct FloatCompressor<'a> {
 }
 
 impl<'a> Compressor for FloatCompressor<'a> {
-    type ArrayVTable = PrimitiveVTable;
+    type ArrayVTable = Primitive;
     type SchemeType = dyn FloatScheme;
     type StatsType = FloatStats;
 
@@ -219,7 +219,7 @@ impl Scheme for UncompressedScheme {
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().to_array())
+        Ok(stats.source().clone().into_array())
     }
 }
 
@@ -321,7 +321,7 @@ impl Scheme for ALPScheme {
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
         let alp_encoded = alp_encode(&stats.source().to_primitive(), None)?;
-        let alp = alp_encoded.as_::<ALPVTable>();
+        let alp = alp_encoded.as_::<ALP>();
         let alp_ints = alp.encoded().to_primitive();
 
         // Compress the ALP ints.
@@ -501,9 +501,9 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated float arrays
-        let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
+        let sparse_encoded = SparseArray::encode(&stats.src.clone().into_array(), None)?;
 
-        if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
+        if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the values
             let new_excludes = [IntSparseScheme.code()];
 
@@ -559,7 +559,7 @@ mod tests {
 
     use std::iter;
 
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
@@ -567,10 +567,10 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
     use vortex_array::display::DisplayOptions;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer_mut;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use super::RLE_FLOAT_SCHEME;
@@ -673,15 +673,15 @@ mod tests {
 #[cfg(test)]
 mod scheme_selection_tests {
 
-    use vortex_alp::ALPVTable;
-    use vortex_array::arrays::ConstantVTable;
-    use vortex_array::arrays::DictVTable;
+    use vortex_alp::ALP;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::BtrBlocksCompressor;
@@ -696,7 +696,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.float_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<ConstantVTable>());
+        assert!(compressed.is::<Constant>());
         Ok(())
     }
 
@@ -708,7 +708,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.float_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<ALPVTable>());
+        assert!(compressed.is::<ALP>());
         Ok(())
     }
 
@@ -723,7 +723,7 @@ mod scheme_selection_tests {
         let compressed =
             btr.float_compressor()
                 .compress(&btr, &array, CompressorContext::default(), &[])?;
-        assert!(compressed.is::<DictVTable>());
+        assert!(compressed.is::<Dict>());
         Ok(())
     }
 

@@ -5,26 +5,26 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use vortex_array::Array;
-use vortex_array::Canonical;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BinaryView;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::BoolArrayParts;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DecimalArrayParts;
-use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::arrays::StructArray;
-use vortex_array::arrays::StructArrayParts;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::VarBinViewArrayParts;
-use vortex_array::buffer::BufferHandle;
-use vortex_buffer::BitBuffer;
-use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
+use vortex::array::Canonical;
+use vortex::array::DynArray;
+use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::bool::BoolArrayParts;
+use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::arrays::varbinview::BinaryView;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
+use vortex::array::buffer::BufferHandle;
+use vortex::buffer::BitBuffer;
+use vortex::buffer::Buffer;
+use vortex::buffer::ByteBuffer;
+use vortex::error::VortexResult;
 
 /// Move all canonical data from to_host from device.
 #[async_trait]
@@ -133,7 +133,7 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Extension(ext) => {
                 // Copy the storage array to host and rewrap in ExtensionArray.
                 let host_storage = ext
-                    .storage()
+                    .storage_array()
                     .to_canonical()?
                     .into_host()
                     .await?

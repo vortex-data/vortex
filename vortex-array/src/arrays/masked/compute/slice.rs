@@ -7,12 +7,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 use crate::stats::ArrayStats;
 
-impl SliceReduce for MaskedVTable {
+impl SliceReduce for Masked {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let child = array.child.slice(range.clone())?;
         let validity = array.validity.slice(range)?;

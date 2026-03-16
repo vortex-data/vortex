@@ -5,20 +5,22 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools;
-use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -27,24 +29,23 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
+use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
 
 vtable!(ALPRD);
@@ -63,18 +64,91 @@ pub struct ALPRDMetadata {
     patches: Option<PatchesMetadata>,
 }
 
-impl VTable for ALPRDVTable {
+impl VTable for ALPRD {
     type Array = ALPRDArray;
 
     type Metadata = ProstMetadata<ALPRDMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ALPRDArray) -> usize {
+        array.left_parts.len()
+    }
+
+    fn dtype(array: &ALPRDArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ALPRDArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ALPRDArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.left_parts.array_hash(state, precision);
+        array.left_parts_dictionary.array_hash(state, precision);
+        array.right_parts.array_hash(state, precision);
+        array.right_bit_width.hash(state);
+        array.left_parts_patches.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ALPRDArray, other: &ALPRDArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.left_parts.array_eq(&other.left_parts, precision)
+            && array
+                .left_parts_dictionary
+                .array_eq(&other.left_parts_dictionary, precision)
+            && array.right_parts.array_eq(&other.right_parts, precision)
+            && array.right_bit_width == other.right_bit_width
+            && array
+                .left_parts_patches
+                .array_eq(&other.left_parts_patches, precision)
+    }
+
+    fn nbuffers(_array: &ALPRDArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ALPRDArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ALPRDArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ALPRDArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(array: &ALPRDArray) -> usize {
+        2 + array.left_parts_patches().map_or(0, patches_nchildren)
+    }
+
+    fn child(array: &ALPRDArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.left_parts().clone(),
+            1 => array.right_parts().clone(),
+            _ => {
+                let patches = array
+                    .left_parts_patches()
+                    .unwrap_or_else(|| vortex_panic!("ALPRDArray child index {idx} out of bounds"));
+                patches_child(patches, idx - 2)
+            }
+        }
+    }
+
+    fn child_name(array: &ALPRDArray, idx: usize) -> String {
+        match idx {
+            0 => "left_parts".to_string(),
+            1 => "right_parts".to_string(),
+            _ => {
+                if array.left_parts_patches().is_none() {
+                    vortex_panic!("ALPRDArray child_name index {idx} out of bounds");
+                }
+                patches_child_name(idx - 2).to_string()
+            }
+        }
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -88,8 +162,7 @@ impl VTable for ALPRDVTable {
             right_bit_width: array.right_bit_width() as u32,
             dict_len: array.left_parts_dictionary().len() as u32,
             dict,
-            left_parts_ptype: PType::try_from(array.left_parts().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            left_parts_ptype: array.left_parts.dtype().as_ptype() as i32,
             patches: array
                 .left_parts_patches()
                 .map(|p| p.to_metadata(array.len(), array.left_parts().dtype()))
@@ -105,6 +178,7 @@ impl VTable for ALPRDVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
@@ -222,7 +296,7 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
         let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -261,7 +335,15 @@ impl VTable for ALPRDVTable {
             )
         };
 
-        Ok(decoded_array.into_array())
+        Ok(ExecutionStep::Done(decoded_array.into_array()))
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute_parent(
@@ -286,9 +368,9 @@ pub struct ALPRDArray {
 }
 
 #[derive(Debug)]
-pub struct ALPRDVTable;
+pub struct ALPRD;
 
-impl ALPRDVTable {
+impl ALPRD {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
 }
 
@@ -338,7 +420,12 @@ impl ALPRDArray {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
-                patches.cast_values(left_parts.dtype())
+                // TODO(joe): assert the DType, don't cast it in the next PR.
+                let mut patches = patches.cast_values(left_parts.dtype())?;
+                // Force execution of the lazy cast so patch values are materialized
+                // before serialization.
+                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                Ok(patches)
             })
             .transpose()?;
 
@@ -416,57 +503,9 @@ impl ALPRDArray {
     }
 }
 
-impl ValidityChild<ALPRDVTable> for ALPRDVTable {
+impl ValidityChild<ALPRD> for ALPRD {
     fn validity_child(array: &ALPRDArray) -> &ArrayRef {
         array.left_parts()
-    }
-}
-
-impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
-    fn len(array: &ALPRDArray) -> usize {
-        array.left_parts.len()
-    }
-
-    fn dtype(array: &ALPRDArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ALPRDArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ALPRDArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.left_parts.array_hash(state, precision);
-        array.left_parts_dictionary.array_hash(state, precision);
-        array.right_parts.array_hash(state, precision);
-        array.right_bit_width.hash(state);
-        array.left_parts_patches.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ALPRDArray, other: &ALPRDArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.left_parts.array_eq(&other.left_parts, precision)
-            && array
-                .left_parts_dictionary
-                .array_eq(&other.left_parts_dictionary, precision)
-            && array.right_parts.array_eq(&other.right_parts, precision)
-            && array.right_bit_width == other.right_bit_width
-            && array
-                .left_parts_patches
-                .array_eq(&other.left_parts_patches, precision)
-    }
-}
-
-impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
-    fn visit_buffers(_array: &ALPRDArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &ALPRDArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("left_parts", array.left_parts());
-        visitor.visit_child("right_parts", array.right_parts());
-        if let Some(patches) = array.left_parts_patches() {
-            visitor.visit_patches(patches);
-        }
     }
 }
 
@@ -477,9 +516,9 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_dtype::PType;
 
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;

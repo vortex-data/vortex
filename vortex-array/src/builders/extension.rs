@@ -3,15 +3,10 @@
 
 use std::any::Any;
 
-use vortex_dtype::DType;
-use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::ExtScalar;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
@@ -20,6 +15,10 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::scalar::ExtScalar;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
@@ -43,7 +42,7 @@ impl ExtensionBuilder {
 
     /// Appends an extension `value` to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
-        self.storage.append_scalar(&value.storage())
+        self.storage.append_scalar(&value.to_storage_scalar())
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
@@ -98,9 +97,9 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(scalar.as_extension())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let ext_array = array.to_extension();
-        self.storage.extend_from_array(ext_array.storage())
+        self.storage.extend_from_array(ext_array.storage_array())
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -122,15 +121,14 @@ impl ArrayBuilder for ExtensionBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::Nullability;
-    use vortex_dtype::datetime::Date;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_scalar::Scalar;
-
     use super::*;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::dtype::Nullability;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_append_scalar() {
@@ -150,7 +148,7 @@ mod tests {
 
         // Test appending null value.
         let null_storage = Scalar::null(DType::Primitive(
-            vortex_dtype::PType::I32,
+            crate::dtype::PType::I32,
             Nullability::Nullable,
         ));
         let null_scalar = Scalar::extension::<Date>(TimeUnit::Days, null_storage);

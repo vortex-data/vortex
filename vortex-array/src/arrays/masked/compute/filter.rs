@@ -6,12 +6,12 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
 use crate::arrays::filter::FilterReduce;
 use crate::vtable::ValidityHelper;
 
-impl FilterReduce for MaskedVTable {
+impl FilterReduce for Masked {
     fn filter(array: &MaskedArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         // Filter the validity to get the new validity
         let filtered_validity = array.validity().filter(mask)?;
@@ -57,6 +57,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_filter_masked_conformance(#[case] array: MaskedArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

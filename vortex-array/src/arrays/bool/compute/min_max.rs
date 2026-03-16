@@ -4,19 +4,19 @@
 use std::ops::BitAnd;
 
 use Nullability::NonNullable;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
+use crate::dtype::Nullability;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
-impl MinMaxKernel for BoolVTable {
+impl MinMaxKernel for Bool {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
         let mask = array.validity_mask()?;
         let true_non_null = match &mask {
@@ -72,22 +72,23 @@ impl MinMaxKernel for BoolVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(BoolVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Bool).lift());
 
 #[cfg(test)]
 mod tests {
     use Nullability::NonNullable;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_min_max_nulls() {
         assert_eq!(
-            min_max(BoolArray::from_iter(vec![Some(true), Some(true), None, None]).as_ref())
+            min_max(&BoolArray::from_iter(vec![Some(true), Some(true), None, None]).into_array())
                 .unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(true, NonNullable),
@@ -96,15 +97,7 @@ mod tests {
         );
 
         assert_eq!(
-            min_max(BoolArray::from_iter(vec![None, Some(true), Some(true)]).as_ref()).unwrap(),
-            Some(MinMaxResult {
-                min: Scalar::bool(true, NonNullable),
-                max: Scalar::bool(true, NonNullable),
-            })
-        );
-
-        assert_eq!(
-            min_max(BoolArray::from_iter(vec![None, Some(true), Some(true), None]).as_ref())
+            min_max(&BoolArray::from_iter(vec![None, Some(true), Some(true)]).into_array())
                 .unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(true, NonNullable),
@@ -113,7 +106,16 @@ mod tests {
         );
 
         assert_eq!(
-            min_max(BoolArray::from_iter(vec![Some(false), Some(false), None, None]).as_ref())
+            min_max(&BoolArray::from_iter(vec![None, Some(true), Some(true), None]).into_array())
+                .unwrap(),
+            Some(MinMaxResult {
+                min: Scalar::bool(true, NonNullable),
+                max: Scalar::bool(true, NonNullable),
+            })
+        );
+
+        assert_eq!(
+            min_max(&BoolArray::from_iter(vec![Some(false), Some(false), None, None]).into_array())
                 .unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(false, NonNullable),

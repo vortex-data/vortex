@@ -14,15 +14,12 @@ use std::sync::Arc;
 
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -32,39 +29,53 @@ use crate::DynArrayEq;
 use crate::DynArrayHash;
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
+use crate::ToCanonical;
 use crate::VortexSessionExecute;
-use crate::arrays::BoolVTable;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Bool;
+use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
-use crate::arrays::NullVTable;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::Null;
+use crate::arrays::Primitive;
+use crate::arrays::ScalarFnVTable;
 use crate::arrays::SliceArray;
-use crate::arrays::VarBinVTable;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::compute;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::Scalar;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFnRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTableExt;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::DynVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
-use crate::vtable::VisitorVTable;
 
 /// The public API trait for all Vortex arrays.
-pub trait Array:
-    'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash + ArrayVisitor
+pub trait DynArray:
+    'static
+    + private::Sealed
+    + Send
+    + Sync
+    + Debug
+    + DynArrayEq
+    + DynArrayHash
+    + ArrayVisitor
+    + ReduceNode
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
@@ -156,10 +167,10 @@ pub trait Array:
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 }
 
-impl Array for Arc<dyn Array> {
+impl DynArray for Arc<dyn DynArray> {
     #[inline]
     fn as_any(&self) -> &dyn Any {
-        self.as_ref().as_any()
+        DynArray::as_any(self.as_ref())
     }
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
@@ -269,10 +280,10 @@ impl Array for Arc<dyn Array> {
     }
 }
 
-/// A reference counted pointer to a dynamic [`Array`] trait object.
-pub type ArrayRef = Arc<dyn Array>;
+/// A reference counted pointer to a dynamic [`DynArray`] trait object.
+pub type ArrayRef = Arc<dyn DynArray>;
 
-impl ToOwned for dyn Array {
+impl ToOwned for dyn DynArray {
     type Owned = ArrayRef;
 
     fn to_owned(&self) -> Self::Owned {
@@ -280,7 +291,7 @@ impl ToOwned for dyn Array {
     }
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Does the array match the given matcher.
     pub fn is<M: Matcher>(&self) -> bool {
         M::matches(self)
@@ -315,7 +326,7 @@ impl dyn Array + '_ {
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
-        self.as_opt::<ConstantVTable>().map(|a| a.scalar().clone())
+        self.as_opt::<Constant>().map(|a| a.scalar().clone())
     }
 
     /// Total size of the array in bytes, including all children and buffers.
@@ -331,16 +342,29 @@ impl dyn Array + '_ {
 
     /// Returns whether this array is an arrow encoding.
     pub fn is_arrow(&self) -> bool {
-        self.is::<NullVTable>()
-            || self.is::<BoolVTable>()
-            || self.is::<PrimitiveVTable>()
-            || self.is::<VarBinVTable>()
-            || self.is::<VarBinViewVTable>()
+        self.is::<Null>()
+            || self.is::<Bool>()
+            || self.is::<Primitive>()
+            || self.is::<VarBin>()
+            || self.is::<VarBinView>()
     }
 
     /// Whether the array is of a canonical encoding.
     pub fn is_canonical(&self) -> bool {
         self.is::<AnyCanonical>()
+    }
+
+    /// Returns a new array with the child at `child_idx` replaced by `replacement`.
+    pub fn with_child(&self, child_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
+        let mut children: Vec<ArrayRef> = self.children();
+        vortex_ensure!(
+            child_idx < children.len(),
+            "child index {} out of bounds for array with {} children",
+            child_idx,
+            children.len()
+        );
+        children[child_idx] = replacement;
+        self.with_children(children)
     }
 }
 
@@ -361,10 +385,10 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for ArrayAdapter<V> {}
-    impl Sealed for Arc<dyn Array> {}
+    impl Sealed for Arc<dyn DynArray> {}
 }
 
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Array`]
+/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynArray`]
 /// implementation.
 ///
 /// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
@@ -386,7 +410,30 @@ impl<V: VTable> Debug for ArrayAdapter<V> {
     }
 }
 
-impl<V: VTable> Array for ArrayAdapter<V> {
+impl<V: VTable> ReduceNode for ArrayAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(V::dtype(&self.0).clone())
+    }
+
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        self.0.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
+    }
+
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        self.nth_child(idx)
+            .unwrap_or_else(|| vortex_panic!("Child index out of bounds: {}", idx))
+    }
+
+    fn child_count(&self) -> usize {
+        self.nchildren()
+    }
+}
+
+impl<V: VTable> DynArray for ArrayAdapter<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -400,11 +447,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn len(&self) -> usize {
-        <V::ArrayVTable as BaseArrayVTable<V>>::len(&self.0)
+        V::len(&self.0)
     }
 
     fn dtype(&self) -> &DType {
-        <V::ArrayVTable as BaseArrayVTable<V>>::dtype(&self.0)
+        V::dtype(&self.0)
     }
 
     fn vtable(&self) -> &dyn DynVTable {
@@ -445,7 +492,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             .optimize()?;
 
         // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<ConstantVTable>() {
+        if !sliced.is::<Constant>() {
             self.statistics().with_iter(|iter| {
                 sliced.statistics().inherit(iter.filter(|(stat, value)| {
                     matches!(
@@ -570,7 +617,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
             Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => a.try_to_mask_fill_null_false(),
+            Validity::Array(a) => Ok(a.to_bool().to_mask()),
         }
     }
 
@@ -605,7 +652,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
-        <V::ArrayVTable as BaseArrayVTable<V>>::stats(&self.0)
+        V::stats(&self.0)
     }
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
@@ -618,134 +665,69 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 impl<V: VTable> ArrayHash for ArrayAdapter<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.0.encoding_id().hash(state);
-        <V::ArrayVTable as BaseArrayVTable<V>>::array_hash(&self.0, state, precision);
+        V::array_hash(&self.0, state, precision);
     }
 }
 
 impl<V: VTable> ArrayEq for ArrayAdapter<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        <V::ArrayVTable as BaseArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
+        V::array_eq(&self.0, &other.0, precision)
     }
 }
 
 impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
     fn children(&self) -> Vec<ArrayRef> {
-        struct ChildrenCollector {
-            children: Vec<ArrayRef>,
-        }
-
-        impl ArrayChildVisitor for ChildrenCollector {
-            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
-                self.children.push(array.clone());
-            }
-        }
-
-        let mut collector = ChildrenCollector {
-            children: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
-        collector.children
+        (0..V::nchildren(&self.0))
+            .map(|i| V::child(&self.0, i))
+            .collect()
     }
 
     fn nchildren(&self) -> usize {
-        <V::VisitorVTable as VisitorVTable<V>>::nchildren(&self.0)
+        V::nchildren(&self.0)
+    }
+
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        (idx < V::nchildren(&self.0)).then(|| V::child(&self.0, idx))
     }
 
     fn children_names(&self) -> Vec<String> {
-        struct ChildNameCollector {
-            names: Vec<String>,
-        }
-
-        impl ArrayChildVisitor for ChildNameCollector {
-            fn visit_child(&mut self, name: &str, _array: &ArrayRef) {
-                self.names.push(name.to_string());
-            }
-        }
-
-        let mut collector = ChildNameCollector { names: Vec::new() };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
-        collector.names
+        (0..V::nchildren(&self.0))
+            .map(|i| V::child_name(&self.0, i))
+            .collect()
     }
 
     fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        struct NamedChildrenCollector {
-            children: Vec<(String, ArrayRef)>,
-        }
-
-        impl ArrayChildVisitor for NamedChildrenCollector {
-            fn visit_child(&mut self, name: &str, array: &ArrayRef) {
-                self.children.push((name.to_string(), array.to_array()));
-            }
-        }
-
-        let mut collector = NamedChildrenCollector {
-            children: Vec::new(),
-        };
-
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
-        collector.children
+        (0..V::nchildren(&self.0))
+            .map(|i| (V::child_name(&self.0, i), V::child(&self.0, i)))
+            .collect()
     }
 
     fn buffers(&self) -> Vec<ByteBuffer> {
-        struct BufferCollector {
-            buffers: Vec<ByteBuffer>,
-        }
-
-        impl ArrayBufferVisitor for BufferCollector {
-            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
-                self.buffers.push(handle.to_host_sync());
-            }
-        }
-
-        let mut collector = BufferCollector {
-            buffers: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
-        collector.buffers
+        (0..V::nbuffers(&self.0))
+            .map(|i| V::buffer(&self.0, i).to_host_sync())
+            .collect()
     }
 
     fn buffer_handles(&self) -> Vec<BufferHandle> {
-        struct BufferHandleCollector {
-            handles: Vec<BufferHandle>,
-        }
-
-        impl ArrayBufferVisitor for BufferHandleCollector {
-            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
-                self.handles.push(handle.clone());
-            }
-        }
-
-        let mut collector = BufferHandleCollector {
-            handles: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
-        collector.handles
+        (0..V::nbuffers(&self.0))
+            .map(|i| V::buffer(&self.0, i))
+            .collect()
     }
 
     fn buffer_names(&self) -> Vec<String> {
-        <V::VisitorVTable as VisitorVTable<V>>::buffer_names(&self.0)
+        (0..V::nbuffers(&self.0))
+            .filter_map(|i| V::buffer_name(&self.0, i))
+            .collect()
     }
 
     fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
-        struct NamedBufferCollector {
-            buffers: Vec<(String, BufferHandle)>,
-        }
-
-        impl ArrayBufferVisitor for NamedBufferCollector {
-            fn visit_buffer_handle(&mut self, name: &str, handle: &BufferHandle) {
-                self.buffers.push((name.to_string(), handle.clone()));
-            }
-        }
-
-        let mut collector = NamedBufferCollector {
-            buffers: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
-        collector.buffers
+        (0..V::nbuffers(&self.0))
+            .filter_map(|i| V::buffer_name(&self.0, i).map(|name| (name, V::buffer(&self.0, i))))
+            .collect()
     }
 
     fn nbuffers(&self) -> usize {
-        <V::VisitorVTable as VisitorVTable<V>>::nbuffers(&self.0)
+        V::nbuffers(&self.0)
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
@@ -774,13 +756,12 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
 impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
-    fn matches(array: &dyn Array) -> bool {
-        array.as_any().is::<ArrayAdapter<V>>()
+    fn matches(array: &dyn DynArray) -> bool {
+        DynArray::as_any(array).is::<ArrayAdapter<V>>()
     }
 
-    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
-        array
-            .as_any()
+    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
+        DynArray::as_any(array)
             .downcast_ref::<ArrayAdapter<V>>()
             .map(|array_adapter| &array_adapter.0)
     }

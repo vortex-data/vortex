@@ -5,18 +5,18 @@ use std::fmt::Debug;
 use std::iter::once;
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -43,8 +43,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::{StructArray, BoolArray};
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use vortex_dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with all non-null fields but struct-level nulls
@@ -76,8 +76,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::StructArray;
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use vortex_dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with duplicate "data" field names
@@ -116,8 +116,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::{StructArray, PrimitiveArray};
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use vortex_dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create arrays for each field
@@ -299,7 +299,7 @@ impl StructArray {
         // Check field count matches
         if fields.len() != dtype.names().len() {
             vortex_bail!(
-                "Got {} fields but dtype has {} names",
+                InvalidArgument: "Got {} fields but dtype has {} names",
                 fields.len(),
                 dtype.names().len()
             );
@@ -309,7 +309,7 @@ impl StructArray {
         for (i, (field, struct_dt)) in fields.iter().zip(dtype.fields()).enumerate() {
             if field.len() != length {
                 vortex_bail!(
-                    "Field {} has length {} but expected {}",
+                    InvalidArgument: "Field {} has length {} but expected {}",
                     i,
                     field.len(),
                     length
@@ -318,7 +318,7 @@ impl StructArray {
 
             if field.dtype() != &struct_dt {
                 vortex_bail!(
-                    "Field {} has dtype {} but expected {}",
+                    InvalidArgument: "Field {} has dtype {} but expected {}",
                     i,
                     field.dtype(),
                     struct_dt
@@ -331,7 +331,7 @@ impl StructArray {
             && validity_len != length
         {
             vortex_bail!(
-                "Validity has length {} but expected {}",
+                InvalidArgument: "Validity has length {} but expected {}",
                 validity_len,
                 length
             );

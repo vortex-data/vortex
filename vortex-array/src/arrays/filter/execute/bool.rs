@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use vortex_compute::filter::Filter;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::BoolArray;
+use crate::arrays::filter::execute::bitbuffer;
 use crate::arrays::filter::execute::filter_validity;
 
 pub fn filter_bool(array: &BoolArray, mask: &Arc<MaskValues>) -> BoolArray {
@@ -15,7 +15,7 @@ pub fn filter_bool(array: &BoolArray, mask: &Arc<MaskValues>) -> BoolArray {
     let filtered_validity = filter_validity(validity, mask);
 
     let bit_buffer = array.to_bit_buffer();
-    let filtered_buffer = bit_buffer.filter(mask.as_ref());
+    let filtered_buffer = bitbuffer::filter_bit_buffer(&bit_buffer, mask.as_ref());
 
     BoolArray::new(filtered_buffer, filtered_validity)
 }
@@ -26,7 +26,8 @@ mod test {
     use rstest::rstest;
     use vortex_mask::Mask;
 
-    use crate::arrays::BoolArray;
+    use crate::IntoArray;
+    use crate::arrays::filter::execute::bool::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::test_filter_conformance;
 
@@ -52,6 +53,6 @@ mod test {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

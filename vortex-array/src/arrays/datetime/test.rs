@@ -1,23 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributorsuse vortex_dtype::Nullability;
+// SPDX-FileCopyrightText: Copyright the Vortex contributorsuse crate::dtype::Nullability;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::Timestamp;
-use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::IntoArray;
+use crate::Precision;
 use crate::ToCanonical;
-use crate::array::Array;
+use crate::array::DynArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TemporalArray;
 use crate::assert_arrays_eq;
+use crate::expr::gt;
+use crate::expr::lit;
 use crate::expr::root;
-use crate::expr::*;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
+use crate::extension::datetime::TimestampOptions;
+use crate::hash::ArrayEq;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -193,9 +196,13 @@ fn test_validity_preservation(#[case] validity: Validity) {
     .into_array();
     let temporal_array =
         TemporalArray::new_timestamp(milliseconds, TimeUnit::Milliseconds, Some("UTC".into()));
-    assert_eq!(
-        temporal_array.temporal_values().to_primitive().validity(),
-        &validity
+
+    assert!(
+        temporal_array
+            .temporal_values()
+            .to_primitive()
+            .validity()
+            .array_eq(&validity, Precision::Ptr)
     );
 }
 

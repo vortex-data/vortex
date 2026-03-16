@@ -4,15 +4,15 @@
 use vortex_array::compute::MinMaxKernel;
 use vortex_array::compute::MinMaxKernelAdapter;
 use vortex_array::compute::MinMaxResult;
+use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::register_kernel;
-use vortex_dtype::Nullability::NonNullable;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::SequenceArray;
-use crate::array::SequenceVTable;
+use crate::array::Sequence;
 
-impl MinMaxKernel for SequenceVTable {
+impl MinMaxKernel for Sequence {
     fn min_max(&self, array: &SequenceArray) -> VortexResult<Option<MinMaxResult>> {
         let base = array.base();
         let last = array.last();
@@ -28,4 +28,4 @@ impl MinMaxKernel for SequenceVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(SequenceVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Sequence).lift());

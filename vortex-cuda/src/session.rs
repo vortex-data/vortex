@@ -5,17 +5,18 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
-use vortex_array::VortexSessionExecute;
-use vortex_array::vtable::ArrayId;
-use vortex_error::VortexResult;
-use vortex_session::Ref;
-use vortex_session::SessionExt;
-use vortex_utils::aliases::dash_map::DashMap;
+use vortex::array::VortexSessionExecute;
+use vortex::array::vtable::ArrayId;
+use vortex::error::VortexResult;
+use vortex::session::Ref;
+use vortex::session::SessionExt;
+use vortex::utils::aliases::dash_map::DashMap;
 
 use crate::ExportDeviceArray;
 use crate::arrow::CanonicalDeviceArrayExport;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
+use crate::initialize_cuda;
 use crate::kernel::KernelLoader;
 use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
@@ -62,20 +63,20 @@ impl CudaSession {
 
     /// Creates a new CUDA execution context.
     pub fn create_execution_ctx(
-        vortex_session: &vortex_session::VortexSession,
+        vortex_session: &vortex::session::VortexSession,
     ) -> VortexResult<CudaExecutionCtx> {
-        let stream = vortex_session.cuda_session().new_stream()?;
+        let stream = vortex_session.cuda_session().stream()?;
         Ok(CudaExecutionCtx::new(
             stream,
             vortex_session.create_execution_ctx(),
         ))
     }
 
-    /// Gets a CUDA stream from the pool.
+    /// Returns a CUDA stream from the pool.
     ///
     /// The pool reuses existing streams in round-robin fashion.
-    pub fn new_stream(&self) -> VortexResult<VortexCudaStream> {
-        self.stream_pool.get_stream()
+    pub fn stream(&self) -> VortexResult<VortexCudaStream> {
+        self.stream_pool.stream()
     }
 
     /// Registers CUDA support for an array encoding.
@@ -128,7 +129,7 @@ impl CudaSession {
 }
 
 impl Default for CudaSession {
-    /// Creates a default CUDA session using device 0.
+    /// Creates a default CUDA session using device 0, with all GPU array kernels preloaded.
     ///
     /// # Panics
     ///
@@ -136,7 +137,9 @@ impl Default for CudaSession {
     fn default() -> Self {
         #[expect(clippy::expect_used)]
         let context = CudaContext::new(0).expect("Failed to initialize CUDA device 0");
-        Self::new(context)
+        let this = Self::new(context);
+        initialize_cuda(&this);
+        this
     }
 }
 

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
 use crate::bitpack_decompress;
 
-impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
+impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
@@ -28,7 +28,7 @@ mod test {
     use std::ops::Range;
     use std::sync::LazyLock;
 
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -36,7 +36,11 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::buffer::BufferHandle;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::patches::Patches;
+    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::VTable;
@@ -44,13 +48,9 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
+    use crate::BitPacked;
     use crate::BitPackedArray;
-    use crate::BitPackedVTable;
 
     static SESSION: LazyLock<vortex_session::VortexSession> =
         LazyLock::new(|| vortex_session::VortexSession::empty().with::<ArraySession>());
@@ -58,21 +58,17 @@ mod test {
     fn slice_via_kernel(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
         let slice_array = SliceArray::new(array.clone().into_array(), range);
         let mut ctx = SESSION.create_execution_ctx();
-        let sliced = <BitPackedVTable as VTable>::execute_parent(
-            array,
-            &slice_array.into_array(),
-            0,
-            &mut ctx,
-        )
-        .expect("execute_parent failed")
-        .expect("expected slice kernel to execute");
-        sliced.as_::<BitPackedVTable>().clone()
+        let sliced =
+            <BitPacked as VTable>::execute_parent(array, &slice_array.into_array(), 0, &mut ctx)
+                .expect("execute_parent failed")
+                .expect("expected slice kernel to execute");
+        sliced.as_::<BitPacked>().clone()
     }
 
     #[test]
     pub fn slice_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -86,7 +82,7 @@ mod test {
     #[test]
     pub fn slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -100,7 +96,7 @@ mod test {
     #[test]
     fn slice_within_block_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
         .unwrap();
@@ -113,7 +109,7 @@ mod test {
     #[test]
     fn slice_block_boundary_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
         .unwrap();
@@ -126,7 +122,7 @@ mod test {
     #[test]
     fn double_slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -161,9 +157,11 @@ mod test {
     fn take_after_slice() {
         // Check that our take implementation respects the offsets applied after slicing.
 
-        let array =
-            BitPackedArray::encode(PrimitiveArray::from_iter((63u32..).take(3072)).as_ref(), 6)
-                .unwrap();
+        let array = BitPackedArray::encode(
+            &PrimitiveArray::from_iter((63u32..).take(3072)).into_array(),
+            6,
+        )
+        .unwrap();
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.
@@ -195,7 +193,7 @@ mod test {
                         8,
                         0,
                         buffer![1u32].into_array(),
-                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
                         None,
                     )
                     .unwrap(),

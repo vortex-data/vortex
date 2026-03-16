@@ -2,25 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::register_kernel;
+use crate::dtype::DType;
+use crate::dtype::DecimalType;
+use crate::dtype::NativeDecimalType;
+use crate::match_each_decimal_value_type;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for DecimalVTable {
-    fn cast(&self, array: &DecimalArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastKernel for Decimal {
+    fn cast(
+        array: &DecimalArray,
+        dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Early return if not casting to decimal
         let DType::Decimal(to_decimal_dtype, to_nullability) = dtype else {
             return Ok(None);
@@ -52,7 +56,7 @@ impl CastKernel for DecimalVTable {
 
         // If the dtype is exactly the same, return self
         if array.dtype() == dtype {
-            return Ok(Some(array.to_array()));
+            return Ok(Some(array.clone().into_array()));
         }
 
         // Cast the validity to the new nullability
@@ -78,13 +82,11 @@ impl CastKernel for DecimalVTable {
                     *to_decimal_dtype,
                     new_validity,
                 )
-                .to_array(),
+                .into_array(),
             ))
         }
     }
 }
-
-register_kernel!(CastKernelAdapter(DecimalVTable).lift());
 
 /// Upcast a DecimalArray to a wider physical representation (e.g., i32 -> i64) while keeping
 /// the same precision and scale.
@@ -142,16 +144,17 @@ fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffe
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::DecimalType;
-    use vortex_dtype::Nullability;
 
     use super::upcast_decimal_values;
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::cast;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::DecimalType;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -166,10 +169,14 @@ mod tests {
 
         // Cast to nullable
         let nullable_dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let casted = cast(array.as_ref(), &nullable_dtype).unwrap().to_decimal();
+        let casted = array
+            .into_array()
+            .cast(nullable_dtype.clone())
+            .unwrap()
+            .to_decimal();
 
         assert_eq!(casted.dtype(), &nullable_dtype);
-        assert_eq!(casted.validity(), &Validity::AllValid);
+        assert!(matches!(casted.validity(), Validity::AllValid));
         assert_eq!(casted.len(), 3);
     }
 
@@ -182,12 +189,14 @@ mod tests {
 
         // Cast to non-nullable
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        let casted = cast(array.as_ref(), &non_nullable_dtype)
+        let casted = array
+            .into_array()
+            .cast(non_nullable_dtype.clone())
             .unwrap()
             .to_decimal();
 
         assert_eq!(casted.dtype(), &non_nullable_dtype);
-        assert_eq!(casted.validity(), &Validity::NonNullable);
+        assert!(matches!(casted.validity(), Validity::NonNullable));
     }
 
     #[test]
@@ -200,7 +209,11 @@ mod tests {
 
         // Attempt to cast to non-nullable should fail
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        cast(array.as_ref(), &non_nullable_dtype).unwrap();
+        array
+            .into_array()
+            .cast(non_nullable_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap();
     }
 
     #[test]
@@ -213,7 +226,10 @@ mod tests {
 
         // Try to cast to different scale - not supported
         let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
-        let result = cast(array.as_ref(), &different_dtype);
+        let result = array
+            .into_array()
+            .cast(different_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
 
         assert!(result.is_err());
         assert!(
@@ -234,7 +250,10 @@ mod tests {
 
         // Try to downcast precision - not supported
         let smaller_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
-        let result = cast(array.as_ref(), &smaller_dtype);
+        let result = array
+            .into_array()
+            .cast(smaller_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
 
         assert!(result.is_err());
         assert!(
@@ -255,7 +274,7 @@ mod tests {
 
         // Cast to higher precision with same scale - should succeed
         let wider_dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
-        let casted = cast(array.as_ref(), &wider_dtype).unwrap().to_decimal();
+        let casted = array.into_array().cast(wider_dtype).unwrap().to_decimal();
 
         assert_eq!(casted.precision(), 38);
         assert_eq!(casted.scale(), 2);
@@ -273,14 +292,17 @@ mod tests {
         );
 
         // Try to cast to non-decimal type - should fail since no kernel can handle it
-        let result = cast(array.as_ref(), &DType::Utf8(Nullability::NonNullable));
+        let result = array
+            .into_array()
+            .cast(DType::Utf8(Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
 
         assert!(result.is_err());
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("No compute kernel to cast")
+                .contains("No CastKernel to cast canonical array")
         );
     }
 
@@ -290,7 +312,7 @@ mod tests {
     #[case(DecimalArray::from_option_iter([Some(100i32), None, Some(300)], DecimalDType::new(10, 2)))]
     #[case(DecimalArray::new(buffer![42i32], DecimalDType::new(5, 1), Validity::NonNullable))]
     fn test_cast_decimal_conformance(#[case] array: DecimalArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]

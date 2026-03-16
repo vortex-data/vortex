@@ -6,15 +6,14 @@ use crate::BitBufferMut;
 use crate::Buffer;
 use crate::trusted_len::TrustedLenExt;
 
+#[inline]
 pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
-    let iter = buffer.chunks().iter_padded().map(op);
-    let iter = unsafe { iter.trusted_len() };
-
-    let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
-
-    BitBuffer::new(result, buffer.len())
+    let mut buf = buffer.clone().into_mut();
+    bitwise_unary_op_mut(&mut buf, op);
+    buf.freeze()
 }
 
+#[inline]
 pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, mut op: F) {
     let slice_mut = buffer.as_mut_slice();
 
@@ -54,6 +53,25 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
 ) -> BitBuffer {
     assert_eq!(left.len(), right.len());
 
+    // If the buffers are aligned, we can use the fast path.
+    if left.offset().is_multiple_of(8) && right.offset().is_multiple_of(8) {
+        let left_chunks = left.unaligned_chunks();
+        let right_chunks = right.unaligned_chunks();
+        if left_chunks.lead_padding() == 0
+            && left_chunks.trailing_padding() == 0
+            && right_chunks.lead_padding() == 0
+            && right_chunks.trailing_padding() == 0
+        {
+            let iter = left_chunks
+                .iter()
+                .zip(right_chunks.iter())
+                .map(|(l, r)| op(l, r));
+            let iter = unsafe { iter.trusted_len() };
+            let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
+            return BitBuffer::new(result, left.len());
+        }
+    }
+
     let iter = left
         .chunks()
         .iter_padded()
@@ -68,6 +86,8 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Not;
+
     use super::*;
     use crate::bitbuffer;
     use crate::buffer;
@@ -104,5 +124,27 @@ mod tests {
         let right = BitBuffer::new(buffer![10u8], 4);
         let result = bitwise_binary_op(&left, &right, |l, r| l ^ r);
         assert_eq!(result, bitbuffer![false, true, true, false]);
+    }
+
+    /// Regression test for a bug where [`bitwise_unary_op`] produced corrupt results when
+    /// the [`BitBuffer`]'s underlying byte pointer was not u64-aligned. Slicing a buffer by
+    /// a non-multiple-of-8 number of bytes can cause this misalignment. The bug only
+    /// manifested for buffers larger than 16 bytes (> 128 bits), because Arrow's
+    /// `UnalignedBitChunk` switches from byte-copying to `align_to` at that threshold.
+    ///
+    /// Issue: <https://github.com/vortex-data/vortex/issues/6895>
+    #[test]
+    fn test_bitwise_unary_not_misaligned_buffer() {
+        // Slice off 1 byte to shift the pointer off u64 alignment. Use 129 bits (17 bytes)
+        // to exceed the 16-byte threshold where `UnalignedBitChunk` uses `align_to`.
+        let padded = BitBuffer::new_set(8 + 129);
+        let buf = padded.slice(8..8 + 129);
+
+        let result = buf.not();
+        assert_eq!(
+            result.true_count(),
+            0,
+            "expected all-false after NOT of all-true"
+        );
     }
 }

@@ -2,22 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability::NonNullable;
+use crate::match_each_native_ptype;
 use crate::register_kernel;
+use crate::scalar::PValue;
+use crate::scalar::Scalar;
 
-impl MinMaxKernel for PrimitiveVTable {
+impl MinMaxKernel for Primitive {
     fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_native_ptype!(array.ptype(), |T| {
             compute_min_max_with_validity::<T>(array)
@@ -25,7 +25,7 @@ impl MinMaxKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(PrimitiveVTable).lift());
+register_kernel!(MinMaxKernelAdapter(Primitive).lift());
 
 #[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
@@ -76,6 +76,7 @@ where
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::min_max;
     use crate::validity::Validity;
@@ -86,7 +87,7 @@ mod tests {
             buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let min_max = min_max(array.as_ref()).unwrap().unwrap();
+        let min_max = min_max(&array.into_array()).unwrap().unwrap();
         assert_eq!(f32::try_from(&min_max.min).unwrap(), -1.0);
         assert_eq!(f32::try_from(&min_max.max).unwrap(), 1.0);
     }
@@ -97,7 +98,7 @@ mod tests {
             buffer![f32::INFINITY, f32::NEG_INFINITY, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let min_max = min_max(array.as_ref()).unwrap().unwrap();
+        let min_max = min_max(&array.into_array()).unwrap().unwrap();
         assert_eq!(f32::try_from(&min_max.min).unwrap(), f32::NEG_INFINITY);
         assert_eq!(f32::try_from(&min_max.max).unwrap(), f32::INFINITY);
     }

@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
-use super::DictVTable;
-use crate::Array;
+use super::Dict;
+use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::dict::DictArray;
+use crate::arrays::DictArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::fill_null;
+use crate::dtype::Nullability;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
-impl ValidityVTable<DictVTable> for DictVTable {
+impl ValidityVTable<Dict> for Dict {
     fn validity(array: &DictArray) -> VortexResult<Validity> {
         Ok(
             match (array.codes().validity()?, array.values().validity()?) {
@@ -41,10 +40,8 @@ impl ValidityVTable<DictVTable> for DictVTable {
                     let values_valid_mask =
                         unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
                             .into_array();
-                    let values_valid_mask = fill_null(
-                        &values_valid_mask,
-                        &Scalar::bool(false, Nullability::NonNullable),
-                    )?;
+                    let values_valid_mask = values_valid_mask
+                        .fill_null(Scalar::bool(false, Nullability::NonNullable))?;
 
                     Validity::Array(values_valid_mask)
                 }

@@ -2,14 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use cudarc::driver::DeviceRepr;
-use vortex_array::Canonical;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DecimalArrayParts;
+use vortex::array::Canonical;
+use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::dtype::NativeDecimalType;
+use vortex::error::VortexResult;
+use vortex::mask::Mask;
 use vortex_cub::filter::CubFilterable;
-use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativeDecimalType;
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
@@ -37,19 +36,19 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::DecimalArray;
-    use vortex_array::arrays::FilterArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::i256;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_mask::Mask;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::DecimalArray;
+    use vortex::array::arrays::FilterArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::dtype::DecimalDType;
+    use vortex::dtype::i256;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::mask::Mask;
+    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;
@@ -85,7 +84,7 @@ mod tests {
         DecimalArray::from_iter([i256::from_i128(1), i256::from_i128(2), i256::from_i128(3), i256::from_i128(4), i256::from_i128(5)], DecimalDType::new(19, 5)),
         Mask::from_iter([false, true, false, true, false])
     )]
-    #[tokio::test]
+    #[crate::test]
     async fn test_gpu_filter_decimal(
         #[case] input: DecimalArray,
         #[case] mask: Mask,
@@ -110,7 +109,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_gpu_filter_decimal_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create CUDA execution context");

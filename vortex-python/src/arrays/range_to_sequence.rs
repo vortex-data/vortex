@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -29,7 +30,7 @@ pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         };
-        return Ok(PrimitiveArray::new::<T>(Buffer::empty(), validity).to_array());
+        return Ok(PrimitiveArray::new::<T>(Buffer::empty(), validity).into_array());
     };
     let Ok(start) = T::try_from(start) else {
         vortex_bail!(
@@ -42,7 +43,7 @@ pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>
         vortex_bail!("Step, {}, does not fit in requested dtype: {}", step, dtype);
     };
 
-    Ok(SequenceArray::typed_new::<T>(start, step, dtype.nullability(), len)?.to_array())
+    Ok(SequenceArray::try_new_typed::<T>(start, step, dtype.nullability(), len)?.into_array())
 }
 
 fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {

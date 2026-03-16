@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
+use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl TakeExecute for SparseVTable {
+impl TakeExecute for Sparse {
     fn take(
         array: &SparseArray,
-        indices: &dyn Array,
-        _ctx: &mut ExecutionCtx,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let patches_take = if array.fill_scalar().is_null() {
-            array.patches().take(indices)?
+            array.patches().take(indices, ctx)?
         } else {
-            array.patches().take_with_nulls(indices)?
+            array.patches().take_with_nulls(indices, ctx)?
         };
 
         let Some(new_patches) = patches_take else {
@@ -57,16 +57,16 @@ impl TakeExecute for SparseVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::Array;
     use vortex_array::ArrayRef;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 
@@ -92,7 +92,7 @@ mod test {
         let sparse = sparse.slice(30..40).unwrap();
         let taken = sparse.take(buffer![6, 7, 8].into_array()).unwrap();
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47), None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -106,7 +106,7 @@ mod test {
             Some(1.23),
             Some(3.5),
         ]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -124,7 +124,7 @@ mod test {
         let taken = sparse.take(buffer![69, 37].into_array()).unwrap();
         // Index 69 is not in sparse array (fill value is null), index 37 has value 0.47
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47f64)]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -140,12 +140,12 @@ mod test {
         let taken = arr
             .take(
                 PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                    .to_array(),
+                    .into_array(),
             )
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -161,12 +161,12 @@ mod test {
         let taken = arr
             .take(
                 PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                    .to_array(),
+                    .into_array(),
             )
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[rstest]
@@ -199,6 +199,6 @@ mod test {
     ).unwrap())]
     fn test_take_sparse_conformance(#[case] sparse: SparseArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(sparse.as_ref());
+        test_take_conformance(&sparse.into_array());
     }
 }

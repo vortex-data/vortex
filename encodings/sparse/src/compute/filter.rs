@@ -4,23 +4,23 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::FilterKernel;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl FilterKernel for SparseVTable {
+impl FilterKernel for Sparse {
     fn filter(
         array: &SparseArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let new_length = mask.true_count();
 
-        let Some(new_patches) = array.patches().filter(mask)? else {
+        let Some(new_patches) = array.patches().filter(mask, ctx)? else {
             return Ok(Some(
                 ConstantArray::new(array.fill_scalar().clone(), new_length).into_array(),
             ));
@@ -37,20 +37,20 @@ impl FilterKernel for SparseVTable {
 mod tests {
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_array::Array;
     use vortex_array::ArrayRef;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 
@@ -120,30 +120,29 @@ mod tests {
     fn test_filter_sparse_array() {
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         test_filter_conformance(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
-                cast(
-                    &buffer![100i32, 200, 300].into_array(),
-                    null_fill_value.dtype(),
-                )
-                .unwrap(),
+                buffer![100i32, 200, 300]
+                    .into_array()
+                    .cast(null_fill_value.dtype().clone())
+                    .unwrap(),
                 5,
                 null_fill_value,
             )
             .unwrap()
-            .as_ref(),
+            .into_array(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
         test_filter_conformance(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
             )
             .unwrap()
-            .as_ref(),
+            .into_array(),
         )
     }
 }

@@ -10,15 +10,15 @@ use std::fmt::Debug;
 use futures::stream;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::DType;
 use crate::iter::ArrayIterator;
 use crate::iter::ArrayIteratorAdapter;
 use crate::search_sorted::SearchSorted;
@@ -107,8 +107,8 @@ impl ChunkedArray {
     #[inline]
     pub fn chunk(&self, idx: usize) -> &ArrayRef {
         assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
-
-        &self.chunks[idx]
+        // SAFETY: bounds checked by the assert above.
+        unsafe { self.chunks.get_unchecked(idx) }
     }
 
     pub fn nchunks(&self) -> usize {
@@ -224,16 +224,16 @@ impl FromIterator<ArrayRef> for ChunkedArray {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::array::Array;
+    use crate::array::DynArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[test]

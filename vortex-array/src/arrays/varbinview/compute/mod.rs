@@ -17,7 +17,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
     #[test]
@@ -43,10 +43,10 @@ mod tests {
     }
     // Consistency tests
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[rstest]
     // From test_all_consistency
@@ -82,6 +82,6 @@ mod tests {
         None::<&str>, None, None, None
     ]))]
     fn test_varbinview_consistency(#[case] array: VarBinViewArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

@@ -4,22 +4,23 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
-use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_decimal_value_type;
+use vortex_array::match_each_native_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::IndexOrd;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 struct SearchNullableSlice<T>(Vec<Option<T>>);
 
@@ -56,7 +57,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
 }
 
 pub fn search_sorted_canonical_array(
-    array: &dyn Array,
+    array: &ArrayRef,
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {

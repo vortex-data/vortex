@@ -4,11 +4,10 @@
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
-use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
@@ -18,6 +17,7 @@ use crate::compute::conformance::filter::LARGE_SIZE;
 use crate::compute::conformance::filter::MEDIUM_SIZE;
 use crate::compute::conformance::filter::SMALL_SIZE;
 use crate::compute::conformance::filter::test_filter_conformance;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 // Consolidated parameterized test for degenerate (list_size=0) cases.
@@ -177,7 +177,7 @@ fn test_filter_nested_fixed_size_lists() {
 #[case(create_fsl_single_element())]
 #[case(create_fsl_empty())]
 fn test_filter_fsl_conformance(#[case] array: ArrayRef) {
-    test_filter_conformance(array.as_ref());
+    test_filter_conformance(&array);
 }
 
 // Helper functions for creating test arrays.

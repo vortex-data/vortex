@@ -107,6 +107,32 @@ vx convert input.parquet --out output.vortex
 vx convert input.parquet --out output.vortex --compress
 ```
 
+## Browser (WASM)
+
+The TUI browser can also run in a web browser via WebAssembly. Users can drag-and-drop a `.vtx`
+file onto a web page and interactively explore it using the same Layout and Segments tabs.
+
+### Quick start
+
+```bash
+# From the vortex-tui directory:
+make serve
+```
+
+This builds the WASM package and starts a local server at `http://localhost:8000`.
+
+Requires `wasm-pack` (`cargo install wasm-pack`).
+
+### How it works
+
+- **Native** builds use `crossterm` for terminal I/O and `CurrentThreadRuntime` (smol-based) for
+  async execution. The `native` feature (enabled by default) pulls in DataFusion, crossterm, and
+  other native-only dependencies.
+- **WASM** builds use [ratzilla](https://github.com/ratatui/ratzilla) (the official ratatui web
+  backend) for rendering and `WasmRuntime` for async execution. Building with
+  `--no-default-features` excludes all native-only dependencies.
+- The Query tab (DataFusion SQL) is only available in native builds.
+
 ## Development
 
 TODO:

@@ -2,34 +2,42 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use kernel::PARENT_KERNELS;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
 
+use std::hash::Hash;
+
+use crate::Precision;
 use crate::arrays::bool::compute::rules::RULES;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 
 vtable!(Bool);
@@ -41,18 +49,77 @@ pub struct BoolMetadata {
     pub offset: u32,
 }
 
-impl VTable for BoolVTable {
+impl VTable for Bool {
     type Array = BoolArray;
 
     type Metadata = ProstMetadata<BoolMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &BoolArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &BoolArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &BoolArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &BoolArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.to_bit_buffer().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &BoolArray, other: &BoolArray, precision: Precision) -> bool {
+        if array.dtype != other.dtype {
+            return false;
+        }
+        array
+            .to_bit_buffer()
+            .array_eq(&other.to_bit_buffer(), precision)
+            && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &BoolArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &BoolArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => array.bits.clone(),
+            _ => vortex_panic!("BoolArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &BoolArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("bits".to_string()),
+            _ => None,
+        }
+    }
+
+    fn nchildren(array: &BoolArray) -> usize {
+        validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &BoolArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("BoolArray child index out of bounds"),
+            _ => vortex_panic!("BoolArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &BoolArray, _idx: usize) -> String {
+        "validity".to_string()
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
@@ -70,6 +137,7 @@ impl VTable for BoolVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
@@ -117,8 +185,8 @@ impl VTable for BoolVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(
@@ -140,8 +208,8 @@ impl VTable for BoolVTable {
 }
 
 #[derive(Debug)]
-pub struct BoolVTable;
+pub struct Bool;
 
-impl BoolVTable {
+impl Bool {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
 }

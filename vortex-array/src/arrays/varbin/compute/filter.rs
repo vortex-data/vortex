@@ -3,9 +3,6 @@
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -17,34 +14,43 @@ use vortex_mask::MaskIter;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
-use crate::arrays::VarBinVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinArray;
 use crate::arrays::filter::FilterKernel;
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl FilterKernel for VarBinVTable {
+impl FilterKernel for VarBin {
     fn filter(
         array: &VarBinArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        filter_select_var_bin(array, mask).map(|a| Some(a.into_array()))
+        filter_select_var_bin(array, mask, ctx).map(|a| Some(a.into_array()))
     }
 }
 
-fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinArray> {
+fn filter_select_var_bin(
+    arr: &VarBinArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<VarBinArray> {
     match mask
         .values()
         .vortex_expect("AllTrue and AllFalse are handled by filter fn")
         .threshold_iter(0.5)
     {
         MaskIter::Indices(indices) => {
-            filter_select_var_bin_by_index(arr, indices, mask.true_count())
+            filter_select_var_bin_by_index(arr, indices, mask.true_count(), ctx)
         }
-        MaskIter::Slices(slices) => filter_select_var_bin_by_slice(arr, slices, mask.true_count()),
+        MaskIter::Slices(slices) => {
+            filter_select_var_bin_by_slice(arr, slices, mask.true_count(), ctx)
+        }
     }
 }
 
@@ -52,8 +58,9 @@ fn filter_select_var_bin_by_slice(
     values: &VarBinArray,
     mask_slices: &[(usize, usize)],
     selection_count: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_primitive();
+    let offsets = values.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
@@ -150,8 +157,9 @@ fn filter_select_var_bin_by_index(
     values: &VarBinArray,
     mask_indices: &[usize],
     selection_count: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_primitive();
+    let offsets = values.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
@@ -196,17 +204,19 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
 mod test {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::VarBinArray;
     use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_index;
     use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_slice;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
     use crate::validity::Validity;
 
     #[test]
@@ -219,7 +229,13 @@ mod test {
             ],
             DType::Utf8(NonNullable),
         );
-        let buf = filter_select_var_bin_by_index(&arr, &[0, 2], 2).unwrap();
+        let buf = filter_select_var_bin_by_index(
+            &arr,
+            &[0, 2],
+            2,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert_arrays_eq!(buf, VarBinArray::from(vec!["hello", "filter"]));
     }
@@ -237,7 +253,13 @@ mod test {
             DType::Utf8(NonNullable),
         );
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3).unwrap();
+        let buf = filter_select_var_bin_by_slice(
+            &arr,
+            &[(0, 1), (2, 3), (4, 5)],
+            3,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert_arrays_eq!(buf, VarBinArray::from(vec!["hello", "filter", "filter3"]));
     }
@@ -262,7 +284,13 @@ mod test {
         );
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 3), (4, 6)], 5).unwrap();
+        let buf = filter_select_var_bin_by_slice(
+            &arr,
+            &[(0, 3), (4, 6)],
+            5,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert_arrays_eq!(
             buf,
@@ -287,7 +315,13 @@ mod test {
         let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2).unwrap();
+        let buf = filter_select_var_bin_by_slice(
+            &arr,
+            &[(0, 1), (2, 3)],
+            2,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert_arrays_eq!(buf, VarBinArray::from(vec![None, Some("two")]));
     }
@@ -304,7 +338,13 @@ mod test {
         )
         .unwrap();
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2).unwrap();
+        let buf = filter_select_var_bin_by_slice(
+            &arr,
+            &[(0, 1), (2, 3)],
+            2,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert_arrays_eq!(buf, VarBinArray::from(vec![None::<&str>, None]));
     }
@@ -315,12 +355,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(NonNullable),
         );
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullable),
         );
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

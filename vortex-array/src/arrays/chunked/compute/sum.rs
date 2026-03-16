@@ -2,16 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::compute::sum_with_accumulator;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
-impl SumKernel for ChunkedVTable {
+impl SumKernel for Chunked {
     fn sum(&self, array: &ChunkedArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         array
             .chunks
@@ -22,17 +22,11 @@ impl SumKernel for ChunkedVTable {
     }
 }
 
-register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
+register_kernel!(SumKernelAdapter(Chunked).lift());
 
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::i256;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;
@@ -40,6 +34,12 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::i256;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -65,7 +65,7 @@ mod tests {
         .unwrap();
 
         // Compute sum
-        let result = sum(chunked.as_ref()).unwrap();
+        let result = sum(&chunked.into_array()).unwrap();
 
         // Expected sum: 1.5 + 3.2 + 4.8 + 2.1 + 5.7 + 1.0 + 2.5 = 20.8
         assert_eq!(result.as_primitive().as_::<f64>(), Some(20.8));
@@ -81,7 +81,7 @@ mod tests {
         let chunked =
             ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype).unwrap();
         // Compute sum - should return null for all nulls
-        let result = sum(chunked.as_ref()).unwrap();
+        let result = sum(&chunked.into_array()).unwrap();
         assert_eq!(result, Scalar::primitive(0f64, Nullability::Nullable));
     }
 
@@ -104,7 +104,7 @@ mod tests {
         .unwrap();
 
         // Compute sum: 10.5 + 20.3 + 5.2 = 36.0
-        let result = sum(chunked.as_ref()).unwrap();
+        let result = sum(&chunked.into_array()).unwrap();
         assert_eq!(result.as_primitive().as_::<f64>(), Some(36.0));
     }
 
@@ -117,7 +117,7 @@ mod tests {
         let chunked =
             ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype).unwrap();
 
-        let result = sum(chunked.as_ref()).unwrap();
+        let result = sum(&chunked.into_array()).unwrap();
         assert_eq!(result.as_primitive().as_::<u64>(), Some(1));
     }
 
@@ -149,7 +149,7 @@ mod tests {
         .unwrap();
 
         // Compute sum: 5*100 + 3*200 + 2*300 = 500 + 600 + 600 = 1700 (represents 17.00)
-        let result = sum(chunked.as_ref()).unwrap();
+        let result = sum(&chunked.into_array()).unwrap();
         let decimal_result = result.as_decimal();
         assert_eq!(
             decimal_result.decimal_value(),
@@ -186,7 +186,7 @@ mod tests {
         .unwrap();
 
         // Compute sum: 3*100 + 2*200 = 300 + 400 = 700 (nulls ignored)
-        let result = sum(chunked.as_ref()).unwrap();
+        let result = sum(&chunked.into_array()).unwrap();
         let decimal_result = result.as_decimal();
         assert_eq!(
             decimal_result.decimal_value(),
@@ -222,7 +222,7 @@ mod tests {
 
         // Compute sum: 500 + 600 = 1100
         // Result should have precision 13 (3+10), scale 0
-        let result = sum(chunked.as_ref()).unwrap();
+        let result = sum(&chunked.into_array()).unwrap();
         let decimal_result = result.as_decimal();
         assert_eq!(
             decimal_result.decimal_value(),

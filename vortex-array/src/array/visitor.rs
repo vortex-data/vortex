@@ -7,13 +7,9 @@ use std::sync::Arc;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
+use crate::DynArray;
 use crate::buffer::BufferHandle;
-use crate::patches::Patches;
-use crate::validity::Validity;
 
 pub trait ArrayVisitor {
     /// Returns the children of the array.
@@ -21,6 +17,11 @@ pub trait ArrayVisitor {
 
     /// Returns the number of children of the array.
     fn nchildren(&self) -> usize;
+
+    /// Returns the nth child of the array without allocating a Vec.
+    ///
+    /// Returns `None` if the index is out of bounds.
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef>;
 
     /// Returns the names of the children of the array.
     fn children_names(&self) -> Vec<String>;
@@ -56,13 +57,17 @@ pub trait ArrayVisitor {
     fn is_host(&self) -> bool;
 }
 
-impl ArrayVisitor for Arc<dyn Array> {
+impl ArrayVisitor for Arc<dyn DynArray> {
     fn children(&self) -> Vec<ArrayRef> {
         self.as_ref().children()
     }
 
     fn nchildren(&self) -> usize {
         self.as_ref().nchildren()
+    }
+
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        self.as_ref().nth_child(idx)
     }
 
     fn children_names(&self) -> Vec<String> {
@@ -106,7 +111,7 @@ impl ArrayVisitor for Arc<dyn Array> {
     }
 }
 
-pub trait ArrayVisitorExt: Array {
+pub trait ArrayVisitorExt: DynArray {
     /// Count the number of buffers encoded by self and all child arrays.
     fn nbuffers_recursive(&self) -> usize {
         self.children()
@@ -141,45 +146,4 @@ pub trait ArrayVisitorExt: Array {
     }
 }
 
-impl<A: Array + ?Sized> ArrayVisitorExt for A {}
-
-pub trait ArrayBufferVisitor {
-    fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle);
-}
-
-pub trait ArrayChildVisitor {
-    /// Visit a child of this array.
-    fn visit_child(&mut self, _name: &str, _array: &ArrayRef);
-
-    /// Utility for visiting Array validity.
-    fn visit_validity(&mut self, validity: &Validity, len: usize) {
-        if let Some(vlen) = validity.maybe_len() {
-            assert_eq!(vlen, len, "Validity length mismatch");
-        }
-
-        match validity {
-            Validity::NonNullable | Validity::AllValid => {}
-            Validity::AllInvalid => {
-                // To avoid storing metadata about validity, we store all invalid as a
-                // constant array of false values.
-                // This gives:
-                //  * is_nullable & has_validity => Validity::Array (or Validity::AllInvalid)
-                //  * is_nullable & !has_validity => Validity::AllValid
-                //  * !is_nullable => Validity::NonNullable
-                self.visit_child("validity", &ConstantArray::new(false, len).into_array())
-            }
-            Validity::Array(array) => {
-                self.visit_child("validity", array);
-            }
-        }
-    }
-
-    /// Utility for visiting Array patches.
-    fn visit_patches(&mut self, patches: &Patches) {
-        self.visit_child("patch_indices", patches.indices());
-        self.visit_child("patch_values", patches.values());
-        if let Some(chunk_offsets) = patches.chunk_offsets() {
-            self.visit_child("patch_chunk_offsets", chunk_offsets);
-        }
-    }
-}
+impl<A: DynArray + ?Sized> ArrayVisitorExt for A {}

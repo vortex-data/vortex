@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Projection expression tests - derived from vortex-datafusion schema_evolution.rs
+
+include ./setup.slt
+
+# Create file with numeric columns for arithmetic projections
+query I
+COPY (SELECT * FROM (VALUES
+    (1, 10),
+    (2, 20),
+    (3, 30)
+) AS t(a, b)) TO '$__TEST_DIR__/projections.vortex';
+----
+3
+
+# Test arithmetic projection: a + b * 2
+query I
+SELECT a + b * 2 AS computed FROM '$__TEST_DIR__/projections.vortex' ORDER BY computed;
+----
+21
+42
+63

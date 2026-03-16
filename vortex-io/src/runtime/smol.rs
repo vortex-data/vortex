@@ -19,7 +19,7 @@ impl Executor for smol::Executor<'static> {
         SmolAbortHandle::new_handle(smol::Executor::spawn(self, async move { task() }))
     }
 
-    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+    fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         SmolAbortHandle::new_handle(smol::unblock(task))
     }
 }

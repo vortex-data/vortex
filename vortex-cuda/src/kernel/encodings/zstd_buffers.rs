@@ -10,22 +10,19 @@ use async_trait::async_trait;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
-use futures::future::BoxFuture;
-use futures::future::try_join_all;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::buffer::DeviceBuffer;
-use vortex_buffer::Alignment;
-use vortex_buffer::Buffer;
-use vortex_cuda_macros::cuda_tests;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
+use vortex::buffer::Alignment;
+use vortex::buffer::Buffer;
+use vortex::encodings::zstd::ZstdBuffers;
+use vortex::encodings::zstd::ZstdBuffersArray;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
-use vortex_zstd::ZstdBuffersArray;
-use vortex_zstd::ZstdBuffersVTable;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -34,7 +31,7 @@ use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 
 #[derive(Debug)]
-pub struct ZstdBuffersExecutor;
+pub(crate) struct ZstdBuffersExecutor;
 
 #[async_trait]
 impl CudaExecute for ZstdBuffersExecutor {
@@ -44,7 +41,7 @@ impl CudaExecute for ZstdBuffersExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let zstd_buffers = array
-            .try_into::<ZstdBuffersVTable>()
+            .try_into::<ZstdBuffers>()
             .map_err(|_| vortex_err!("expected zstd buffers array"))?;
         decode_zstd_buffers(zstd_buffers, ctx).await
     }
@@ -70,21 +67,25 @@ async fn decode_zstd_buffers(
     .map_err(|e| vortex_err!("nvcomp get_decompress_temp_size failed: {}", e))?;
 
     let device_frame_handles = move_frames_to_device(compressed_buffers, ctx).await?;
-    let device_output = ctx.device_alloc::<u8>(plan.output_size_total())?;
+    let mut device_output = ctx.device_alloc::<u8>(plan.output_size_total())?;
 
-    macro_rules! device_ptr {
-        ($handle:expr, $type:ty) => {
-            $handle.cuda_view::<$type>()?.device_ptr(ctx.stream()).0
-        };
+    let frame_views = device_frame_handles
+        .iter()
+        .map(|handle| handle.cuda_view::<u8>())
+        .collect::<VortexResult<Vec<_>>>()?;
+    let mut frame_ptr_records = Vec::with_capacity(frame_views.len());
+    let mut frame_ptrs = Vec::with_capacity(frame_views.len());
+    for view in &frame_views {
+        let (ptr, record_frame_ptr) = view.device_ptr(ctx.stream());
+        frame_ptrs.push(ptr);
+        frame_ptr_records.push(record_frame_ptr);
     }
 
-    let frame_ptrs = device_frame_handles
-        .iter()
-        .map(|handle| Ok(device_ptr!(handle, u8)))
-        .collect::<VortexResult<Vec<_>>>()?;
-
     let output_ptrs = {
-        let base_ptr = device_output.device_ptr(ctx.stream()).0;
+        // We only need the allocation address to assemble output pointer metadata.
+        // The actual device write is tracked by `record_device_output` around
+        // `decompress_async`, so this guard can be dropped immediately.
+        let (base_ptr, _) = device_output.device_ptr(ctx.stream());
         plan.output_offsets()
             .iter()
             .map(|offset| base_ptr + *offset as u64)
@@ -103,28 +104,54 @@ async fn decode_zstd_buffers(
     let mut device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(plan.num_frames())?;
     let mut device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(plan.num_frames())?;
     let mut nvcomp_temp_buffer: CudaSlice<u8> = ctx.device_alloc(nvcomp_temp_buffer_size)?;
-
-    let frame_ptrs_ptr = device_ptr!(frame_ptrs_handle, u64);
-    let frame_sizes_ptr = device_ptr!(frame_sizes_handle, usize);
-    let output_sizes_ptr = device_ptr!(output_sizes_handle, usize);
-    let output_ptrs_ptr = device_ptr!(output_ptrs_handle, u64);
-
     let stream = ctx.stream();
-    unsafe {
-        nvcomp_zstd::decompress_async(
-            frame_ptrs_ptr as _,
-            frame_sizes_ptr as _,
-            output_sizes_ptr as _,
-            device_actual_sizes.device_ptr_mut(stream).0 as _,
-            plan.num_frames(),
-            nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
-            nvcomp_temp_buffer_size,
-            output_ptrs_ptr as _,
-            device_statuses.device_ptr_mut(stream).0 as _,
-            stream.cu_stream().cast(),
-        )
-        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
-    }
+    let frame_ptrs_view = frame_ptrs_handle.cuda_view::<u64>()?;
+    let frame_sizes_view = frame_sizes_handle.cuda_view::<usize>()?;
+    let output_sizes_view = output_sizes_handle.cuda_view::<usize>()?;
+    let output_ptrs_view = output_ptrs_handle.cuda_view::<u64>()?;
+
+    let (frame_ptrs_ptr, record_frame_ptrs) = frame_ptrs_view.device_ptr(stream);
+    let (frame_sizes_ptr, record_frame_sizes) = frame_sizes_view.device_ptr(stream);
+    let (output_sizes_ptr, record_output_sizes) = output_sizes_view.device_ptr(stream);
+    let (output_ptrs_ptr, record_output_ptrs) = output_ptrs_view.device_ptr(stream);
+
+    // Track writes to the output allocation at the actual enqueue point.
+    // This guard intentionally outlives the pointer-metadata construction above.
+    let (_device_output_ptr, record_device_output) = device_output.device_ptr_mut(stream);
+    let (device_actual_sizes_ptr, record_actual_sizes) = device_actual_sizes.device_ptr_mut(stream);
+    let (nvcomp_temp_buffer_ptr, record_temp) = nvcomp_temp_buffer.device_ptr_mut(stream);
+    let (device_statuses_ptr, record_statuses) = device_statuses.device_ptr_mut(stream);
+
+    ctx.launch_external(plan.output_size_total(), || {
+        // SAFETY: Pointer and size parameters are derived from validated decode plan inputs.
+        unsafe {
+            nvcomp_zstd::decompress_async(
+                frame_ptrs_ptr as _,
+                frame_sizes_ptr as _,
+                output_sizes_ptr as _,
+                device_actual_sizes_ptr as _,
+                plan.num_frames(),
+                nvcomp_temp_buffer_ptr as _,
+                nvcomp_temp_buffer_size,
+                output_ptrs_ptr as _,
+                device_statuses_ptr as _,
+                stream.cu_stream().cast(),
+            )
+            .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))
+        }
+    })?;
+    drop(frame_ptr_records);
+    drop(frame_views);
+    drop((
+        record_frame_ptrs,
+        record_frame_sizes,
+        record_output_sizes,
+        record_output_ptrs,
+        record_device_output,
+        record_actual_sizes,
+        record_temp,
+        record_statuses,
+    ));
 
     validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
 
@@ -139,26 +166,16 @@ async fn move_frames_to_device(
     compressed_buffers: &[BufferHandle],
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Vec<BufferHandle>> {
-    let move_futures = compressed_buffers
-        .iter()
-        .map(
-            |frame| -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
-                if frame.is_on_device() {
-                    let frame = frame.clone();
-                    Ok(Box::pin(async move { Ok(frame) }))
-                } else {
-                    ctx.move_to_device(frame.clone())
-                }
-            },
-        )
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    try_join_all(move_futures).await
+    let mut results = Vec::with_capacity(compressed_buffers.len());
+    for frame in compressed_buffers {
+        results.push(ctx.ensure_on_device(frame.clone()).await?);
+    }
+    Ok(results)
 }
 
 // This performs D2H to retrieve the lengths and status arrays.
 async fn validate_decompress_results(
-    plan: &vortex_zstd::ZstdBuffersDecodePlan,
+    plan: &vortex::encodings::zstd::ZstdBuffersDecodePlan,
     device_actual_sizes: CudaSlice<usize>,
     device_statuses: CudaSlice<nvcompStatus_t>,
 ) -> VortexResult<()> {
@@ -200,22 +217,22 @@ async fn validate_decompress_results(
     Ok(())
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-    use vortex_zstd::ZstdBuffersArray;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::encodings::zstd::ZstdBuffersArray;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_primitive() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -234,7 +251,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_varbinview() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

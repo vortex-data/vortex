@@ -3,25 +3,23 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
-use vortex_dtype::DType;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::r#for::FoR;
 use crate::r#for::FoRArray;
-use crate::r#for::FoRVTable;
 
-impl CastKernel for FoRVTable {
-    fn cast(&self, array: &FoRArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for FoR {
+    fn cast(array: &FoRArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FoR only supports integer types
         if !dtype.is_int() {
             return Ok(None);
         }
 
         // For type changes between integers, cast the components
-        let casted_child = cast(array.encoded(), dtype)?;
+        let casted_child = array.encoded().cast(dtype.clone())?;
         let casted_reference = array.reference_scalar().cast(dtype)?;
 
         Ok(Some(
@@ -30,21 +28,19 @@ impl CastKernel for FoRVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(FoRVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use crate::FoRArray;
 
@@ -56,11 +52,10 @@ mod tests {
         )
         .unwrap();
 
-        let casted = cast(
-            for_array.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = for_array
+            .into_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -78,11 +73,10 @@ mod tests {
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(20), Some(30), None]);
         let for_array = FoRArray::try_new(values.into_array(), Scalar::from(50i32)).unwrap();
 
-        let casted = cast(
-            for_array.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = for_array
+            .into_array()
+            .cast(DType::Primitive(PType::I64, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
@@ -107,6 +101,6 @@ mod tests {
         Scalar::from(-100i32)
     ).unwrap())]
     fn test_cast_for_conformance(#[case] array: FoRArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 }

@@ -2,16 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use super::*;
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical as _;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 #[rstest]
@@ -23,7 +25,7 @@ fn test_dtype_nullability(#[case] validity: Validity, #[case] expected: Nullabil
 
     assert_eq!(
         array.dtype(),
-        &DType::Primitive(vortex_dtype::PType::I32, expected)
+        &DType::Primitive(crate::dtype::PType::I32, expected)
     );
 }
 
@@ -97,5 +99,13 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     let array = MaskedArray::try_new(child, validity.clone()).unwrap();
 
     assert_eq!(array.len(), len);
-    assert_eq!(array.validity_mask().unwrap(), validity.to_mask(len));
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(
+        array
+            .validity()
+            .unwrap()
+            .mask_eq(&validity, &mut ctx)
+            .unwrap(),
+    );
 }

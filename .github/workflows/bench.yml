@@ -20,7 +20,7 @@ jobs:
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
       - name: Upload Commit Metadata
         shell: bash
@@ -29,30 +29,33 @@ jobs:
 
           sudo apt-get update && sudo apt-get install -y jq
           bash scripts/commit-json.sh > new-commit.json
-          bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
 
   bench:
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
-      - image=ubuntu24-full-x64
-      - spot=false
-      - extras=s3-cache
-      - tag=${{ matrix.benchmark.id }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          || 'ubuntu-latest' }}
     strategy:
       matrix:
         benchmark:
           - id: random-access-bench
             name: Random Access
             build_args: "--features lance"
+            formats: "parquet,lance,vortex"
           - id: compress-bench
             name: Compression
+            build_args: "--features lance"
+            formats: "parquet,lance,vortex"
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -86,18 +89,26 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -d gh-json -o results.json
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+
+      - name: Alert incident.io
+        if: failure()
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: "${{ matrix.benchmark.name }} benchmark failed on develop"
+          deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
 
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
@@ -126,7 +137,7 @@ jobs:
             "subcommand": "tpch",
             "name": "TPC-H SF=1 on S3",
             "local_dir": "vortex-bench/data/tpch/1.0",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
             "scale_factor": "1.0"
           },
@@ -143,7 +154,7 @@ jobs:
             "subcommand": "tpch",
             "name": "TPC-H SF=10 on S3",
             "local_dir": "vortex-bench/data/tpch/10.0",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
             "scale_factor": "10.0"
           },
@@ -173,7 +184,7 @@ jobs:
             "subcommand": "fineweb",
             "name": "FineWeb S3",
             "local_dir": "vortex-bench/data/fineweb",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/fineweb/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact"
           },
           {

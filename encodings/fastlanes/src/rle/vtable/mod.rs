@@ -1,32 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use prost::Message;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
+use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::RLEArray;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
+use crate::rle::vtable::rules::RULES;
 
-mod array;
 mod operations;
+mod rules;
 mod validity;
-mod visitor;
 
 vtable!(RLE);
 
@@ -46,18 +54,90 @@ pub struct RLEMetadata {
     pub offset: u64,
 }
 
-impl VTable for RLEVTable {
+impl VTable for RLE {
     type Array = RLEArray;
 
     type Metadata = ProstMetadata<RLEMetadata>;
 
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &RLEArray) -> usize {
+        array.len()
+    }
+
+    fn dtype(array: &RLEArray) -> &DType {
+        array.dtype()
+    }
+
+    fn stats(array: &RLEArray) -> StatsSetRef<'_> {
+        array.stats_set().to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &RLEArray, state: &mut H, precision: Precision) {
+        array.dtype().hash(state);
+        array.values().array_hash(state, precision);
+        array.indices().array_hash(state, precision);
+        array.values_idx_offsets().array_hash(state, precision);
+        array.offset().hash(state);
+        array.len().hash(state);
+    }
+
+    fn array_eq(array: &RLEArray, other: &RLEArray, precision: Precision) -> bool {
+        array.dtype() == other.dtype()
+            && array.values().array_eq(other.values(), precision)
+            && array.indices().array_eq(other.indices(), precision)
+            && array
+                .values_idx_offsets()
+                .array_eq(other.values_idx_offsets(), precision)
+            && array.offset() == other.offset()
+            && array.len() == other.len()
+    }
+
+    fn nbuffers(_array: &RLEArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &RLEArray, idx: usize) -> BufferHandle {
+        vortex_panic!("RLEArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &RLEArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &RLEArray) -> usize {
+        3
+    }
+
+    fn child(array: &RLEArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.values().clone(),
+            1 => array.indices().clone(),
+            2 => array.values_idx_offsets().clone(),
+            _ => vortex_panic!("RLEArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &RLEArray, idx: usize) -> String {
+        match idx {
+            0 => "values".to_string(),
+            1 => "indices".to_string(),
+            2 => "values_idx_offsets".to_string(),
+            _ => vortex_panic!("RLEArray child name index {idx} out of bounds"),
+        }
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -98,6 +178,7 @@ impl VTable for RLEVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RLEMetadata::decode(bytes)?))
@@ -150,15 +231,17 @@ impl VTable for RLEVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(rle_decompress(array, ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            rle_decompress(array, ctx)?.into_array(),
+        ))
     }
 }
 
 #[derive(Debug)]
-pub struct RLEVTable;
+pub struct RLE;
 
-impl RLEVTable {
+impl RLE {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
 }
 

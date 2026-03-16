@@ -22,7 +22,7 @@ default = ["native"]
 native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
 zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
-cuda = ["vortex-cuda", "vortex/cuda", "tokio"]
+cuda = ["vortex-cuda", "tokio"]
 
 [dependencies]
 # Always needed - arbitrary is used for input generation
@@ -35,13 +35,10 @@ vortex = { path = "../vortex", default-features = false }
 vortex-array = { workspace = true, features = ["arbitrary", "_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
 vortex-io = { workspace = true }
-vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true, features = ["arbitrary"] }
-vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
@@ -52,6 +49,9 @@ vortex-file = { workspace = true, optional = true }
 # GPU support dependencies (optional, only for CUDA fuzzing)
 tokio = { workspace = true, features = ["rt", "macros"], optional = true }
 vortex-cuda = { workspace = true, optional = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true

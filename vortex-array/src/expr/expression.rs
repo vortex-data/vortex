@@ -10,15 +10,15 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::expr::Root;
-use crate::expr::ScalarFn;
+use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::stats::Stat;
+use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::fns::root::Root;
 
 /// A node in a Vortex expression tree.
 ///
@@ -27,13 +27,13 @@ use crate::expr::stats::Stat;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Expression {
     /// The scalar fn for this node.
-    scalar_fn: ScalarFn,
+    scalar_fn: ScalarFnRef,
     /// Any children of this expression.
     children: Arc<Vec<Expression>>,
 }
 
 impl Deref for Expression {
-    type Target = ScalarFn;
+    type Target = ScalarFnRef;
 
     fn deref(&self) -> &Self::Target {
         &self.scalar_fn
@@ -43,7 +43,7 @@ impl Deref for Expression {
 impl Expression {
     /// Create a new expression node from a scalar_fn expression and its children.
     pub fn try_new(
-        scalar_fn: ScalarFn,
+        scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
@@ -62,7 +62,7 @@ impl Expression {
     }
 
     /// Returns the scalar fn vtable for this expression.
-    pub fn scalar_fn(&self) -> &ScalarFn {
+    pub fn scalar_fn(&self) -> &ScalarFnRef {
         &self.scalar_fn
     }
 
@@ -132,7 +132,7 @@ impl Expression {
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
     pub fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
-        self.vtable().as_dyn().stat_falsification(self, catalog)
+        self.scalar_fn().stat_falsification(self, catalog)
     }
 
     /// Returns an expression representing the zoned statistic for the given stat, if available.
@@ -144,7 +144,7 @@ impl Expression {
     /// NOTE(gatesn): we currently cannot represent statistics over nested fields. Please file an
     /// issue to discuss a solution to this.
     pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
-        self.vtable().as_dyn().stat_expression(self, stat, catalog)
+        self.scalar_fn().stat_expression(self, stat, catalog)
     }
 
     /// Returns an expression representing the zoned maximum statistic, if available.
@@ -162,7 +162,7 @@ impl Expression {
     /// Since this is a recursive formatter, it is exposed on the public Expression type.
     /// See fmt_data that is only implemented on the vtable trait.
     pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.vtable().as_dyn().fmt_sql(self, f)
+        self.scalar_fn().fmt_sql(self, f)
     }
 
     /// Display the expression as a formatted tree structure.
@@ -174,10 +174,10 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
-    /// # use vortex_array::compute::LikeOptions;
-    /// # use vortex_array::expr::VTableExt;
-    /// # use vortex_dtype::{DType, Nullability, PType};
-    /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
+    /// # use vortex_array::dtype::{DType, Nullability, PType};
+    /// # use vortex_array::scalar_fn::fns::like::{Like, LikeOptions};
+    /// # use vortex_array::scalar_fn::ScalarFnVTableExt;
+    /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select};
     /// // Build a complex nested expression
     /// let complex_expr = select(
     ///     ["result"],

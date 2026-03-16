@@ -3,17 +3,15 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::register_kernel;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::Pco;
 use crate::PcoArray;
-use crate::PcoVTable;
 
-impl CastKernel for PcoVTable {
-    fn cast(&self, array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for Pco {
+    fn cast(array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable() || !array.all_valid()? {
             // TODO(joe): fixme
             // We cannot cast to non-nullable since the validity containing nulls is used to decode
@@ -50,36 +48,31 @@ impl CastKernel for PcoVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(PcoVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
+    use vortex_buffer::buffer;
 
     use crate::PcoArray;
 
     #[test]
     fn test_cast_pco_f32_to_f64() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
-            Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
-        let casted = cast(
-            pco.as_ref(),
-            &DType::Primitive(PType::F64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = pco
+            .into_array()
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
@@ -94,36 +87,30 @@ mod tests {
     #[test]
     fn test_cast_pco_nullability_change() {
         // Test casting from NonNullable to Nullable
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40]),
-            Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
-        let casted = cast(
-            pco.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap();
-        assert_eq!(
-            casted.dtype(),
-            &DType::Primitive(PType::U32, Nullability::Nullable)
+        let casted = pco
+            .into_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap();
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::AllValid,)
         );
     }
 
     #[test]
     fn test_cast_sliced_pco_nullable_to_nonnullable() {
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
+            buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
         let sliced = pco.slice(1..5).unwrap();
-        let casted = cast(
-            sliced.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sliced
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
@@ -144,11 +131,9 @@ mod tests {
         ]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
         let sliced = pco.slice(1..5).unwrap();
-        let casted = cast(
-            sliced.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sliced
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
@@ -158,27 +143,27 @@ mod tests {
 
     #[rstest]
     #[case::f32(PrimitiveArray::new(
-        Buffer::copy_from(vec![1.23f32, 4.56, 7.89, 10.11, 12.13]),
+        buffer![1.23f32, 4.56, 7.89, 10.11, 12.13],
         Validity::NonNullable,
     ))]
     #[case::f64(PrimitiveArray::new(
-        Buffer::copy_from(vec![100.1f64, 200.2, 300.3, 400.4, 500.5]),
+        buffer![100.1f64, 200.2, 300.3, 400.4, 500.5],
         Validity::NonNullable,
     ))]
     #[case::i32(PrimitiveArray::new(
-        Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
+        buffer![100i32, 200, 300, 400, 500],
         Validity::NonNullable,
     ))]
     #[case::u64(PrimitiveArray::new(
-        Buffer::copy_from(vec![1000u64, 2000, 3000, 4000]),
+        buffer![1000u64, 2000, 3000, 4000],
         Validity::NonNullable,
     ))]
     #[case::single(PrimitiveArray::new(
-        Buffer::copy_from(vec![42.42f64]),
+        buffer![42.42f64],
         Validity::NonNullable,
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
+        test_cast_conformance(&pco.into_array());
     }
 }

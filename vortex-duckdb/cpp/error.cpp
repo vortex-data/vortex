@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include <cassert>
+#include <exception>
+
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
+#include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/vector_buffer.hpp"
 #include "duckdb/common/types/vector.hpp"
+DUCKDB_INCLUDES_END
 
 #include "duckdb_vx.h"
 
@@ -24,9 +31,28 @@ namespace vortex {
 
 std::string IntoErrString(duckdb_vx_error error) {
     if (!error) {
-        return nullptr;
+        return {};
     }
     return *reinterpret_cast<std::string *>(error);
 }
 
+duckdb_state SetError(duckdb_vx_error *error_out, std::string_view message) {
+    assert(error_out != nullptr && "SetError called with null error_out");
+    *error_out = duckdb_vx_error_create(message.data(), message.size());
+    return DuckDBError;
+}
+
+duckdb_state HandleException(std::exception_ptr ex, duckdb_vx_error *error_out) {
+    if (!ex) {
+        return SetError(error_out, "Unknown error");
+    }
+
+    try {
+        std::rethrow_exception(ex);
+    } catch (const std::exception &caught) {
+        return SetError(error_out, caught.what());
+    } catch (...) {
+        return SetError(error_out, "Unknown error");
+    }
+}
 } // namespace vortex

@@ -9,11 +9,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 
@@ -26,8 +26,8 @@ pub struct Datum {
 
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
-    pub fn try_new(array: &dyn Array) -> VortexResult<Self> {
-        if array.is::<ConstantVTable>() {
+    pub fn try_new(array: &ArrayRef) -> VortexResult<Self> {
+        if array.is::<Constant>() {
             Ok(Self {
                 array: array.slice(0..1)?.into_arrow_preferred()?,
                 is_scalar: true,
@@ -40,9 +40,9 @@ impl Datum {
         }
     }
 
-    /// Create a new [`Datum`] from an [`Array`], which can then be passed to Arrow compute.
+    /// Create a new [`Datum`] from an [`DynArray`], which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
-    pub fn try_new_array(array: &dyn Array) -> VortexResult<Self> {
+    pub fn try_new_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Self {
             array: array.to_array().into_arrow_preferred()?,
             is_scalar: false,
@@ -50,10 +50,10 @@ impl Datum {
     }
 
     pub fn try_new_with_target_datatype(
-        array: &dyn Array,
+        array: &ArrayRef,
         target_datatype: &DataType,
     ) -> VortexResult<Self> {
-        if array.is::<ConstantVTable>() {
+        if array.is::<Constant>() {
             Ok(Self {
                 array: array.slice(0..1)?.into_arrow(target_datatype)?,
                 is_scalar: true,

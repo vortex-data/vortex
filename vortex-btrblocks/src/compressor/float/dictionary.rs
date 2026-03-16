@@ -8,10 +8,10 @@
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::half::f16;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_dtype::half::f16;
 
 use super::stats::ErasedDistinctValues;
 use super::stats::FloatStats;
@@ -98,7 +98,7 @@ impl_encode!(f64, u64);
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;

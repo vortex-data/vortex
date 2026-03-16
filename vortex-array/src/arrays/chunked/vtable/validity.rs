@@ -2,18 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
+use crate::arrays::chunked::vtable::ChunkedArray;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
-impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
+impl ValidityVTable<Chunked> for Chunked {
     fn validity(array: &ChunkedArray) -> VortexResult<Validity> {
         let validities: Vec<Validity> =
             array.chunks().iter().map(|c| c.validity()).try_collect()?;

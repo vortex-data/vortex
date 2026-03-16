@@ -5,32 +5,39 @@ use std::cmp::max;
 use std::ops::Not;
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
 
 use super::cast::upcast_decimal_values;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
-use crate::arrays::DecimalVTable;
-use crate::arrays::decimal::DecimalArray;
-use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::BoolArray;
+use crate::arrays::Decimal;
+use crate::arrays::DecimalArray;
+use crate::dtype::NativeDecimalType;
+use crate::match_each_decimal_value_type;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
+use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl FillNullKernel for DecimalVTable {
-    fn fill_null(&self, array: &DecimalArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+impl FillNullKernel for Decimal {
+    fn fill_null(
+        array: &DecimalArray,
+        fill_value: &Scalar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(match array.validity() {
+        Ok(Some(match array.validity() {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid.to_bool().to_bit_buffer().not();
+                let is_invalid = is_valid
+                    .clone()
+                    .execute::<BoolArray>(ctx)?
+                    .to_bit_buffer()
+                    .not();
                 let decimal_scalar = fill_value.as_decimal();
                 let decimal_value = decimal_scalar
                     .decimal_value()
@@ -45,7 +52,7 @@ impl FillNullKernel for DecimalVTable {
                 })
             }
             _ => unreachable!("checked in entry point"),
-        })
+        }))
     }
 }
 
@@ -80,20 +87,19 @@ fn fill_buffer<T: NativeDecimalType>(
     Ok(DecimalArray::new(buffer.freeze(), array.decimal_dtype(), result_validity).into_array())
 }
 
-register_kernel!(FillNullKernelAdapter(DecimalVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
-    use crate::arrays::decimal::DecimalArray;
+    use crate::IntoArray;
+    use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::fill_null;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -103,16 +109,15 @@ mod tests {
             [None, Some(800i128), None, Some(1000i128), None],
             decimal_dtype,
         );
-        let p = fill_null(
-            arr.as_ref(),
-            &Scalar::decimal(
+        let p = arr
+            .into_array()
+            .fill_null(Scalar::decimal(
                 DecimalValue::I128(4200i128),
                 DecimalDType::new(19, 2),
                 Nullability::NonNullable,
-            ),
-        )
-        .unwrap()
-        .to_decimal();
+            ))
+            .unwrap()
+            .to_decimal();
         assert_arrays_eq!(
             p,
             DecimalArray::from_iter([4200, 800, 4200, 1000, 4200], decimal_dtype)
@@ -133,16 +138,15 @@ mod tests {
             decimal_dtype,
         );
 
-        let p = fill_null(
-            arr.as_ref(),
-            &Scalar::decimal(
+        let p = arr
+            .into_array()
+            .fill_null(Scalar::decimal(
                 DecimalValue::I128(25500i128),
                 DecimalDType::new(19, 2),
                 Nullability::NonNullable,
-            ),
-        )
-        .unwrap()
-        .to_decimal();
+            ))
+            .unwrap()
+            .to_decimal();
         assert_arrays_eq!(
             p,
             DecimalArray::from_iter([25500, 25500, 25500, 25500, 25500], decimal_dtype)
@@ -155,16 +159,15 @@ mod tests {
         let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
-        let result = fill_null(
-            arr.as_ref(),
-            &Scalar::decimal(
+        let result = arr
+            .into_array()
+            .fill_null(Scalar::decimal(
                 DecimalValue::I128(200i128),
                 DecimalDType::new(3, 0),
                 Nullability::NonNullable,
-            ),
-        )
-        .unwrap()
-        .to_decimal();
+            ))
+            .unwrap()
+            .to_decimal();
         assert_arrays_eq!(
             result,
             DecimalArray::from_iter([200i16, 10, 200], decimal_dtype)
@@ -180,16 +183,15 @@ mod tests {
             decimal_dtype,
             Validity::NonNullable,
         );
-        let p = fill_null(
-            arr.as_ref(),
-            &Scalar::decimal(
+        let p = arr
+            .into_array()
+            .fill_null(Scalar::decimal(
                 DecimalValue::I128(25500i128),
                 DecimalDType::new(19, 2),
                 Nullability::NonNullable,
-            ),
-        )
-        .unwrap()
-        .to_decimal();
+            ))
+            .unwrap()
+            .to_decimal();
         assert_arrays_eq!(
             p,
             DecimalArray::from_iter([800i128, 1000, 1200, 1400, 1600], decimal_dtype)

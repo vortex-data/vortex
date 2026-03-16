@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
+use vortex_array::dtype::DType;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -32,6 +32,7 @@ use crate::EOF_SIZE;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VortexFile;
 use crate::footer::Footer;
+use crate::segments::BufferSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
 use crate::segments::RequestMetrics;
@@ -100,6 +101,15 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Configure a known file size.
+    ///
+    /// This helps to prevent an I/O request to discover the size of the file.
+    /// Of course, all bets are off if you pass an incorrect value.
+    pub fn with_some_file_size(mut self, file_size: Option<u64>) -> Self {
+        self.file_size = file_size;
+        self
+    }
+
     /// Configure a known DType.
     ///
     /// If this is provided, then the Vortex file may be opened with fewer I/O requests.
@@ -145,16 +155,43 @@ impl VortexOpenOptions {
     /// Open a Vortex file from a filesystem path.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn open_path(self, path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
-        use vortex_io::file::std_file::FileReadAdapter;
+        use vortex_io::std_file::FileReadAt;
         let handle = self.session.handle();
-        let source = Arc::new(FileReadAdapter::open(path, handle)?);
+        let source = Arc::new(FileReadAt::open(path, handle)?);
         self.open(source).await
     }
 
     /// Open a Vortex file from an in-memory buffer.
+    ///
+    /// This uses a `BufferSegmentSource` that resolves segments synchronously
+    /// by slicing the buffer directly, bypassing the async I/O pipeline.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
-        // We know this is in memory, so we can open it synchronously.
-        block_on(self.with_initial_read_size(0).open_read(buffer.into()))
+        let buffer: ByteBuffer = buffer.into();
+
+        if self.segment_cache.is_some() {
+            tracing::warn!("segment cache is ignored for in-memory `open_buffer`");
+        }
+        if self.metrics_registry.is_some() {
+            tracing::warn!("metrics registry is ignored for in-memory `open_buffer`");
+        }
+
+        let mut opts = self.with_initial_read_size(0);
+
+        let footer = match opts.footer.take() {
+            Some(footer) => footer,
+            None => block_on(opts.read_footer(&buffer))?,
+        };
+
+        let segment_source = Arc::new(BufferSegmentSource::new(
+            buffer,
+            footer.segment_map().clone(),
+        ));
+
+        Ok(VortexFile {
+            footer,
+            segment_source,
+            session: opts.session,
+        })
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
@@ -289,10 +326,10 @@ impl VortexOpenOptions {
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
-        use vortex_io::file::object_store::ObjectStoreSource;
+        use vortex_io::object_store::ObjectStoreReadAt;
 
         let handle = self.session.handle();
-        let source = Arc::new(ObjectStoreSource::new(
+        let source = Arc::new(ObjectStoreReadAt::new(
             object_store.clone(),
             path.into(),
             handle,
@@ -309,11 +346,11 @@ mod tests {
     use futures::future::BoxFuture;
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
-    use vortex_array::expr::session::ExprSession;
+    use vortex_array::dtype::session::DTypeSession;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
-    use vortex_dtype::session::DTypeSession;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
 
@@ -362,7 +399,7 @@ mod tests {
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&mut session);

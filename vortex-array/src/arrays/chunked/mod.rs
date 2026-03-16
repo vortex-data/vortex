@@ -4,10 +4,11 @@
 mod array;
 pub use array::ChunkedArray;
 
-mod compute;
+pub(crate) mod compute;
+mod paired_chunks;
 
 mod vtable;
-pub use vtable::ChunkedVTable;
+pub use vtable::Chunked;
 
 #[cfg(test)]
 mod tests;

@@ -5,25 +5,40 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::build_views::BinaryView;
+use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::DecimalBuilder;
 use vortex_array::builders::ListViewBuilder;
 use vortex_array::builders::builder_with_capacity;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
+use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::NativeDecimalType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
+use vortex_array::match_each_decimal_value_type;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_native_ptype;
+use vortex_array::match_smallest_offset_type;
 use vortex_array::patches::Patches;
+use vortex_array::scalar::DecimalScalar;
+use vortex_array::scalar::ListScalar;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBuffer;
@@ -32,30 +47,18 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_buffer::buffer_mut;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
-use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::DecimalScalar;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
-use vortex_scalar::StructScalar;
 
+use crate::ConstantArray;
 use crate::SparseArray;
 
-pub(super) fn execute_sparse(array: &SparseArray) -> VortexResult<ArrayRef> {
+pub(super) fn execute_sparse(
+    array: &SparseArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     if array.patches().num_patches() == 0 {
         return Ok(ConstantArray::new(array.fill_scalar().clone(), array.len()).into_array());
     }
@@ -67,12 +70,12 @@ pub(super) fn execute_sparse(array: &SparseArray) -> VortexResult<ArrayRef> {
         }
         DType::Bool(..) => {
             let resolved_patches = array.resolved_patches()?;
-            execute_sparse_bools(&resolved_patches, array.fill_scalar())?
+            execute_sparse_bools(&resolved_patches, array.fill_scalar(), ctx)?
         }
         DType::Primitive(ptype, ..) => {
             let resolved_patches = array.resolved_patches()?;
             match_each_native_ptype!(ptype, |P| {
-                execute_sparse_primitives::<P>(&resolved_patches, array.fill_scalar())?
+                execute_sparse_primitives::<P>(&resolved_patches, array.fill_scalar(), ctx)?
             })
         }
         DType::Struct(struct_fields, ..) => execute_sparse_struct(
@@ -81,6 +84,7 @@ pub(super) fn execute_sparse(array: &SparseArray) -> VortexResult<ArrayRef> {
             array.dtype(),
             array.patches(),
             array.len(),
+            ctx,
         )?,
         DType::Decimal(decimal_dtype, nullability) => {
             let canonical_decimal_value_type =
@@ -93,23 +97,24 @@ pub(super) fn execute_sparse(array: &SparseArray) -> VortexResult<ArrayRef> {
                     fill_value,
                     array.patches(),
                     array.len(),
+                    ctx,
                 )?
             })
         }
         dtype @ DType::Utf8(..) => {
             let fill_value = array.fill_scalar().as_utf8().value().cloned();
             let fill_value = fill_value.map(BufferString::into_inner);
-            execute_varbin(array, dtype.clone(), fill_value)?
+            execute_varbin(array, dtype.clone(), fill_value, ctx)?
         }
         dtype @ DType::Binary(..) => {
             let fill_value = array.fill_scalar().as_binary().value().cloned();
-            execute_varbin(array, dtype.clone(), fill_value)?
+            execute_varbin(array, dtype.clone(), fill_value, ctx)?
         }
         DType::List(values_dtype, nullability) => {
-            execute_sparse_lists(array, values_dtype.clone(), *nullability)?
+            execute_sparse_lists(array, values_dtype.clone(), *nullability, ctx)?
         }
         DType::FixedSizeList(.., nullability) => {
-            execute_sparse_fixed_size_list(array, *nullability)?
+            execute_sparse_fixed_size_list(array, *nullability, ctx)?
         }
         DType::Extension(_ext_dtype) => todo!(),
     })
@@ -123,11 +128,18 @@ fn execute_sparse_lists(
     array: &SparseArray,
     values_dtype: Arc<DType>,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let resolved_patches = array.resolved_patches()?;
 
-    let indices = resolved_patches.indices().to_primitive();
-    let values = resolved_patches.values().to_listview();
+    let indices = resolved_patches
+        .indices()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let values = resolved_patches
+        .values()
+        .clone()
+        .execute::<ListViewArray>(ctx)?;
     let fill_value = array.fill_scalar().as_list();
 
     let n_filled = array.len() - resolved_patches.num_patches();
@@ -205,10 +217,17 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
 fn execute_sparse_fixed_size_list(
     array: &SparseArray,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let resolved_patches = array.resolved_patches()?;
-    let indices = resolved_patches.indices().to_primitive();
-    let values = resolved_patches.values().to_fixed_size_list();
+    let indices = resolved_patches
+        .indices()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let values = resolved_patches
+        .values()
+        .clone()
+        .execute::<FixedSizeListArray>(ctx)?;
     let fill_value = array.fill_scalar().as_list();
 
     let validity = Validity::from_mask(array.validity_mask()?, nullability);
@@ -316,7 +335,11 @@ fn append_n_lists(
     }
 }
 
-fn execute_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+fn execute_sparse_bools(
+    patches: &Patches,
+    fill_value: &Scalar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let (fill_bool, validity) = if fill_value.is_null() {
         (false, Validity::AllInvalid)
     } else {
@@ -334,12 +357,13 @@ fn execute_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexResult<
 
     let bools = BoolArray::new(BitBuffer::full(fill_bool, patches.array_len()), validity);
 
-    Ok(bools.patch(patches)?.into_array())
+    Ok(bools.patch(patches, ctx)?.into_array())
 }
 
 fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
     patches: &Patches,
     fill_value: &Scalar,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let (primitive_fill, validity) = if fill_value.is_null() {
         (T::default(), Validity::AllInvalid)
@@ -358,7 +382,7 @@ fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error 
 
     let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
-    Ok(parray.patch(patches)?.into_array())
+    Ok(parray.patch(patches, ctx)?.into_array())
 }
 
 fn execute_sparse_struct(
@@ -368,6 +392,7 @@ fn execute_sparse_struct(
     // Resolution is unnecessary b/c we're just pushing the patches into the fields.
     unresolved_patches: &Patches,
     len: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let (fill_values, top_level_fill_validity) = match fill_struct.fields_iter() {
         Some(fill_values) => (fill_values.collect::<Vec<_>>(), Validity::AllValid),
@@ -379,7 +404,10 @@ fn execute_sparse_struct(
             Validity::AllInvalid,
         ),
     };
-    let patch_values_as_struct = unresolved_patches.values().to_struct();
+    let patch_values_as_struct = unresolved_patches
+        .values()
+        .clone()
+        .execute::<StructArray>(ctx)?;
     let columns_patch_values = patch_values_as_struct.unmasked_fields();
     let names = patch_values_as_struct.names();
     let validity = if dtype.is_nullable() {
@@ -394,6 +422,7 @@ fn execute_sparse_struct(
                     .vortex_expect("validity_mask"),
                 Nullability::Nullable,
             ),
+            ctx,
         )?
     } else {
         top_level_fill_validity
@@ -428,6 +457,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
     fill_value: DecimalScalar,
     patches: &Patches,
     len: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let mut builder = DecimalBuilder::with_capacity::<D>(len, decimal_dtype, nullability);
     match fill_value.decimal_value() {
@@ -444,7 +474,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
         }
     }
     let filled_array = builder.finish_into_decimal();
-    let array = filled_array.patch(patches)?;
+    let array = filled_array.patch(patches, ctx)?;
     Ok(array.into_array())
 }
 
@@ -452,10 +482,11 @@ fn execute_varbin(
     array: &SparseArray,
     dtype: DType,
     fill_value: Option<ByteBuffer>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let patches = array.resolved_patches()?;
-    let indices = patches.indices().to_primitive();
-    let values = patches.values().to_varbinview();
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = patches.values().clone().execute::<VarBinViewArray>(ctx)?;
     let validity = Validity::from_mask(array.validity_mask()?, dtype.nullability());
     let len = array.len();
 
@@ -521,22 +552,22 @@ mod test {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_buffer::buffer_mut;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 
@@ -615,7 +646,7 @@ mod test {
             struct_fields.clone(),
             4,
             Validity::Array(
-                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).to_array(),
+                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).into_array(),
             ),
         )
         .unwrap()
@@ -659,7 +690,7 @@ mod test {
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let actual = sparse_struct.to_struct();
         assert_arrays_eq!(actual, expected);
@@ -685,7 +716,7 @@ mod test {
             struct_fields.clone(),
             4,
             Validity::Array(
-                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).to_array(),
+                BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).into_array(),
             ),
         )
         .unwrap()
@@ -726,7 +757,7 @@ mod test {
             Validity::from_mask(Mask::from_indices(10, vec![0, 1, 7]), Nullable),
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let actual = sparse_struct.to_struct();
         assert_arrays_eq!(actual, expected);
@@ -741,7 +772,7 @@ mod test {
             decimal_dtype,
             Validity::from_iter([true, true, true, false]),
         )
-        .to_array();
+        .into_array();
         let len = 10;
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
         let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
@@ -752,13 +783,13 @@ mod test {
             // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
-        .to_array()
+        .into_array()
         .into_arrow_preferred()
         .unwrap();
 
         let actual = sparse_struct
             .to_decimal()
-            .to_array()
+            .into_array()
             .into_arrow_preferred()
             .unwrap();
 

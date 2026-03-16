@@ -15,18 +15,19 @@ use async_trait::async_trait;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::FilterArrayParts;
-use vortex_array::arrays::FilterVTable;
-use vortex_array::buffer::BufferHandle;
+use tracing::instrument;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::Filter;
+use vortex::array::arrays::filter::FilterArrayParts;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::match_each_decimal_value_type;
+use vortex::array::match_each_native_simd_ptype;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::mask::Mask;
 use vortex_cub::filter::CubFilterable;
 use vortex_cub::filter::cudaStream_t;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_simd_ptype;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
@@ -42,13 +43,14 @@ pub struct FilterExecutor;
 
 #[async_trait]
 impl CudaExecute for FilterExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let filter_array = array
-            .try_into::<FilterVTable>()
+            .try_into::<Filter>()
             .map_err(|_| vortex_err!("Expected FilterArray"))?;
 
         let FilterArrayParts { child, mask } = filter_array.into_parts();
@@ -91,12 +93,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
-    // Return  a buffer handle back once this has completed.
-    let d_input = if input.is_on_device() {
-        input
-    } else {
-        ctx.move_to_device(input)?.await?
-    };
+    let d_input = ctx.ensure_on_device(input).await?;
 
     // Construct the inputs for the cub::DeviceSelect::Flagged call.
     let output_len = mask.true_count();
@@ -124,7 +121,8 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         .as_any()
         .downcast_ref::<CudaDeviceBuffer>()
         .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for input, was {d_input:?}",))?;
-    let d_input_ptr = d_input_cuda.as_view::<T>().device_ptr(stream).0 as *const T;
+    let d_input_view = d_input_cuda.as_view::<T>();
+    let (d_input_ptr, record_d_input) = d_input_view.device_ptr(stream);
 
     // Downcast to get device pointer.
     let d_packed_cuda = d_flags
@@ -132,27 +130,35 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         .as_any()
         .downcast_ref::<CudaDeviceBuffer>()
         .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for packed flags"))?;
-    let d_packed_ptr = d_packed_cuda.as_view::<u8>().device_ptr(stream).0 as *const u8;
+    let d_packed_view = d_packed_cuda.as_view::<u8>();
+    let (d_packed_ptr, record_d_packed) = d_packed_view.device_ptr(stream);
 
-    let d_temp_ptr = d_temp.device_ptr(stream).0 as *mut c_void;
-    let d_output_ptr = d_output.device_ptr_mut(stream).0 as *mut T;
-    let d_num_selected_ptr = d_num_selected.device_ptr_mut(stream).0 as *mut i64;
+    let (d_temp_ptr, record_d_temp) = d_temp.device_ptr(stream);
+    let (d_output_ptr, record_d_output) = d_output.device_ptr_mut(stream);
+    let (d_num_selected_ptr, record_d_num_selected) = d_num_selected.device_ptr_mut(stream);
 
     // CUB uses TransformInputIterator internally to read bits on-the-fly.
-    unsafe {
+    ctx.launch_external(output_len, || unsafe {
         T::filter_bitmask(
-            d_temp_ptr,
+            d_temp_ptr as *mut c_void,
             temp_bytes,
-            d_input_ptr,
-            d_packed_ptr,
+            d_input_ptr as *const T,
+            d_packed_ptr as *const u8,
             offset,
-            d_output_ptr,
-            d_num_selected_ptr,
+            d_output_ptr as *mut T,
+            d_num_selected_ptr as *mut i64,
             len,
             stream_ptr,
         )
-        .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))?;
-    }
+        .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))
+    })?;
+    drop((
+        record_d_input,
+        record_d_packed,
+        record_d_temp,
+        record_d_output,
+        record_d_num_selected,
+    ));
 
     // Wrap the device buffer of outputs back up into a BufferHandle.
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(

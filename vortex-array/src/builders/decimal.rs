@@ -4,24 +4,13 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::BigCast;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::Nullability;
-use vortex_dtype::i256;
-use vortex_dtype::match_each_decimal_value;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -30,6 +19,16 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
+use crate::dtype::BigCast;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::NativeDecimalType;
+use crate::dtype::Nullability;
+use crate::dtype::i256;
+use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`DecimalArray`].
 ///
@@ -121,6 +120,12 @@ impl DecimalBuilder {
         self.nulls.append_non_null();
     }
 
+    /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
+    pub fn append_n_values<V: NativeDecimalType>(&mut self, value: V, n: usize) {
+        self.values.push_n(value, n);
+        self.nulls.append_n_non_nulls(n);
+    }
+
     /// Finishes the builder directly into a [`DecimalArray`].
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
@@ -187,7 +192,7 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let decimal_array = array.to_decimal();
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
@@ -295,12 +300,11 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DecimalDType;
-
-    use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
+    use crate::builders::decimal::DecimalArray;
+    use crate::dtype::DecimalDType;
 
     #[test]
     fn test_mixed_extend() {
@@ -323,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_scalar::Scalar;
+        use crate::scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.
         let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());

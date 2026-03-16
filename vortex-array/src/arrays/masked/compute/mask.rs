@@ -2,28 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask as MaskType;
 
 use crate::ArrayRef;
-use crate::IntoArray;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskKernel for MaskedVTable {
-    fn mask(&self, array: &MaskedArray, mask_arg: &MaskType) -> VortexResult<ArrayRef> {
-        // Combine the mask with the existing validity
-        // The child remains unchanged (no nulls), only validity is updated
-        let combined_validity = array.validity().mask(mask_arg);
-
-        Ok(MaskedArray::try_new(array.child.clone(), combined_validity)?.into_array())
+impl MaskReduce for Masked {
+    fn mask(array: &MaskedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        // AND the existing validity mask with the new mask and push into child.
+        let combined_mask = array
+            .validity()
+            .clone()
+            .and(Validity::Array(mask.clone()))?
+            .to_array(array.len());
+        let masked_child = MaskExpr.try_new_array(
+            array.child.len(),
+            EmptyOptions,
+            [array.child.clone(), combined_mask],
+        )?;
+        Ok(Some(masked_child))
     }
 }
-
-register_kernel!(MaskKernelAdapter(MaskedVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -55,6 +60,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_mask_masked_conformance(#[case] array: MaskedArray) {
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.into_array());
     }
 }

@@ -6,12 +6,12 @@ pub mod writer;
 
 use std::sync::Arc;
 
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -28,7 +28,7 @@ use crate::vtable;
 
 vtable!(Chunked);
 
-impl VTable for ChunkedVTable {
+impl VTable for Chunked {
     type Layout = ChunkedLayout;
     type Encoding = ChunkedLayoutEncoding;
     type Metadata = EmptyMetadata;
@@ -90,7 +90,7 @@ impl VTable for ChunkedVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContext,
+        _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         Ok(ChunkedLayout::new(
             row_count,
@@ -118,6 +118,10 @@ impl VTable for ChunkedVTable {
 #[derive(Debug)]
 pub struct ChunkedLayoutEncoding;
 
+/// Partitions a column into row-based chunks so that each chunk can be read independently.
+///
+/// Used to break large columns into smaller pieces for parallel I/O and to limit memory
+/// usage when scanning.
 #[derive(Clone, Debug)]
 pub struct ChunkedLayout {
     row_count: u64,

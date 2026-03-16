@@ -8,16 +8,18 @@ use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
+use crate::DynArray;
+use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::VTable;
@@ -32,7 +34,7 @@ pub type ArrayId = ArcRef<str>;
 /// this object-safe form.
 ///
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
-/// [`Array`] trait API to a minimum.
+/// [`DynArray`] trait API to a minimum.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     #[allow(clippy::too_many_arguments)]
     fn build(
@@ -45,7 +47,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
+    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -59,7 +61,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 
     /// See [`VTable::execute`]
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
 
     /// See [`VTable::execute_parent`]
     fn execute_parent(
@@ -86,17 +88,17 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let metadata = V::deserialize(metadata, dtype, len, session)?;
+        let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
-        Ok(array.to_array())
+        Ok(array.into_array())
     }
 
-    fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         let mut array = array.as_::<V>().clone();
         V::with_children(&mut array, children)?;
-        Ok(array.to_array())
+        Ok(array.into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -144,29 +146,31 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(Some(reduced))
     }
 
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let result = V::execute(downcast::<V>(array), ctx)?;
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        let step = V::execute(downcast::<V>(array), ctx)?;
 
-        if cfg!(debug_assertions) {
-            vortex_ensure!(
-                result.as_ref().len() == array.len(),
-                "Result length mismatch for {:?}",
-                self
-            );
-            vortex_ensure!(
-                result.as_ref().dtype() == array.dtype(),
-                "Executed canonical dtype mismatch for {:?}",
-                self
-            );
+        if let ExecutionStep::Done(ref result) = step {
+            if cfg!(debug_assertions) {
+                vortex_ensure!(
+                    result.as_ref().len() == array.len(),
+                    "Result length mismatch for {:?}",
+                    self
+                );
+                vortex_ensure!(
+                    result.as_ref().dtype() == array.dtype(),
+                    "Executed canonical dtype mismatch for {:?}",
+                    self
+                );
+            }
+
+            // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
+            result
+                .as_ref()
+                .statistics()
+                .inherit_from(array.statistics());
         }
 
-        // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
-        result
-            .as_ref()
-            .statistics()
-            .inherit_from(array.statistics());
-
-        Ok(result)
+        Ok(step)
     }
 
     fn execute_parent(

@@ -5,7 +5,7 @@
 use std::ptr;
 use std::sync::Arc;
 
-use vortex::array::Array;
+use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
@@ -28,7 +28,7 @@ arc_dyn_wrapper!(
     /// auto primitive_array = vx_array_primitive_new(...);
     /// vx_array_len((*vx_array) primitive_array));
     /// ```
-    dyn Array,
+    dyn DynArray,
     vx_array
 );
 
@@ -125,7 +125,7 @@ macro_rules! ffiarray_get_ptype {
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
-                    .storage()
+                    .to_storage_scalar()
                     .as_primitive()
                     .as_::<$ptype>()
                     .vortex_expect("null value")

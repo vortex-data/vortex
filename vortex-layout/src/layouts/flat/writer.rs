@@ -3,27 +3,34 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::Array;
 use vortex_array::ArrayContext;
+use vortex_array::DynArray;
+use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::normalize::NormalizeOptions;
 use vortex_array::normalize::Operation;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarTruncation;
+use vortex_array::scalar::lower_bound;
+use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArrayRegistry;
-use vortex_dtype::DType;
+use vortex_array::stats::StatsSetRef;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
+use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::flat_layout_inline_array_node;
-use crate::layouts::zoned::lower_bound;
-use crate::layouts::zoned::upper_bound;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -69,6 +76,22 @@ impl FlatLayoutStrategy {
     }
 }
 
+fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
+    statistics: StatsSetRef<'_>,
+    stat: Stat,
+    truncation: F,
+) {
+    if let Some(sv) = statistics.get(stat) {
+        if let Some((truncated_value, truncated)) = truncation(sv.into_inner()) {
+            if truncated && let Some(v) = truncated_value.into_value() {
+                statistics.set(stat, Precision::Inexact(v));
+            }
+        } else {
+            statistics.clear(stat)
+        }
+    }
+}
+
 #[async_trait]
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
@@ -80,7 +103,6 @@ impl LayoutStrategy for FlatLayoutStrategy {
         _handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
-        let options = self.clone();
         let Some(chunk) = stream.next().await else {
             vortex_bail!("flat layout needs a single chunk");
         };
@@ -89,60 +111,46 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let row_count = chunk.len() as u64;
 
         match chunk.dtype() {
-            DType::Utf8(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound(
-                        sv.into_inner().as_utf8(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if truncated && let Some(v) = value.into_value() {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
-                    }
-                }
-
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound(
-                        sv.into_inner().as_utf8(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if let Some(upper_bound) = value {
-                        if truncated && let Some(v) = upper_bound.into_value() {
-                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
-                        }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
-                    }
-                }
+            DType::Utf8(n) => {
+                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                    lower_bound(
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
+                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                    upper_bound(
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
             }
-            DType::Binary(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound(
-                        sv.into_inner().as_binary(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if truncated && let Some(v) = value.into_value() {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
-                    }
-                }
-
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound(
-                        sv.into_inner().as_binary(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if let Some(upper_bound) = value {
-                        if truncated && let Some(v) = upper_bound.into_value() {
-                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
-                        }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
-                    }
-                }
+            DType::Binary(n) => {
+                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                    lower_bound(
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
+                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                    upper_bound(
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
             }
             _ => {}
         }
 
-        let chunk = if let Some(allowed) = &options.allowed_encodings {
+        let chunk = if let Some(allowed) = &self.allowed_encodings {
             chunk.normalize(&mut NormalizeOptions {
                 allowed,
                 operation: Operation::Error,
@@ -155,7 +163,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
             &ctx,
             &SerializeOptions {
                 offset: 0,
-                include_padding: options.include_padding,
+                include_padding: self.include_padding,
             },
         )?;
         // there is at least the flatbuffer and the length
@@ -171,7 +179,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
             row_count,
             stream.dtype().clone(),
             segment_id,
-            ctx.clone(),
+            ReadContext::new(ctx.to_ids()),
             array_node,
         )
         .into_layout())
@@ -187,20 +195,24 @@ impl LayoutStrategy for FlatLayoutStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::Array;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::PrimitiveVTable;
     use vortex_array::arrays::StructArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
@@ -209,10 +221,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -418,7 +426,7 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let allowed = ArrayRegistry::default();
-                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
+                allowed.register(Primitive::ID, Primitive);
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(
@@ -459,8 +467,8 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let allowed = ArrayRegistry::default();
-                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
-                allowed.register(DictVTable::ID, DictVTable);
+                allowed.register(Primitive::ID, Primitive);
+                allowed.register(Dict::ID, Dict);
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(

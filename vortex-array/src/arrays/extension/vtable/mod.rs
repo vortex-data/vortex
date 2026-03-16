@@ -1,28 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-mod array;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
+
+use std::hash::Hash;
 
 use kernel::PARENT_KERNELS;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::arrays::extension::ExtensionArray;
+use crate::ExecutionStep;
+use crate::IntoArray;
+use crate::Precision;
+use crate::arrays::ExtensionArray;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
@@ -30,18 +36,73 @@ use crate::vtable::ValidityVTableFromChild;
 
 vtable!(Extension);
 
-impl VTable for ExtensionVTable {
+impl VTable for Extension {
     type Array = ExtensionArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ExtensionArray) -> usize {
+        array.storage_array.len()
+    }
+
+    fn dtype(array: &ExtensionArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ExtensionArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ExtensionArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.storage_array.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array
+                .storage_array
+                .array_eq(&other.storage_array, precision)
+    }
+
+    fn nbuffers(_array: &ExtensionArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ExtensionArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ExtensionArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ExtensionArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &ExtensionArray) -> usize {
+        1
+    }
+
+    fn child(array: &ExtensionArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.storage_array.clone(),
+            _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &ExtensionArray, idx: usize) -> String {
+        match idx {
+            0 => "storage".to_string(),
+            _ => vortex_panic!("ExtensionArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
@@ -56,6 +117,7 @@ impl VTable for ExtensionVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
@@ -84,15 +146,15 @@ impl VTable for ExtensionVTable {
             "ExtensionArray expects exactly 1 child (storage), got {}",
             children.len()
         );
-        array.storage = children
+        array.storage_array = children
             .into_iter()
             .next()
             .vortex_expect("children length already validated");
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(
@@ -114,8 +176,8 @@ impl VTable for ExtensionVTable {
 }
 
 #[derive(Debug)]
-pub struct ExtensionVTable;
+pub struct Extension;
 
-impl ExtensionVTable {
+impl Extension {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
 }

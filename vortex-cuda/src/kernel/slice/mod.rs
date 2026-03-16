@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::SliceArrayParts;
-use vortex_array::arrays::SliceVTable;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use tracing::instrument;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::DynArray;
+use vortex::array::arrays::Slice;
+use vortex::array::arrays::slice::SliceArrayParts;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
@@ -19,12 +20,13 @@ pub struct SliceExecutor;
 
 #[async_trait]
 impl CudaExecute for SliceExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let slice_array = array.try_into::<SliceVTable>().map_err(|array| {
+        let slice_array = array.try_into::<Slice>().map_err(|array| {
             vortex_err!(
                 "SliceExecutor requires input of SliceArray, was {}",
                 array.encoding_id()

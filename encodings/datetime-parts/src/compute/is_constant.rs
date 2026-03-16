@@ -8,30 +8,30 @@ use vortex_array::compute::is_constant_opts;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-impl IsConstantKernel for DateTimePartsVTable {
+impl IsConstantKernel for DateTimeParts {
     fn is_constant(
         &self,
         array: &DateTimePartsArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        let Some(days) = is_constant_opts(array.days().as_ref(), opts)? else {
+        let Some(days) = is_constant_opts(array.days(), opts)? else {
             return Ok(None);
         };
         if !days {
             return Ok(Some(false));
         }
 
-        let Some(seconds) = is_constant_opts(array.seconds().as_ref(), opts)? else {
+        let Some(seconds) = is_constant_opts(array.seconds(), opts)? else {
             return Ok(None);
         };
         if !seconds {
             return Ok(Some(false));
         }
 
-        let Some(subseconds) = is_constant_opts(array.subseconds().as_ref(), opts)? else {
+        let Some(subseconds) = is_constant_opts(array.subseconds(), opts)? else {
             return Ok(None);
         };
         if !subseconds {
@@ -42,4 +42,4 @@ impl IsConstantKernel for DateTimePartsVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DateTimePartsVTable).lift());
+register_kernel!(IsConstantKernelAdapter(DateTimeParts).lift());

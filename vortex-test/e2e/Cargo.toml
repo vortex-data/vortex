@@ -15,11 +15,10 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+unstable_encodings = ["vortex/unstable_encodings"]
+
 [dependencies]
 futures = { workspace = true }
-rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex = { workspace = true, features = ["files", "tokio"] }
-vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-error = { workspace = true }
-vortex-file = { workspace = true }

@@ -7,9 +7,9 @@ use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
@@ -81,9 +81,9 @@ mod test {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::ConstantArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::filter::execute::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
@@ -96,7 +96,7 @@ mod test {
         let sizes = buffer![2u32, 2, 2].into_array();
         let array =
             ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -107,7 +107,7 @@ mod test {
         let sizes = buffer![2u32, 2, 2].into_array();
         let validity = Validity::from_iter([true, false, true]);
         let array = ListViewArray::new(elements.into_array(), offsets, sizes, validity);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod test {
             ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
                 .with_zero_copy_to_list(true)
         };
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -131,7 +131,7 @@ mod test {
         let offsets = buffer![5u32, 2, 8, 0, 1].into_array();
         let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
         let array = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -141,7 +141,7 @@ mod test {
         let offsets = buffer![0u32, 100, 200, 300, 400, 500, 600, 700, 800, 900].into_array();
         let sizes = buffer![50u32, 50, 50, 50, 50, 50, 50, 50, 50, 50].into_array();
         let array = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -182,8 +182,8 @@ mod test {
         let offsets = buffer![5u32, 2, 8, 0, 1].into_array();
         let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
 
-        let listview =
-            ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        let listview = ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable)
+            .into_array();
 
         // Filter to keep only 2 lists.
         let mask = Mask::from_iter([true, false, false, true, false]);
@@ -214,8 +214,8 @@ mod test {
         let offsets = buffer![0u32, 6, 10, 1, 7].into_array();
         let sizes = buffer![3u32, 3, 2, 2, 2].into_array();
 
-        let listview =
-            ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        let listview = ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable)
+            .into_array();
 
         // Filter to keep lists with gaps and overlaps.
         let mask = Mask::from_iter([false, true, true, true, false]);
@@ -259,7 +259,7 @@ mod test {
             varying_sizes,
             Validity::NonNullable,
         )
-        .to_array();
+        .into_array();
 
         let mask1 = Mask::from_iter([true, false, true, false]);
         let result1 = const_offset_list.filter(mask1).unwrap();
@@ -282,7 +282,7 @@ mod test {
             both_constant_sizes,
             Validity::NonNullable,
         )
-        .to_array();
+        .into_array();
 
         let mask2 = Mask::from_iter([true, false, true]);
         let result2 = both_const_list.filter(mask2).unwrap();
@@ -306,8 +306,8 @@ mod test {
         let offsets = buffer![0u32, 4999, 9995, 2500, 7500].into_array();
         let sizes = buffer![5u32, 2, 5, 3, 4].into_array();
 
-        let listview =
-            ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        let listview = ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable)
+            .into_array();
 
         // Filter to keep only 2 lists, demonstrating we keep all 10000 elements.
         let mask = Mask::from_iter([false, true, false, false, true]);

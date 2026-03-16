@@ -6,14 +6,14 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::SliceKernel;
+use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
+use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl SliceKernel for SparseVTable {
+impl SliceKernel for Sparse {
     fn slice(
         array: &SparseArray,
         range: Range<usize>,

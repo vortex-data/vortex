@@ -5,38 +5,38 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::buffer::BufferHandle;
-use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_sequence::SequenceArrayParts;
-use vortex_sequence::SequenceVTable;
+use cudarc::driver::PushKernelArg;
+use tracing::instrument;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::match_each_native_ptype;
+use vortex::dtype::NativePType;
+use vortex::dtype::Nullability;
+use vortex::encodings::sequence::Sequence;
+use vortex::encodings::sequence::SequenceArrayParts;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::executor::CudaExecute;
-use crate::launch_cuda_kernel;
 
 /// CUDA execution for `SequenceArray`.
 #[derive(Debug)]
-pub struct SequenceExecutor;
+pub(crate) struct SequenceExecutor;
 
 #[async_trait]
 impl CudaExecute for SequenceExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let array = array
-            .try_into::<SequenceVTable>()
+            .try_into::<Sequence>()
             .map_err(|_| vortex_err!("SequenceExecutor can only accept SequenceArray"))?;
 
         let SequenceArrayParts {
@@ -48,9 +48,8 @@ impl CudaExecute for SequenceExecutor {
         } = array.into_parts();
 
         match_each_native_ptype!(ptype, |P| {
-            let base = base.cast::<P>();
-            let multiplier = multiplier.cast::<P>();
-
+            let base = base.cast::<P>()?;
+            let multiplier = multiplier.cast::<P>()?;
             execute_typed::<P>(base, multiplier, len, nullability, ctx).await
         })
     }
@@ -67,14 +66,11 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
 
     let len_u64 = len as u64;
 
-    let _events = launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "sequence",
-        ptypes: &[T::PTYPE],
-        launch_args: [buffer, base, multiplier, len_u64],
-        event_recording: CU_EVENT_DISABLE_TIMING,
-        array_len: len
-    );
+    let kernel_func = ctx.load_function("sequence", &[T::PTYPE])?;
+
+    ctx.launch_kernel(&kernel_func, len, |args| {
+        args.arg(&buffer).arg(&base).arg(&multiplier).arg(&len_u64);
+    })?;
 
     let output_buf = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer)));
 
@@ -85,17 +81,17 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use futures::executor::block_on;
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_dtype::NativePType;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::PValue;
-    use vortex_sequence::SequenceArray;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::dtype::NativePType;
+    use vortex::dtype::Nullability;
+    use vortex::encodings::sequence::SequenceArray;
+    use vortex::scalar::PValue;
+    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
@@ -107,6 +103,7 @@ mod tests {
     #[case::u16(10u16, 2u16, 100)]
     #[case::u32(10u32, 2u32, 1000)]
     #[case::u64(100u64, 20u64, 500)]
+    #[crate::test]
     fn test_sequence<T: NativePType + Into<PValue>>(
         #[case] base: T,
         #[case] multiplier: T,
@@ -129,7 +126,7 @@ mod tests {
     ) {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
 
-        let array = SequenceArray::typed_new(base, multiplier, nullability, len).unwrap();
+        let array = SequenceArray::try_new_typed(base, multiplier, nullability, len).unwrap();
 
         let cpu_result = array.to_canonical().unwrap().into_array();
 

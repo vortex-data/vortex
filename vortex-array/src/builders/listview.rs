@@ -12,33 +12,33 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
 use crate::Canonical;
 use crate::ToCanonical;
-use crate::array::Array;
 use crate::array::ArrayRef;
+use crate::array::DynArray;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::UninitRange;
 use crate::builders::builder_with_capacity;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
-use crate::compute;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::match_each_integer_ptype;
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 
 /// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
 /// the `offsets` and the `sizes` builders.
@@ -116,7 +116,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -290,7 +290,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let listview = array.to_listview();
         if listview.is_empty() {
             return;
@@ -337,10 +337,14 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.offsets_builder.reserve_exact(extend_length);
 
         // The incoming sizes might have a different type than the builder, so we need to cast.
-        let cast_sizes = compute::cast(listview.sizes(), self.sizes_builder.dtype()).vortex_expect(
-            "was somehow unable to cast the new sizes to the type of the builder sizes",
-        );
-        self.sizes_builder.extend_from_array(cast_sizes.as_ref());
+        let cast_sizes = listview
+            .sizes()
+            .to_array()
+            .cast(self.sizes_builder.dtype().clone())
+            .vortex_expect(
+                "was somehow unable to cast the new sizes to the type of the builder sizes",
+            );
+        self.sizes_builder.extend_from_array(&cast_sizes);
 
         // Now we need to adjust all of the offsets by adding the current number of elements in the
         // builder.
@@ -425,19 +429,18 @@ fn adjust_and_extend_offsets<'a, O: IntegerPType, A: IntegerPType>(
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
-
     use super::ListViewBuilder;
     use crate::IntoArray;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ListArray;
-    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::listview::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType::I32;
+    use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 
     #[test]

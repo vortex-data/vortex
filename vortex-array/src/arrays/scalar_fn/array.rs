@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::expr::ScalarFn;
+use crate::DynArray;
+use crate::dtype::DType;
+use crate::scalar_fn::ScalarFnRef;
 use crate::stats::ArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {
-    pub(super) scalar_fn: ScalarFn,
+    pub(super) scalar_fn: ScalarFnRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) children: Vec<ArrayRef>,
@@ -21,7 +21,7 @@ pub struct ScalarFnArray {
 
 impl ScalarFnArray {
     /// Create a new ScalarFnArray from a scalar function and its children.
-    pub fn try_new(bound: ScalarFn, children: Vec<ArrayRef>, len: usize) -> VortexResult<Self> {
+    pub fn try_new(bound: ScalarFnRef, children: Vec<ArrayRef>, len: usize) -> VortexResult<Self> {
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = bound.return_dtype(&arg_dtypes)?;
 
@@ -40,7 +40,8 @@ impl ScalarFnArray {
     }
 
     /// Get the scalar function bound to this array.
-    pub fn scalar_fn(&self) -> &ScalarFn {
+    #[allow(clippy::same_name_method)]
+    pub fn scalar_fn(&self) -> &ScalarFnRef {
         &self.scalar_fn
     }
 

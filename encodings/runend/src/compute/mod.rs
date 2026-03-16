@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod binary_numeric;
 mod cast;
 mod compare;
 mod fill_null;
 pub(crate) mod filter;
-mod invert;
 mod is_constant;
 mod is_sorted;
 mod min_max;
@@ -47,6 +45,6 @@ mod tests {
     ).unwrap())]
 
     fn test_runend_consistency(#[case] array: RunEndArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

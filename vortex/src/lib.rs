@@ -5,13 +5,16 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 // vortex::compute is deprecated and will be ported over to expressions.
+pub use vortex_array::aggregate_fn;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 pub use vortex_array::compute;
+use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
-use vortex_array::expr::session::ExprSession;
+pub use vortex_array::scalar_fn;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
-use vortex_dtype::session::DTypeSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -20,26 +23,34 @@ use vortex_session::VortexSession;
 
 pub mod array {
     pub use vortex_array::*;
+
+    // TODO(connor): We should probably manually pull up everything we need besides these 3 modules.
+    // Note that there `vortex::dtype`, `vortex::extension`, and `vortex::scalar` are all exported
+    // twice.
 }
 
 pub mod buffer {
     pub use vortex_buffer::*;
 }
 
-pub mod compute2 {
-    pub use vortex_compute::*;
-}
-
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
+    pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    pub use vortex_btrblocks::FloatCode;
+    pub use vortex_btrblocks::IntCode;
+    pub use vortex_btrblocks::StringCode;
 }
 
 pub mod dtype {
-    pub use vortex_dtype::*;
+    pub use vortex_array::dtype::*;
 }
 
 pub mod error {
     pub use vortex_error::*;
+}
+
+pub mod extension {
+    pub use vortex_array::extension::*;
 }
 
 #[cfg(feature = "files")]
@@ -76,7 +87,7 @@ pub mod proto {
 }
 
 pub mod scalar {
-    pub use vortex_scalar::*;
+    pub use vortex_array::scalar::*;
 }
 
 pub mod scan {
@@ -155,17 +166,9 @@ impl VortexSessionDefault for VortexSession {
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
+            .with::<AggregateFnSession>()
             .with::<RuntimeSession>();
-
-        #[cfg(all(feature = "cuda", target_os = "linux"))]
-        // Even if the CUDA feature is enabled we need to check at
-        // runtime whether CUDA is available in the current environment.
-        if vortex_cuda::cuda_available() {
-            use vortex_cuda::CudaSessionExt;
-            session = session.with::<vortex_cuda::CudaSession>();
-            vortex_cuda::initialize_cuda(&session.cuda_session());
-        }
 
         #[cfg(feature = "files")]
         file::register_default_encodings(&mut session);
@@ -183,9 +186,11 @@ mod test {
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
@@ -194,7 +199,6 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
@@ -211,7 +215,7 @@ mod test {
 
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        use vortex::array::Array;
+        use vortex::array::DynArray;
         use vortex::array::arrays::ChunkedArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
@@ -245,7 +249,7 @@ mod test {
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
-        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
+        let compressed = BtrBlocksCompressor::default().compress(&array.clone().into_array())?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
@@ -329,8 +333,15 @@ mod test {
             .await?;
 
         assert_eq!(recovered_array.len(), array.len());
-        let recovered_primitive = recovered_array.to_primitive();
-        assert_eq!(recovered_primitive.validity(), array.validity());
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
+        assert!(
+            recovered_primitive
+                .validity()
+                .mask_eq(array.validity(), &mut ctx)?
+        );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),
             array.to_buffer::<u64>()

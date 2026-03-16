@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -12,7 +11,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
-use crate::expr::ExecutionArgs;
+use crate::scalar::Scalar;
+use crate::scalar_fn::VecExecutionArgs;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -24,12 +24,8 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .collect::<VortexResult<_>>()?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let args = ExecutionArgs {
-            inputs,
-            row_count: 1,
-            ctx: &mut ctx,
-        };
-        let result = array.scalar_fn.execute(args)?;
+        let args = VecExecutionArgs::new(inputs, 1);
+        let result = array.scalar_fn.execute(&args, &mut ctx)?;
 
         let scalar = match result.execute::<Columnar>(&mut ctx)? {
             Columnar::Canonical(arr) => {
@@ -65,9 +61,9 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::array::ScalarFnArray;
     use crate::assert_arrays_eq;
-    use crate::expr::Operator;
-    use crate::expr::ScalarFn;
-    use crate::expr::binary::Binary;
+    use crate::scalar_fn::ScalarFn;
+    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
 
     #[test]
@@ -75,7 +71,7 @@ mod tests {
         let lhs = buffer![1i32, 2, 3].into_array();
         let rhs = buffer![10i32, 20, 30].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn = ScalarFn::new(Binary, Operator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();
@@ -90,7 +86,7 @@ mod tests {
         let lhs = buffer![2i32, 3, 4].into_array();
         let rhs = buffer![5i32, 6, 7].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Mul);
+        let scalar_fn = ScalarFn::new(Binary, Operator::Mul).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();
@@ -109,7 +105,7 @@ mod tests {
         )
         .into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn = ScalarFn::new(Binary, Operator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();
@@ -128,7 +124,7 @@ mod tests {
         let lhs = buffer![1i32, 5, 3].into_array();
         let rhs = buffer![2i32, 5, 1].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Eq);
+        let scalar_fn = ScalarFn::new(Binary, Operator::Eq).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();

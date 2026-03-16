@@ -31,61 +31,58 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
+async-lock = { workspace = true }
+bytes = { workspace = true }
 cfg-if = { workspace = true }
+cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
+half = { workspace = true, features = ["num-traits"] }
 humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
+jiff = { workspace = true }
 multiversion = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project-lite = { workspace = true }
+primitive-types = { workspace = true, optional = true, features = [
+    "arbitrary",
+] }
 prost = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
-serde = { workspace = true, optional = true, features = ["derive"] }
+serde = { workspace = true, optional = true, features = ["derive", "rc"] }
 simdutf8 = { workspace = true }
+static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
 ] }
 termtree = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
-vortex-compute = { workspace = true, default-features = true }
-vortex-dtype = { workspace = true, features = ["serde"] }
-vortex-error = { workspace = true }
-vortex-flatbuffers = { workspace = true, features = ["array"] }
+vortex-error = { workspace = true, features = ["flatbuffers"] }
+vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
 vortex-mask = { workspace = true }
-vortex-proto = { workspace = true, features = ["expr"] }
-vortex-scalar = { workspace = true }
+vortex-proto = { workspace = true, features = ["dtype", "expr", "scalar"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dyn-traits"] }
-vortex-vector = { workspace = true }
 
 [features]
-arbitrary = [
-    "dep:arbitrary",
-    "vortex-dtype/arbitrary",
-    "vortex-scalar/arbitrary",
-]
+arbitrary = ["dep:arbitrary", "dep:primitive-types"]
 canonical_counter = []
+cudarc = ["dep:cudarc"]
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
-serde = [
-    "dep:serde",
-    "vortex-buffer/serde",
-    "vortex-dtype/serde",
-    "vortex-error/serde",
-    "vortex-mask/serde",
-]
+serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }
@@ -94,6 +91,8 @@ futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
+serde_json = { workspace = true }
+serde_test = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]
@@ -127,6 +126,11 @@ harness = false
 [[bench]]
 name = "expr_large_struct_pack"
 path = "benches/expr/large_struct_pack.rs"
+harness = false
+
+[[bench]]
+name = "expr_case_when"
+path = "benches/expr/case_when_bench.rs"
 harness = false
 
 [[bench]]
@@ -166,6 +170,10 @@ harness = false
 
 [[bench]]
 name = "take_fsl"
+harness = false
+
+[[bench]]
+name = "listview_rebuild"
 harness = false
 
 [package.metadata.cargo-machete]

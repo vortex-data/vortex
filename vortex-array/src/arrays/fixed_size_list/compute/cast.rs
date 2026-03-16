@@ -1,29 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::compute::cast;
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
 /// Cast implementation for [`FixedSizeListArray`].
 ///
 /// Recursively casts the inner elements array to the target element type while preserving the list
 /// structure.
-impl CastKernel for FixedSizeListVTable {
-    fn cast(&self, array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for FixedSizeList {
+    fn cast(array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_fixed_size_list_element_opt() else {
             return Ok(None);
         };
 
-        let elements = cast(array.elements(), target_element_type)?;
+        let elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()
             .clone()
@@ -40,9 +39,7 @@ impl CastKernel for FixedSizeListVTable {
                     array.len(),
                 )
             }
-            .to_array(),
+            .into_array(),
         ))
     }
 }
-
-register_kernel!(CastKernelAdapter(FixedSizeListVTable).lift());

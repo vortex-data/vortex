@@ -6,22 +6,22 @@ mod compare;
 mod is_constant;
 mod is_sorted;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterReduce;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::filter::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
-impl TakeExecute for FoRVTable {
+impl TakeExecute for FoR {
     fn take(
         array: &FoRArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
@@ -34,7 +34,7 @@ impl TakeExecute for FoRVTable {
     }
 }
 
-impl FilterReduce for FoRVTable {
+impl FilterReduce for FoR {
     fn filter(array: &FoRArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         FoRArray::try_new(
             array.encoded().filter(mask.clone())?,
@@ -50,8 +50,8 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
 
     use crate::FoRArray;
 
@@ -61,20 +61,20 @@ mod test {
         let values = buffer![100i32, 101, 102, 103, 104].into_array();
         let reference = Scalar::from(100i32);
         let for_array = FoRArray::try_new(values, reference).unwrap();
-        test_filter_conformance(for_array.as_ref());
+        test_filter_conformance(&for_array.into_array());
 
         // Test with u64 values
         let values = buffer![1000u64, 1001, 1002, 1003, 1004].into_array();
         let reference = Scalar::from(1000u64);
         let for_array = FoRArray::try_new(values, reference).unwrap();
-        test_filter_conformance(for_array.as_ref());
+        test_filter_conformance(&for_array.into_array());
 
         // Test with nullable values
         let values =
             PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]);
         let reference = Scalar::from(50i16);
         let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
-        test_filter_conformance(for_array.as_ref());
+        test_filter_conformance(&for_array.into_array());
     }
 
     #[rstest]
@@ -88,7 +88,7 @@ mod test {
     #[case(FoRArray::try_new(buffer![42i64].into_array(), Scalar::from(40i64)).unwrap())]
     fn test_take_for_conformance(#[case] for_array: FoRArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(for_array.as_ref());
+        test_take_conformance(&for_array.into_array());
     }
 }
 
@@ -99,8 +99,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
 
     use crate::FoRArray;
 
@@ -157,7 +157,7 @@ mod tests {
     ).unwrap())]
 
     fn test_for_consistency(#[case] array: FoRArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 
     #[rstest]

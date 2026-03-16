@@ -8,16 +8,16 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -33,7 +33,7 @@ pub use patch::patch_chunk;
 
 use crate::buffer::BufferHandle;
 
-/// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
+/// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
 ///
 /// This mirrors the Apache Arrow Primitive layout and can be converted into and out of one
@@ -62,7 +62,8 @@ use crate::buffer::BufferHandle;
 /// assert_eq!(value, 2i32.into());
 ///
 /// // Convert into a type-erased array that can be passed to compute functions.
-/// let summed = sum(sliced.as_ref()).unwrap().as_primitive().typed_value::<i64>().unwrap();
+/// use vortex_array::IntoArray;
+/// let summed = sum(&sliced.into_array()).unwrap().as_primitive().typed_value::<i64>().unwrap();
 /// assert_eq!(summed, 5i64);
 /// # Ok(())
 /// # }
@@ -164,6 +165,7 @@ impl PrimitiveArray {
             && buffer.len() != len
         {
             return Err(vortex_err!(
+                InvalidArgument:
                 "Buffer and validity length mismatch: buffer={}, validity={}",
                 buffer.len(),
                 len

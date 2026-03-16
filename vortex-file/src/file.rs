@@ -13,24 +13,27 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::VortexSessionExecute;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_dtype::DType;
-use vortex_dtype::Field;
-use vortex_dtype::FieldMask;
-use vortex_dtype::FieldPath;
-use vortex_dtype::FieldPathSet;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::ScanBuilder;
 use vortex_scan::SplitBy;
+use vortex_scan::api::DataSourceRef;
+use vortex_scan::layout::LayoutReaderDataSource;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
 use crate::pruning::extract_relevant_file_stats_as_struct_row;
+use crate::v2::FileStatsLayoutReader;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -85,6 +88,25 @@ impl VortexFile {
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
             .new_reader("".into(), segment_source, &self.session)
+    }
+
+    /// Create a [`DataSource`](vortex_scan::api::DataSource) from this file for scanning.
+    ///
+    /// Wraps the file's layout reader with [`FileStatsLayoutReader`] (when file-level
+    /// statistics are available) and [`LayoutReaderDataSource`].
+    pub fn data_source(&self) -> VortexResult<DataSourceRef> {
+        let mut reader = self.layout_reader()?;
+        if let Some(stats) = self.file_stats().cloned() {
+            reader = Arc::new(FileStatsLayoutReader::new(
+                reader,
+                stats,
+                self.session.clone(),
+            ));
+        }
+        Ok(Arc::new(LayoutReaderDataSource::new(
+            reader,
+            self.session.clone(),
+        )))
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.

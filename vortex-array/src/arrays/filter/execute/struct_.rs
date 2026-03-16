@@ -42,9 +42,6 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability::Nullable;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -54,6 +51,9 @@ mod test {
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability::Nullable;
     use crate::validity::Validity;
 
     #[test]
@@ -64,7 +64,7 @@ mod test {
         ];
         let array =
             StructArray::try_new(["a", "b"].into(), fields, 5, Validity::NonNullable).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -77,7 +77,7 @@ mod test {
         ];
         let array =
             StructArray::try_new(["a", "b"].into(), fields, 5, Validity::NonNullable).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -138,9 +138,9 @@ mod test {
     #[test]
     fn test_filter_empty_struct_conformance() {
         test_filter_conformance(
-            StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
+            &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
-                .as_ref(),
+                .into_array(),
         );
     }
 
@@ -156,7 +156,7 @@ mod test {
             BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
 
         test_filter_conformance(
-            StructArray::try_new(
+            &StructArray::try_new(
                 ["xs", "ys", "zs"].into(),
                 vec![
                     StructArray::try_new(
@@ -174,7 +174,7 @@ mod test {
                 Validity::NonNullable,
             )
             .unwrap()
-            .as_ref(),
+            .into_array(),
         );
     }
 }

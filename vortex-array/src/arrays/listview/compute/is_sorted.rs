@@ -3,13 +3,13 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::register_kernel;
 
-impl IsSortedKernel for ListViewVTable {
+impl IsSortedKernel for ListView {
     fn is_sorted(&self, _array: &ListViewArray) -> VortexResult<Option<bool>> {
         // This would require comparing lists lexicographically.
         Ok(None)
@@ -21,4 +21,4 @@ impl IsSortedKernel for ListViewVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ListViewVTable).lift());
+register_kernel!(IsSortedKernelAdapter(ListView).lift());

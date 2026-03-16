@@ -5,21 +5,18 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
-use crate::Array;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::filter::array::FilterArray;
@@ -28,37 +25,86 @@ use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
+use crate::executor::ExecutionStep;
+use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
-use crate::vtable::VisitorVTable;
 
 vtable!(Filter);
 
 #[derive(Debug)]
-pub struct FilterVTable;
+pub struct Filter;
 
-impl FilterVTable {
+impl Filter {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.filter");
 }
 
-impl VTable for FilterVTable {
+impl VTable for Filter {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &FilterArray) -> usize {
+        array.mask.true_count()
+    }
+
+    fn dtype(array: &FilterArray) -> &DType {
+        array.child.dtype()
+    }
+
+    fn stats(array: &FilterArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &FilterArray, state: &mut H, precision: Precision) {
+        array.child.array_hash(state, precision);
+        array.mask.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
+        array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
+    }
+
+    fn nbuffers(_array: &Self::Array) -> usize {
+        0
+    }
+
+    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+        vortex_panic!("FilterArray has no buffers")
+    }
+
+    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &Self::Array) -> usize {
+        1
+    }
+
+    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.child.clone(),
+            _ => vortex_panic!("FilterArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &Self::Array, idx: usize) -> String {
+        match idx {
+            0 => "child".to_string(),
+            _ => vortex_panic!("FilterArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -74,6 +120,7 @@ impl VTable for FilterVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Filter array is not serializable")
@@ -108,9 +155,9 @@ impl VTable for FilterVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
-            return Ok(canonical);
+            return Ok(ExecutionStep::Done(canonical));
         }
         let Mask::Values(mask_values) = &array.mask else {
             unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
@@ -118,7 +165,9 @@ impl VTable for FilterVTable {
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
-        Ok(execute_filter(array.child.clone().execute(ctx)?, mask_values).into_array())
+        Ok(ExecutionStep::Done(
+            execute_filter(array.child.clone().execute(ctx)?, mask_values).into_array(),
+        ))
     }
 
     fn reduce_parent(
@@ -133,48 +182,16 @@ impl VTable for FilterVTable {
         RULES.evaluate(array)
     }
 }
-
-impl BaseArrayVTable<FilterVTable> for FilterVTable {
-    fn len(array: &FilterArray) -> usize {
-        array.mask.true_count()
-    }
-
-    fn dtype(array: &FilterArray) -> &DType {
-        array.child.dtype()
-    }
-
-    fn stats(array: &FilterArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: Hasher>(array: &FilterArray, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
-        array.mask.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
-    }
-}
-
-impl OperationsVTable<FilterVTable> for FilterVTable {
+impl OperationsVTable<Filter> for Filter {
     fn scalar_at(array: &FilterArray, index: usize) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);
         array.child.scalar_at(rank_idx)
     }
 }
 
-impl ValidityVTable<FilterVTable> for FilterVTable {
+impl ValidityVTable<Filter> for Filter {
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
-    }
-}
-
-impl VisitorVTable<FilterVTable> for FilterVTable {
-    fn visit_buffers(_array: &FilterArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &FilterArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("child", &array.child);
     }
 }
 

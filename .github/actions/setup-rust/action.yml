@@ -3,9 +3,9 @@ description: "Toolchain setup and Initial compilation"
 
 inputs:
   repo-token:
-    description: "Deprecated: no longer used. Protoc is now downloaded directly from GitHub releases CDN."
+    description: "GitHub token for accessing the repository (typically secrets.GITHUB_TOKEN)"
     required: false
-    default: ""
+    default: "${{ github.token }}"
   toolchain:
     description: "optional override for the toolchain version (e.g. nightly)"
     required: false
@@ -38,21 +38,61 @@ runs:
       if: runner.os == 'Linux'
       uses: rui314/setup-mold@v1
 
+    - name: Check for rustup
+      id: check-rustup
+      shell: bash
+      run: echo "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+
     - name: Rust Toolchain
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@stable
-      if: steps.rustup-cache.outputs.cache-hit != 'true'
+      if: steps.check-rustup.outputs.exists != 'true'
       with:
         toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
         targets: "${{ inputs.targets }}"
         components: "${{ inputs.components }}"
 
+    - name: Install additional targets and components
+      if: steps.check-rustup.outputs.exists == 'true'
+      shell: bash
+      run: |
+        rustup toolchain install "$TOOLCHAIN"
+        [[ -n "$TARGETS" ]] && rustup target add --toolchain "$TOOLCHAIN" ${TARGETS//,/ }
+        [[ -n "$COMPONENTS" ]] && rustup component add --toolchain "$TOOLCHAIN" ${COMPONENTS//,/ }
+      env:
+        TOOLCHAIN: ${{ steps.toolchain-config.outputs.toolchain }}
+        TARGETS: ${{ inputs.targets }}
+        COMPONENTS: ${{ inputs.components }}
+
+    - name: Configure sccache timeout
+      if: inputs.enable-sccache == 'true'
+      shell: bash
+      run: |
+        mkdir -p ~/.config/sccache
+        echo 'server_startup_timeout_ms = 15000' > ~/.config/sccache/config
+
     - name: Rust Compile Cache
       if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
-      with:
-        version: "v0.14.0"
+
+    - name: Pre-start sccache server
+      if: inputs.enable-sccache == 'true'
+      shell: bash
+      run: sccache --start-server &
 
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
       uses: ./.github/actions/setup-protoc
+
+    - name: Install Ninja (for DuckDB build system)
+      uses: seanmiddleditch/gha-setup-ninja@master
+
+    - name: Install Sweep
+      shell: bash
+      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
+      run: cargo install cargo-sweep
+
+    - name: Timestamp Cache
+      shell: bash
+      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
+      run: cargo sweep --stamp

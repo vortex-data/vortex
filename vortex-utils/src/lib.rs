@@ -11,3 +11,4 @@ pub mod debug_with;
 pub mod dyn_traits;
 #[cfg(feature = "_test-harness")]
 pub mod env;
+pub mod iter;

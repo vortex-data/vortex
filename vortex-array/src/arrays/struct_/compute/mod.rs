@@ -17,15 +17,10 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
     use vortex_error::VortexExpect;
 
-    use crate::Array;
     use crate::Canonical;
+    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -34,11 +29,16 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
-    use crate::compute::cast;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::is_constant;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::validity::Validity;
 
     #[test]
@@ -46,7 +46,7 @@ mod tests {
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
-        let taken = struct_arr.take(indices.to_array()).unwrap();
+        let taken = struct_arr.take(indices.into_array()).unwrap();
 
         assert_arrays_eq!(
             taken,
@@ -68,7 +68,7 @@ mod tests {
         .unwrap();
         let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
         let taken = struct_arr
-            .take(indices.to_array())
+            .take(indices.into_array())
             .unwrap()
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -81,7 +81,7 @@ mod tests {
         let arr = PrimitiveArray::from_iter(Vec::<u64>::new());
         let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
         let taken = arr
-            .take(indices.to_array())
+            .take(indices.into_array())
             .unwrap()
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -91,10 +91,10 @@ mod tests {
     #[test]
     fn take_field_struct() {
         let struct_arr =
-            StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
+            StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).into_array())])
                 .unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
-        let taken = struct_arr.take(indices.to_array()).unwrap();
+        let taken = struct_arr.take(indices.into_array()).unwrap();
         assert_arrays_eq!(
             taken,
             StructArray::try_from_iter_with_validity(
@@ -108,9 +108,9 @@ mod tests {
     #[test]
     fn test_mask_empty_struct() {
         test_mask_conformance(
-            StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
+            &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
-                .as_ref(),
+                .into_array(),
         );
     }
 
@@ -126,7 +126,7 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
 
         test_mask_conformance(
-            StructArray::try_new(
+            &StructArray::try_new(
                 ["xs", "ys", "zs"].into(),
                 vec![
                     StructArray::try_new(
@@ -144,7 +144,7 @@ mod tests {
                 Validity::NonNullable,
             )
             .unwrap()
-            .as_ref(),
+            .into_array(),
         );
     }
 
@@ -157,12 +157,12 @@ mod tests {
             StructFields::new(FieldNames::default(), vec![]),
             NonNullable,
         );
-        let casted = cast(&array, &non_nullable_dtype).unwrap();
+        let casted = array.cast(non_nullable_dtype.clone()).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
         let nullable_dtype =
             DType::Struct(StructFields::new(FieldNames::default(), vec![]), Nullable);
-        let casted = cast(&array, &nullable_dtype).unwrap();
+        let casted = array.cast(nullable_dtype.clone()).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
     }
 
@@ -179,7 +179,7 @@ mod tests {
             vec![
                 StructArray::try_new(
                     ["left", "right"].into(),
-                    vec![xs.to_array(), xs.to_array()],
+                    vec![xs.clone().into_array(), xs.into_array()],
                     5,
                     Validity::AllValid,
                 )
@@ -195,7 +195,9 @@ mod tests {
         .into_array();
 
         let top_level_non_nullable = fully_nullable_array.dtype().as_nonnullable();
-        let casted = cast(&fully_nullable_array, &top_level_non_nullable).unwrap();
+        let casted = fully_nullable_array
+            .cast(top_level_non_nullable.clone())
+            .unwrap();
         assert_eq!(casted.dtype(), &top_level_non_nullable);
 
         let non_null_xs_right = DType::Struct(
@@ -218,7 +220,9 @@ mod tests {
             ),
             Nullable,
         );
-        let casted = cast(&fully_nullable_array, &non_null_xs_right).unwrap();
+        let casted = fully_nullable_array
+            .cast(non_null_xs_right.clone())
+            .unwrap();
         assert_eq!(casted.dtype(), &non_null_xs_right);
 
         let non_null_xs = DType::Struct(
@@ -241,7 +245,7 @@ mod tests {
             ),
             Nullable,
         );
-        let casted = cast(&fully_nullable_array, &non_null_xs).unwrap();
+        let casted = fully_nullable_array.cast(non_null_xs.clone()).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs);
     }
 
@@ -249,16 +253,16 @@ mod tests {
     fn test_empty_struct_is_constant() {
         let array = StructArray::new_fieldless_with_len(2);
         let is_constant =
-            is_constant(array.as_ref()).vortex_expect("operation should succeed in test");
+            is_constant(&array.into_array()).vortex_expect("operation should succeed in test");
         assert_eq!(is_constant, Some(true));
     }
 
     #[test]
     fn test_take_empty_struct_conformance() {
         test_take_conformance(
-            StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
+            &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
-                .as_ref(),
+                .into_array(),
         );
     }
 
@@ -272,9 +276,9 @@ mod tests {
         .into_array();
 
         test_take_conformance(
-            StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 5, Validity::NonNullable)
+            &StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 5, Validity::NonNullable)
                 .unwrap()
-                .as_ref(),
+                .into_array(),
         );
     }
 
@@ -288,14 +292,14 @@ mod tests {
         );
 
         test_take_conformance(
-            StructArray::try_new(
+            &StructArray::try_new(
                 ["xs", "ys"].into(),
                 vec![xs.into_array(), ys.into_array()],
                 5,
                 Validity::NonNullable,
             )
             .unwrap()
-            .as_ref(),
+            .into_array(),
         );
     }
 
@@ -316,14 +320,14 @@ mod tests {
         let outer_zs = BoolArray::from_iter([true, false, true, false, true]).into_array();
 
         test_take_conformance(
-            StructArray::try_new(
+            &StructArray::try_new(
                 ["inner", "z"].into(),
                 vec![inner_struct, outer_zs],
                 5,
                 Validity::NonNullable,
             )
             .unwrap()
-            .as_ref(),
+            .into_array(),
         );
     }
 
@@ -333,9 +337,9 @@ mod tests {
         let ys = VarBinArray::from_iter(["hello"].map(Some), DType::Utf8(NonNullable)).into_array();
 
         test_take_conformance(
-            StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 1, Validity::NonNullable)
+            &StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 1, Validity::NonNullable)
                 .unwrap()
-                .as_ref(),
+                .into_array(),
         );
     }
 
@@ -351,14 +355,14 @@ mod tests {
         let zs = BoolArray::from_iter((0..100).map(|i| i % 2 == 0)).into_array();
 
         test_take_conformance(
-            StructArray::try_new(
+            &StructArray::try_new(
                 ["xs", "ys", "zs"].into(),
                 vec![xs, ys, zs],
                 100,
                 Validity::NonNullable,
             )
             .unwrap()
-            .as_ref(),
+            .into_array(),
         );
     }
 
@@ -408,6 +412,6 @@ mod tests {
         StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 100, Validity::NonNullable).unwrap()
     })]
     fn test_struct_consistency(#[case] array: StructArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

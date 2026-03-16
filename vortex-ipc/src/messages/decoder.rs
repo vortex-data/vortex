@@ -7,7 +7,6 @@ use std::sync::Arc;
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
-use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
@@ -21,11 +20,12 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::MessageHeader;
 use vortex_flatbuffers::message::MessageVersion;
+use vortex_session::registry::ReadContext;
 
 /// A message decoded from an IPC stream.
 #[derive(Debug)]
 pub enum DecoderMessage {
-    Array((ArrayParts, ArrayContext, usize)),
+    Array((ArrayParts, ReadContext, usize)),
     Buffer(ByteBuffer),
     DType(FlatBuffer),
 }
@@ -121,14 +121,14 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
-                            let encoding_ids: Vec<_> = header
+                            let encoding_ids: Arc<_> = header
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
                                 .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
                                 .collect();
 
-                            let ctx = ArrayContext::new(encoding_ids);
+                            let ctx = ReadContext::new(encoding_ids);
                             let row_count = header.row_count() as usize;
 
                             self.state = Default::default();
@@ -167,7 +167,8 @@ impl MessageDecoder {
 #[cfg(test)]
 mod test {
     use bytes::BytesMut;
-    use vortex_array::Array;
+    use vortex_array::ArrayRef;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_buffer::buffer;
@@ -178,7 +179,7 @@ mod test {
     use crate::messages::MessageEncoder;
     use crate::test::SESSION;
 
-    fn write_and_read(expected: &dyn Array) {
+    fn write_and_read(expected: &ArrayRef) {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::default();
         for buf in encoder.encode(EncoderMessage::Array(expected)).unwrap() {
@@ -213,6 +214,6 @@ mod test {
         // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
-        write_and_read(array.as_ref());
+        write_and_read(&array.into_array());
     }
 }

@@ -4,21 +4,21 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ToCanonical;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::bool;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -223,9 +223,9 @@ impl ListViewArray {
 
     /// Validates the components that would be used to create a [`ListViewArray`].
     pub fn validate(
-        elements: &dyn Array,
-        offsets: &dyn Array,
-        sizes: &dyn Array,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
+        sizes: &ArrayRef,
         validity: &Validity,
     ) -> VortexResult<()> {
         // Check that offsets and sizes are integer arrays and non-nullable.
@@ -366,7 +366,7 @@ impl ListViewArray {
 
         // Fast path for `PrimitiveArray`.
         self.offsets
-            .as_opt::<PrimitiveVTable>()
+            .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
@@ -394,7 +394,7 @@ impl ListViewArray {
 
         // Fast path for `PrimitiveArray`.
         self.sizes
-            .as_opt::<PrimitiveVTable>()
+            .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
@@ -494,7 +494,7 @@ where
 /// Helper function to validate if the [`ListViewArray`] components are actually zero-copyable to
 /// [`ListArray`](crate::arrays::ListArray).
 fn validate_zctl(
-    elements: &dyn Array,
+    elements: &ArrayRef,
     offsets_primitive: PrimitiveArray,
     sizes_primitive: PrimitiveArray,
 ) -> VortexResult<()> {

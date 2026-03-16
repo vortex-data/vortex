@@ -15,7 +15,7 @@ version.workspace = true
 publish = false
 
 [dependencies]
-lance = { version = "2.0.0" }
+lance = { version = "2.0.0", default-features = false }
 lance-encoding = { version = "2.0.0" }
 
 anyhow = { workspace = true }
@@ -28,9 +28,6 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex-bench = { workspace = true }
-
-[build-dependencies]
-get_dir = { workspace = true }
 
 [lints]
 workspace = true

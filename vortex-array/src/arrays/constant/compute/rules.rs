@@ -5,28 +5,36 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
-use crate::arrays::FilterReduceAdaptor;
-use crate::arrays::FilterVTable;
-use crate::arrays::SliceReduceAdaptor;
-use crate::arrays::TakeReduceAdaptor;
+use crate::arrays::dict::TakeReduceAdaptor;
+use crate::arrays::filter::FilterReduceAdaptor;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::between::BetweenReduceAdaptor;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use crate::scalar_fn::fns::not::NotReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<ConstantVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<Constant> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&BetweenReduceAdaptor(Constant)),
+    ParentRuleSet::lift(&CastReduceAdaptor(Constant)),
     ParentRuleSet::lift(&ConstantFilterRule),
-    ParentRuleSet::lift(&FilterReduceAdaptor(ConstantVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(ConstantVTable)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(ConstantVTable)),
+    ParentRuleSet::lift(&FillNullReduceAdaptor(Constant)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(Constant)),
+    ParentRuleSet::lift(&NotReduceAdaptor(Constant)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Constant)),
+    ParentRuleSet::lift(&TakeReduceAdaptor(Constant)),
 ]);
 
 #[derive(Debug)]
 struct ConstantFilterRule;
 
-impl ArrayParentReduceRule<ConstantVTable> for ConstantFilterRule {
-    type Parent = FilterVTable;
+impl ArrayParentReduceRule<Constant> for ConstantFilterRule {
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,

@@ -4,21 +4,21 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::Dict;
 use crate::arrays::DictArray;
-use crate::arrays::DictVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
+use crate::scalar::Scalar;
 
-impl SliceReduce for DictVTable {
+impl SliceReduce for Dict {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let sliced_code = array.codes().slice(range)?;
         // TODO(joe): if the range is size 1 replace with a constant array
-        if let Some(code) = sliced_code.as_opt::<ConstantVTable>() {
+        if let Some(code) = sliced_code.as_opt::<Constant>() {
             let code = code.scalar().as_primitive().as_::<usize>();
             return if let Some(code) = code {
                 let values = array.values().slice(code..code + 1)?;
@@ -32,7 +32,7 @@ impl SliceReduce for DictVTable {
             } else {
                 Ok(Some(
                     ConstantArray::new(Scalar::null(array.dtype().clone()), sliced_code.len())
-                        .to_array(),
+                        .into_array(),
                 ))
             };
         }
@@ -46,18 +46,18 @@ impl SliceReduce for DictVTable {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::dict::compute::slice::ConstantArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
+    use crate::scalar::Scalar;
 
     #[test]
     fn slice_constant_valid_code() -> VortexResult<()> {

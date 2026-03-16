@@ -3,34 +3,33 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
-use vortex_dtype::DType;
+use vortex_array::arrays::VarBin;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::FSST;
 use crate::FSSTArray;
-use crate::FSSTVTable;
 
-impl CastKernel for FSSTVTable {
-    fn cast(&self, array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for FSST {
+    fn cast(array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FSST is a string compression encoding.
         // For nullability changes, we can cast the codes and symbols arrays
         if array.dtype().eq_ignore_nullability(dtype) {
             // Cast codes array to handle nullability
-            let new_codes = cast(
-                array.codes().as_ref(),
-                &array.codes().dtype().with_nullability(dtype.nullability()),
-            )?;
+            let new_codes = array
+                .codes()
+                .clone()
+                .into_array()
+                .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
                 FSSTArray::try_new(
                     dtype.clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
-                    new_codes.as_::<VarBinVTable>().clone(),
+                    new_codes.as_::<VarBin>().clone(),
                     array.uncompressed_lengths().clone(),
                 )?
                 .into_array(),
@@ -41,16 +40,15 @@ impl CastKernel for FSSTVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(FSSTVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
@@ -66,7 +64,10 @@ mod tests {
         let fsst = fsst_compress(strings, &compressor);
 
         // Cast to nullable
-        let casted = cast(fsst.as_ref(), &DType::Utf8(Nullability::Nullable)).unwrap();
+        let casted = fsst
+            .into_array()
+            .cast(DType::Utf8(Nullability::Nullable))
+            .unwrap();
         assert_eq!(casted.dtype(), &DType::Utf8(Nullability::Nullable));
     }
 
@@ -86,6 +87,6 @@ mod tests {
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
         let compressor = fsst_train_compressor(&array);
         let fsst = fsst_compress(&array, &compressor);
-        test_cast_conformance(fsst.as_ref());
+        test_cast_conformance(&fsst.into_array());
     }
 }

@@ -2,25 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::chunked::vtable::ChunkedArray;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::builder_with_capacity;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::validity::Validity;
 
 pub(super) fn _canonicalize(
@@ -38,7 +38,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 array.chunks(),
-                Validity::copy_from_array(array.as_ref())?,
+                Validity::copy_from_array(&array.clone().into_array())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -46,7 +46,7 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             array.chunks(),
-            Validity::copy_from_array(array.as_ref())?,
+            Validity::copy_from_array(&array.clone().into_array())?,
             elem_dtype,
             ctx,
         )?),
@@ -58,7 +58,7 @@ pub(super) fn _canonicalize(
     })
 }
 
-/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`Array`] for each
+/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`DynArray`] for each
 /// field is a [`ChunkedArray`].
 ///
 /// The caller guarantees there are at least 2 chunks.
@@ -71,10 +71,14 @@ fn pack_struct_chunks(
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
+    let executed_chunks: Vec<StructArray> = chunks
+        .iter()
+        .map(|c| c.clone().execute::<StructArray>(ctx))
+        .collect::<VortexResult<_>>()?;
+
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
         let mut field_chunks = Vec::with_capacity(chunks.len());
-        for c in chunks {
-            let struct_array = c.clone().execute::<StructArray>(ctx)?;
+        for struct_array in &executed_chunks {
             let field = struct_array
                 .unmasked_fields()
                 .get(field_idx)
@@ -139,19 +143,19 @@ fn swizzle_list_chunks(
         list_elements_chunks.push(chunk_array.elements().clone());
 
         // Cast offsets and sizes to `u64`.
-        let offsets_arr = cast(
-            chunk_array.offsets(),
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .vortex_expect("Must be able to fit array offsets in u64")
-        .execute::<PrimitiveArray>(ctx)?;
+        let offsets_arr = chunk_array
+            .offsets()
+            .to_array()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
+            .vortex_expect("Must be able to fit array offsets in u64")
+            .execute::<PrimitiveArray>(ctx)?;
 
-        let sizes_arr = cast(
-            chunk_array.sizes(),
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .vortex_expect("Must be able to fit array offsets in u64")
-        .execute::<PrimitiveArray>(ctx)?;
+        let sizes_arr = chunk_array
+            .sizes()
+            .to_array()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
+            .vortex_expect("Must be able to fit array offsets in u64")
+            .execute::<PrimitiveArray>(ctx)?;
 
         let offsets_slice = offsets_arr.as_slice::<u64>();
         let sizes_slice = sizes_arr.as_slice::<u64>();
@@ -189,10 +193,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::buffer;
-    use vortex_dtype::DType::List;
-    use vortex_dtype::DType::Primitive;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::I32;
 
     use crate::IntoArray;
     use crate::ToCanonical;
@@ -201,6 +201,10 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
+    use crate::dtype::DType::List;
+    use crate::dtype::DType::Primitive;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType::I32;
     use crate::validity::Validity;
 
     #[test]
@@ -215,7 +219,7 @@ mod tests {
         let dtype = struct_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![
-                ChunkedArray::try_new(vec![struct_array.to_array()], dtype.clone())
+                ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
                     .unwrap()
                     .into_array(),
             ],

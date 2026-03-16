@@ -6,26 +6,44 @@ use std::ffi::CStr;
 use vortex::error::vortex_panic;
 
 use crate::cpp;
+use crate::duckdb::ObjectCache;
 use crate::duckdb::ObjectCacheRef;
 use crate::duckdb::Value;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     /// A DuckDB client context wrapper.
     ClientContext,
-    cpp::duckdb_vx_client_context,
-    |_| {}
+    cpp::duckdb_client_context,
+    cpp::duckdb_destroy_client_context
 );
 
-impl ClientContext {
+// SAFETY: ClientContext carries an opaque pointer. It is safe to send/share across threads
+// under the same guarantees: the underlying DuckDB context is valid for the connection
+// lifetime and DuckDB synchronizes internal state.
+unsafe impl Send for ClientContextRef {}
+unsafe impl Sync for ClientContextRef {}
+
+impl ClientContextRef {
+    /// Erases the lifetime of this reference, returning a `&'static ClientContextRef`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the underlying `ClientContext` outlives all uses of the
+    /// returned reference. In practice, the `ClientContext` is owned by the `Connection`
+    /// and lives as long as the connection, so this is safe as long as the connection is kept alive.
+    pub unsafe fn erase_lifetime(&self) -> &'static Self {
+        unsafe { &*(self as *const Self) }
+    }
+
     /// Get the object cache for this client context.
-    pub fn object_cache(&self) -> ObjectCacheRef<'static> {
+    pub fn object_cache(&self) -> &ObjectCacheRef {
         unsafe {
-            let cache = cpp::duckdb_vx_client_context_get_object_cache(self.as_ptr());
+            let cache = cpp::duckdb_client_context_get_object_cache(self.as_ptr());
             if cache.is_null() {
                 vortex_panic!("Failed to get object cache from client context");
             }
-            ObjectCacheRef::borrow(cache)
+            ObjectCache::borrow(cache)
         }
     }
 
@@ -34,7 +52,7 @@ impl ClientContext {
     pub fn try_get_current_setting(&self, key: &CStr) -> Option<Value> {
         unsafe {
             let value_ptr =
-                cpp::duckdb_vx_client_context_try_get_current_setting(self.as_ptr(), key.as_ptr());
+                cpp::duckdb_client_context_try_get_current_setting(self.as_ptr(), key.as_ptr());
             if value_ptr.is_null() {
                 None
             } else {

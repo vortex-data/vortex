@@ -7,11 +7,11 @@ use arbitrary::Unstructured;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 
 use crate::RunEndArray;
@@ -22,8 +22,7 @@ pub struct ArbitraryRunEndArray(pub RunEndArray);
 
 impl<'a> Arbitrary<'a> for ArbitraryRunEndArray {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        // RunEnd supports Bool or Primitive types for values
-        // Pick a random primitive type for values
+        // Pick a random primitive type for values.
         let ptype: PType = u.arbitrary()?;
         let nullability: Nullability = u.arbitrary()?;
         let dtype = DType::Primitive(ptype, nullability);

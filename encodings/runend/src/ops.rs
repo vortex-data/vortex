@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-impl OperationsVTable<RunEndVTable> for RunEndVTable {
+impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
         array.values().scalar_at(array.find_physical_index(index)?)
     }
@@ -23,7 +23,7 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
 ///
 /// If the index exists in the array we want to take that position (as we are searching from the right)
 /// otherwise we want to take the next one
-pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> VortexResult<usize> {
+pub(crate) fn find_slice_end_index(array: &ArrayRef, index: usize) -> VortexResult<usize> {
     let result = array
         .as_primitive_typed()
         .search_sorted(&PValue::from(index), SearchSortedSide::Right)?;
@@ -42,17 +42,17 @@ pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> VortexRes
 #[cfg(test)]
 mod tests {
 
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Cost;
     use vortex_array::compute::IsConstantOpts;
     use vortex_array::compute::is_constant_opts;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::RunEndArray;
 

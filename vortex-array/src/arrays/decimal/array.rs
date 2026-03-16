@@ -6,21 +6,23 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::BigCast;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::ToCanonical;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
+use crate::dtype::BigCast;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativeDecimalType;
+use crate::match_each_decimal_value_type;
+use crate::match_each_integer_ptype;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
@@ -70,7 +72,7 @@ use crate::vtable::ValidityHelper;
 ///
 /// ```
 /// use vortex_array::arrays::DecimalArray;
-/// use vortex_dtype::DecimalDType;
+/// use vortex_array::dtype::DecimalDType;
 /// use vortex_buffer::{buffer, Buffer};
 /// use vortex_array::validity::Validity;
 ///
@@ -241,7 +243,7 @@ impl DecimalArray {
             let expected_len = values_type.byte_width() * validity_len;
             vortex_ensure!(
                 buffer.len() == expected_len,
-                "expected buffer of size {} bytes, was {} bytes",
+                InvalidArgument: "expected buffer of size {} bytes, was {} bytes",
                 expected_len,
                 buffer.len(),
             );
@@ -369,16 +371,17 @@ impl DecimalArray {
         clippy::cognitive_complexity,
         reason = "complexity from nested match_each_* macros"
     )]
-    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
+    pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let offset = patches.offset();
-        let patch_indices = patches.indices().to_primitive();
-        let patch_values = patches.values().to_decimal();
+        let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
             offset,
-            patch_indices.as_ref(),
+            &patch_indices.clone().into_array(),
             patch_values.validity(),
+            ctx,
         )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
 

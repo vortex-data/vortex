@@ -5,18 +5,24 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::arrays::SliceReduceAdaptor;
+use crate::arrays::filter::FilterReduceAdaptor;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
-pub(crate) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[
+pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BoolMaskedValidityRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(BoolVTable)),
+    ParentRuleSet::lift(&CastReduceAdaptor(Bool)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Bool)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Bool)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(Bool)),
 ]);
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.
@@ -26,8 +32,8 @@ pub(crate) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[
 #[derive(Default, Debug)]
 pub struct BoolMaskedValidityRule;
 
-impl ArrayParentReduceRule<BoolVTable> for BoolMaskedValidityRule {
-    type Parent = MaskedVTable;
+impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
+    type Parent = Masked;
 
     fn reduce_parent(
         &self,
@@ -44,7 +50,7 @@ impl ArrayParentReduceRule<BoolVTable> for BoolMaskedValidityRule {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer(),
-                array.validity().clone().and(parent.validity().clone()),
+                array.validity().clone().and(parent.validity().clone())?,
             )
             .into_array(),
         ))

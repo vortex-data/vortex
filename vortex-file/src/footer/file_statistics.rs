@@ -11,8 +11,8 @@ use std::sync::Arc;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
 use itertools::Itertools;
+use vortex_array::dtype::DType;
 use vortex_array::stats::StatsSet;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -20,6 +20,7 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array::ArrayStats;
 use vortex_flatbuffers::footer as fb;
+use vortex_session::VortexSession;
 
 /// Contains statistical information about the data in a Vortex file.
 ///
@@ -90,6 +91,7 @@ impl FileStatistics {
     pub fn from_flatbuffer<'a>(
         fb: &fb::FileStatistics<'a>,
         file_dtype: &DType,
+        session: &VortexSession,
     ) -> VortexResult<Self> {
         let field_stats = fb.field_stats().unwrap_or_default();
         let mut array_stats: Vec<ArrayStats> = field_stats.iter().collect();
@@ -101,7 +103,7 @@ impl FileStatistics {
                 .into_iter()
                 .zip(struct_fields.fields())
                 .map(|(array_stat, field_dtype)| {
-                    StatsSet::from_flatbuffer(&array_stat, &field_dtype)
+                    StatsSet::from_flatbuffer(&array_stat, &field_dtype, session)
                 })
                 .try_collect()?;
 
@@ -117,7 +119,7 @@ impl FileStatistics {
             let array_stat = array_stats
                 .pop()
                 .vortex_expect("we just checked that there was 1 field");
-            let stats_set = StatsSet::from_flatbuffer(&array_stat, file_dtype)?;
+            let stats_set = StatsSet::from_flatbuffer(&array_stat, file_dtype, session)?;
 
             Ok(Self {
                 stats: Arc::new([stats_set]),
@@ -143,6 +145,15 @@ impl FileStatistics {
     /// Panics if `field_idx` is out of bounds.
     pub fn get(&self, field_idx: usize) -> (&StatsSet, &DType) {
         (&self.stats[field_idx], &self.dtypes[field_idx])
+    }
+}
+
+impl<'a> IntoIterator for &'a FileStatistics {
+    type Item = (&'a StatsSet, &'a DType);
+    type IntoIter = std::iter::Zip<std::slice::Iter<'a, StatsSet>, std::slice::Iter<'a, DType>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.stats.iter().zip(self.dtypes.iter())
     }
 }
 

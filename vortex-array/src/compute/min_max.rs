@@ -4,26 +4,28 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
 
-use crate::Array;
-use crate::arrays::ConstantVTable;
+use crate::ArrayRef;
+use crate::DynArray;
+use crate::IntoArray as _;
+use crate::arrays::Constant;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
 use crate::compute::UnaryArgs;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "max"]));
@@ -45,7 +47,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// The return value dtype is the non-nullable version of the array dtype.
 ///
 /// This will update the stats set of this array (as a side effect).
-pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
+pub fn min_max(array: &ArrayRef) -> VortexResult<Option<MinMaxResult>> {
     let scalar = MIN_MAX_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
@@ -88,10 +90,11 @@ impl ComputeFnVTable for MinMax {
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
+        let array = array.to_array();
 
         let return_dtype = self.return_dtype(args)?;
 
-        match min_max_impl(array, kernels)? {
+        match min_max_impl(&array, kernels)? {
             None => Ok(Scalar::null(return_dtype).into()),
             Some(MinMaxResult { min, max }) => {
                 assert!(
@@ -147,15 +150,15 @@ impl ComputeFnVTable for MinMax {
 }
 
 fn min_max_impl(
-    array: &dyn Array,
+    array: &ArrayRef,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Option<MinMaxResult>> {
     if array.is_empty() || array.valid_count()? == 0 {
         return Ok(None);
     }
 
-    if let Some(array) = array.as_opt::<ConstantVTable>() {
-        return ConstantVTable.min_max(array);
+    if let Some(array) = array.as_opt::<Constant>() {
+        return Constant.min_max(array);
     }
 
     let min = array
@@ -186,8 +189,8 @@ fn min_max_impl(
     }
 
     if !array.is_canonical() {
-        let array = array.to_canonical()?;
-        return min_max(array.as_ref());
+        let array = array.to_canonical()?.into_array();
+        return min_max(&array);
     }
 
     vortex_bail!(NotImplemented: "min_max", array.encoding_id());
@@ -237,6 +240,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
 
+    use crate::IntoArray as _;
     use crate::arrays::BoolArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
@@ -246,9 +250,9 @@ mod tests {
 
     #[test]
     fn test_prim_max() {
-        let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable);
+        let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable).into_array();
         assert_eq!(
-            min_max(p.as_ref()).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
@@ -261,9 +265,10 @@ mod tests {
         let p = BoolArray::new(
             BitBuffer::from([true, true, true].as_slice()),
             Validity::NonNullable,
-        );
+        )
+        .into_array();
         assert_eq!(
-            min_max(p.as_ref()).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: true.into(),
                 max: true.into()
@@ -273,9 +278,10 @@ mod tests {
         let p = BoolArray::new(
             BitBuffer::from([false, false, false].as_slice()),
             Validity::NonNullable,
-        );
+        )
+        .into_array();
         assert_eq!(
-            min_max(p.as_ref()).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: false.into()
@@ -285,9 +291,10 @@ mod tests {
         let p = BoolArray::new(
             BitBuffer::from([false, true, false].as_slice()),
             Validity::NonNullable,
-        );
+        )
+        .into_array();
         assert_eq!(
-            min_max(p.as_ref()).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: true.into()
@@ -297,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_null() {
-        let p = NullArray::new(1);
-        assert_eq!(min_max(p.as_ref()).unwrap(), None);
+        let p = NullArray::new(1).into_array();
+        assert_eq!(min_max(&p).unwrap(), None);
     }
 }

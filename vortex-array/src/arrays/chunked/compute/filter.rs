@@ -7,12 +7,12 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::filter::FilterKernel;
 use crate::search_sorted::SearchSorted;
@@ -22,7 +22,7 @@ use crate::validity::Validity;
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for ChunkedVTable {
+impl FilterKernel for Chunked {
     fn filter(
         array: &ChunkedArray,
         mask: &Mask,
@@ -163,8 +163,7 @@ fn filter_indices(
                 let chunk = array.chunk(current_chunk_id);
                 let indices =
                     PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
-                let filtered_chunk = chunk.take(indices.to_array())?.to_canonical()?.into_array();
-                result.push(filtered_chunk);
+                result.push(chunk.take(indices.into_array())?);
             }
 
             // Advance the chunk forward, reset the chunk indices buffer.
@@ -178,7 +177,7 @@ fn filter_indices(
     if !chunk_indices.is_empty() {
         let chunk = array.chunk(current_chunk_id);
         let indices = PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
-        let filtered_chunk = chunk.take(indices.to_array())?.to_canonical()?.into_array();
+        let filtered_chunk = chunk.take(indices.into_array())?;
         result.push(filtered_chunk);
     }
 
@@ -203,17 +202,17 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> VortexResult<(us
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::half::f16;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::half::f16;
 
     #[test]
     fn filter_chunked_floats() {
@@ -254,17 +253,17 @@ mod test {
         vec![
             buffer![0u64, 1].into_array(),
             buffer![2_u64].into_array(),
-            PrimitiveArray::empty::<u64>(Nullability::NonNullable).to_array(),
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array(),
             buffer![3_u64, 4].into_array(),
         ],
         DType::Primitive(PType::U64, Nullability::NonNullable),
     ).unwrap())]
     #[case(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
-            PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
-            PrimitiveArray::empty::<u64>(Nullability::Nullable).to_array(),
-            PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
+            PrimitiveArray::from_option_iter([Some(0u64), None]).into_array(),
+            PrimitiveArray::from_option_iter([Some(2u64)]).into_array(),
+            PrimitiveArray::empty::<u64>(Nullability::Nullable).into_array(),
+            PrimitiveArray::from_option_iter([None, Some(4u64)]).into_array(),
         ],
         DType::Primitive(PType::U64, Nullability::Nullable),
     ).unwrap())]
@@ -279,6 +278,6 @@ mod test {
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
     fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_filter_conformance(chunked.as_ref());
+        test_filter_conformance(&chunked.into_array());
     }
 }

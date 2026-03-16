@@ -8,7 +8,7 @@ use std::fmt::Display;
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
 
-use crate::Array;
+use crate::DynArray;
 
 /// Describe how to convert an array to a string.
 ///
@@ -304,7 +304,7 @@ impl Default for DisplayOptions {
 /// See also:
 /// [Array::display_as](../trait.Array.html#method.display_as)
 /// and [DisplayOptions].
-pub struct DisplayArrayAs<'a>(pub &'a dyn Array, pub DisplayOptions);
+pub struct DisplayArrayAs<'a>(pub &'a dyn DynArray, pub DisplayOptions);
 
 impl Display for DisplayArrayAs<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -324,13 +324,14 @@ impl Display for DisplayArrayAs<'_> {
 ///     "vortex.primitive(i16, len=5)",
 /// );
 /// ```
-impl Display for dyn Array + '_ {
+impl Display for dyn DynArray + '_ {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_as(f, &DisplayOptions::MetadataOnly)
     }
 }
 
-impl dyn Array + '_ {
+const DISPLAY_LIMIT: usize = 16;
+impl dyn DynArray + '_ {
     /// Display logical values of the array
     ///
     /// For example, an `i16` typed array containing the first five non-negative integers is displayed
@@ -476,18 +477,20 @@ impl dyn Array + '_ {
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
-                write!(f, "[")?;
+                write!(f, "{}", if f.alternate() { "[\n" } else { "[" })?;
                 let sep = if *omit_comma_after_space { "," } else { ", " };
+                let sep = if f.alternate() { ",\n" } else { sep };
+                let limit = std::cmp::min(self.len(), f.precision().unwrap_or(DISPLAY_LIMIT));
                 write!(
                     f,
                     "{}",
-                    (0..self.len())
+                    (0..limit)
                         .map(|i| self
                             .scalar_at(i)
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string()))
                         .format(sep)
                 )?;
-                write!(f, "]")
+                write!(f, "{}", if f.alternate() { "\n]" } else { "]" })
             }
             DisplayOptions::TreeDisplay {
                 buffers,
@@ -507,9 +510,8 @@ impl dyn Array + '_ {
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
-                use vortex_dtype::DType;
-
                 use crate::canonical::ToCanonical;
+                use crate::dtype::DType;
 
                 let mut builder = tabled::builder::Builder::default();
 
@@ -576,12 +578,12 @@ impl dyn Array + '_ {
 mod test {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
 
     use crate::IntoArray as _;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]

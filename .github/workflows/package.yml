@@ -41,9 +41,13 @@ jobs:
           targets: ${{ matrix.target.target }}
           enable-sccache: "false"
 
+      - name: Install cargo-edit
+        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
+        with:
+          tool: cargo-edit
+
       - name: Cargo Set Version
         run: |
-          cargo install cargo-edit
           cargo set-version --workspace ${{ inputs.version }}
 
       - name: Set up Python
@@ -72,7 +76,7 @@ jobs:
           PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: "wheels-${{ matrix.target.target }}.zip"
           path: dist/
@@ -93,7 +97,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
       - run: cargo build --release --package vortex-jni
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: "libvortex_jni_aarch64-apple-darwin.zip"
           path: "target/release/libvortex_jni.dylib"
@@ -115,16 +119,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - run: |
-          apt update
-          apt install -y wget curl build-essential unzip
-      - name: Print GLIBC version
-        run: ldd --version
-      - name: Verify GLIBC version
-        run: |
-          set -eux
-
-          ldd --version | grep 'GLIBC 2.31'
+      - uses: ./.github/actions/prepare-java-linux
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
@@ -135,7 +130,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
       - run: cargo build --release --package vortex-jni
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: "libvortex_jni_${{ matrix.target.target }}.zip"
           path: "target/release/libvortex_jni.so"

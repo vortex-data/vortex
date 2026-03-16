@@ -2,54 +2,56 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskKernel for VarBinViewVTable {
-    fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
+impl MaskReduce for VarBinView {
+    fn mask(array: &VarBinViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         unsafe {
-            Ok(VarBinViewArray::new_handle_unchecked(
-                array.views_handle().clone(),
-                array.buffers().clone(),
-                array.dtype().as_nullable(),
-                array.validity().mask(mask),
-            )
-            .into_array())
+            Ok(Some(
+                VarBinViewArray::new_handle_unchecked(
+                    array.views_handle().clone(),
+                    array.buffers().clone(),
+                    array.dtype().as_nullable(),
+                    array
+                        .validity()
+                        .clone()
+                        .and(Validity::Array(mask.clone()))?,
+                )
+                .into_array(),
+            ))
         }
     }
 }
 
-register_kernel!(MaskKernelAdapter(VarBinViewVTable).lift());
-
 #[cfg(test)]
 mod tests {
+    use crate::IntoArray;
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
     #[test]
     fn take_mask_var_bin_view_array() {
         test_mask_conformance(
-            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref(),
+            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
         );
 
         test_mask_conformance(
-            VarBinViewArray::from_iter_nullable_str([
+            &VarBinViewArray::from_iter_nullable_str([
                 Some("one"),
                 None,
                 Some("three"),
                 Some("four"),
                 Some("five"),
             ])
-            .as_ref(),
+            .into_array(),
         );
     }
 }

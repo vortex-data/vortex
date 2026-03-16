@@ -4,35 +4,33 @@
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
-use crate::arrays::VarBinVTable;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinArray;
+use crate::arrays::dict::TakeExecute;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
-impl TakeExecute for VarBinVTable {
+impl TakeExecute for VarBin {
     fn take(
         array: &VarBinArray,
-        indices: &dyn Array,
-        _ctx: &mut ExecutionCtx,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): Be lazy with execute
-        let offsets = array.offsets().to_primitive();
+        let offsets = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
         let data = array.bytes();
-        let indices = indices.to_primitive();
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
         let dtype = array
             .dtype()
             .clone()
@@ -251,16 +249,16 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbin::compute::take::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     #[test]
@@ -270,14 +268,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            arr.take(idx1.to_array()).unwrap().dtype(),
+            arr.take(idx1.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            arr.take(idx2.to_array()).unwrap().dtype(),
+            arr.take(idx2.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }
@@ -297,7 +295,7 @@ mod tests {
     ))]
     #[case(VarBinArray::from_iter(["single"].map(Some), DType::Utf8(Nullability::NonNullable)))]
     fn test_take_varbin_conformance(#[case] array: VarBinArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 
     #[test]

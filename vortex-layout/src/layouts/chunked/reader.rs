@@ -11,11 +11,12 @@ use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -166,6 +167,10 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
+        if row_range.is_empty() {
+            return Ok(());
+        }
+
         for (index, (&start, &end)) in self
             .chunk_offsets
             .iter()
@@ -201,6 +206,10 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        if row_range.is_empty() {
+            return Ok(MaskFuture::ready(mask));
+        }
+
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
@@ -243,6 +252,10 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        if row_range.is_empty() {
+            return Ok(mask);
+        }
+
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
@@ -279,6 +292,12 @@ impl LayoutReader for ChunkedReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
+        if row_range.is_empty() {
+            return Ok(
+                async move { Ok(ChunkedArray::try_new(vec![], dtype)?.into_array()) }.boxed(),
+            );
+        }
+
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
@@ -301,7 +320,7 @@ impl LayoutReader for ChunkedReader {
             }
 
             // Combine the arrays.
-            Ok(ChunkedArray::try_new(chunks, dtype)?.to_array())
+            Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
         }
         .boxed())
     }
@@ -318,11 +337,11 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutRef;

@@ -26,23 +26,26 @@ pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::ConstantVTable;
-use vortex::array::arrays::DictVTable;
-use vortex::array::arrays::ListVTable;
+use vortex::array::arrays::Constant;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::vtable::ValidityHelper;
-use vortex::encodings::runend::RunEndVTable;
-use vortex::encodings::sequence::SequenceVTable;
+use vortex::encodings::runend::RunEnd;
+use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
-use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
-use crate::duckdb::DataChunk;
+use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
+use crate::duckdb::duckdb_vector_size;
 
 pub struct ArrayExporter {
+    ctx: ExecutionCtx,
+    /// Columns DuckDB requested to read from file. If empty, it's a zero-column
+    /// projection and should be handled accordingly, see ArrayExporter::export.
     fields: Vec<Box<dyn ColumnExporter>>,
     array_len: usize,
     remaining: usize,
@@ -52,16 +55,19 @@ impl ArrayExporter {
     pub fn try_new(
         array: &StructArray,
         cache: &ConversionCache,
-        ctx: &mut ExecutionCtx,
+        mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
-        let all_valid = array.validity().all_valid(array.len())?;
-        assert!(all_valid);
+        let validity = array.validity().execute_mask(array.len(), &mut ctx)?;
+        assert!(validity.all_true());
+
         let fields = array
             .unmasked_fields()
             .iter()
-            .map(|field| new_array_exporter(field.clone(), cache, ctx))
+            .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
+
         Ok(Self {
+            ctx,
             fields,
             array_len: array.len(),
             remaining: array.len(),
@@ -71,30 +77,33 @@ impl ArrayExporter {
     /// Export the data into the next chunk.
     ///
     /// Returns `true` if a chunk was exported, `false` if all rows have been exported.
-    pub fn export(&mut self, chunk: &mut DataChunk) -> VortexResult<bool> {
+    pub fn export(&mut self, chunk: &mut DataChunkRef) -> VortexResult<bool> {
+        chunk.reset();
         if self.remaining == 0 {
             return Ok(false);
         }
 
-        if self.fields.is_empty() {
-            // In the case of a projection pushdown with zero columns duckdb will ask us for the
-            // `EMPTY_COLUMN_IDX`, which we define as a bool column, we can leave the vector as
-            // uninitialized and just return a DataChunk with the correct length.
-            // One place no fields can occur is in count(*) queries.
-            chunk.set_len(self.remaining);
-            self.remaining = 0;
-
-            return Ok(true);
+        let expected_cols = self.fields.len();
+        let chunk_cols = chunk.column_count();
+        let zero_projection = expected_cols == 0;
+        if !zero_projection && chunk_cols != expected_cols {
+            vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
         }
 
-        let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
+        let chunk_len = duckdb_vector_size().min(self.remaining);
         let position = self.array_len - self.remaining;
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
 
+        // DuckDB asked us for zero columns. This may happen with aggregation
+        // functions like count(*). In such case we can leave chunk contents
+        // uninitialized. See EMPTY_COLUMN_IDX comment why this works.
+        if zero_projection {
+            return Ok(true);
+        }
+
         for (i, field) in self.fields.iter_mut().enumerate() {
-            let mut vector = chunk.get_vector(i);
-            field.export(position, chunk_len, &mut vector)?;
+            field.export(position, chunk_len, chunk.get_vector_mut(i), &mut self.ctx)?;
         }
 
         Ok(true)
@@ -106,9 +115,15 @@ impl ArrayExporter {
 /// NOTE(ngates): we could actually convert this into a Vortex compute function that takes
 ///  the offset, len and `WritableVector` as options. Not sure what it should return though?
 ///  This would allow Vortex extension authors to plug into the DuckDB exporter system.
-pub trait ColumnExporter {
+pub trait ColumnExporter: 'static {
     /// Export the given range of data from the Vortex array to the DuckDB vector.
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()>;
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()>;
 }
 
 fn new_array_exporter(
@@ -126,25 +141,25 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let array = match array.try_into::<ConstantVTable>() {
+    let array = match array.try_into::<Constant>() {
         Ok(array) => return constant::new_exporter(array),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<SequenceVTable>() {
+    if let Some(array) = array.as_opt::<Sequence>() {
         return sequence::new_exporter(array);
     }
 
-    let array = match array.try_into::<RunEndVTable>() {
+    let array = match array.try_into::<RunEnd>() {
         Ok(array) => return run_end::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<DictVTable>() {
+    if let Some(array) = array.as_opt::<Dict>() {
         return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
     }
 
-    let array = match array.try_into::<ListVTable>() {
+    let array = match array.try_into::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
@@ -194,7 +209,7 @@ mod tests {
     #[test]
     fn test_set_validity_all_true() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
 
         let mask = Mask::AllTrue(10);
         let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
@@ -205,7 +220,7 @@ mod tests {
     #[test]
     fn test_set_validity_all_false() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
         let len = 10;
 
         let mask = Mask::AllFalse(len);
@@ -223,7 +238,7 @@ mod tests {
     #[test]
     fn test_set_validity_values_all_true() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
 
         let mask = Mask::from(BitBuffer::from(vec![true; 10]));
 
@@ -241,7 +256,7 @@ mod tests {
     #[test]
     fn test_set_validity_values_all_false() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
 
         const LEN: usize = 10;
         let bits = vec![false; LEN];
@@ -260,7 +275,7 @@ mod tests {
     #[test]
     fn test_set_validity_values_mixed() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
 
         let bits = vec![
             true, false, true, true, false, false, true, true, false, true,
@@ -280,7 +295,7 @@ mod tests {
     #[test]
     fn test_set_validity_values_with_offset() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
 
         let bits = vec![
             false, false, true, true, false, true, false, true, true, false, true, true, false,
@@ -300,7 +315,7 @@ mod tests {
     #[test]
     fn test_set_validity_values_with_offset_and_smaller_len() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
 
         let bits = vec![
             true, false, true, true, false, false, true, true, false, true, true, true, false,
@@ -321,7 +336,7 @@ mod tests {
     #[test]
     fn test_set_validity_values_64bit_alignment() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
 
         let bits = (0..70).map(|i| i % 3 == 0).collect::<Vec<_>>();
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));

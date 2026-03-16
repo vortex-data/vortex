@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
 
+use crate::scalar::Scalar;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 

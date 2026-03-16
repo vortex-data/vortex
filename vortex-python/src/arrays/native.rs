@@ -5,35 +5,35 @@ use std::ops::Deref;
 
 use pyo3::PyClass;
 use pyo3::prelude::*;
-use vortex::array::Array;
 use vortex::array::ArrayAdapter;
 use vortex::array::ArrayRef;
-use vortex::array::arrays::BoolVTable;
-use vortex::array::arrays::ChunkedVTable;
-use vortex::array::arrays::ConstantVTable;
-use vortex::array::arrays::DecimalVTable;
-use vortex::array::arrays::DictVTable;
-use vortex::array::arrays::ExtensionVTable;
-use vortex::array::arrays::FixedSizeListVTable;
-use vortex::array::arrays::ListVTable;
-use vortex::array::arrays::NullVTable;
-use vortex::array::arrays::PrimitiveVTable;
-use vortex::array::arrays::StructVTable;
-use vortex::array::arrays::VarBinVTable;
-use vortex::array::arrays::VarBinViewVTable;
+use vortex::array::DynArray;
+use vortex::array::arrays::Bool;
+use vortex::array::arrays::Chunked;
+use vortex::array::arrays::Constant;
+use vortex::array::arrays::Decimal;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::Extension;
+use vortex::array::arrays::FixedSizeList;
+use vortex::array::arrays::List;
+use vortex::array::arrays::Null;
+use vortex::array::arrays::Primitive;
+use vortex::array::arrays::Struct;
+use vortex::array::arrays::VarBin;
+use vortex::array::arrays::VarBinView;
 use vortex::array::vtable::VTable;
-use vortex::encodings::alp::ALPRDVTable;
-use vortex::encodings::alp::ALPVTable;
-use vortex::encodings::bytebool::ByteBoolVTable;
-use vortex::encodings::datetime_parts::DateTimePartsVTable;
-use vortex::encodings::fastlanes::BitPackedVTable;
-use vortex::encodings::fastlanes::DeltaVTable;
-use vortex::encodings::fastlanes::FoRVTable;
-use vortex::encodings::fsst::FSSTVTable;
-use vortex::encodings::runend::RunEndVTable;
-use vortex::encodings::sequence::SequenceVTable;
-use vortex::encodings::sparse::SparseVTable;
-use vortex::encodings::zigzag::ZigZagVTable;
+use vortex::encodings::alp::ALP;
+use vortex::encodings::alp::ALPRD;
+use vortex::encodings::bytebool::ByteBool;
+use vortex::encodings::datetime_parts::DateTimeParts;
+use vortex::encodings::fastlanes::BitPacked;
+use vortex::encodings::fastlanes::Delta;
+use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fsst::FSST;
+use vortex::encodings::runend::RunEnd;
+use vortex::encodings::sequence::Sequence;
+use vortex::encodings::sparse::Sparse;
+use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexExpect;
 
 use crate::arrays::PyArray;
@@ -79,103 +79,103 @@ impl PyNativeArray {
     /// Initialize a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
     /// subclass array.
     pub fn init(py: Python, array: ArrayRef) -> PyResult<Bound<PyNativeArray>> {
-        if array.is::<NullVTable>() {
+        if array.is::<Null>() {
             return Self::with_subclass(py, array, PyNullArray);
         }
 
-        if array.is::<BoolVTable>() {
+        if array.is::<Bool>() {
             return Self::with_subclass(py, array, PyBoolArray);
         }
 
-        if array.is::<PrimitiveVTable>() {
+        if array.is::<Primitive>() {
             return Self::with_subclass(py, array, PyPrimitiveArray);
         }
 
-        if array.is::<VarBinVTable>() {
+        if array.is::<VarBin>() {
             return Self::with_subclass(py, array, PyVarBinArray);
         }
 
-        if array.is::<VarBinViewVTable>() {
+        if array.is::<VarBinView>() {
             return Self::with_subclass(py, array, PyVarBinViewArray);
         }
 
-        if array.is::<StructVTable>() {
+        if array.is::<Struct>() {
             return Self::with_subclass(py, array, PyStructArray);
         }
 
-        if array.is::<ListVTable>() {
+        if array.is::<List>() {
             return Self::with_subclass(py, array, PyListArray);
         }
 
-        if array.is::<FixedSizeListVTable>() {
+        if array.is::<FixedSizeList>() {
             return Self::with_subclass(py, array, PyFixedSizeListArray);
         }
 
-        if array.is::<ExtensionVTable>() {
+        if array.is::<Extension>() {
             return Self::with_subclass(py, array, PyExtensionArray);
         }
 
-        if array.is::<ChunkedVTable>() {
+        if array.is::<Chunked>() {
             return Self::with_subclass(py, array, PyChunkedArray);
         }
 
-        if array.is::<ConstantVTable>() {
+        if array.is::<Constant>() {
             return Self::with_subclass(py, array, PyConstantArray);
         }
 
-        if array.is::<ByteBoolVTable>() {
+        if array.is::<ByteBool>() {
             return Self::with_subclass(py, array, PyByteBoolArray);
         }
 
-        if array.is::<SparseVTable>() {
+        if array.is::<Sparse>() {
             return Self::with_subclass(py, array, PySparseArray);
         }
 
-        if array.is::<ALPVTable>() {
+        if array.is::<ALP>() {
             return Self::with_subclass(py, array, PyAlpArray);
         }
 
-        if array.is::<ALPRDVTable>() {
+        if array.is::<ALPRD>() {
             return Self::with_subclass(py, array, PyAlpRdArray);
         }
 
-        if array.is::<DateTimePartsVTable>() {
+        if array.is::<DateTimeParts>() {
             return Self::with_subclass(py, array, PyDateTimePartsArray);
         }
 
-        if array.is::<DictVTable>() {
+        if array.is::<Dict>() {
             return Self::with_subclass(py, array, PyDictArray);
         }
 
-        if array.is::<FSSTVTable>() {
+        if array.is::<FSST>() {
             return Self::with_subclass(py, array, PyFsstArray);
         }
 
-        if array.is::<RunEndVTable>() {
+        if array.is::<RunEnd>() {
             return Self::with_subclass(py, array, PyRunEndArray);
         }
 
-        if array.is::<ZigZagVTable>() {
+        if array.is::<ZigZag>() {
             return Self::with_subclass(py, array, PyZigZagArray);
         }
 
-        if array.is::<BitPackedVTable>() {
+        if array.is::<BitPacked>() {
             return Self::with_subclass(py, array, PyFastLanesBitPackedArray);
         }
 
-        if array.is::<DeltaVTable>() {
+        if array.is::<Delta>() {
             return Self::with_subclass(py, array, PyFastLanesDeltaArray);
         }
 
-        if array.is::<FoRVTable>() {
+        if array.is::<FoR>() {
             return Self::with_subclass(py, array, PyFastLanesFoRArray);
         }
 
-        if array.is::<DecimalVTable>() {
+        if array.is::<Decimal>() {
             return Self::with_subclass(py, array, PyDecimalArray);
         }
 
-        if array.is::<SequenceVTable>() {
+        if array.is::<Sequence>() {
             return Self::with_subclass(py, array, PySequenceArray);
         }
 

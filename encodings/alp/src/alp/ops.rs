@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
+use crate::ALP;
 use crate::ALPArray;
 use crate::ALPFloat;
-use crate::ALPVTable;
 use crate::match_each_alp_float_ptype;
 
-impl OperationsVTable<ALPVTable> for ALPVTable {
+impl OperationsVTable<ALP> for ALP {
     fn scalar_at(array: &ALPArray, index: usize) -> VortexResult<Scalar> {
         if let Some(patches) = array.patches()
             && let Some(patch) = patches.get_patched(index)?

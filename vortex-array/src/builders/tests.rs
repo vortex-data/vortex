@@ -4,19 +4,19 @@
 use std::sync::Arc;
 
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::Timestamp;
-use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
 
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::StructFields;
+use crate::dtype::half::f16;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
+use crate::scalar::Scalar;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
@@ -573,7 +573,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
             DType::Binary(n) => Scalar::binary(format!("bytes_{}", i).into_bytes(), *n),
             DType::Decimal(dec_dtype, n) => {
                 // Create decimal scalars based on the decimal dtype.
-                use vortex_scalar::DecimalValue;
+                use crate::scalar::DecimalValue;
                 let value = DecimalValue::I128((i as i128 + 1) * 100); // Simple decimal values.
                 Scalar::decimal(value, *dec_dtype, *n)
             }

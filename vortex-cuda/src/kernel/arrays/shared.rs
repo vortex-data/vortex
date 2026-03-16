@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::SharedVTable;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
+use tracing::instrument;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::Shared;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
@@ -14,25 +15,24 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA executor for SharedArray.
 #[derive(Debug)]
-pub struct SharedExecutor;
+pub(crate) struct SharedExecutor;
 
 #[async_trait]
 impl CudaExecute for SharedExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let shared = array
-            .try_into::<SharedVTable>()
+            .try_into::<Shared>()
             .ok()
             .vortex_expect("Array is not a Shared array");
 
-        if let Some(cached) = shared.cached() {
-            return Ok(cached);
-        }
-
-        let canonical = shared.as_source().execute_cuda(ctx).await?;
-        Ok(shared.cache_or_return(canonical))
+        shared
+            .get_or_compute_async(|source| source.execute_cuda(ctx))
+            .await?
+            .to_canonical()
     }
 }

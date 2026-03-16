@@ -7,7 +7,7 @@ use std::sync::Arc;
 use datafusion_common::Result as DFResult;
 use object_store::ObjectStore;
 use vortex::io::VortexReadAt;
-use vortex::io::file::object_store::ObjectStoreSource;
+use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
@@ -38,7 +38,7 @@ impl VortexReaderFactory for DefaultVortexReaderFactory {
         path: &str,
         session: &VortexSession,
     ) -> DFResult<Arc<dyn VortexReadAt>> {
-        Ok(Arc::new(ObjectStoreSource::new(
+        Ok(Arc::new(ObjectStoreReadAt::new(
             self.object_store.clone(),
             path.into(),
             session.handle(),

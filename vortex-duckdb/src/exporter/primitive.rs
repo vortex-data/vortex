@@ -5,15 +5,15 @@ use std::marker::PhantomData;
 
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::match_each_native_ptype;
 use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::NativePType;
-use vortex::dtype::match_each_native_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -35,10 +35,8 @@ pub fn new_exporter(
         .execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(
-            array.len(),
-            &LogicalType::try_from(array.ptype())?,
-        ));
+        let ltype = LogicalType::try_from(array.ptype())?;
+        return Ok(all_invalid::new_exporter(array.len(), &ltype));
     }
 
     match_each_native_ptype!(array.ptype(), |T| {
@@ -54,7 +52,13 @@ pub fn new_exporter(
 }
 
 impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         assert!(self.len >= offset + len);
 
         let pos = unsafe { self.start.add(offset) };
@@ -68,31 +72,30 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
-    use vortex::error::VortexExpect;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
+    use crate::duckdb::duckdb_vector_size;
 
     #[test]
     fn test_primitive_exporter() {
         let arr = PrimitiveArray::from_iter(0..10);
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(0, 3, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ 0, 1, 2]
 "#
@@ -101,34 +104,39 @@ mod tests {
 
     #[test]
     fn test_long_primitive_exporter() {
+        let vector_size = duckdb_vector_size();
         const ARRAY_COUNT: usize = 2;
-        const LEN: usize = DUCKDB_STANDARD_VECTOR_SIZE * ARRAY_COUNT;
-        let arr = PrimitiveArray::from_iter(0..i32::try_from(LEN).vortex_expect(""));
+        let len = vector_size * ARRAY_COUNT;
+        #[expect(clippy::cast_possible_truncation, reason = "test data fits in i32")]
+        let arr = PrimitiveArray::from_iter(0..len as i32);
 
         {
-            let mut chunk = (0..ARRAY_COUNT)
+            let mut chunk: Vec<DataChunk> = (0..ARRAY_COUNT)
                 .map(|_| DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]))
-                .collect_vec();
+                .collect();
 
             for i in 0..ARRAY_COUNT {
-                new_exporter(arr.clone(), &mut SESSION.create_execution_ctx())
+                let mut ctx = SESSION.create_execution_ctx();
+                new_exporter(arr.clone(), &mut ctx)
                     .unwrap()
                     .export(
-                        i * DUCKDB_STANDARD_VECTOR_SIZE,
-                        DUCKDB_STANDARD_VECTOR_SIZE,
-                        &mut chunk[i].get_vector(0),
+                        i * vector_size,
+                        vector_size,
+                        chunk[i].get_vector_mut(0),
+                        &mut ctx,
                     )
                     .unwrap();
-                chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);
+                chunk[i].set_len(vector_size);
 
                 assert_eq!(
-                    format!("{}", String::try_from(&chunk[i]).unwrap()),
+                    format!("{}", String::try_from(&*chunk[i]).unwrap()),
                     format!(
                         r#"Chunk - [1 Columns]
-- FLAT INTEGER: {DUCKDB_STANDARD_VECTOR_SIZE} = [ {}]
+- FLAT INTEGER: {vector_size} = [ {}]
 "#,
-                        &(i * DUCKDB_STANDARD_VECTOR_SIZE..(i + 1) * DUCKDB_STANDARD_VECTOR_SIZE)
+                        &(i * vector_size..(i + 1) * vector_size)
                             .map(|i| i.to_string())
+                            .collect::<Vec<String>>()
                             .join(", ")
                     )
                 );

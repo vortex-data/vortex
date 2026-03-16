@@ -11,14 +11,14 @@ pub(crate) mod compact;
 pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::VarBinViewVTable;
+pub use vtable::VarBinView;
 
 pub mod build_views;
 
-// Re-export BinaryView types from vortex-vector
-pub use vortex_vector::binaryview::BinaryView;
-pub use vortex_vector::binaryview::Inlined;
-pub use vortex_vector::binaryview::Ref;
+mod view;
+pub use view::BinaryView;
+pub use view::Inlined;
+pub use view::Ref;
 
 #[cfg(test)]
 mod tests;

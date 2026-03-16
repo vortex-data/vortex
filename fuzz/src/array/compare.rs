@@ -1,26 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::NativeValue;
-use vortex_array::compute::Operator;
-use vortex_array::compute::scalar_cmp;
+use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::match_each_decimal_value_type;
+use vortex_array::match_each_native_ptype;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::binary::scalar_cmp;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 
-pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Operator) -> ArrayRef {
+pub fn compare_canonical_array(
+    array: &ArrayRef,
+    value: &Scalar,
+    operator: CompareOperator,
+) -> ArrayRef {
     if value.is_null() {
         return BoolArray::new(BitBuffer::new_unset(array.len()), Validity::AllInvalid)
             .into_array();
@@ -146,16 +150,16 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
 fn compare_to<T: PartialOrd>(
     values: impl Iterator<Item = Option<T>>,
     cmp_value: T,
-    operator: Operator,
+    operator: CompareOperator,
     nullability: Nullability,
 ) -> ArrayRef {
     let eval_fn = |v| match operator {
-        Operator::Eq => v == cmp_value,
-        Operator::NotEq => v != cmp_value,
-        Operator::Gt => v > cmp_value,
-        Operator::Gte => v >= cmp_value,
-        Operator::Lt => v < cmp_value,
-        Operator::Lte => v <= cmp_value,
+        CompareOperator::Eq => v == cmp_value,
+        CompareOperator::NotEq => v != cmp_value,
+        CompareOperator::Gt => v > cmp_value,
+        CompareOperator::Gte => v >= cmp_value,
+        CompareOperator::Lt => v < cmp_value,
+        CompareOperator::Lte => v <= cmp_value,
     };
 
     if !nullability.is_nullable() {

@@ -12,6 +12,7 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
+publish = false
 
 [lints]
 workspace = true
@@ -22,6 +23,6 @@ vortex-cuda-macros = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
+liblzma = { workspace = true }
 reqwest = { workspace = true }
 tar = { workspace = true }
-liblzma = { workspace = true }

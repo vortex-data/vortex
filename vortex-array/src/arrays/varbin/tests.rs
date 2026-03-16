@@ -5,15 +5,15 @@ use rstest::fixture;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::varbin::VarBinArray;
 use crate::assert_arrays_eq;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 #[fixture]
@@ -46,23 +46,4 @@ pub fn slice_array(binary_array: ArrayRef) {
         binary_arr,
         VarBinViewArray::from_iter_str(["hello world this is a long string"])
     );
-}
-
-#[test]
-fn test_zero_offsets() -> vortex_error::VortexResult<()> {
-    use vortex_dtype::Nullability::NonNullable;
-
-    use crate::arrays::VarBinVTable;
-
-    let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
-    let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();
-
-    // After slicing, there is some unused data at the front of the bytes.
-    assert_eq!(sliced.offset_at(0), 3);
-
-    // But after zeroing the offsets, the extraneous data is gone.
-    let truncated = sliced.zero_offsets();
-    assert_eq!(truncated.offset_at(0), 0);
-    assert_eq!(truncated.len(), 2);
-    Ok(())
 }

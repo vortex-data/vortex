@@ -6,31 +6,31 @@ use std::sync::Arc;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_decimal_value;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::NullArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::varbinview::BinaryView;
 use crate::builders::builder_with_capacity;
+use crate::dtype::DType;
+use crate::dtype::DecimalType;
+use crate::dtype::Nullability;
+use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
@@ -126,7 +126,7 @@ pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
                     .map(|s| ConstantArray::new(s, array.len()).into_array())
                     .collect(),
                 None => {
-                    assert!(validity.all_invalid(array.len())?);
+                    assert!(matches!(validity, Validity::AllInvalid));
                     // The struct is entirely null, so fields just need placeholder values with the
                     // correct dtype. We use `default_value` which returns a zero for non-nullable
                     // dtypes and null for nullable dtypes, preserving each field's nullability.
@@ -160,7 +160,7 @@ pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
         DType::Extension(ext_dtype) => {
             let s = scalar.as_extension();
 
-            let storage_scalar = s.storage();
+            let storage_scalar = s.to_storage_scalar();
             let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
         }
@@ -312,23 +312,23 @@ mod tests {
 
     use enum_iterator::all;
     use itertools::Itertools;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::half::f16;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
-    use crate::arrays::ListViewRebuildMode;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
+    use crate::arrays::listview::ListViewRebuildMode;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::half::f16;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -496,7 +496,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 4);
         assert_eq!(canonical.list_size(), 3);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
@@ -523,7 +523,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 2);
-        assert_eq!(canonical.validity(), &Validity::AllValid);
+        assert!(matches!(canonical.validity(), Validity::AllValid));
 
         // Check elements.
         let elements = canonical.elements().to_primitive();
@@ -547,7 +547,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 5);
         assert_eq!(canonical.list_size(), 4);
-        assert_eq!(canonical.validity(), &Validity::AllInvalid);
+        assert!(matches!(canonical.validity(), Validity::AllInvalid));
 
         // Elements should be defaults (zeros).
         let elements = canonical.elements().to_primitive();
@@ -569,7 +569,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 10);
         assert_eq!(canonical.list_size(), 0);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Elements array should be empty.
         assert!(canonical.elements().is_empty());
@@ -635,7 +635,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 3);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Check elements including nulls.
         let elements = canonical.elements().to_primitive();

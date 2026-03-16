@@ -15,7 +15,7 @@ pub(crate) unsafe extern "C-unwind" fn cardinality_callback<T: TableFunction>(
     node_stats_out: *mut cpp::duckdb_vx_node_statistics,
 ) {
     let bind_data =
-        unsafe { bind_data.cast::<T::BindData>().as_mut() }.vortex_expect("bind_data null pointer");
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
     let node_stats =
         unsafe { node_stats_out.as_mut() }.vortex_expect("node_stats_out null pointer");
 

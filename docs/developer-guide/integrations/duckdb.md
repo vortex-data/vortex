@@ -17,10 +17,9 @@ concurrently during the global initialization phase, with a concurrency limit pr
 the number of DuckDB worker threads to keep the I/O pipeline saturated without overwhelming
 the system.
 
-A `MultiScan` stream manages the set of active file scans. It prioritises completing in-progress
-scans before opening new files, ensuring that DuckDB's execution threads always have data to
-consume while background I/O proceeds. File footers are cached to avoid redundant parsing when
-the same file appears in multiple queries.
+Active file scans are driven concurrently via `try_flatten_unordered`, ensuring that DuckDB's
+execution threads always have data to consume while background I/O proceeds. File footers are
+cached to avoid redundant parsing when the same file appears in multiple queries.
 
 ## Threading Model
 

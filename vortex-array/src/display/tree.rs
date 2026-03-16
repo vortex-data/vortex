@@ -8,16 +8,16 @@ use humansize::DECIMAL;
 use humansize::format_size;
 use vortex_error::VortexExpect as _;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
-use crate::arrays::ChunkedVTable;
+use crate::DynArray;
+use crate::arrays::Chunked;
 use crate::display::DisplayOptions;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 
 /// Display wrapper for array statistics in compact format.
-struct StatsDisplay<'a>(&'a dyn Array);
+struct StatsDisplay<'a>(&'a dyn DynArray);
 
 impl fmt::Display for StatsDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -164,7 +164,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 .flatten()
                 .unwrap_or(nbytes);
 
-            self.ancestor_sizes.push(if array.is::<ChunkedVTable>() {
+            self.ancestor_sizes.push(if array.is::<Chunked>() {
                 // Treat each chunk as a new root
                 None
             } else {

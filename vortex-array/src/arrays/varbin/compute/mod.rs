@@ -17,11 +17,12 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[rstest]
     // UTF-8 strings
@@ -63,6 +64,6 @@ mod tests {
         DType::Utf8(Nullability::NonNullable),
     ))]
     fn test_varbin_consistency(#[case] array: VarBinArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

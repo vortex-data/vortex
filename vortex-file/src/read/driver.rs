@@ -136,12 +136,21 @@ impl State {
         tracing::debug!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
+                if req.callback.is_closed() {
+                    tracing::debug!(?req, "ReadRequest dropped before registration");
+                    return;
+                }
                 self.requests_by_offset.insert((req.offset, req.id));
                 self.requests.insert(req.id, req);
             }
             ReadEvent::Polled(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
-                    self.polled_requests.insert(req_id, req);
+                    if req.callback.is_closed() {
+                        self.requests_by_offset.remove(&(req.offset, req_id));
+                        tracing::debug!(?req, "ReadRequest dropped before poll");
+                    } else {
+                        self.polled_requests.insert(req_id, req);
+                    }
                 }
             }
             ReadEvent::Dropped(req_id) => {
@@ -568,6 +577,44 @@ mod tests {
         let outputs = collect_outputs(events, None).await;
         assert_eq!(outputs.len(), 1); // Only req2, req1 was cancelled
         assert_eq!(outputs[0].offset(), 100);
+    }
+
+    #[test]
+    fn test_on_event_cleans_cancelled_requests_early() {
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let mut state = State::new(metrics, Alignment::none());
+
+        // Cancel before registration: request should never enter state indexes.
+        let (tx1, rx1) = oneshot::channel();
+        drop(rx1);
+        let req1 = ReadRequest {
+            id: 1,
+            offset: 10,
+            length: 4,
+            alignment: Alignment::none(),
+            callback: tx1,
+        };
+        state.on_event(ReadEvent::Request(req1));
+        assert!(state.requests.is_empty());
+        assert!(state.polled_requests.is_empty());
+        assert!(state.requests_by_offset.is_empty());
+
+        // Cancel after registration but before first poll: should be removed on Polled event.
+        let (tx2, rx2) = oneshot::channel();
+        let req2 = ReadRequest {
+            id: 2,
+            offset: 20,
+            length: 8,
+            alignment: Alignment::none(),
+            callback: tx2,
+        };
+        state.on_event(ReadEvent::Request(req2));
+        drop(rx2);
+        state.on_event(ReadEvent::Polled(2));
+        assert!(state.requests.is_empty());
+        assert!(state.polled_requests.is_empty());
+        assert!(state.requests_by_offset.is_empty());
     }
 
     #[tokio::test]

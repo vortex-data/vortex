@@ -8,28 +8,27 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::BinaryView;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::varbinview::BinaryView;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
-use crate::compute::ZipKernel;
-use crate::compute::ZipKernelAdapter;
-use crate::register_kernel;
+use crate::scalar_fn::fns::zip::ZipKernel;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
 // instead of routing through the generic builder (which would redo buffer lookups per mask slice).
-impl ZipKernel for VarBinViewVTable {
+impl ZipKernel for VarBinView {
     fn zip(
-        &self,
         if_true: &VarBinViewArray,
-        if_false: &dyn Array,
-        mask: &Mask,
+        if_false: &ArrayRef,
+        mask: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<VarBinViewVTable>() else {
+        let Some(if_false) = if_false.as_opt::<VarBinView>() else {
             return Ok(None);
         };
 
@@ -37,7 +36,6 @@ impl ZipKernel for VarBinViewVTable {
             vortex_bail!("input arrays to zip must have the same dtype");
         }
 
-        // compute fn already asserts if_true.len() == if_false.len()
         let len = if_true.len();
         let dtype = if_true
             .dtype()
@@ -57,6 +55,7 @@ impl ZipKernel for VarBinViewVTable {
         let true_validity = if_true.validity_mask()?;
         let false_validity = if_false.validity_mask()?;
 
+        let mask = mask.try_to_mask_fill_null_false(ctx)?;
         match mask.slices() {
             AllOr::All => push_range(
                 if_true,
@@ -123,7 +122,7 @@ impl ZipKernel for VarBinViewVTable {
             )
         };
 
-        Ok(Some(array.to_array()))
+        Ok(Some(array.into_array()))
     }
 }
 
@@ -205,18 +204,17 @@ fn push_view(
     validity_builder.append_non_null();
 }
 
-register_kernel!(ZipKernelAdapter(VarBinViewVTable).lift());
-
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::zip;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[test]
     fn zip_varbinview_kernel_zips() {
@@ -246,7 +244,12 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        let zipped = zip(a.as_ref(), b.as_ref(), &mask).unwrap().to_varbinview();
+        let zipped = mask
+            .clone()
+            .into_array()
+            .zip(a.into_array(), b.into_array())
+            .unwrap()
+            .to_varbinview();
 
         let values = zipped.with_iterator(|it| {
             it.map(|v| v.map(|bytes| String::from_utf8(bytes.to_vec()).unwrap()))

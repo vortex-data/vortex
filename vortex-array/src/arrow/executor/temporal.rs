@@ -20,21 +20,21 @@ use arrow_array::types::TimestampNanosecondType;
 use arrow_array::types::TimestampSecondType;
 use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
-use vortex_dtype::NativePType;
-use vortex_dtype::datetime::AnyTemporal;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray as VortexPrimitiveArray;
 use crate::arrow::null_buffer::to_null_buffer;
+use crate::dtype::NativePType;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::TimeUnit;
 
 pub(super) fn to_arrow_temporal(
     array: ArrayRef,
@@ -147,7 +147,7 @@ where
 
     let ext_array = array.execute::<ExtensionArray>(ctx)?;
     let primitive = ext_array
-        .storage()
+        .storage_array()
         .clone()
         .execute::<VortexPrimitiveArray>(ctx)?;
     vortex_ensure!(

@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use vortex_array::Array;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::ArrayRef;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -269,11 +269,11 @@ impl BitPackedArray {
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
     // FIXME(ngates): take a PrimitiveArray
-    pub fn encode(array: &dyn Array, bit_width: u8) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<Self> {
+        if let Some(parray) = array.as_opt::<Primitive>() {
             bitpack_encode(parray, bit_width, None)
         } else {
-            vortex_bail!("Bitpacking can only encode primitive arrays");
+            vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");
         }
     }
 
@@ -307,20 +307,6 @@ mod test {
 
     use crate::BitPackedArray;
 
-    // #[cfg_attr(miri, ignore)]
-    // #[test]
-    // fn test_bitpacked_metadata() {
-    //     check_metadata(
-    //         "bitpacked.metadata",
-    //         RkyvMetadata(BitPackedMetadata {
-    //             patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
-    //             validity: ValidityMetadata::AllValid,
-    //             offset: u16::MAX,
-    //             bit_width: u8::MAX,
-    //         }),
-    //     );
-    // }
-
     #[test]
     fn test_encode() {
         let values = [
@@ -333,7 +319,7 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedArray::encode(uncompressed.as_ref(), 1).unwrap();
+        let packed = BitPackedArray::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
         assert_arrays_eq!(packed.to_primitive(), expected);
     }
@@ -342,9 +328,9 @@ mod test {
     fn test_encode_too_wide() {
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedArray::encode(uncompressed.as_ref(), 8)
+        let _packed = BitPackedArray::encode(&uncompressed.clone().into_array(), 8)
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedArray::encode(uncompressed.as_ref(), 9)
+        let _packed = BitPackedArray::encode(&uncompressed.into_array(), 9)
             .expect_err("Cannot pack value into larger width");
     }
 

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Canonical;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::VarBinViewArrayParts;
-use vortex_cuda_macros::cuda_tests;
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex::array::Canonical;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
+use vortex::error::VortexResult;
+use vortex::mask::Mask;
 
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
@@ -25,11 +24,7 @@ pub(super) async fn filter_varbinview(
 
     let filtered_validity = validity.filter(&mask)?;
 
-    let d_views = if views.is_on_device() {
-        views
-    } else {
-        ctx.move_to_device(views)?.await?
-    };
+    let d_views = ctx.ensure_on_device(views).await?;
 
     let filtered_views = filter_sized::<i128>(d_views, mask, ctx).await?;
 
@@ -41,17 +36,17 @@ pub(super) async fn filter_varbinview(
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::FilterArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_mask::Mask;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::FilterArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::mask::Mask;
+    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;
@@ -69,7 +64,7 @@ mod tests {
         ),
         Mask::from_iter([true, true, true, true, true, true, true, true, false])
     )]
-    #[tokio::test]
+    #[crate::test]
     async fn test_gpu_filter_strings(
         #[case] input: VarBinViewArray,
         #[case] mask: Mask,

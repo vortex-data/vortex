@@ -9,14 +9,14 @@ use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::dtype::datetime::AnyTemporal;
-use vortex::dtype::datetime::TemporalMetadata;
-use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::half::f16;
 use vortex::dtype::i256;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::TemporalMetadata;
+use vortex::extension::datetime::TimeUnit;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 
@@ -115,7 +115,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             DType::List(..) => todo!("list scalar conversion"),
             DType::FixedSizeList(..) => todo!("fixed-size list scalar conversion"),
             DType::Extension(ext) => {
-                let storage_scalar = self.as_extension().storage();
+                let storage_scalar = self.as_extension().to_storage_scalar();
 
                 let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
                     // Unknown extension type: perform scalar conversion using the canonical

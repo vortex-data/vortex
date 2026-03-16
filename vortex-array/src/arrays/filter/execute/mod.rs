@@ -11,7 +11,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -21,13 +20,17 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FilterArray;
 use crate::arrays::NullArray;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
+mod bitbuffer;
 mod bool;
+mod buffer;
 mod decimal;
 mod fixed_size_list;
 mod listview;
 mod primitive;
+mod slice;
 mod struct_;
 mod varbinview;
 
@@ -86,7 +89,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
         Canonical::Extension(a) => {
             let filtered_storage = a
-                .storage()
+                .storage_array()
                 .filter(values_to_mask(mask))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))

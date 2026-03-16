@@ -3,15 +3,15 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::compute::is_sorted;
 use crate::compute::is_strict_sorted;
 use crate::register_kernel;
 
-impl IsSortedKernel for DictVTable {
+impl IsSortedKernel for Dict {
     fn is_sorted(&self, array: &DictArray) -> VortexResult<Option<bool>> {
         if Some((true, true)) == is_sorted(array.values())?.zip(is_sorted(array.codes())?) {
             return Ok(Some(true));
@@ -29,4 +29,4 @@ impl IsSortedKernel for DictVTable {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(DictVTable).lift());
+register_kernel!(IsSortedKernelAdapter(Dict).lift());

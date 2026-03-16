@@ -4,8 +4,8 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;

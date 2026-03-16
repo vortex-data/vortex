@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::register_kernel;
+use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastReduce;
 
-impl CastKernel for ConstantVTable {
-    fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for Constant {
+    fn cast(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         match array.scalar().cast(dtype) {
             Ok(scalar) => Ok(Some(ConstantArray::new(scalar, array.len()).into_array())),
             Err(_e) => Ok(None),
@@ -21,16 +19,14 @@ impl CastKernel for ConstantVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(ConstantVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::scalar::Scalar;
 
     #[rstest]
     #[case(ConstantArray::new(Scalar::from(42u32), 5).into_array())]
@@ -40,6 +36,6 @@ mod tests {
     #[case(ConstantArray::new(Scalar::null_native::<i32>(), 4).into_array())]
     #[case(ConstantArray::new(Scalar::from(255u8), 1).into_array())]
     fn test_cast_constant_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array);
     }
 }

@@ -13,7 +13,6 @@ mod take;
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -23,6 +22,7 @@ mod test {
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DType;
 
     #[test]
     fn test_slice_nulls() {
@@ -56,21 +56,21 @@ mod test {
 
     #[test]
     fn test_filter_null_array() {
-        test_filter_conformance(NullArray::new(5).as_ref());
-        test_filter_conformance(NullArray::new(1).as_ref());
-        test_filter_conformance(NullArray::new(10).as_ref());
+        test_filter_conformance(&NullArray::new(5).into_array());
+        test_filter_conformance(&NullArray::new(1).into_array());
+        test_filter_conformance(&NullArray::new(10).into_array());
     }
 
     #[test]
     fn test_mask_null_array() {
-        test_mask_conformance(NullArray::new(5).as_ref());
+        test_mask_conformance(&NullArray::new(5).into_array());
     }
 
     #[test]
     fn test_take_null_array_conformance() {
-        test_take_conformance(NullArray::new(5).as_ref());
-        test_take_conformance(NullArray::new(1).as_ref());
-        test_take_conformance(NullArray::new(10).as_ref());
+        test_take_conformance(&NullArray::new(5).into_array());
+        test_take_conformance(&NullArray::new(1).into_array());
+        test_take_conformance(&NullArray::new(10).into_array());
     }
 
     #[rstest]
@@ -82,6 +82,6 @@ mod test {
     #[case::null_array_large(NullArray::new(1000))]
     #[case::null_array_empty(NullArray::new(0))]
     fn test_null_consistency(#[case] array: NullArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

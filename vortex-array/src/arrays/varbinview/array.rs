@@ -6,19 +6,19 @@ use std::sync::Arc;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_vector::binaryview::BinaryView;
 
+use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -63,7 +63,7 @@ use crate::validity::Validity;
 ///
 /// ```
 /// use vortex_array::arrays::VarBinViewArray;
-/// use vortex_dtype::{DType, Nullability};
+/// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_array::IntoArray;
 ///
 /// // Create from an Iterator<Item = &str>
@@ -264,7 +264,7 @@ impl VarBinViewArray {
     ) -> VortexResult<()> {
         vortex_ensure!(
             validity.nullability() == dtype.nullability(),
-            "validity {:?} incompatible with nullability {:?}",
+            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
             validity,
             dtype.nullability()
         );
@@ -274,7 +274,7 @@ impl VarBinViewArray {
                 simdutf8::basic::from_utf8(string).is_ok()
             })?,
             DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
-            _ => vortex_bail!("invalid DType {dtype} for `VarBinViewArray`"),
+            _ => vortex_bail!(InvalidArgument: "invalid DType {dtype} for `VarBinViewArray`"),
         }
 
         Ok(())
@@ -299,7 +299,7 @@ impl VarBinViewArray {
                 let bytes = &view.as_inlined().data[..view.len() as usize];
                 vortex_ensure!(
                     validator(bytes),
-                    "view at index {idx}: inlined bytes failed utf-8 validation"
+                    InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
                 );
             } else {
                 // Validate the view pointer
@@ -309,18 +309,18 @@ impl VarBinViewArray {
                 let end_offset = start_offset.saturating_add(view.size as usize);
 
                 let buf = buffers.get(buf_index).ok_or_else(||
-                    vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
+                    vortex_err!(InvalidArgument: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
                         buffers.len()))?;
 
                 vortex_ensure!(
                     start_offset < buf.len(),
-                    "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                    InvalidArgument: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
                     buf.len(),
                 );
 
                 vortex_ensure!(
                     end_offset <= buf.len(),
-                    "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                    InvalidArgument: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
                     buf.len(),
                 );
 
@@ -328,13 +328,13 @@ impl VarBinViewArray {
                 let bytes = &buf[start_offset..end_offset];
                 vortex_ensure!(
                     view.prefix == bytes[..4],
-                    "VarBinView prefix does not match full string"
+                    InvalidArgument: "VarBinView prefix does not match full string"
                 );
 
                 // Validate the full string
                 vortex_ensure!(
                     validator(bytes),
-                    "view at index {idx}: outlined bytes fails utf-8 validation"
+                    InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
                 );
             }
         }

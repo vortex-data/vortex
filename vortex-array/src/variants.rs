@@ -4,20 +4,26 @@
 //! This module defines extension functionality specific to each Vortex DType.
 use std::cmp::Ordering;
 
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::PType;
-use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_scalar::PValue;
+use vortex_mask::Mask;
 
-use crate::Array;
+use crate::DynArray;
+use crate::ExecutionCtx;
+use crate::arrays::BoolArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::PType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::scalar::PValue;
+use crate::scalar::Scalar;
 use crate::search_sorted::IndexOrd;
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Downcasts the array for null-specific behavior.
     pub fn as_null_typed(&self) -> NullTyped<'_> {
         matches!(self.dtype(), DType::Null)
@@ -80,16 +86,29 @@ impl dyn Array + '_ {
             .then(|| ExtensionTyped(self))
             .vortex_expect("Array does not have DType::Extension")
     }
+
+    pub fn try_to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+        if !matches!(self.dtype(), DType::Bool(_)) {
+            vortex_bail!("mask must be bool array, has dtype {}", self.dtype());
+        }
+
+        // Convert nulls to false first in case this can be done cheaply by the encoding.
+        let array = self
+            .to_array()
+            .fill_null(Scalar::bool(false, self.dtype().nullability()))?;
+
+        Ok(array.execute::<BoolArray>(ctx)?.to_mask_fill_null_false())
+    }
 }
 
 #[expect(dead_code)]
-pub struct NullTyped<'a>(&'a dyn Array);
+pub struct NullTyped<'a>(&'a dyn DynArray);
 
-pub struct BoolTyped<'a>(&'a dyn Array);
+pub struct BoolTyped<'a>(&'a dyn DynArray);
 
 impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
-        let true_count = sum(self.0)?;
+        let true_count = sum(&self.0.to_array())?;
         Ok(true_count
             .as_primitive()
             .as_::<usize>()
@@ -97,7 +116,7 @@ impl BoolTyped<'_> {
     }
 }
 
-pub struct PrimitiveTyped<'a>(&'a dyn Array);
+pub struct PrimitiveTyped<'a>(&'a dyn DynArray);
 
 impl PrimitiveTyped<'_> {
     pub fn ptype(&self) -> PType {
@@ -151,15 +170,15 @@ impl IndexOrd<PValue> for PrimitiveTyped<'_> {
 }
 
 #[expect(dead_code)]
-pub struct Utf8Typed<'a>(&'a dyn Array);
+pub struct Utf8Typed<'a>(&'a dyn DynArray);
 
 #[expect(dead_code)]
-pub struct BinaryTyped<'a>(&'a dyn Array);
+pub struct BinaryTyped<'a>(&'a dyn DynArray);
 
 #[expect(dead_code)]
-pub struct DecimalTyped<'a>(&'a dyn Array);
+pub struct DecimalTyped<'a>(&'a dyn DynArray);
 
-pub struct StructTyped<'a>(&'a dyn Array);
+pub struct StructTyped<'a>(&'a dyn DynArray);
 
 impl StructTyped<'_> {
     pub fn names(&self) -> &FieldNames {
@@ -182,9 +201,9 @@ impl StructTyped<'_> {
 }
 
 #[expect(dead_code)]
-pub struct ListTyped<'a>(&'a dyn Array);
+pub struct ListTyped<'a>(&'a dyn DynArray);
 
-pub struct ExtensionTyped<'a>(&'a dyn Array);
+pub struct ExtensionTyped<'a>(&'a dyn DynArray);
 
 impl ExtensionTyped<'_> {
     /// Returns the extension logical [`DType`].

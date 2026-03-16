@@ -5,7 +5,6 @@ pub(crate) mod builtins;
 pub(crate) mod compressed;
 pub(crate) mod fastlanes;
 pub(crate) mod from_arrow;
-pub mod into_array;
 mod native;
 pub(crate) mod py;
 mod range_to_sequence;
@@ -22,19 +21,20 @@ use pyo3::types::PyList;
 use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
+use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::ChunkedVTable;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrow::IntoArrowArray;
-use vortex::compute::Operator;
-use vortex::compute::compare;
+use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::match_each_integer_ptype;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
@@ -44,6 +44,7 @@ use crate::arrow::ToPyArrow;
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
+use crate::expr::PyExpr;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
@@ -106,7 +107,7 @@ impl<'py> FromPyObject<'_, 'py> for PyArrayRef {
         }
 
         // Otherwise, if it's a subclass of `PyArray`, then we can extract the inner array.
-        PythonArray::extract(ob).map(|instance| Self(instance.to_array()))
+        PythonArray::extract(ob).map(|instance| Self(instance.into_array()))
     }
 }
 
@@ -117,7 +118,7 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         // If the ArrayRef is a PyArrayInstance, extract the Python object.
-        if let Some(pyarray) = self.0.as_any().downcast_ref::<PythonArray>() {
+        if let Some(pyarray) = DynArray::as_any(&*self.0).downcast_ref::<PythonArray>() {
             return pyarray.clone().into_pyobject(py);
         }
 
@@ -323,7 +324,7 @@ impl PyArray {
         let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
         let py = self_.py();
 
-        if let Some(chunked_array) = array.as_opt::<ChunkedVTable>() {
+        if let Some(chunked_array) = array.as_opt::<Chunked>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
             let arrow_dtype = chunked_array.dtype().to_arrow_dtype()?;
@@ -421,45 +422,75 @@ impl PyArray {
         )
     }
 
+    /// Apply an expression on this array
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// Extract one column from a Vortex array:
+    ///
+    /// ```python
+    /// >>> import vortex.expr as ve
+    /// >>> import vortex as vx
+    /// >>> array = vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}])
+    /// >>> expr = ve.column("a")
+    /// >>> array = array.apply(expr)
+    /// >>> array.to_arrow_array().to_pylist()
+    /// [0, 1]
+    /// ```
+    ///
+    /// See also
+    /// --------
+    /// vortex.open : Open an on-disk Vortex array for scanning with an expression.
+    /// vortex.VortexFile : An on-disk Vortex array ready to scan with an expression.
+    /// vortex.VortexFile.scan : Scan an on-disk Vortex array with an expression.
+    pub fn apply(slf: Bound<Self>, expr: PyExpr) -> PyVortexResult<PyArrayRef> {
+        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+
+        let inner = slf.apply(&expr)?;
+
+        Ok(PyArrayRef::from(inner))
+    }
+
     ///Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326
     fn __lt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&slf, &*other, Operator::Lt)?;
+        let inner = slf.binary(other.into_inner(), Operator::Lt)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __le__: https://github.com/PyO3/pyo3/issues/4326
     fn __le__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, Operator::Lte)?;
+        let inner = slf.binary(other.into_inner(), Operator::Lte)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __eq__: https://github.com/PyO3/pyo3/issues/4326
     fn __eq__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, Operator::Eq)?;
+        let inner = slf.binary(other.into_inner(), Operator::Eq)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __ne__: https://github.com/PyO3/pyo3/issues/4326
     fn __ne__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, Operator::NotEq)?;
+        let inner = slf.binary(other.into_inner(), Operator::NotEq)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __ge__: https://github.com/PyO3/pyo3/issues/4326
     fn __ge__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, Operator::Gte)?;
+        let inner = slf.binary(other.into_inner(), Operator::Gte)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __gt__: https://github.com/PyO3/pyo3/issues/4326
     fn __gt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, Operator::Gt)?;
+        let inner = slf.binary(other.into_inner(), Operator::Gt)?;
         Ok(PyArrayRef::from(inner))
     }
 
@@ -493,8 +524,8 @@ impl PyArray {
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let mask = (&*mask as &dyn Array).to_bool().to_mask_fill_null_false();
-        let inner = vortex::compute::filter(&*slf, &mask)?;
+        let mask = (&*mask as &ArrayRef).to_bool().to_mask_fill_null_false();
+        let inner = slf.filter(mask)?.to_canonical()?.into_array();
         Ok(PyArrayRef::from(inner))
     }
 

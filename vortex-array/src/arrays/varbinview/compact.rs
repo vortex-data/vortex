@@ -9,9 +9,10 @@ use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::Ref;
 
+use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::Ref;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 
@@ -130,7 +131,7 @@ impl VarBinViewArray {
             self.len(),
             buffer_utilization_threshold,
         );
-        builder.extend_from_array(self.as_ref());
+        builder.extend_from_array(&self.clone().into_array());
         Ok(builder.finish_into_varbinview())
     }
 }
@@ -185,8 +186,6 @@ impl BufferUtilization {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -194,6 +193,8 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     #[test]
     fn test_optimize_compacts_buffers() {
         // Create a VarBinViewArray with some long strings that will create multiple buffers

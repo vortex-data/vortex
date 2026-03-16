@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
-use super::RLEVTable;
+use super::RLE;
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
 
-impl OperationsVTable<RLEVTable> for RLEVTable {
+impl OperationsVTable<RLE> for RLE {
     fn scalar_at(array: &RLEArray, index: usize) -> VortexResult<Scalar> {
         let offset_in_chunk = array.offset();
         let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
@@ -33,7 +33,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
@@ -207,7 +207,7 @@ mod tests {
             Some(30),
             Some(10),
         ]);
-        assert_arrays_eq!(sliced.to_array(), expected.to_array());
+        assert_arrays_eq!(sliced.into_array(), expected.into_array());
     }
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
         let sliced = array.slice(1..4).unwrap(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
-        assert_arrays_eq!(sliced.to_array(), expected.to_array());
+        assert_arrays_eq!(sliced.into_array(), expected.into_array());
     }
 
     #[test]
@@ -251,7 +251,7 @@ mod tests {
         let sliced = array.slice(1..4).unwrap().to_array().to_primitive(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
-        assert_arrays_eq!(sliced.to_array(), expected.to_array());
+        assert_arrays_eq!(sliced.into_array(), expected.into_array());
     }
 
     #[test]

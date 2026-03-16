@@ -1,31 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Filter;
 use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::FilterReduceAdaptor;
-use vortex_array::arrays::FilterVTable;
-use vortex_array::arrays::SliceReduceAdaptor;
+use vortex_array::arrays::filter::FilterReduceAdaptor;
+use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_error::VortexResult;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
-pub(super) const PARENT_RULES: ParentRuleSet<FoRVTable> = ParentRuleSet::new(&[
+pub(super) const PARENT_RULES: ParentRuleSet<FoR> = ParentRuleSet::new(&[
+    // TODO: add BetweenReduceAdaptor(FoR)
     ParentRuleSet::lift(&FoRFilterPushDownRule),
-    ParentRuleSet::lift(&FilterReduceAdaptor(FoRVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(FoRVTable)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(FoR)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(FoR)),
+    ParentRuleSet::lift(&CastReduceAdaptor(FoR)),
 ]);
 
 #[derive(Debug)]
 struct FoRFilterPushDownRule;
 
-impl ArrayParentReduceRule<FoRVTable> for FoRFilterPushDownRule {
-    type Parent = FilterVTable;
+impl ArrayParentReduceRule<FoR> for FoRFilterPushDownRule {
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,

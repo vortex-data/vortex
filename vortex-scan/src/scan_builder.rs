@@ -14,6 +14,11 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
 use vortex_array::expr::root;
@@ -23,11 +28,6 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Field;
-use vortex_dtype::FieldMask;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -137,6 +137,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn ordered(&self) -> bool {
+        self.ordered
+    }
+
     pub fn with_ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
         self
@@ -167,6 +171,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
     /// The number of row splits to make progress on concurrently per-thread, must
     /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
@@ -175,8 +183,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
+        self.metrics_registry = metrics;
+        self
+    }
+
     pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics);
+        self
+    }
+
+    pub fn with_some_limit(mut self, limit: Option<u64>) -> Self {
+        self.limit = limit;
         self
     }
 
@@ -450,11 +468,11 @@ mod test {
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldMask;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::Expression;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldMask;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;

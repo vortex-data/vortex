@@ -8,11 +8,11 @@
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ArbitraryConstantArray;
-use vortex_array::arrays::ArbitraryDictArray;
+use vortex_array::arrays::constant::ArbitraryConstantArray;
+use vortex_array::arrays::dict::ArbitraryDictArray;
 use vortex_runend::ArbitraryRunEndArray;
 
 /// Which compressed encoding to generate.

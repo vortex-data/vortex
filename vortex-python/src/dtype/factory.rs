@@ -16,10 +16,10 @@ use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
-use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::Time;
-use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::Timestamp;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
 
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;

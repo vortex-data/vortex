@@ -9,6 +9,7 @@ import polars as pl
 import pyarrow as pa
 
 from .dtype import DType, PType
+from .expr import Expr
 from .scalar import Scalar, ScalarPyType
 from .serde import ArrayContext
 
@@ -43,6 +44,7 @@ class Array:
     def to_polars_series(self) -> pl.Series: ...
     def to_pylist(self) -> list[ScalarPyType]: ...
     def serialize(self, ctx: ArrayContext) -> bytes: ...
+    def apply(self, expr: Expr) -> Array: ...
 
 class NativeArray(Array): ...
 
@@ -60,7 +62,12 @@ class PrimitiveArray(Array):
     @property
     def ptype(self) -> PType: ...
 
-# TODO(connor): Is this missing a `DecimalArray`?
+@final
+class DecimalArray(Array):
+    @property
+    def precision(self) -> int: ...
+    @property
+    def scale(self) -> int: ...
 
 @final
 class VarBinArray(Array): ...

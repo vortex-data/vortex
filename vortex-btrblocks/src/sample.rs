@@ -4,13 +4,16 @@
 use rand::Rng;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
 
-pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> ArrayRef {
+use crate::stats::SAMPLE_COUNT;
+use crate::stats::SAMPLE_SIZE;
+
+pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
         return input.to_array();
     }
@@ -34,6 +37,22 @@ pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> 
     ChunkedArray::try_new(chunks, input.dtype().clone())
         .vortex_expect("sample slices should form valid chunked array")
         .into_array()
+}
+
+/// Computes the number of sample chunks to cover approximately 1% of `len` elements,
+/// with a minimum of `SAMPLE_SIZE * SAMPLE_COUNT` (1024) values.
+pub(crate) fn sample_count_approx_one_percent(len: usize) -> u32 {
+    let approximately_one_percent =
+        (len / 100) / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize");
+    u32::max(
+        u32::next_multiple_of(
+            approximately_one_percent
+                .try_into()
+                .vortex_expect("sample count must fit in u32"),
+            16,
+        ),
+        SAMPLE_COUNT,
+    )
 }
 
 pub fn stratified_slices(

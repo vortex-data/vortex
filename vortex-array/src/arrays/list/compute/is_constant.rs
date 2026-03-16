@@ -2,20 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::NumericOperator;
 
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::compute::is_constant;
-use crate::compute::numeric;
 use crate::register_kernel;
+use crate::scalar_fn::fns::operators::Operator;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
 
-impl IsConstantKernel for ListVTable {
+impl IsConstantKernel for List {
     fn is_constant(&self, array: &ListArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         // At this point, we're guaranteed:
         // - Array has at least 2 elements
@@ -46,7 +46,7 @@ impl IsConstantKernel for ListVTable {
             let end_offsets = array
                 .offsets()
                 .slice(SMALL_ARRAY_THRESHOLD + 1..array.len() + 1)?;
-            let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
+            let list_lengths = end_offsets.binary(start_offsets, Operator::Sub)?;
 
             if !is_constant(&list_lengths)?.unwrap_or_default() {
                 return Ok(Some(false));
@@ -71,20 +71,20 @@ impl IsConstantKernel for ListVTable {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ListVTable).lift());
+register_kernel!(IsConstantKernelAdapter(List).lift());
 
 #[cfg(test)]
 mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
 
     use crate::IntoArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::compute::is_constant;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
                 .unwrap()
         );
         assert!(
-            is_constant(struct_of_lists.as_ref())
+            is_constant(&struct_of_lists.into_array())
                 .unwrap()
                 .unwrap_or_default()
         );
