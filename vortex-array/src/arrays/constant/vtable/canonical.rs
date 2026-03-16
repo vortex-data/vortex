@@ -8,7 +8,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::IntoArray;
@@ -166,7 +165,7 @@ pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
         }
         DType::Variant => {
-            vortex_bail!("Variant don't currently support canonicalization");
+            unimplemented!("TODO(variant): canonicalization semantics are not defined")
         }
     })
 }

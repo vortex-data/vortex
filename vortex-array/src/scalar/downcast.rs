@@ -20,7 +20,6 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::StructScalar;
 use crate::scalar::Utf8Scalar;
-use crate::scalar::VariantValue;
 
 impl Scalar {
     /// Returns a view of the scalar as a boolean scalar.
@@ -155,15 +154,17 @@ impl Scalar {
         Some(ExtScalar::new_unchecked(self.dtype(), self.value()))
     }
 
-    /// Returns the semantic variant value, panicking if the scalar is not a variant.
-    pub fn as_variant(&self) -> &VariantValue {
+    /// Returns the row-specific scalar wrapped by a variant, panicking if the scalar is not a
+    /// variant.
+    pub fn as_variant(&self) -> &Scalar {
         self.value()
-            .vortex_expect("Failed to convert null scalar to variant value")
+            .vortex_expect("Failed to convert null scalar to variant")
             .as_variant()
     }
 
-    /// Returns the semantic variant value if the scalar has `DType::Variant` and is non-null.
-    pub fn as_variant_opt(&self) -> Option<&VariantValue> {
+    /// Returns the row-specific scalar wrapped by a variant if the scalar has `DType::Variant` and
+    /// is non-null.
+    pub fn as_variant_opt(&self) -> Option<&Scalar> {
         self.dtype()
             .is_variant()
             .then(|| self.value())
@@ -273,18 +274,20 @@ impl ScalarValue {
         }
     }
 
-    /// Returns the semantic variant value, panicking if the value is not a variant.
-    pub fn as_variant(&self) -> &VariantValue {
+    /// Returns the row-specific scalar wrapped by a variant, panicking if the value is not a
+    /// variant.
+    pub fn as_variant(&self) -> &Scalar {
         match self {
             ScalarValue::Variant(value) => value,
             _ => vortex_panic!("ScalarValue is not a Variant"),
         }
     }
 
-    /// Returns the semantic variant value, panicking if the value is not a variant.
-    pub fn into_variant(self) -> VariantValue {
+    /// Returns the row-specific scalar wrapped by a variant, panicking if the value is not a
+    /// variant.
+    pub fn into_variant(self) -> Scalar {
         match self {
-            ScalarValue::Variant(value) => value,
+            ScalarValue::Variant(value) => *value,
             _ => vortex_panic!("ScalarValue is not a Variant"),
         }
     }

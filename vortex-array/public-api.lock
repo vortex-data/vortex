@@ -15334,7 +15334,7 @@ pub vortex_array::scalar::ScalarValue::Primitive(vortex_array::scalar::PValue)
 
 pub vortex_array::scalar::ScalarValue::Utf8(vortex_buffer::string::BufferString)
 
-pub vortex_array::scalar::ScalarValue::Variant(vortex_array::scalar::VariantValue)
+pub vortex_array::scalar::ScalarValue::Variant(alloc::boxed::Box<vortex_array::scalar::Scalar>)
 
 impl vortex_array::scalar::ScalarValue
 
@@ -15350,7 +15350,7 @@ pub fn vortex_array::scalar::ScalarValue::as_primitive(&self) -> &vortex_array::
 
 pub fn vortex_array::scalar::ScalarValue::as_utf8(&self) -> &vortex_buffer::string::BufferString
 
-pub fn vortex_array::scalar::ScalarValue::as_variant(&self) -> &vortex_array::scalar::VariantValue
+pub fn vortex_array::scalar::ScalarValue::as_variant(&self) -> &vortex_array::scalar::Scalar
 
 pub fn vortex_array::scalar::ScalarValue::into_binary(self) -> vortex_buffer::ByteBuffer
 
@@ -15364,7 +15364,7 @@ pub fn vortex_array::scalar::ScalarValue::into_primitive(self) -> vortex_array::
 
 pub fn vortex_array::scalar::ScalarValue::into_utf8(self) -> vortex_buffer::string::BufferString
 
-pub fn vortex_array::scalar::ScalarValue::into_variant(self) -> vortex_array::scalar::VariantValue
+pub fn vortex_array::scalar::ScalarValue::into_variant(self) -> vortex_array::scalar::Scalar
 
 impl vortex_array::scalar::ScalarValue
 
@@ -15565,52 +15565,6 @@ impl core::marker::StructuralPartialEq for vortex_array::scalar::ScalarValue
 impl<T> core::convert::From<alloc::vec::Vec<T>> for vortex_array::scalar::ScalarValue where T: vortex_array::dtype::NativeDType, vortex_array::scalar::Scalar: core::convert::From<T>
 
 pub fn vortex_array::scalar::ScalarValue::from(vec: alloc::vec::Vec<T>) -> Self
-
-pub enum vortex_array::scalar::VariantValue
-
-pub vortex_array::scalar::VariantValue::Binary(vortex_buffer::ByteBuffer)
-
-pub vortex_array::scalar::VariantValue::Bool(bool)
-
-pub vortex_array::scalar::VariantValue::Decimal(vortex_array::scalar::DecimalValue)
-
-pub vortex_array::scalar::VariantValue::List(alloc::vec::Vec<vortex_array::scalar::VariantValue>)
-
-pub vortex_array::scalar::VariantValue::Null
-
-pub vortex_array::scalar::VariantValue::Object(alloc::vec::Vec<(vortex_buffer::string::BufferString, vortex_array::scalar::VariantValue)>)
-
-pub vortex_array::scalar::VariantValue::Primitive(vortex_array::scalar::PValue)
-
-pub vortex_array::scalar::VariantValue::Utf8(vortex_buffer::string::BufferString)
-
-impl core::clone::Clone for vortex_array::scalar::VariantValue
-
-pub fn vortex_array::scalar::VariantValue::clone(&self) -> vortex_array::scalar::VariantValue
-
-impl core::cmp::Eq for vortex_array::scalar::VariantValue
-
-impl core::cmp::PartialEq for vortex_array::scalar::VariantValue
-
-pub fn vortex_array::scalar::VariantValue::eq(&self, other: &vortex_array::scalar::VariantValue) -> bool
-
-impl core::cmp::PartialOrd for vortex_array::scalar::VariantValue
-
-pub fn vortex_array::scalar::VariantValue::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
-
-impl core::fmt::Debug for vortex_array::scalar::VariantValue
-
-pub fn vortex_array::scalar::VariantValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::scalar::VariantValue
-
-pub fn vortex_array::scalar::VariantValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::scalar::VariantValue
-
-pub fn vortex_array::scalar::VariantValue::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::scalar::VariantValue
 
 pub struct vortex_array::scalar::BinaryScalar<'a>
 
@@ -16086,9 +16040,9 @@ pub fn vortex_array::scalar::Scalar::as_utf8(&self) -> vortex_array::scalar::Utf
 
 pub fn vortex_array::scalar::Scalar::as_utf8_opt(&self) -> core::option::Option<vortex_array::scalar::Utf8Scalar<'_>>
 
-pub fn vortex_array::scalar::Scalar::as_variant(&self) -> &vortex_array::scalar::VariantValue
+pub fn vortex_array::scalar::Scalar::as_variant(&self) -> &vortex_array::scalar::Scalar
 
-pub fn vortex_array::scalar::Scalar::as_variant_opt(&self) -> core::option::Option<&vortex_array::scalar::VariantValue>
+pub fn vortex_array::scalar::Scalar::as_variant_opt(&self) -> core::option::Option<&vortex_array::scalar::Scalar>
 
 impl vortex_array::scalar::Scalar
 
@@ -16115,6 +16069,8 @@ pub fn vortex_array::scalar::Scalar::primitive_value(value: vortex_array::scalar
 pub fn vortex_array::scalar::Scalar::try_utf8<B>(str: B, nullability: vortex_array::dtype::Nullability) -> core::result::Result<Self, <B as core::convert::TryInto<vortex_buffer::string::BufferString>>::Error> where B: core::convert::TryInto<vortex_buffer::string::BufferString>
 
 pub fn vortex_array::scalar::Scalar::utf8<B>(str: B, nullability: vortex_array::dtype::Nullability) -> Self where B: core::convert::Into<vortex_buffer::string::BufferString>
+
+pub fn vortex_array::scalar::Scalar::variant(value: vortex_array::scalar::Scalar) -> Self
 
 impl vortex_array::scalar::Scalar
 

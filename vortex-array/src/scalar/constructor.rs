@@ -189,6 +189,15 @@ impl Scalar {
         Self::try_new(DType::Extension(ext_dtype), storage_scalar.into_value())
             .vortex_expect("unable to construct an extension `Scalar`")
     }
+
+    /// Creates a new variant scalar from a row-specific nested scalar.
+    ///
+    /// Use [`Scalar::null(DType::Variant)`][Scalar::null] for a top-level null variant value, and
+    /// `Scalar::variant(Scalar::null(DType::Null))` for a defined variant-null.
+    pub fn variant(value: Scalar) -> Self {
+        Self::try_new(DType::Variant, Some(ScalarValue::Variant(Box::new(value))))
+            .vortex_expect("unable to construct a variant `Scalar`")
+    }
 }
 
 /// A helper enum for creating a [`ListScalar`].

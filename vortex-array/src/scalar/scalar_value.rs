@@ -15,7 +15,7 @@ use vortex_error::vortex_panic;
 use crate::dtype::DType;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
-use crate::scalar::VariantValue;
+use crate::scalar::Scalar;
 
 /// The value stored in a [`Scalar`][crate::scalar::Scalar].
 ///
@@ -35,8 +35,8 @@ pub enum ScalarValue {
     Binary(ByteBuffer),
     /// A list of potentially null scalar values.
     List(Vec<Option<ScalarValue>>),
-    /// A semantic variant value.
-    Variant(VariantValue),
+    /// A row-specific scalar wrapped by `DType::Variant`.
+    Variant(Box<Scalar>),
 }
 
 impl ScalarValue {
@@ -67,7 +67,7 @@ impl ScalarValue {
                 // zero storage value and try to make an extension scalar from that.
                 Self::zero_value(ext_dtype.storage_dtype())
             }
-            DType::Variant => Self::Variant(VariantValue::Null),
+            DType::Variant => Self::Variant(Box::new(Scalar::null(DType::Null))),
         }
     }
 
@@ -104,7 +104,7 @@ impl ScalarValue {
                 // default storage value and try to make an extension scalar from that.
                 Self::default_value(ext_dtype.storage_dtype())?
             }
-            DType::Variant => Self::Variant(VariantValue::Null),
+            DType::Variant => Self::Variant(Box::new(Scalar::null(DType::Null))),
         })
     }
 }

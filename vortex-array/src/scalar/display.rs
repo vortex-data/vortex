@@ -21,10 +21,8 @@ impl Display for Scalar {
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
             DType::Extension(_) => write!(f, "{}", self.as_extension()),
-            DType::Variant => match self.value() {
-                None => write!(f, "null"),
-                Some(value) => write!(f, "{value}"),
-            },
+            DType::Variant if self.is_null() => write!(f, "null"),
+            DType::Variant => write!(f, "variant({})", self.as_variant()),
         }
     }
 }

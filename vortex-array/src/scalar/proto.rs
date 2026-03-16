@@ -16,9 +16,6 @@ use vortex_error::vortex_err;
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::scalar_value::Kind;
-use vortex_proto::scalar::variant_decimal;
-use vortex_proto::scalar::variant_primitive;
-use vortex_proto::scalar::variant_value;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
@@ -29,7 +26,6 @@ use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::scalar::VariantValue;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Serialize INTO proto.
@@ -43,7 +39,7 @@ impl From<&Scalar> for pb::Scalar {
                     .try_into()
                     .vortex_expect("Failed to convert DType to proto"),
             ),
-            value: Some(ScalarValue::to_proto(value.value())),
+            value: Some(Box::new(ScalarValue::to_proto(value.value()))),
         }
     }
 }
@@ -115,7 +111,7 @@ impl From<&ScalarValue> for pb::ScalarValue {
                 }
             }
             ScalarValue::Variant(v) => pb::ScalarValue {
-                kind: Some(Kind::VariantValue(variant_to_proto(v))),
+                kind: Some(Kind::VariantValue(Box::new(pb::Scalar::from(v.as_ref())))),
             },
         }
     }
@@ -245,12 +241,14 @@ impl ScalarValue {
             .as_ref()
             .ok_or_else(|| vortex_err!(Serde: "Scalar value missing kind"))?;
 
-        if matches!(dtype, DType::Variant) {
+        if dtype == &DType::Variant {
             return match kind {
                 Kind::NullValue(_) => Ok(None),
-                Kind::VariantValue(v) => Ok(Some(ScalarValue::Variant(variant_from_proto(v)?))),
+                Kind::VariantValue(v) => Ok(Some(ScalarValue::Variant(Box::new(
+                    Scalar::from_proto(v, session)?,
+                )))),
                 _ => vortex_bail!(
-                    Serde: "expected VariantValue proto for Variant dtype, got {kind:?}"
+                    Serde: "expected Scalar proto for Variant dtype, got {kind:?}"
                 ),
             };
         }
@@ -468,177 +466,6 @@ fn list_from_proto(
     Ok(ScalarValue::List(values))
 }
 
-fn variant_to_proto(value: &VariantValue) -> pb::VariantValue {
-    let kind = match value {
-        VariantValue::Null => variant_value::Kind::NullValue(0),
-        VariantValue::Bool(v) => variant_value::Kind::BoolValue(*v),
-        VariantValue::Primitive(v) => {
-            variant_value::Kind::PrimitiveValue(variant_primitive_to_proto(v))
-        }
-        VariantValue::Decimal(v) => variant_value::Kind::DecimalValue(variant_decimal_to_proto(v)),
-        VariantValue::Utf8(v) => variant_value::Kind::StringValue(v.to_string()),
-        VariantValue::Binary(v) => variant_value::Kind::BytesValue(v.to_vec()),
-        VariantValue::List(values) => variant_value::Kind::ListValue(pb::VariantListValue {
-            values: values.iter().map(variant_to_proto).collect(),
-        }),
-        VariantValue::Object(fields) => variant_value::Kind::ObjectValue(pb::VariantObjectValue {
-            fields: fields
-                .iter()
-                .map(|(name, value)| pb::VariantObjectField {
-                    name: name.to_string(),
-                    value: Some(variant_to_proto(value)),
-                })
-                .collect(),
-        }),
-    };
-
-    pb::VariantValue { kind: Some(kind) }
-}
-
-fn variant_primitive_to_proto(value: &PValue) -> pb::VariantPrimitive {
-    let kind = match value {
-        PValue::I8(v) => variant_primitive::Kind::Int8Value((*v).into()),
-        PValue::I16(v) => variant_primitive::Kind::Int16Value((*v).into()),
-        PValue::I32(v) => variant_primitive::Kind::Int32Value((*v).into()),
-        PValue::I64(v) => variant_primitive::Kind::Int64Value(*v),
-        PValue::U8(v) => variant_primitive::Kind::Uint8Value((*v).into()),
-        PValue::U16(v) => variant_primitive::Kind::Uint16Value((*v).into()),
-        PValue::U32(v) => variant_primitive::Kind::Uint32Value((*v).into()),
-        PValue::U64(v) => variant_primitive::Kind::Uint64Value(*v),
-        PValue::F16(v) => variant_primitive::Kind::F16Value((*v).to_bits().into()),
-        PValue::F32(v) => variant_primitive::Kind::F32Value(*v),
-        PValue::F64(v) => variant_primitive::Kind::F64Value(*v),
-    };
-
-    pb::VariantPrimitive { kind: Some(kind) }
-}
-
-fn variant_decimal_to_proto(value: &DecimalValue) -> pb::VariantDecimal {
-    let kind = match value {
-        DecimalValue::I8(v) => variant_decimal::Kind::Int8Value((*v).into()),
-        DecimalValue::I16(v) => variant_decimal::Kind::Int16Value((*v).into()),
-        DecimalValue::I32(v) => variant_decimal::Kind::Int32Value((*v).into()),
-        DecimalValue::I64(v) => variant_decimal::Kind::Int64Value(*v),
-        DecimalValue::I128(v) => variant_decimal::Kind::Int128Value(v.to_le_bytes().to_vec()),
-        DecimalValue::I256(v) => variant_decimal::Kind::Int256Value(v.to_le_bytes().to_vec()),
-    };
-
-    pb::VariantDecimal { kind: Some(kind) }
-}
-
-fn variant_from_proto(value: &pb::VariantValue) -> VortexResult<VariantValue> {
-    let kind = value
-        .kind
-        .as_ref()
-        .ok_or_else(|| vortex_err!(Serde: "Variant value missing kind"))?;
-
-    Ok(match kind {
-        variant_value::Kind::NullValue(_) => VariantValue::Null,
-        variant_value::Kind::BoolValue(v) => VariantValue::Bool(*v),
-        variant_value::Kind::PrimitiveValue(v) => {
-            VariantValue::Primitive(variant_primitive_from_proto(v)?)
-        }
-        variant_value::Kind::DecimalValue(v) => {
-            VariantValue::Decimal(variant_decimal_from_proto(v)?)
-        }
-        variant_value::Kind::StringValue(v) => VariantValue::Utf8(v.as_str().into()),
-        variant_value::Kind::BytesValue(v) => VariantValue::Binary(v.clone().into()),
-        variant_value::Kind::ListValue(v) => VariantValue::List(
-            v.values
-                .iter()
-                .map(variant_from_proto)
-                .collect::<VortexResult<Vec<_>>>()?,
-        ),
-        variant_value::Kind::ObjectValue(v) => VariantValue::Object(
-            v.fields
-                .iter()
-                .map(|field| {
-                    let value = field
-                        .value
-                        .as_ref()
-                        .ok_or_else(|| vortex_err!(Serde: "Variant object field missing value"))?;
-                    Ok((field.name.as_str().into(), variant_from_proto(value)?))
-                })
-                .collect::<VortexResult<Vec<_>>>()?,
-        ),
-    })
-}
-
-fn variant_primitive_from_proto(value: &pb::VariantPrimitive) -> VortexResult<PValue> {
-    let kind = value
-        .kind
-        .as_ref()
-        .ok_or_else(|| vortex_err!(Serde: "Variant primitive missing kind"))?;
-
-    Ok(match kind {
-        variant_primitive::Kind::Int8Value(v) => PValue::I8(
-            i8::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant i8 value {v} out of range"))?,
-        ),
-        variant_primitive::Kind::Int16Value(v) => PValue::I16(
-            i16::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant i16 value {v} out of range"))?,
-        ),
-        variant_primitive::Kind::Int32Value(v) => PValue::I32(
-            i32::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant i32 value {v} out of range"))?,
-        ),
-        variant_primitive::Kind::Int64Value(v) => PValue::I64(*v),
-        variant_primitive::Kind::Uint8Value(v) => PValue::U8(
-            u8::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant u8 value {v} out of range"))?,
-        ),
-        variant_primitive::Kind::Uint16Value(v) => PValue::U16(
-            u16::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant u16 value {v} out of range"))?,
-        ),
-        variant_primitive::Kind::Uint32Value(v) => PValue::U32(
-            u32::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant u32 value {v} out of range"))?,
-        ),
-        variant_primitive::Kind::Uint64Value(v) => PValue::U64(*v),
-        variant_primitive::Kind::F16Value(v) => PValue::F16(f16::from_bits(
-            u16::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant f16 bits {v} out of range"))?,
-        )),
-        variant_primitive::Kind::F32Value(v) => PValue::F32(*v),
-        variant_primitive::Kind::F64Value(v) => PValue::F64(*v),
-    })
-}
-
-fn variant_decimal_from_proto(value: &pb::VariantDecimal) -> VortexResult<DecimalValue> {
-    let kind = value
-        .kind
-        .as_ref()
-        .ok_or_else(|| vortex_err!(Serde: "Variant decimal missing kind"))?;
-
-    Ok(match kind {
-        variant_decimal::Kind::Int8Value(v) => DecimalValue::I8(
-            i8::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant decimal i8 value {v} out of range"))?,
-        ),
-        variant_decimal::Kind::Int16Value(v) => DecimalValue::I16(
-            i16::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant decimal i16 value {v} out of range"))?,
-        ),
-        variant_decimal::Kind::Int32Value(v) => DecimalValue::I32(
-            i32::try_from(*v)
-                .map_err(|_| vortex_err!(Serde: "Variant decimal i32 value {v} out of range"))?,
-        ),
-        variant_decimal::Kind::Int64Value(v) => DecimalValue::I64(*v),
-        variant_decimal::Kind::Int128Value(v) => {
-            DecimalValue::I128(i128::from_le_bytes(v.as_slice().try_into().map_err(
-                |_| vortex_err!(Serde: "invalid variant decimal i128 byte length: {}", v.len()),
-            )?))
-        }
-        variant_decimal::Kind::Int256Value(v) => {
-            DecimalValue::I256(i256::from_le_bytes(v.as_slice().try_into().map_err(
-                |_| vortex_err!(Serde: "invalid variant decimal i256 byte length: {}", v.len()),
-            )?))
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -657,7 +484,6 @@ mod tests {
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::scalar::VariantValue;
 
     fn session() -> VortexSession {
         VortexSession::empty()
@@ -790,34 +616,41 @@ mod tests {
 
     #[test]
     fn test_variant_scalar_roundtrip() {
-        round_trip(Scalar::new(
-            DType::Variant,
-            Some(ScalarValue::Variant(VariantValue::Object(vec![
-                ("flag".into(), VariantValue::Bool(true)),
-                (
-                    "nums".into(),
-                    VariantValue::List(vec![
-                        VariantValue::Primitive(PValue::I16(-7)),
-                        VariantValue::Primitive(PValue::U32(42)),
-                        VariantValue::Decimal(DecimalValue::I128(123_456_789)),
-                    ]),
-                ),
-                (
-                    "bytes".into(),
-                    VariantValue::Binary(ByteBuffer::copy_from(b"abc")),
-                ),
-                ("null".into(), VariantValue::Null),
-            ]))),
-        ));
+        let nums = Scalar::list(
+            Arc::new(DType::Variant),
+            vec![
+                Scalar::variant(Scalar::primitive(-7_i16, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(42_u32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::decimal(
+                    DecimalValue::I128(123_456_789),
+                    DecimalDType::new(18, 0),
+                    Nullability::NonNullable,
+                )),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let nested = Scalar::list(
+            Arc::new(DType::Variant),
+            vec![
+                Scalar::variant(Scalar::from(true)),
+                Scalar::variant(nums),
+                Scalar::variant(Scalar::binary(
+                    ByteBuffer::copy_from(b"abc"),
+                    Nullability::NonNullable,
+                )),
+                Scalar::variant(Scalar::null(DType::Null)),
+            ],
+            Nullability::NonNullable,
+        );
+
+        round_trip(Scalar::variant(nested));
     }
 
     #[test]
     fn test_variant_scalar_proto_preserves_scalar_null_vs_variant_null() {
         let scalar_null = Scalar::null(DType::Variant);
-        let variant_null = Scalar::new(
-            DType::Variant,
-            Some(ScalarValue::Variant(VariantValue::Null)),
-        );
+        let variant_null = Scalar::variant(Scalar::null(DType::Null));
 
         let scalar_null_pb = pb::Scalar::from(&scalar_null);
         let variant_null_pb = pb::Scalar::from(&variant_null);
