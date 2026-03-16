@@ -58,8 +58,8 @@ enum Commands {
         #[arg(long, value_name = "DIR")]
         output: PathBuf,
 
-        /// Fixture names to exclude (comma-separated, e.g. "clickbench_hits_1k.vortex").
-        #[arg(long, value_delimiter = ',', value_name = "NAMES")]
+        /// Fixture name substrings to exclude (comma-separated, e.g. "clickbench,tpch").
+        #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
     },
 
@@ -86,8 +86,8 @@ enum Commands {
         #[arg(long, default_value = "subset", value_name = "MODE")]
         mode: CheckMode,
 
-        /// Fixture names to exclude from checking (comma-separated).
-        #[arg(long, value_delimiter = ',', value_name = "NAMES")]
+        /// Fixture name substrings to exclude from checking (comma-separated).
+        #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
     },
 }

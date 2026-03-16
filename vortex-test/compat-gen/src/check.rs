@@ -45,7 +45,10 @@ struct FailedFixture {
 pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
     let fixtures: Vec<_> = all_fixtures()
         .into_iter()
-        .filter(|f| !exclude.contains(&f.name().to_string()))
+        .filter(|f| {
+            let name = f.name();
+            !exclude.iter().any(|pat| name.contains(pat.as_str()))
+        })
         .collect();
 
     if !exclude.is_empty() {
