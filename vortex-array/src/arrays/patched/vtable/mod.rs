@@ -30,6 +30,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::patch_lanes;
+use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveArrayParts;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -254,6 +255,15 @@ impl VTable for PatchedVTable {
         });
 
         Ok(ExecutionStep::done(patched_values.into_array()))
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce_parent(

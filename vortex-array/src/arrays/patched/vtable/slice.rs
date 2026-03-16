@@ -61,6 +61,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::Canonical;
     use crate::DynArray;
@@ -74,7 +75,7 @@ mod tests {
     use crate::patches::Patches;
 
     #[test]
-    fn test_slice_basic() {
+    fn test_reduce() -> VortexResult<()> {
         let values = buffer![0u16; 512].into_array();
         let patch_indices = buffer![1u32, 8, 30].into_array();
         let patch_values = buffer![u16::MAX; 3].into_array();
@@ -85,16 +86,23 @@ mod tests {
         let patched_array =
             PatchedArray::from_array_and_patches(values, &patches, &mut ctx).unwrap();
 
-        let sliced = patched_array
-            .slice(1..10)
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-            .into_primitive();
+        let sliced = patched_array.slice(1..10)?;
 
-        let executed = sliced.as_slice::<u16>();
+        insta::assert_snapshot!(
+            sliced.display_tree_encodings_only(),
+            @r#"
+            root: vortex.patched(u16, len=9)
+              inner: vortex.primitive(u16, len=512)
+            "#);
 
-        assert_eq!(&[u16::MAX, 0, 0, 0, 0, 0, 0, u16::MAX, 0], executed);
+        let executed = sliced.execute::<Canonical>(&mut ctx)?.into_primitive();
+
+        assert_eq!(
+            &[u16::MAX, 0, 0, 0, 0, 0, 0, u16::MAX, 0],
+            executed.as_slice::<u16>()
+        );
+
+        Ok(())
     }
 
     #[rstest]
