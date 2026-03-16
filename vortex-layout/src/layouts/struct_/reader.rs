@@ -43,8 +43,10 @@ use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::SplitPointIter;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
+use crate::merge_split_point_iters;
 use crate::segments::SegmentSource;
 
 pub struct StructReader {
@@ -149,6 +151,49 @@ impl StructReader {
             .is_nullable()
             .then(|| self.lazy_children.get(0))
             .transpose()
+    }
+
+    fn split_children(
+        &self,
+        field_mask: Vec<FieldMask>,
+    ) -> VortexResult<Vec<(LayoutReaderRef, Vec<FieldMask>)>> {
+        let mut children = Vec::new();
+
+        if let Some(validity) = self.validity()? {
+            children.push((validity.clone(), vec![FieldMask::All]));
+        }
+
+        if field_mask.iter().any(FieldMask::matches_all) {
+            for idx in 0..self.struct_fields().nfields() {
+                children.push((
+                    self.field_reader_by_index(idx)?.clone(),
+                    vec![FieldMask::All],
+                ));
+            }
+            return Ok(children);
+        }
+
+        let mut grouped = HashMap::<usize, Vec<FieldMask>>::default();
+        for mask in field_mask {
+            let Some(field) = mask.starting_field()? else {
+                continue;
+            };
+            let idx = self
+                .struct_fields()
+                .find(
+                    field
+                        .as_name()
+                        .vortex_expect("struct fields are always named"),
+                )
+                .ok_or_else(|| vortex_err!("Field not found: {field:?}"))?;
+            grouped.entry(idx).or_default().push(mask.step_into()?);
+        }
+
+        for (idx, masks) in grouped {
+            children.push((self.field_reader_by_index(idx)?.clone(), masks));
+        }
+
+        Ok(children)
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
@@ -256,6 +301,28 @@ impl LayoutReader for StructReader {
             self.field_reader_by_index(idx)?
                 .register_splits(&[mask], row_range, splits)
         })
+    }
+
+    fn split_points(
+        &self,
+        field_mask: Vec<FieldMask>,
+        row_range: Range<u64>,
+    ) -> VortexResult<SplitPointIter> {
+        if row_range.is_empty() {
+            return Ok(Box::new(std::iter::empty()));
+        }
+
+        let children = self.split_children(field_mask)?;
+        if children.is_empty() {
+            return Ok(Box::new(std::iter::once(row_range.end)));
+        }
+
+        let mut iters = Vec::with_capacity(children.len());
+        for (child, masks) in children {
+            iters.push(child.split_points(masks, row_range.clone())?);
+        }
+
+        Ok(merge_split_point_iters(iters))
     }
 
     fn pruning_evaluation(

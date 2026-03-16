@@ -37,6 +37,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::SplitPointIter;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
@@ -234,6 +235,14 @@ impl LayoutReader for ZonedReader {
     ) -> VortexResult<()> {
         self.data_child()?
             .register_splits(field_mask, row_range, splits)
+    }
+
+    fn split_points(
+        &self,
+        field_mask: Vec<FieldMask>,
+        row_range: Range<u64>,
+    ) -> VortexResult<SplitPointIter> {
+        self.data_child()?.split_points(field_mask, row_range)
     }
 
     fn pruning_evaluation(

@@ -48,6 +48,8 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
+use crate::api::DEFAULT_TARGET_OUTPUT_BYTES_HINT;
+use crate::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT;
 use crate::api::DataSource;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
@@ -397,7 +399,17 @@ impl Partition for MultiLayoutPartition {
             .with_projection(request.projection)
             .with_some_filter(request.filter)
             .with_some_limit(request.limit)
-            .with_ordered(request.ordered);
+            .with_ordered(request.ordered)
+            .with_target_output_rows(
+                request
+                    .target_output_rows
+                    .unwrap_or(DEFAULT_TARGET_OUTPUT_ROWS_HINT),
+            )
+            .with_target_output_bytes(
+                request
+                    .target_output_bytes
+                    .unwrap_or(DEFAULT_TARGET_OUTPUT_BYTES_HINT),
+            );
 
         if let Some(row_range) = request.row_range {
             builder = builder.with_row_range(row_range);

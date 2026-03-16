@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
+
+use vortex_array::dtype::FieldMask;
+use vortex_error::VortexResult;
+use vortex_layout::LayoutReader;
+use vortex_layout::SplitPointIter;
 
 use crate::IDEAL_SPLIT_SIZE;
 use crate::selection::Selection;
+use crate::split_by::SplitBy;
 
 /// The maximum number of rows in a single range. This is somewhat arbitrarily chosen.
 const MAX_RANGE_SIZE: u64 = IDEAL_SPLIT_SIZE / 25;
@@ -17,13 +22,75 @@ const MIN_GAP_BETWEEN_RANGES: u64 = IDEAL_SPLIT_SIZE / 2;
 pub(super) enum Splits {
     /// Natural splits computed by the layout reader (e.g., computing splits across different-sized
     /// column chunks).
-    Natural(BTreeSet<u64>),
+    Natural {
+        split_by: SplitBy,
+        field_mask: Vec<FieldMask>,
+    },
 
     /// Exact split ranges.
     ///
     /// This is an optimization for when we know the exact rows we need to get from a file (which is
     /// common if we just want to select a few (sparse) indices).
     Ranges(Vec<Range<u64>>),
+}
+
+impl Splits {
+    pub(super) fn iter(
+        &self,
+        layout_reader: &dyn LayoutReader,
+        row_range: Range<u64>,
+    ) -> VortexResult<Box<dyn Iterator<Item = Range<u64>> + Send>> {
+        if row_range.is_empty() {
+            return Ok(Box::new(std::iter::empty()));
+        }
+
+        match self {
+            Splits::Natural {
+                split_by,
+                field_mask,
+            } => {
+                let points =
+                    split_by.split_points(layout_reader, row_range.clone(), field_mask.clone())?;
+                Ok(Box::new(SplitRangeIter::new(row_range.start, points)))
+            }
+            Splits::Ranges(ranges) => {
+                Ok(Box::new(ranges.clone().into_iter().filter_map(
+                    move |range| intersect_range(&range, &row_range),
+                )))
+            }
+        }
+    }
+}
+
+struct SplitRangeIter {
+    start: u64,
+    split_points: SplitPointIter,
+}
+
+impl SplitRangeIter {
+    fn new(start: u64, split_points: SplitPointIter) -> Self {
+        Self {
+            start,
+            split_points,
+        }
+    }
+}
+
+impl Iterator for SplitRangeIter {
+    type Item = Range<u64>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let end = self.split_points.next()?;
+        let range = self.start..end;
+        self.start = end;
+        Some(range)
+    }
+}
+
+fn intersect_range(left: &Range<u64>, right: &Range<u64>) -> Option<Range<u64>> {
+    let start = left.start.max(right.start);
+    let end = left.end.min(right.end);
+    (start < end).then_some(start..end)
 }
 
 /// Attempts to compute split ranges from the given selection.

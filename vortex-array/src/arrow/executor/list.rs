@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::arrays::Chunked;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListView;
@@ -54,6 +55,24 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         }
         Err(a) => a,
     };
+
+    // Handle ChunkedArray by converting each chunk individually.
+    // This preserves the fast list_to_list path for inner ListArray chunks
+    // instead of falling through to the expensive execute::<ListViewArray> path.
+    if let Some(chunked) = array.as_opt::<Chunked>() {
+        let mut arrow_chunks: Vec<ArrowArrayRef> = Vec::with_capacity(chunked.nchunks());
+        for chunk in chunked.chunks() {
+            arrow_chunks.push(to_arrow_list::<O>(chunk.clone(), elements_field, ctx)?);
+        }
+        if arrow_chunks.len() == 1 {
+            return Ok(arrow_chunks
+                .into_iter()
+                .next()
+                .vortex_expect("known length"));
+        }
+        let refs: Vec<&dyn arrow_array::Array> = arrow_chunks.iter().map(|a| a.as_ref()).collect();
+        return Ok(arrow_select::concat::concat(&refs)?);
+    }
 
     // Otherwise, we execute the array to become a ListViewArray, then rebuild to ZCTL.
     // Note: arrow_cast::cast supports ListView → List (apache/arrow-rs#8735), but it

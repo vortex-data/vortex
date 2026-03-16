@@ -123,7 +123,6 @@ fn to_ptr_binary_view<'a>(
                 _ref: PtrRef {
                     size: v.len(),
                     prefix: view.prefix,
-                    // TODO(joe) verify this.
                     ptr: unsafe {
                         buffers[view.buffer_index as usize]
                             .as_ptr()

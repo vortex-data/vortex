@@ -27,6 +27,8 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::SplitPointIter;
+use crate::concat_split_point_iters;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
@@ -202,6 +204,28 @@ impl LayoutReader for ChunkedReader {
         Ok(())
     }
 
+    fn split_points(
+        &self,
+        field_mask: Vec<FieldMask>,
+        row_range: Range<u64>,
+    ) -> VortexResult<SplitPointIter> {
+        if row_range.is_empty() {
+            return Ok(Box::new(std::iter::empty()));
+        }
+
+        let mut iters = Vec::new();
+        for (chunk_idx, chunk_range, _) in self.ranges(&row_range) {
+            let child = self.chunk_reader(chunk_idx)?.clone();
+            let chunk_offset = self.chunk_offset(chunk_idx);
+            let split_points = child.split_points(field_mask.clone(), chunk_range)?;
+            iters.push(
+                Box::new(split_points.map(move |point| point + chunk_offset)) as SplitPointIter,
+            );
+        }
+
+        Ok(concat_split_point_iters(iters))
+    }
+
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -338,6 +362,7 @@ mod test {
     use vortex_array::MaskFuture;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
@@ -405,5 +430,18 @@ mod test {
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })
+    }
+
+    #[rstest]
+    fn test_chunked_split_points_are_absolute(
+        #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let split_points = reader
+            .split_points(vec![FieldMask::All], 2..8)
+            .unwrap()
+            .collect::<Vec<_>>();
+
+        assert_eq!(split_points, vec![3, 6, 8]);
     }
 }

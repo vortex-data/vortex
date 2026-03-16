@@ -638,6 +638,8 @@ pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::register_splits(&sel
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::row_count(&self) -> u64
 
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::split_points(&self, field_mask: alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>, row_range: core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_layout::SplitPointIter>
+
 pub fn vortex_layout::layouts::row_idx::row_idx() -> vortex_array::expr::expression::Expression
 
 pub mod vortex_layout::layouts::struct_
@@ -1674,6 +1676,8 @@ pub fn vortex_layout::LayoutReader::register_splits(&self, field_mask: &[vortex_
 
 pub fn vortex_layout::LayoutReader::row_count(&self) -> u64
 
+pub fn vortex_layout::LayoutReader::split_points(&self, field_mask: alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>, row_range: core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_layout::SplitPointIter>
+
 impl vortex_layout::LayoutReader for vortex_layout::layouts::row_idx::RowIdxLayoutReader
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::dtype(&self) -> &vortex_array::dtype::DType
@@ -1689,6 +1693,8 @@ pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::pruning_evaluation(&
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::register_splits(&self, field_mask: &[vortex_array::dtype::field_mask::FieldMask], row_range: &core::ops::range::Range<u64>, splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::row_count(&self) -> u64
+
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::split_points(&self, field_mask: alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>, row_range: core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_layout::SplitPointIter>
 
 pub trait vortex_layout::LayoutStrategy: 'static + core::marker::Send + core::marker::Sync
 
@@ -1969,3 +1975,5 @@ pub type vortex_layout::LayoutId = arcref::ArcRef<str>
 pub type vortex_layout::LayoutReaderRef = alloc::sync::Arc<dyn vortex_layout::LayoutReader>
 
 pub type vortex_layout::LayoutRef = alloc::sync::Arc<dyn vortex_layout::Layout>
+
+pub type vortex_layout::SplitPointIter = alloc::boxed::Box<(dyn core::iter::traits::iterator::Iterator<Item = u64> + core::marker::Send)>

@@ -24,6 +24,7 @@ use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
+pub type SplitPointIter = Box<dyn Iterator<Item = u64> + Send>;
 
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
@@ -45,6 +46,35 @@ pub trait LayoutReader: 'static + Send + Sync {
         row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()>;
+
+    /// Return ordered split points for the requested row range.
+    ///
+    /// Split points are absolute row offsets greater than `row_range.start` and less than or equal
+    /// to `row_range.end`. The final split point must be `row_range.end` when the range is
+    /// non-empty.
+    fn split_points(
+        &self,
+        field_mask: Vec<FieldMask>,
+        row_range: Range<u64>,
+    ) -> VortexResult<SplitPointIter> {
+        if row_range.is_empty() {
+            return Ok(Box::new(std::iter::empty()));
+        }
+
+        let mut splits = BTreeSet::new();
+        self.register_splits(&field_mask, &row_range, &mut splits)?;
+
+        let mut points = splits
+            .into_iter()
+            .filter(|point| *point > row_range.start && *point <= row_range.end)
+            .collect::<Vec<_>>();
+
+        if points.last().copied() != Some(row_range.end) {
+            points.push(row_range.end);
+        }
+
+        Ok(Box::new(points.into_iter()))
+    }
 
     /// Returns a mask where all false values are proven to be false in the given expression.
     ///
@@ -87,6 +117,62 @@ pub trait LayoutReader: 'static + Send + Sync {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture>;
+}
+
+pub(crate) fn concat_split_point_iters(iters: Vec<SplitPointIter>) -> SplitPointIter {
+    Box::new(ConcatSplitPointIter { iters, current: 0 })
+}
+
+pub(crate) fn merge_split_point_iters(iters: Vec<SplitPointIter>) -> SplitPointIter {
+    Box::new(MergeSplitPointIter::new(iters))
+}
+
+struct ConcatSplitPointIter {
+    iters: Vec<SplitPointIter>,
+    current: usize,
+}
+
+impl Iterator for ConcatSplitPointIter {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(iter) = self.iters.get_mut(self.current) {
+            if let Some(point) = iter.next() {
+                return Some(point);
+            }
+            self.current += 1;
+        }
+
+        None
+    }
+}
+
+struct MergeSplitPointIter {
+    iters: Vec<SplitPointIter>,
+    heads: Vec<Option<u64>>,
+}
+
+impl MergeSplitPointIter {
+    fn new(mut iters: Vec<SplitPointIter>) -> Self {
+        let heads = iters.iter_mut().map(Iterator::next).collect();
+        Self { iters, heads }
+    }
+}
+
+impl Iterator for MergeSplitPointIter {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_point = self.heads.iter().flatten().min().copied()?;
+
+        for (head, iter) in self.heads.iter_mut().zip(self.iters.iter_mut()) {
+            if *head == Some(next_point) {
+                *head = iter.next();
+            }
+        }
+
+        Some(next_point)
+    }
 }
 
 pub type ArrayFuture = BoxFuture<'static, VortexResult<ArrayRef>>;

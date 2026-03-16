@@ -33,6 +33,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::DictLayout;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
+use crate::SplitPointIter;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 
@@ -171,6 +172,14 @@ impl LayoutReader for DictReader {
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         self.codes.register_splits(field_mask, row_range, splits)
+    }
+
+    fn split_points(
+        &self,
+        field_mask: Vec<FieldMask>,
+        row_range: Range<u64>,
+    ) -> VortexResult<SplitPointIter> {
+        self.codes.split_points(field_mask, row_range)
     }
 
     fn pruning_evaluation(

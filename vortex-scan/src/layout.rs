@@ -34,6 +34,8 @@ use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
 use crate::Selection;
+use crate::api::DEFAULT_TARGET_OUTPUT_BYTES_HINT;
+use crate::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT;
 use crate::api::DataSource;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
@@ -166,6 +168,8 @@ impl DataSource for LayoutReaderDataSource {
             limit: scan_request.limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
+            target_output_rows: scan_request.target_output_rows,
+            target_output_bytes: scan_request.target_output_bytes,
             metrics_registry: self.metrics_registry.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
@@ -187,6 +191,8 @@ struct LayoutReaderScan {
     limit: Option<u64>,
     ordered: bool,
     selection: Selection,
+    target_output_rows: Option<usize>,
+    target_output_bytes: Option<usize>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     next_row: u64,
     end_row: u64,
@@ -254,6 +260,8 @@ impl Stream for LayoutReaderScan {
             ordered: this.ordered,
             row_range,
             selection: this.selection.clone(),
+            target_output_rows: this.target_output_rows,
+            target_output_bytes: this.target_output_bytes,
             metrics_registry: this.metrics_registry.clone(),
         }) as PartitionRef;
 
@@ -281,6 +289,8 @@ struct LayoutReaderSplit {
     ordered: bool,
     row_range: Range<u64>,
     selection: Selection,
+    target_output_rows: Option<usize>,
+    target_output_bytes: Option<usize>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
@@ -312,8 +322,17 @@ impl Partition for LayoutReaderSplit {
             .with_projection(self.projection)
             .with_some_filter(self.filter)
             .with_some_limit(self.limit)
-            .with_some_metrics_registry(self.metrics_registry)
             .with_ordered(self.ordered);
+        let builder = builder
+            .with_target_output_rows(
+                self.target_output_rows
+                    .unwrap_or(DEFAULT_TARGET_OUTPUT_ROWS_HINT),
+            )
+            .with_target_output_bytes(
+                self.target_output_bytes
+                    .unwrap_or(DEFAULT_TARGET_OUTPUT_BYTES_HINT),
+            );
+        let builder = builder.with_some_metrics_registry(self.metrics_registry);
 
         let dtype = builder.dtype()?;
         // Use into_stream() which creates a LazyScanStream that spawns individual I/O

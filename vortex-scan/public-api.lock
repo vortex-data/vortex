@@ -16,6 +16,10 @@ pub vortex_scan::api::ScanRequest::row_range: core::option::Option<core::ops::ra
 
 pub vortex_scan::api::ScanRequest::selection: vortex_scan::Selection
 
+pub vortex_scan::api::ScanRequest::target_output_bytes: core::option::Option<usize>
+
+pub vortex_scan::api::ScanRequest::target_output_rows: core::option::Option<usize>
+
 impl core::clone::Clone for vortex_scan::api::ScanRequest
 
 pub fn vortex_scan::api::ScanRequest::clone(&self) -> vortex_scan::api::ScanRequest
@@ -27,6 +31,10 @@ pub fn vortex_scan::api::ScanRequest::default() -> Self
 impl core::fmt::Debug for vortex_scan::api::ScanRequest
 
 pub fn vortex_scan::api::ScanRequest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub const vortex_scan::api::DEFAULT_TARGET_OUTPUT_BYTES_HINT: usize
+
+pub const vortex_scan::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT: usize
 
 pub trait vortex_scan::api::DataSource: 'static + core::marker::Send + core::marker::Sync
 
@@ -234,6 +242,8 @@ pub vortex_scan::SplitBy::RowCount(usize)
 
 impl vortex_scan::SplitBy
 
+pub fn vortex_scan::SplitBy::split_points(&self, layout_reader: &dyn vortex_layout::reader::LayoutReader, row_range: core::ops::range::Range<u64>, field_mask: alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>) -> vortex_error::VortexResult<vortex_layout::reader::SplitPointIter>
+
 pub fn vortex_scan::SplitBy::splits(&self, layout_reader: &dyn vortex_layout::reader::LayoutReader, row_range: &core::ops::range::Range<u64>, field_mask: &[vortex_array::dtype::field_mask::FieldMask]) -> vortex_error::VortexResult<alloc::collections::btree::set::BTreeSet<u64>>
 
 impl core::clone::Clone for vortex_scan::SplitBy
@@ -263,8 +273,6 @@ pub fn vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>::execute_array_s
 impl<A: 'static + core::marker::Send> vortex_scan::RepeatedScan<A>
 
 pub fn vortex_scan::RepeatedScan<A>::execute(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<alloc::vec::Vec<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<core::option::Option<A>>>>>
-
-pub fn vortex_scan::RepeatedScan<A>::execute_stream(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = vortex_error::VortexResult<A>> + core::marker::Send + 'static + use<A>>
 
 pub struct vortex_scan::ScanBuilder<A>
 
@@ -329,3 +337,7 @@ pub fn vortex_scan::ScanBuilder<A>::with_some_limit(self, limit: core::option::O
 pub fn vortex_scan::ScanBuilder<A>::with_some_metrics_registry(self, metrics: core::option::Option<alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>>) -> Self
 
 pub fn vortex_scan::ScanBuilder<A>::with_split_by(self, split_by: vortex_scan::SplitBy) -> Self
+
+pub fn vortex_scan::ScanBuilder<A>::with_target_output_bytes(self, target_output_bytes: usize) -> Self
+
+pub fn vortex_scan::ScanBuilder<A>::with_target_output_rows(self, target_output_rows: usize) -> Self

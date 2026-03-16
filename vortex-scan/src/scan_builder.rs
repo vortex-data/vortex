@@ -9,7 +9,6 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::Stream;
-use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
@@ -32,7 +31,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
-use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
@@ -42,6 +40,7 @@ use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
 use crate::RepeatedScan;
+use crate::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT;
 use crate::selection::Selection;
 use crate::split_by::SplitBy;
 use crate::splits::Splits;
@@ -74,7 +73,17 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
+    /// Preferred lower bound for rows accumulated before materializing projected data.
+    target_output_rows: Option<usize>,
+    /// Preferred lower bound for projected payload bytes accumulated before materialization.
+    target_output_bytes: Option<usize>,
 }
+
+const DEFAULT_TARGET_OUTPUT_ROWS: usize = DEFAULT_TARGET_OUTPUT_ROWS_HINT;
+const MIN_TARGET_OUTPUT_BYTES: usize = 1 << 20;
+const MAX_TARGET_OUTPUT_BYTES: usize = 8 << 20;
+const DEFAULT_VARIABLE_ROW_BYTES: usize = 32;
+const NESTED_PROJECTION_TARGET_MULTIPLIER: usize = 2;
 
 impl ScanBuilder<ArrayRef> {
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
@@ -95,6 +104,8 @@ impl ScanBuilder<ArrayRef> {
             file_stats: None,
             limit: None,
             row_offset: 0,
+            target_output_rows: None,
+            target_output_bytes: None,
         }
     }
 
@@ -233,8 +244,21 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            target_output_rows: self.target_output_rows,
+            target_output_bytes: self.target_output_bytes,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
+    }
+
+    pub fn with_target_output_rows(mut self, target_output_rows: usize) -> Self {
+        assert!(target_output_rows > 0);
+        self.target_output_rows = Some(target_output_rows);
+        self
+    }
+
+    pub fn with_target_output_bytes(mut self, target_output_bytes: usize) -> Self {
+        self.target_output_bytes = Some(target_output_bytes);
+        self
     }
 
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
@@ -265,24 +289,38 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .map(|f| f.optimize_recursive(layout_reader.dtype()))
             .transpose()?;
 
-        // Construct field masks and compute the row splits of the scan.
-        let (filter_mask, projection_mask) =
+        // Construct field masks and defer split discovery until execution so scans can start
+        // producing work before we've traversed every touched layout.
+        let (filter_mask, projection_mask, projection_only_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
-        let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
+        let split_field_mask = if filter_mask.is_empty() {
+            projection_only_mask.clone()
+        } else {
+            filter_mask
+        };
+        let mut target_output_rows = self
+            .target_output_rows
+            .unwrap_or(DEFAULT_TARGET_OUTPUT_ROWS);
+        let projection_row_cost_bytes =
+            estimate_field_mask_row_bytes(layout_reader.dtype(), &projection_only_mask);
+        let mut target_output_bytes = self.target_output_bytes.unwrap_or_else(|| {
+            default_target_output_bytes(target_output_rows, projection_row_cost_bytes)
+        });
+        if filter.is_some() && contains_nested_projection_dtype(&dtype) {
+            target_output_rows =
+                target_output_rows.saturating_mul(NESTED_PROJECTION_TARGET_MULTIPLIER);
+            target_output_bytes =
+                target_output_bytes.saturating_mul(NESTED_PROJECTION_TARGET_MULTIPLIER);
+        }
 
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
                 Splits::Ranges(ranges)
             } else {
-                let split_range = self
-                    .row_range
-                    .clone()
-                    .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(self.split_by.splits(
-                    layout_reader.as_ref(),
-                    &split_range,
-                    &field_mask,
-                )?)
+                Splits::Natural {
+                    split_by: self.split_by,
+                    field_mask: split_field_mask,
+                }
             };
 
         Ok(RepeatedScan::new(
@@ -298,6 +336,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.limit,
             dtype,
+            projection_mask,
+            target_output_rows,
+            target_output_bytes,
+            projection_row_cost_bytes,
         ))
     }
 
@@ -330,18 +372,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
 enum LazyScanState<A: 'static + Send> {
     Builder(Option<Box<ScanBuilder<A>>>),
-    Preparing(PreparingScan<A>),
+    Preparing(Task<VortexResult<BoxStream<'static, VortexResult<A>>>>),
     Stream(BoxStream<'static, VortexResult<A>>),
     Error(Option<vortex_error::VortexError>),
-}
-
-type PreparedScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
-
-struct PreparingScan<A: 'static + Send> {
-    ordered: bool,
-    concurrency: usize,
-    handle: Handle,
-    task: Task<VortexResult<PreparedScanTasks<A>>>,
 }
 
 struct LazyScanStream<A: 'static + Send> {
@@ -372,37 +405,17 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                         .unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
+                    let execute_handle = handle.clone();
                     let task = handle.spawn_blocking(move || {
-                        builder.prepare().and_then(|scan| scan.execute(None))
+                        let scan = builder.prepare()?;
+                        scan.execute_stream(None, concurrency, ordered, execute_handle)
                     });
-                    self.state = LazyScanState::Preparing(PreparingScan {
-                        ordered,
-                        concurrency,
-                        handle,
-                        task,
-                    });
+                    self.state = LazyScanState::Preparing(task);
                 }
-                LazyScanState::Preparing(preparing) => {
-                    match ready!(Pin::new(&mut preparing.task).poll(cx)) {
-                        Ok(tasks) => {
-                            let ordered = preparing.ordered;
-                            let concurrency = preparing.concurrency;
-                            let handle = preparing.handle.clone();
-                            let stream =
-                                futures::stream::iter(tasks).map(move |task| handle.spawn(task));
-                            let stream = if ordered {
-                                stream.buffered(concurrency).boxed()
-                            } else {
-                                stream.buffer_unordered(concurrency).boxed()
-                            };
-                            let stream = stream
-                                .filter_map(|chunk| async move { chunk.transpose() })
-                                .boxed();
-                            self.state = LazyScanState::Stream(stream);
-                        }
-                        Err(err) => self.state = LazyScanState::Error(Some(err)),
-                    }
-                }
+                LazyScanState::Preparing(task) => match ready!(Pin::new(task).poll(cx)) {
+                    Ok(stream) => self.state = LazyScanState::Stream(stream),
+                    Err(err) => self.state = LazyScanState::Error(Some(err)),
+                },
                 LazyScanState::Stream(stream) => return stream.as_mut().poll_next(cx),
                 LazyScanState::Error(err) => return Poll::Ready(err.take().map(Err)),
             }
@@ -417,19 +430,25 @@ pub(crate) fn filter_and_projection_masks(
     projection: &Expression,
     filter: Option<&Expression>,
     dtype: &DType,
-) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
+) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>, Vec<FieldMask>)> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
         return Ok(match filter {
-            Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
-            None => (Vec::new(), vec![FieldMask::All]),
+            Some(_) => (
+                vec![FieldMask::All],
+                vec![FieldMask::All],
+                vec![FieldMask::All],
+            ),
+            None => (Vec::new(), vec![FieldMask::All], vec![FieldMask::All]),
         });
     };
     let projection_mask = immediate_scope_access(projection, struct_dtype);
+    let projection_mask_vec = projection_mask
+        .iter()
+        .cloned()
+        .map(to_field_mask)
+        .collect_vec();
     Ok(match filter {
-        None => (
-            Vec::new(),
-            projection_mask.into_iter().map(to_field_mask).collect_vec(),
-        ),
+        None => (Vec::new(), projection_mask_vec.clone(), projection_mask_vec),
         Some(f) => {
             let filter_mask = immediate_scope_access(f, struct_dtype);
             let only_projection_mask = projection_mask
@@ -439,6 +458,7 @@ pub(crate) fn filter_and_projection_masks(
                 .collect_vec();
             (
                 filter_mask.into_iter().map(to_field_mask).collect_vec(),
+                projection_mask_vec,
                 only_projection_mask,
             )
         }
@@ -447,6 +467,73 @@ pub(crate) fn filter_and_projection_masks(
 
 fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
+}
+
+fn default_target_output_bytes(
+    target_output_rows: usize,
+    projection_row_cost_bytes: usize,
+) -> usize {
+    if projection_row_cost_bytes == 0 {
+        return 0;
+    }
+
+    target_output_rows
+        .saturating_mul(projection_row_cost_bytes)
+        .clamp(MIN_TARGET_OUTPUT_BYTES, MAX_TARGET_OUTPUT_BYTES)
+}
+
+fn estimate_field_mask_row_bytes(dtype: &DType, field_masks: &[FieldMask]) -> usize {
+    if field_masks.is_empty() {
+        return 0;
+    }
+
+    if field_masks.iter().any(FieldMask::matches_all) {
+        return estimate_dtype_row_bytes(dtype);
+    }
+
+    field_masks.iter().fold(0usize, |sum, mask| {
+        sum.saturating_add(estimate_single_mask_row_bytes(dtype, mask))
+    })
+}
+
+fn estimate_single_mask_row_bytes(dtype: &DType, field_mask: &FieldMask) -> usize {
+    match field_mask {
+        FieldMask::All => estimate_dtype_row_bytes(dtype),
+        FieldMask::Prefix(path) | FieldMask::Exact(path) => {
+            if path.is_root() {
+                return estimate_dtype_row_bytes(dtype);
+            }
+
+            path.resolve(dtype.clone())
+                .map(|dtype| estimate_dtype_row_bytes(&dtype))
+                .unwrap_or_else(|| estimate_dtype_row_bytes(dtype))
+        }
+    }
+}
+
+fn estimate_dtype_row_bytes(dtype: &DType) -> usize {
+    dtype.element_size().unwrap_or_else(|| match dtype {
+        DType::Struct(fields, _) => fields.fields().fold(0usize, |sum, dtype| {
+            sum.saturating_add(estimate_dtype_row_bytes(&dtype))
+        }),
+        DType::List(elem_dtype, _) => {
+            DEFAULT_VARIABLE_ROW_BYTES.saturating_add(estimate_dtype_row_bytes(elem_dtype))
+        }
+        DType::FixedSizeList(elem_dtype, list_size, _) => {
+            estimate_dtype_row_bytes(elem_dtype).saturating_mul(*list_size as usize)
+        }
+        DType::Extension(ext_dtype) => estimate_dtype_row_bytes(ext_dtype.storage_dtype()),
+        DType::Utf8(_) | DType::Binary(_) => DEFAULT_VARIABLE_ROW_BYTES,
+        _ => DEFAULT_VARIABLE_ROW_BYTES,
+    })
+}
+
+fn contains_nested_projection_dtype(dtype: &DType) -> bool {
+    match dtype {
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => true,
+        DType::Extension(ext_dtype) => contains_nested_projection_dtype(ext_dtype.storage_dtype()),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -470,9 +557,15 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::col;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -482,6 +575,7 @@ mod test {
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
+    use super::contains_nested_projection_dtype;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -564,6 +658,18 @@ mod test {
         let session = crate::test::SCAN_SESSION.clone();
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn prepare_defers_split_discovery() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
+
+        let session = crate::test::SCAN_SESSION.clone();
+
+        let _scan = ScanBuilder::new(session, reader).prepare().unwrap();
 
         assert_eq!(calls.load(Ordering::Relaxed), 0);
     }
@@ -651,6 +757,85 @@ mod test {
         }
     }
 
+    #[derive(Debug)]
+    struct OrderedSkippingReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+    }
+
+    impl OrderedSkippingReader {
+        fn new() -> Self {
+            Self {
+                name: Arc::from("ordered-skipping"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count: 4,
+            }
+        }
+    }
+
+    impl LayoutReader for OrderedSkippingReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            Ok(MaskFuture::ready(mask))
+        }
+
+        fn filter_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            let row_start = row_range.start;
+            Ok(MaskFuture::new(mask.len(), async move {
+                let mask = mask.await?;
+                if row_start == 0 {
+                    Ok(Mask::new_false(mask.len()))
+                } else {
+                    Ok(mask)
+                }
+            }))
+        }
+
+        fn projection_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            let value = i32::try_from(row_range.start)
+                .map_err(|_| vortex_err!("row_range.start must fit in i32"))?;
+            let array = PrimitiveArray::from_iter([value]).into_array();
+            Ok(Box::pin(async move { Ok(array) }))
+        }
+    }
+
     #[test]
     fn into_stream_executes_after_prepare() -> VortexResult<()> {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -667,8 +852,32 @@ mod test {
             values.push(chunk?.to_primitive().into_buffer::<i32>()[0]);
         }
 
-        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert!(calls.load(Ordering::Relaxed) >= 1);
         assert_eq!(values.as_ref(), [0, 1, 2, 3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn into_stream_ordered_advances_past_filtered_empty_split() -> VortexResult<()> {
+        let reader = Arc::new(OrderedSkippingReader::new());
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::test::session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_split_by(crate::SplitBy::RowCount(1))
+            .with_filter(eq(root(), lit(1i32)))
+            .into_stream()
+            .unwrap();
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut values = Vec::new();
+        for chunk in &mut iter {
+            values.push(chunk?.to_primitive().into_buffer::<i32>()[0]);
+        }
+
+        assert_eq!(values.as_slice(), [1, 2, 3]);
 
         Ok(())
     }
@@ -755,7 +964,7 @@ mod test {
         let guard = gate.lock();
 
         let calls = Arc::new(AtomicUsize::new(0));
-        let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls.clone()));
+        let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls));
 
         let runtime = SingleThreadRuntime::default();
         let session = crate::test::session_with_handle(runtime.handle());
@@ -779,10 +988,267 @@ mod test {
         let polled_pending = polled_pending.expect("poll_next blocked; expected quick return");
         assert!(
             polled_pending,
-            "expected Poll::Pending while prepare is blocked"
+            "expected Poll::Pending while stream construction is blocked"
         );
-        assert_eq!(calls.load(Ordering::Relaxed), 0);
 
         drop(runtime);
+    }
+
+    #[test]
+    fn into_stream_second_poll_does_not_block_when_split_discovery_blocks() {
+        let gate = Arc::new(Mutex::new(()));
+        let guard = gate.lock();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::test::session_with_handle(runtime.handle());
+
+        let mut stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
+
+        assert!(matches!(
+            Pin::new(&mut stream).poll_next(&mut cx),
+            Poll::Pending
+        ));
+
+        let (send, recv) = std::sync::mpsc::channel::<bool>();
+        let join = std::thread::spawn(move || {
+            let waker = noop_waker_ref();
+            let mut cx = Context::from_waker(waker);
+            let poll = Pin::new(&mut stream).poll_next(&mut cx);
+            let _ = send.send(matches!(poll, Poll::Pending));
+        });
+
+        let polled_pending = recv.recv_timeout(Duration::from_secs(1)).ok();
+
+        drop(guard);
+        drop(join.join());
+
+        let polled_pending =
+            polled_pending.expect("second poll_next blocked; expected quick return");
+        assert!(
+            polled_pending,
+            "expected Poll::Pending while split discovery is blocked in spawn_blocking"
+        );
+
+        drop(runtime);
+    }
+
+    #[derive(Debug)]
+    struct RecordingSplitMaskReader {
+        name: Arc<str>,
+        dtype: DType,
+        seen_masks: Arc<Mutex<Vec<Vec<FieldMask>>>>,
+    }
+
+    impl RecordingSplitMaskReader {
+        fn new(seen_masks: Arc<Mutex<Vec<Vec<FieldMask>>>>) -> Self {
+            Self {
+                name: Arc::from("recording-split-mask"),
+                dtype: DType::Struct(
+                    StructFields::from_iter([
+                        ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                    ]),
+                    Nullability::NonNullable,
+                ),
+                seen_masks,
+            }
+        }
+    }
+
+    impl LayoutReader for RecordingSplitMaskReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            1
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn split_points(
+            &self,
+            field_mask: Vec<FieldMask>,
+            row_range: Range<u64>,
+        ) -> VortexResult<vortex_layout::SplitPointIter> {
+            self.seen_masks.lock().push(field_mask);
+            Ok(Box::new(std::iter::once(row_range.end)))
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            unimplemented!("not needed for this test");
+        }
+    }
+
+    #[test]
+    fn filtered_split_discovery_prefers_filter_fields() -> VortexResult<()> {
+        let seen_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(RecordingSplitMaskReader::new(seen_masks.clone()));
+        let session = crate::test::SCAN_SESSION.clone();
+
+        let scan = ScanBuilder::new(session, reader)
+            .with_filter(eq(col("a"), lit(1i32)))
+            .with_projection(col("b"))
+            .prepare()?;
+        drop(scan.execute(None)?);
+
+        let seen_masks = seen_masks.lock();
+        assert_eq!(seen_masks.len(), 1);
+        assert!(
+            seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("a"))),
+            "expected split discovery to include filter field"
+        );
+        assert_eq!(seen_masks[0].len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn unfiltered_split_discovery_uses_projection_fields() -> VortexResult<()> {
+        let seen_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(RecordingSplitMaskReader::new(seen_masks.clone()));
+        let session = crate::test::SCAN_SESSION.clone();
+
+        let scan = ScanBuilder::new(session, reader)
+            .with_projection(col("b"))
+            .prepare()?;
+        drop(scan.execute(None)?);
+
+        let seen_masks = seen_masks.lock();
+        assert_eq!(seen_masks.len(), 1);
+        assert_eq!(
+            seen_masks[0],
+            vec![FieldMask::Prefix(FieldPath::from_name("b"))]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn estimate_field_mask_row_bytes_uses_only_requested_fields() {
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("b", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                ("c", DType::Utf8(Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let bytes = super::estimate_field_mask_row_bytes(
+            &dtype,
+            &[FieldMask::Prefix(FieldPath::from_name("b"))],
+        );
+        let var_bytes = super::estimate_field_mask_row_bytes(
+            &dtype,
+            &[FieldMask::Prefix(FieldPath::from_name("c"))],
+        );
+
+        assert_eq!(bytes, 8);
+        assert_eq!(var_bytes, super::DEFAULT_VARIABLE_ROW_BYTES);
+        assert_eq!(super::estimate_field_mask_row_bytes(&dtype, &[]), 0);
+    }
+
+    #[test]
+    fn estimate_dtype_row_bytes_recurses_into_lists() {
+        let list_dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+
+        assert_eq!(
+            super::estimate_dtype_row_bytes(&list_dtype),
+            super::DEFAULT_VARIABLE_ROW_BYTES + 4
+        );
+    }
+
+    #[test]
+    fn estimate_dtype_row_bytes_sums_nested_struct_children() {
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                (
+                    "b",
+                    DType::List(
+                        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+                        Nullability::Nullable,
+                    ),
+                ),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        assert_eq!(
+            super::estimate_dtype_row_bytes(&dtype),
+            4 + super::DEFAULT_VARIABLE_ROW_BYTES + 8
+        );
+    }
+
+    #[test]
+    fn default_target_output_bytes_clamps_to_reasonable_bounds() {
+        assert_eq!(super::default_target_output_bytes(32 * 1024, 0), 0);
+        assert_eq!(
+            super::default_target_output_bytes(32 * 1024, 1),
+            super::MIN_TARGET_OUTPUT_BYTES
+        );
+        assert_eq!(
+            super::default_target_output_bytes(32 * 1024, 1024),
+            super::MAX_TARGET_OUTPUT_BYTES
+        );
+    }
+
+    #[test]
+    fn nested_projection_detection_matches_struct_and_list_outputs() {
+        let primitive = DType::Primitive(PType::I32, Nullability::NonNullable);
+        assert!(!contains_nested_projection_dtype(&primitive));
+
+        let list = DType::List(Arc::new(primitive.clone()), Nullability::Nullable);
+        assert!(contains_nested_projection_dtype(&list));
+
+        let struct_dtype = DType::Struct(
+            StructFields::from_iter([("x", primitive)]),
+            Nullability::NonNullable,
+        );
+        assert!(contains_nested_projection_dtype(&struct_dtype));
     }
 }

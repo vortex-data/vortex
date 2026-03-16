@@ -42,6 +42,8 @@ use vortex::layout::LayoutReader;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::scan::ScanBuilder;
+use vortex::scan::api::DEFAULT_TARGET_OUTPUT_BYTES_HINT;
+use vortex::scan::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -361,6 +363,8 @@ impl FileOpener for VortexOpener {
                 .with_projection(scan_projection)
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
+                .with_target_output_rows(DEFAULT_TARGET_OUTPUT_ROWS_HINT)
+                .with_target_output_bytes(DEFAULT_TARGET_OUTPUT_BYTES_HINT)
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
                     chunk.execute_record_batch(&stream_schema, &mut ctx)

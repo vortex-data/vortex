@@ -3,6 +3,7 @@
 
 //! This module contains tests for the `vortex_scan` table function.
 
+use std::collections::BTreeMap;
 use std::ffi::CStr;
 use std::io::Write;
 use std::net::TcpListener;
@@ -160,6 +161,28 @@ async fn write_vortex_file_to_dir(
 ) -> NamedTempFile {
     let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
     let temp_file_path = tempfile::Builder::new()
+        .suffix(".vortex")
+        .tempfile_in(dir)
+        .unwrap();
+
+    let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
+    SESSION
+        .write_options()
+        .write(&mut file, struct_array.to_array_stream())
+        .await
+        .unwrap();
+
+    temp_file_path
+}
+
+async fn write_vortex_struct_file_to_dir(
+    dir: &Path,
+    prefix: &str,
+    iter: impl Iterator<Item = (impl AsRef<str>, impl IntoArray)>,
+) -> NamedTempFile {
+    let struct_array = StructArray::try_from_iter(iter).unwrap();
+    let temp_file_path = tempfile::Builder::new()
+        .prefix(prefix)
         .suffix(".vortex")
         .tempfile_in(dir)
         .unwrap();
@@ -348,6 +371,284 @@ fn test_vortex_scan_multiple_files() {
     let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
     assert_eq!(total_sum, 21);
+}
+
+#[test]
+fn test_vortex_scan_tpch_q13_style_left_join_over_multifile_orders() {
+    let (tempdir, _customer_file, _orders_file1, _orders_file2) = RUNTIME.block_on(async {
+        let tempdir = tempfile::tempdir().unwrap();
+
+        let customer_file = write_vortex_struct_file_to_dir(
+            tempdir.path(),
+            "customer_",
+            [
+                ("c_custkey", buffer![1i64, 2, 3, 4, 5].into_array()),
+                (
+                    "c_comment",
+                    VarBinArray::from(vec!["c1", "c2", "c3", "c4", "c5"]).into_array(),
+                ),
+            ]
+            .into_iter(),
+        )
+        .await;
+
+        let orders_file1 = write_vortex_struct_file_to_dir(
+            tempdir.path(),
+            "orders_",
+            [
+                ("o_orderkey", buffer![10i64, 20, 30].into_array()),
+                ("o_custkey", buffer![1i64, 2, 3].into_array()),
+                (
+                    "o_comment",
+                    VarBinArray::from(vec![
+                        "ordinary order",
+                        "special handling requests",
+                        "regular comment",
+                    ])
+                    .into_array(),
+                ),
+            ]
+            .into_iter(),
+        )
+        .await;
+
+        let orders_file2 = write_vortex_struct_file_to_dir(
+            tempdir.path(),
+            "orders_",
+            [
+                ("o_orderkey", buffer![11i64, 21, 40].into_array()),
+                ("o_custkey", buffer![1i64, 2, 4].into_array()),
+                (
+                    "o_comment",
+                    VarBinArray::from(vec![
+                        "special service requests",
+                        "another normal order",
+                        "special packaging requests",
+                    ])
+                    .into_array(),
+                ),
+            ]
+            .into_iter(),
+        )
+        .await;
+
+        (tempdir, customer_file, orders_file1, orders_file2)
+    });
+
+    let customer_glob = format!("{}/customer_*.vortex", tempdir.path().display());
+    let orders_glob = format!("{}/orders_*.vortex", tempdir.path().display());
+
+    let conn = database_connection();
+    conn.query(&format!(
+        "CREATE OR REPLACE VIEW customer AS SELECT * FROM read_vortex('{customer_glob}') WHERE c_custkey IS NOT NULL"
+    ))
+    .unwrap();
+    conn.query(&format!(
+        "CREATE OR REPLACE VIEW orders AS SELECT * FROM read_vortex('{orders_glob}') WHERE o_orderkey IS NOT NULL"
+    ))
+    .unwrap();
+
+    let result = conn
+        .query(
+            "
+            SELECT
+                c_count,
+                count(*) AS custdist
+            FROM (
+                SELECT
+                    c_custkey,
+                    count(o_orderkey) AS c_count
+                FROM
+                    customer
+                    LEFT OUTER JOIN orders
+                        ON c_custkey = o_custkey
+                       AND o_comment NOT LIKE '%special%requests%'
+                GROUP BY
+                    c_custkey
+            ) AS c_orders(c_custkey, c_count)
+            GROUP BY
+                c_count
+            ORDER BY
+                custdist DESC,
+                c_count DESC
+            ",
+        )
+        .unwrap();
+
+    let mut rows = Vec::new();
+    for chunk in result {
+        let len = chunk.len().as_();
+        let counts = chunk.get_vector(0);
+        let dists = chunk.get_vector(1);
+        let counts = counts.as_slice_with_len::<i64>(len);
+        let dists = dists.as_slice_with_len::<i64>(len);
+        rows.extend(counts.iter().copied().zip(dists.iter().copied()));
+    }
+
+    assert_eq!(rows, vec![(1, 3), (0, 2)]);
+}
+
+#[test]
+fn test_vortex_scan_tpch_q13_style_large_multifile_orders_matches_expected() {
+    const CUSTOMER_COUNT: i64 = 2048;
+    const ORDER_FILE_COUNT: usize = 3;
+    const INCLUDED_MODULUS: i64 = 64;
+    const EXCLUDED_MODULUS: i64 = 7;
+
+    let mut expected_counts = BTreeMap::<i64, i64>::new();
+    let (tempdir, _customer_file, _order_files) = RUNTIME.block_on(async {
+        let tempdir = tempfile::tempdir().unwrap();
+
+        let customer_keys: Vec<i64> = (1..=CUSTOMER_COUNT).collect();
+        let customer_comments: Vec<String> = (1..=CUSTOMER_COUNT)
+            .map(|custkey| format!("customer {custkey}"))
+            .collect();
+        let customer_file = write_vortex_struct_file_to_dir(
+            tempdir.path(),
+            "customer_",
+            [
+                (
+                    "c_custkey",
+                    customer_keys
+                        .into_iter()
+                        .collect::<PrimitiveArray>()
+                        .into_array(),
+                ),
+                (
+                    "c_comment",
+                    VarBinArray::from(customer_comments).into_array(),
+                ),
+            ]
+            .into_iter(),
+        )
+        .await;
+
+        let mut order_keys_per_file = vec![Vec::new(); ORDER_FILE_COUNT];
+        let mut order_custkeys_per_file = vec![Vec::new(); ORDER_FILE_COUNT];
+        let mut order_comments_per_file = vec![Vec::new(); ORDER_FILE_COUNT];
+        let mut next_orderkey = 1_i64;
+
+        for custkey in 1..=CUSTOMER_COUNT {
+            let included = custkey % INCLUDED_MODULUS;
+            let excluded = custkey % EXCLUDED_MODULUS;
+            *expected_counts.entry(included).or_default() += 1;
+
+            for _ in 0..included {
+                let file_idx = usize::try_from(next_orderkey).unwrap() % ORDER_FILE_COUNT;
+                order_keys_per_file[file_idx].push(next_orderkey);
+                order_custkeys_per_file[file_idx].push(custkey);
+                order_comments_per_file[file_idx].push("ordinary order".to_string());
+                next_orderkey += 1;
+            }
+
+            for _ in 0..excluded {
+                let file_idx = usize::try_from(next_orderkey).unwrap() % ORDER_FILE_COUNT;
+                order_keys_per_file[file_idx].push(next_orderkey);
+                order_custkeys_per_file[file_idx].push(custkey);
+                order_comments_per_file[file_idx].push("special handling requests".to_string());
+                next_orderkey += 1;
+            }
+        }
+
+        let mut order_files = Vec::with_capacity(ORDER_FILE_COUNT);
+        for file_idx in 0..ORDER_FILE_COUNT {
+            order_files.push(
+                write_vortex_struct_file_to_dir(
+                    tempdir.path(),
+                    "orders_",
+                    [
+                        (
+                            "o_orderkey",
+                            std::mem::take(&mut order_keys_per_file[file_idx])
+                                .into_iter()
+                                .collect::<PrimitiveArray>()
+                                .into_array(),
+                        ),
+                        (
+                            "o_custkey",
+                            std::mem::take(&mut order_custkeys_per_file[file_idx])
+                                .into_iter()
+                                .collect::<PrimitiveArray>()
+                                .into_array(),
+                        ),
+                        (
+                            "o_comment",
+                            VarBinArray::from(std::mem::take(
+                                &mut order_comments_per_file[file_idx],
+                            ))
+                            .into_array(),
+                        ),
+                    ]
+                    .into_iter(),
+                )
+                .await,
+            );
+        }
+
+        (tempdir, customer_file, order_files)
+    });
+
+    let customer_glob = format!("{}/customer_*.vortex", tempdir.path().display());
+    let orders_glob = format!("{}/orders_*.vortex", tempdir.path().display());
+
+    let mut expected_rows: Vec<(i64, i64)> = expected_counts.into_iter().collect();
+    expected_rows.sort_by(|(left_count, left_dist), (right_count, right_dist)| {
+        right_dist
+            .cmp(left_dist)
+            .then_with(|| right_count.cmp(left_count))
+    });
+
+    let conn = database_connection();
+    conn.query(&format!(
+        "CREATE OR REPLACE VIEW customer AS SELECT * FROM read_vortex('{customer_glob}')"
+    ))
+    .unwrap();
+    conn.query(&format!(
+        "CREATE OR REPLACE VIEW orders AS SELECT * FROM read_vortex('{orders_glob}')"
+    ))
+    .unwrap();
+
+    let result = conn
+        .query(
+            "
+            SELECT
+                c_count,
+                count(*) AS custdist
+            FROM (
+                SELECT
+                    c_custkey,
+                    count(o_orderkey) AS c_count
+                FROM
+                    customer
+                    LEFT OUTER JOIN orders
+                        ON c_custkey = o_custkey
+                       AND o_comment NOT LIKE '%special%requests%'
+                GROUP BY
+                    c_custkey
+            ) AS c_orders(c_custkey, c_count)
+            GROUP BY
+                c_count
+            ORDER BY
+                custdist DESC,
+                c_count DESC
+            ",
+        )
+        .unwrap();
+
+    let row_count = result.row_count();
+    let mut actual_rows = Vec::new();
+    for chunk in result {
+        let len = chunk.len().as_();
+        let counts = chunk.get_vector(0);
+        let dists = chunk.get_vector(1);
+        let counts = counts.as_slice_with_len::<i64>(len);
+        let dists = dists.as_slice_with_len::<i64>(len);
+        actual_rows.extend(counts.iter().copied().zip(dists.iter().copied()));
+    }
+
+    assert_eq!(usize::try_from(row_count).unwrap(), expected_rows.len());
+    assert_eq!(actual_rows.len(), expected_rows.len());
+    assert_eq!(actual_rows, expected_rows);
 }
 
 #[test]

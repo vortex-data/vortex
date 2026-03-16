@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::iter::once;
 use std::ops::Range;
 
 use vortex_array::dtype::FieldMask;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::SplitPointIter;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -23,30 +23,43 @@ pub enum SplitBy {
 }
 
 impl SplitBy {
+    pub fn split_points(
+        &self,
+        layout_reader: &dyn LayoutReader,
+        row_range: Range<u64>,
+        field_mask: Vec<FieldMask>,
+    ) -> VortexResult<SplitPointIter> {
+        if row_range.is_empty() {
+            return Ok(Box::new(std::iter::empty()));
+        }
+
+        Ok(match *self {
+            SplitBy::Layout => layout_reader.split_points(field_mask, row_range)?,
+            SplitBy::RowCount(n) => {
+                let mut points: Vec<u64> = row_range.clone().step_by(n).skip(1).collect();
+                if points.last().copied() != Some(row_range.end) {
+                    points.push(row_range.end);
+                }
+                Box::new(points.into_iter())
+            }
+        })
+    }
+
     /// Compute the splits for the given layout.
-    // TODO(ngates): remove this once layout readers are stream based.
     pub fn splits(
         &self,
         layout_reader: &dyn LayoutReader,
         row_range: &Range<u64>,
         field_mask: &[FieldMask],
     ) -> VortexResult<BTreeSet<u64>> {
-        Ok(match *self {
-            SplitBy::Layout => {
-                let mut row_splits = BTreeSet::<u64>::new();
-                row_splits.insert(row_range.start);
-
-                // Register all splits in the row range for all layouts that are needed
-                // to read the field mask.
-                layout_reader.register_splits(field_mask, row_range, &mut row_splits)?;
-                row_splits
-            }
-            SplitBy::RowCount(n) => row_range
-                .clone()
-                .step_by(n)
-                .chain(once(row_range.end))
-                .collect(),
-        })
+        let mut row_splits = BTreeSet::<u64>::new();
+        row_splits.insert(row_range.start);
+        row_splits.extend(self.split_points(
+            layout_reader,
+            row_range.clone(),
+            field_mask.to_vec(),
+        )?);
+        Ok(row_splits)
     }
 }
 

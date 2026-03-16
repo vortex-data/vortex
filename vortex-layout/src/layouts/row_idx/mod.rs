@@ -42,6 +42,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
+use crate::SplitPointIter;
 use crate::layouts::partitioned::PartitionedExprEval;
 
 pub struct RowIdxLayoutReader {
@@ -173,6 +174,14 @@ impl LayoutReader for RowIdxLayoutReader {
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         self.child.register_splits(field_mask, row_range, splits)
+    }
+
+    fn split_points(
+        &self,
+        field_mask: Vec<FieldMask>,
+        row_range: Range<u64>,
+    ) -> VortexResult<SplitPointIter> {
+        self.child.split_points(field_mask, row_range)
     }
 
     fn pruning_evaluation(
