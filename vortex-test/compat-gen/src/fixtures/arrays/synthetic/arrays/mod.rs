@@ -7,8 +7,11 @@
 
 mod bool;
 mod chunked;
+mod datetime;
+mod decimal;
 mod fixed_size_list;
 mod list;
+mod listview;
 mod null;
 mod primitive;
 mod struct_nested;
@@ -29,5 +32,8 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(list::ListFixture),
         Box::new(fixed_size_list::FixedSizeListFixture),
         Box::new(null::NullFixture),
+        Box::new(datetime::DateTimeFixture),
+        Box::new(decimal::DecimalFixture),
+        Box::new(listview::ListViewFixture),
     ]
 }
