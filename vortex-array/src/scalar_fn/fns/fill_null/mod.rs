@@ -105,6 +105,11 @@ impl ScalarFnVTable for FillNull {
             .as_constant()
             .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
 
+        vortex_ensure!(
+            !fill_scalar.is_null(),
+            "fill_null requires a non-null fill value"
+        );
+
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
         };
