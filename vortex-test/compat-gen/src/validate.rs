@@ -3,8 +3,6 @@
 
 use std::path::PathBuf;
 
-use vortex_array::IntoArray;
-use vortex_array::arrays::ChunkedArray;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -64,7 +62,7 @@ fn validate_version(
 
         eprintln!("  checking {} from v{version}...", entry.name);
         let bytes = source.fetch_fixture(version, &entry.name)?;
-        match validate_one(bytes, *fixture) {
+        match validate(bytes, *fixture) {
             Ok(()) => passed += 1,
             Err(e) => {
                 eprintln!("  FAIL: {} from v{version}: {e}", entry.name);
@@ -81,16 +79,11 @@ fn validate_version(
     })
 }
 
-fn validate_one(bytes: ByteBuffer, fixture: &dyn ArrayFixture) -> VortexResult<()> {
+fn validate(bytes: ByteBuffer, fixture: &dyn ArrayFixture) -> VortexResult<()> {
     let actual = adapter::read_file(bytes)?;
     let expected = fixture.build()?;
 
-    let actual_dtype = actual[0].dtype().clone();
-    let expected_dtype = expected[0].dtype().clone();
-    let actual_arr = ChunkedArray::try_new(actual, actual_dtype)?.into_array();
-    let expected_arr = ChunkedArray::try_new(expected, expected_dtype)?.into_array();
-
-    assert_arrays_eq!(actual_arr, expected_arr);
+    assert_arrays_eq!(actual, expected);
     Ok(())
 }
 

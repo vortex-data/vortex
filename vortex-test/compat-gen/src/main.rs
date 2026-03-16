@@ -36,10 +36,10 @@ fn main() -> VortexResult<()> {
     let mut entries = Vec::with_capacity(fixtures.len());
 
     for fixture in &fixtures {
-        let chunks = fixture.build()?;
-        check_expected_encodings(&chunks, fixture.as_ref())?;
+        let array = fixture.build()?;
+        check_expected_encodings(&array, fixture.as_ref())?;
         let path = cli.output.join(fixture.name());
-        vortex_compat::adapter::write_file(&path, chunks)?;
+        vortex_compat::adapter::write_file(&path, array)?;
 
         entries.push(FixtureEntry {
             name: fixture.name().to_string(),

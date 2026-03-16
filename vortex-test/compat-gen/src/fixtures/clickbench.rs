@@ -4,6 +4,8 @@
 use arrow_array::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
@@ -18,7 +20,7 @@ use super::ArrayFixture;
 const CLICKBENCH_URL: &str =
     "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_0.parquet";
 
-pub struct ClickBenchHits1kFixture;
+struct ClickBenchHits1kFixture;
 
 impl ArrayFixture for ClickBenchHits1kFixture {
     fn name(&self) -> &str {
@@ -29,7 +31,7 @@ impl ArrayFixture for ClickBenchHits1kFixture {
         vec![Struct::ID, Primitive::ID, VarBin::ID]
     }
 
-    fn build(&self) -> VortexResult<Vec<ArrayRef>> {
+    fn build(&self) -> VortexResult<ArrayRef> {
         let bytes = reqwest::blocking::get(CLICKBENCH_URL)
             .map_err(|e| vortex_err!("failed to download ClickBench parquet: {e}"))?
             .bytes()
@@ -46,9 +48,16 @@ impl ArrayFixture for ClickBenchHits1kFixture {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| vortex_err!("failed to read parquet batches: {e}"))?;
 
-        batches
-            .into_iter()
-            .map(|batch| ArrayRef::from_arrow(batch, false))
-            .collect()
+        Ok(ChunkedArray::from_iter(
+            batches
+                .into_iter()
+                .map(|batch| ArrayRef::from_arrow(batch, false))
+                .collect::<VortexResult<Vec<_>>>()?,
+        )
+        .into_array())
     }
+}
+
+pub fn fixtures() -> Vec<Box<dyn ArrayFixture>> {
+    vec![Box::new(ClickBenchHits1kFixture)]
 }

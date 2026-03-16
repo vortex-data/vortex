@@ -16,11 +16,8 @@ pub trait ArrayFixture: Send + Sync {
     /// The filename for this fixture, e.g. "primitives.vortex".
     fn name(&self) -> &str;
 
-    /// Build the expected arrays. Must be deterministic.
-    ///
-    /// Returns a `Vec` to support chunked fixtures (multiple chunks).
-    /// Single-array fixtures return a one-element vec.
-    fn build(&self) -> VortexResult<Vec<ArrayRef>>;
+    /// Build the expected arrays. Must be deterministic under all version of vortex.
+    fn build(&self) -> VortexResult<ArrayRef>;
 
     /// Encoding IDs that must appear somewhere in the array tree produced by [`Self::build`].
     ///
@@ -33,24 +30,19 @@ pub trait ArrayFixture: Send + Sync {
     }
 }
 
-/// Walk every array in `chunks`, collect encoding IDs, and assert that all expected encodings
+/// Walk the array tree, collect encoding IDs, and assert that all expected encodings
 /// are present. This is a no-op when [`ArrayFixture::expected_encodings`] returns an empty vec.
-pub fn check_expected_encodings(
-    chunks: &[ArrayRef],
-    fixture: &dyn ArrayFixture,
-) -> VortexResult<()> {
+pub fn check_expected_encodings(array: &ArrayRef, fixture: &dyn ArrayFixture) -> VortexResult<()> {
     let expected = fixture.expected_encodings();
     if expected.is_empty() {
         return Ok(());
     }
 
     let mut found: Vec<ArrayId> = Vec::new();
-    for chunk in chunks {
-        for array in chunk.depth_first_traversal() {
-            let id = array.encoding_id();
-            if !found.contains(&id) {
-                found.push(id);
-            }
+    for node in array.depth_first_traversal() {
+        let id = node.encoding_id();
+        if !found.contains(&id) {
+            found.push(id);
         }
     }
 
@@ -70,15 +62,9 @@ pub fn check_expected_encodings(
 
 /// All registered fixtures.
 pub fn all_fixtures() -> Vec<Box<dyn ArrayFixture>> {
-    vec![
-        Box::new(synthetic::PrimitivesFixture),
-        Box::new(synthetic::StringsFixture),
-        Box::new(synthetic::BooleansFixture),
-        Box::new(synthetic::NullableFixture),
-        Box::new(synthetic::StructNestedFixture),
-        Box::new(synthetic::ChunkedFixture),
-        Box::new(tpch::TpchLineitemFixture),
-        Box::new(tpch::TpchOrdersFixture),
-        Box::new(clickbench::ClickBenchHits1kFixture),
-    ]
+    let mut fixtures = Vec::new();
+    fixtures.extend(synthetic::fixtures());
+    fixtures.extend(tpch::fixtures());
+    fixtures.extend(clickbench::fixtures());
+    fixtures
 }
