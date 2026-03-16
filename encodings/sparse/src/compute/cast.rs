@@ -14,18 +14,18 @@ use crate::SparseArray;
 
 impl CastReduce for Sparse {
     fn cast(array: &SparseArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let casted_fill = if array.patches().num_patches() == array.len() {
-            // When every position is patched the fill is unused — skip casting it
-            // entirely and substitute a zero value for the target dtype.
-            Scalar::zero_value(dtype)
-        } else {
-            // Otherwise the cast must succeed.
-            array.fill_scalar().cast(dtype)?
-        };
         let casted_patches = array
             .patches()
             .clone()
             .map_values(|values| values.cast(dtype.clone()))?;
+
+        let casted_fill = if array.patches().num_patches() == array.len() {
+            // When every position is patched the fill scalar is unused and can be undefined.
+            // We skip casting it entirely and substitute a default value for the target dtype.
+            Scalar::default_value(dtype)
+        } else {
+            array.fill_scalar().cast(dtype)?
+        };
 
         Ok(Some(
             SparseArray::try_new_from_patches(casted_patches, casted_fill)?.into_array(),
