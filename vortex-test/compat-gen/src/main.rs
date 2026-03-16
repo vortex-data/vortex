@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use chrono::Utc;
 use clap::Parser;
 use vortex_compat::fixtures::all_fixtures;
+use vortex_compat::fixtures::check_expected_encodings;
 use vortex_compat::manifest::FixtureEntry;
 use vortex_compat::manifest::Manifest;
 use vortex_error::VortexResult;
@@ -36,6 +37,7 @@ fn main() -> VortexResult<()> {
 
     for fixture in &fixtures {
         let chunks = fixture.build()?;
+        check_expected_encodings(&chunks, fixture.as_ref())?;
         let path = cli.output.join(fixture.name());
         vortex_compat::adapter::write_file(&path, chunks)?;
 

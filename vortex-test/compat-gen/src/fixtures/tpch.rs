@@ -6,10 +6,16 @@ use tpchgen::generators::LineItemGenerator;
 use tpchgen::generators::OrderGenerator;
 use tpchgen_arrow::RecordBatchIterator;
 use vortex_array::ArrayRef;
+use vortex_array::arrays::Decimal;
+use vortex_array::arrays::Extension;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 
-use super::Fixture;
+use super::ArrayFixture;
 
 const SCALE_FACTOR: f64 = 0.01;
 
@@ -23,9 +29,19 @@ fn collect_batches_as_vortex(iter: impl RecordBatchIterator) -> VortexResult<Vec
 
 pub struct TpchLineitemFixture;
 
-impl Fixture for TpchLineitemFixture {
+impl ArrayFixture for TpchLineitemFixture {
     fn name(&self) -> &str {
         "tpch_lineitem.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![
+            Struct::ID,
+            Primitive::ID,
+            Decimal::ID,
+            VarBinView::ID,
+            Extension::ID,
+        ]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {
@@ -37,9 +53,19 @@ impl Fixture for TpchLineitemFixture {
 
 pub struct TpchOrdersFixture;
 
-impl Fixture for TpchOrdersFixture {
+impl ArrayFixture for TpchOrdersFixture {
     fn name(&self) -> &str {
         "tpch_orders.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![
+            Struct::ID,
+            Primitive::ID,
+            Decimal::ID,
+            VarBinView::ID,
+            Extension::ID,
+        ]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {

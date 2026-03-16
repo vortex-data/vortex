@@ -3,22 +3,32 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use super::Fixture;
+use super::ArrayFixture;
 
 pub struct PrimitivesFixture;
 
-impl Fixture for PrimitivesFixture {
+impl ArrayFixture for PrimitivesFixture {
     fn name(&self) -> &str {
         "primitives.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![Primitive::ID]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {
@@ -56,9 +66,13 @@ impl Fixture for PrimitivesFixture {
 
 pub struct StringsFixture;
 
-impl Fixture for StringsFixture {
+impl ArrayFixture for StringsFixture {
     fn name(&self) -> &str {
         "strings.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![VarBin::ID]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {
@@ -75,9 +89,13 @@ impl Fixture for StringsFixture {
 
 pub struct BooleansFixture;
 
-impl Fixture for BooleansFixture {
+impl ArrayFixture for BooleansFixture {
     fn name(&self) -> &str {
         "booleans.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![Bool::ID]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {
@@ -94,9 +112,13 @@ impl Fixture for BooleansFixture {
 
 pub struct NullableFixture;
 
-impl Fixture for NullableFixture {
+impl ArrayFixture for NullableFixture {
     fn name(&self) -> &str {
         "nullable.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![Primitive::ID, VarBin::ID]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {
@@ -116,9 +138,13 @@ impl Fixture for NullableFixture {
 
 pub struct StructNestedFixture;
 
-impl Fixture for StructNestedFixture {
+impl ArrayFixture for StructNestedFixture {
     fn name(&self) -> &str {
         "struct_nested.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![Struct::ID]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {
@@ -147,9 +173,13 @@ impl Fixture for StructNestedFixture {
 
 pub struct ChunkedFixture;
 
-impl Fixture for ChunkedFixture {
+impl ArrayFixture for ChunkedFixture {
     fn name(&self) -> &str {
         "chunked.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![Chunked::ID]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {

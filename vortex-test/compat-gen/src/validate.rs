@@ -13,7 +13,7 @@ use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::adapter;
-use crate::fixtures::Fixture;
+use crate::fixtures::ArrayFixture;
 use crate::fixtures::all_fixtures;
 use crate::manifest::Manifest;
 
@@ -31,7 +31,7 @@ pub fn validate_all(
     versions: &[String],
 ) -> VortexResult<Vec<VersionResult>> {
     let fixtures = all_fixtures();
-    let fixture_map: HashMap<&str, &dyn Fixture> =
+    let fixture_map: HashMap<&str, &dyn ArrayFixture> =
         fixtures.iter().map(|f| (f.name(), f.as_ref())).collect();
 
     let mut results = Vec::new();
@@ -45,7 +45,7 @@ pub fn validate_all(
 fn validate_version(
     source: &FixtureSource,
     version: &str,
-    fixture_map: &HashMap<&str, &dyn Fixture>,
+    fixture_map: &HashMap<&str, &dyn ArrayFixture>,
 ) -> VortexResult<VersionResult> {
     let manifest = source.fetch_manifest(version)?;
     let mut passed = 0;
@@ -81,7 +81,7 @@ fn validate_version(
     })
 }
 
-fn validate_one(bytes: ByteBuffer, fixture: &dyn Fixture) -> VortexResult<()> {
+fn validate_one(bytes: ByteBuffer, fixture: &dyn ArrayFixture) -> VortexResult<()> {
     let actual = adapter::read_file(bytes)?;
     let expected = fixture.build()?;
 

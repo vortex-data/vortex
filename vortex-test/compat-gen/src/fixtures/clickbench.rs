@@ -4,11 +4,15 @@
 use arrow_array::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use super::Fixture;
+use super::ArrayFixture;
 
 /// First partition of ClickBench hits, limited to 1000 rows.
 const CLICKBENCH_URL: &str =
@@ -16,9 +20,13 @@ const CLICKBENCH_URL: &str =
 
 pub struct ClickBenchHits1kFixture;
 
-impl Fixture for ClickBenchHits1kFixture {
+impl ArrayFixture for ClickBenchHits1kFixture {
     fn name(&self) -> &str {
         "clickbench_hits_1k.vortex"
+    }
+
+    fn expected_encodings(&self) -> Vec<ArrayId> {
+        vec![Struct::ID, Primitive::ID, VarBin::ID]
     }
 
     fn build(&self) -> VortexResult<Vec<ArrayRef>> {
