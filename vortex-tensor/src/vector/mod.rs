@@ -3,7 +3,7 @@
 
 //! Vector extension type for fixed-length float vectors (e.g., embeddings).
 
-/// The VTable for the vector extension type.
+/// The Vector extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Vector;
 

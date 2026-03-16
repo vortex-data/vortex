@@ -92,6 +92,8 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(args.to_vec())
     }
 
+    // TODO(connor): This needs a precondition for the number of args it has, or all implementations
+    // need to return an error if it is wrong.
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     ///
     /// # Preconditions

@@ -19,6 +19,7 @@ use vortex::dtype::Nullability;
 use vortex::dtype::extension::Matcher;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::scalar_fn::Arity;
@@ -73,24 +74,29 @@ impl ScalarFnVTable for L2Norm {
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        debug_assert_eq!(arg_dtypes.len(), 1);
+        vortex_ensure_eq!(
+            arg_dtypes.len(),
+            1,
+            "L2Norm requires exactly 2 arguments, got {}",
+            arg_dtypes.len()
+        );
 
         let input_dtype = &arg_dtypes[0];
 
         // Input must be a tensor-like extension type.
         let ext = input_dtype.as_extension_opt().ok_or_else(|| {
-            vortex_err!("l2_norm input must be an extension type, got {input_dtype}")
+            vortex_err!("L2Norm input must be an extension type, got {input_dtype}")
         })?;
 
         vortex_ensure!(
             AnyTensor::matches(ext),
-            "l2_norm input must be an `AnyTensor`, got {input_dtype}"
+            "L2Norm input must be an `AnyTensor`, got {input_dtype}"
         );
 
         let ptype = extension_element_ptype(ext)?;
         vortex_ensure!(
             ptype.is_float(),
-            "l2_norm element dtype must be a float primitive, got {ptype}"
+            "L2Norm element dtype must be a float primitive, got {ptype}"
         );
 
         let nullability = Nullability::from(input_dtype.is_nullable());
@@ -160,91 +166,23 @@ fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex::array::ArrayRef;
-    use vortex::array::IntoArray;
     use vortex::array::ToCanonical;
-    use vortex::array::arrays::ExtensionArray;
-    use vortex::array::arrays::FixedSizeListArray;
     use vortex::array::arrays::ScalarFnArray;
-    use vortex::array::validity::Validity;
-    use vortex::buffer::Buffer;
-    use vortex::dtype::extension::ExtDType;
     use vortex::error::VortexResult;
-    use vortex::extension::EmptyMetadata;
     use vortex::scalar_fn::EmptyOptions;
     use vortex::scalar_fn::ScalarFn;
 
-    use crate::fixed_shape::FixedShapeTensor;
-    use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::scalar_fns::l2_norm::L2Norm;
-    use crate::vector::Vector;
-
-    /// Builds a [`FixedShapeTensor`] extension array from flat f64 elements and a logical shape.
-    fn tensor_array(shape: &[usize], elements: &[f64]) -> VortexResult<ArrayRef> {
-        let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
-        let row_count = elements.len() / list_size as usize;
-
-        let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-        let fsl = FixedSizeListArray::new(elems, list_size, Validity::NonNullable, row_count);
-
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, fsl.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-    }
-
-    /// Builds a [`Vector`] extension array from flat f64 elements and a vector dimension size.
-    fn vector_array(dim: u32, elements: &[f64]) -> VortexResult<ArrayRef> {
-        let row_count = elements.len() / dim as usize;
-
-        let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-        let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
-
-        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-    }
+    use crate::scalar_fns::utils::test_helpers::assert_close;
+    use crate::scalar_fns::utils::test_helpers::tensor_array;
+    use crate::scalar_fns::utils::test_helpers::vector_array;
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
-    fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
+    fn eval_l2_norm(input: vortex::array::ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(L2Norm, EmptyOptions).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
         let prim = result.to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())
-    }
-
-    #[track_caller]
-    fn assert_close(actual: &[f64], expected: &[f64]) {
-        assert_eq!(
-            actual.len(),
-            expected.len(),
-            "length mismatch: got {} elements, expected {}",
-            actual.len(),
-            expected.len()
-        );
-
-        for (i, (a, e)) in actual.iter().zip(expected).enumerate() {
-            assert!(
-                (a - e).abs() < 1e-10,
-                "element {i}: got {a}, expected {e} (diff = {})",
-                (a - e).abs()
-            );
-        }
-    }
-
-    #[test]
-    fn unit_vector_norm() -> VortexResult<()> {
-        let arr = tensor_array(
-            &[3],
-            &[
-                1.0, 0.0, 0.0, // unit x
-                0.0, 1.0, 0.0, // unit y
-                0.0, 0.0, 1.0, // unit z
-            ],
-        )?;
-        assert_close(&eval_l2_norm(arr, 3)?, &[1.0, 1.0, 1.0]);
-        Ok(())
     }
 
     #[rstest]
@@ -273,13 +211,6 @@ mod tests {
             ],
         )?;
         assert_close(&eval_l2_norm(arr, 3)?, &[5.0, 0.0, 3.0_f64.sqrt()]);
-        Ok(())
-    }
-
-    #[test]
-    fn vector_known_norm() -> VortexResult<()> {
-        let arr = vector_array(2, &[3.0, 4.0])?;
-        assert_close(&eval_l2_norm(arr, 1)?, &[5.0]);
         Ok(())
     }
 

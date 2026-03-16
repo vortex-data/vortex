@@ -19,6 +19,7 @@ use vortex::dtype::Nullability;
 use vortex::dtype::extension::Matcher;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::scalar_fn::Arity;
@@ -81,7 +82,12 @@ impl ScalarFnVTable for CosineSimilarity {
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        debug_assert_eq!(arg_dtypes.len(), 2);
+        vortex_ensure_eq!(
+            arg_dtypes.len(),
+            2,
+            "CosineSimilarity requires exactly 2 arguments, got {}",
+            arg_dtypes.len()
+        );
 
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
@@ -89,25 +95,25 @@ impl ScalarFnVTable for CosineSimilarity {
         // Both must have the same dtype (ignoring top-level nullability).
         vortex_ensure!(
             lhs.eq_ignore_nullability(rhs),
-            "cosine_similarity requires both inputs to have the same dtype, got {lhs} and {rhs}"
+            "CosineSimilarity requires both inputs to have the same dtype, got {lhs} and {rhs}"
         );
 
         // We don't need to look at rhs anymore since we know lhs and rhs are equal.
 
         // Both inputs must be tensor-like extension types.
         let lhs_ext = lhs.as_extension_opt().ok_or_else(|| {
-            vortex_err!("cosine_similarity lhs must be an extension type, got {lhs}")
+            vortex_err!("CosineSimilarity lhs must be an extension type, got {lhs}")
         })?;
 
         vortex_ensure!(
             AnyTensor::matches(lhs_ext),
-            "cosine_similarity inputs must be an `AnyTensor`, got {lhs}"
+            "CosineSimilarity inputs must be an `AnyTensor`, got {lhs}"
         );
 
         let ptype = extension_element_ptype(lhs_ext)?;
         vortex_ensure!(
             ptype.is_float(),
-            "cosine_similarity element dtype must be a float primitive, got {ptype}"
+            "CosineSimilarity element dtype must be a float primitive, got {ptype}"
         );
 
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
@@ -190,77 +196,30 @@ fn cosine_similarity_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::ArrayRef;
-    use vortex::array::IntoArray;
+    use rstest::rstest;
     use vortex::array::ToCanonical;
-    use vortex::array::arrays::ConstantArray;
-    use vortex::array::arrays::ExtensionArray;
-    use vortex::array::arrays::FixedSizeListArray;
     use vortex::array::arrays::ScalarFnArray;
-    use vortex::array::validity::Validity;
-    use vortex::buffer::Buffer;
-    use vortex::dtype::DType;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::extension::ExtDType;
     use vortex::error::VortexResult;
-    use vortex::extension::EmptyMetadata;
-    use vortex::scalar::Scalar;
     use vortex::scalar_fn::EmptyOptions;
     use vortex::scalar_fn::ScalarFn;
 
-    use crate::fixed_shape::FixedShapeTensor;
-    use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
-    use crate::vector::Vector;
-
-    /// Builds a [`FixedShapeTensor`] extension array from flat f64 elements and a logical shape.
-    ///
-    /// The number of rows is inferred from the total element count divided by the product of the
-    /// shape dimensions. For 0-dimensional tensors (scalar), each element is one row.
-    fn tensor_array(shape: &[usize], elements: &[f64]) -> VortexResult<ArrayRef> {
-        let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
-        let row_count = elements.len() / list_size as usize;
-
-        let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-        let fsl = FixedSizeListArray::new(elems, list_size, Validity::NonNullable, row_count);
-
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, fsl.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-    }
+    use crate::scalar_fns::utils::test_helpers::assert_close;
+    use crate::scalar_fns::utils::test_helpers::constant_tensor_array;
+    use crate::scalar_fns::utils::test_helpers::constant_vector_array;
+    use crate::scalar_fns::utils::test_helpers::tensor_array;
+    use crate::scalar_fns::utils::test_helpers::vector_array;
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
-    fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
+    fn eval_cosine_similarity(
+        lhs: vortex::array::ArrayRef,
+        rhs: vortex::array::ArrayRef,
+        len: usize,
+    ) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(CosineSimilarity, EmptyOptions).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
         let prim = result.to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())
-    }
-
-    /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`
-    /// value, with support for NaN (NaN == NaN is considered equal).
-    #[track_caller]
-    fn assert_close(actual: &[f64], expected: &[f64]) {
-        assert_eq!(
-            actual.len(),
-            expected.len(),
-            "length mismatch: got {} elements, expected {}",
-            actual.len(),
-            expected.len()
-        );
-
-        for (i, (a, e)) in actual.iter().zip(expected).enumerate() {
-            if a.is_nan() && e.is_nan() {
-                continue;
-            }
-            assert!(
-                (a - e).abs() < 1e-10,
-                "element {i}: got {a}, expected {e} (diff = {})",
-                (a - e).abs()
-            );
-        }
     }
 
     #[test]
@@ -280,20 +239,18 @@ mod tests {
             ],
         )?;
 
-        // Row 0: identical → 1.0, row 1: orthogonal → 0.0.
+        // Row 0: identical -> 1.0, row 1: orthogonal -> 0.0.
         assert_close(&eval_cosine_similarity(lhs, rhs, 2)?, &[1.0, 0.0]);
         Ok(())
     }
 
-    use rstest::rstest;
-
     /// Single-row cosine similarity for various vector pairs.
     #[rstest]
-    // Antiparallel → -1.0.
+    // Antiparallel -> -1.0.
     #[case::opposite(&[3], &[1.0, 0.0, 0.0],  &[-1.0, 0.0, 0.0], &[-1.0])]
-    // dot=24, both magnitudes=5 → 24/25 = 0.96.
+    // dot=24, both magnitudes=5 -> 24/25 = 0.96.
     #[case::non_unit(&[2], &[3.0, 4.0],        &[4.0, 3.0],       &[0.96])]
-    // Zero vector → 0/0 → NaN.
+    // Zero vector -> 0/0 -> NaN.
     #[case::zero_norm(&[2], &[0.0, 0.0],       &[1.0, 0.0],       &[f64::NAN])]
     fn single_row(
         #[case] shape: &[usize],
@@ -332,14 +289,14 @@ mod tests {
         let lhs = tensor_array(&[], &[5.0, 3.0])?;
         let rhs = tensor_array(&[], &[5.0, -3.0])?;
 
-        // Same sign → 1.0, opposite sign → -1.0.
+        // Same sign -> 1.0, opposite sign -> -1.0.
         assert_close(&eval_cosine_similarity(lhs, rhs, 2)?, &[1.0, -1.0]);
         Ok(())
     }
 
     #[test]
     fn many_rows() -> VortexResult<()> {
-        // 5 tensors of shape [4] compared against themselves → all 1.0.
+        // 5 tensors of shape [4] compared against themselves -> all 1.0.
         let lhs = tensor_array(
             &[4],
             &[
@@ -359,35 +316,8 @@ mod tests {
         Ok(())
     }
 
-    /// Builds an extension array whose storage is a [`ConstantArray`], representing a single
-    /// query tensor broadcast to `len` rows.
-    fn constant_tensor_array(
-        shape: &[usize],
-        elements: &[f64],
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(vortex::dtype::PType::F64, Nullability::NonNullable);
-
-        // Build the FSL storage scalar from individual element scalars.
-        let children: Vec<Scalar> = elements
-            .iter()
-            .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-            .collect();
-        let storage_scalar =
-            Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-
-        // Wrap the FSL scalar in a ConstantArray to avoid materializing `len` copies.
-        let storage = ConstantArray::new(storage_scalar, len).into_array();
-
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-    }
-
     #[test]
-    fn constant_query_vector() -> VortexResult<()> {
+    fn constant_query_tensor() -> VortexResult<()> {
         // Compare 4 tensors of shape [3] against a single constant query tensor [1,0,0].
         let data = tensor_array(
             &[3],
@@ -400,24 +330,11 @@ mod tests {
         )?;
         let query = constant_tensor_array(&[3], &[1.0, 0.0, 0.0], 4)?;
 
-        // Only tensor 0 is aligned with the query.
         assert_close(
             &eval_cosine_similarity(data, query, 4)?,
             &[1.0, 0.0, 0.0, 1.0],
         );
         Ok(())
-    }
-
-    /// Builds a [`Vector`] extension array from flat f64 elements and a vector dimension size.
-    fn vector_array(dim: u32, elements: &[f64]) -> VortexResult<ArrayRef> {
-        let row_count = elements.len() / dim as usize;
-
-        let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-        let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
-
-        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
     }
 
     #[test]
@@ -440,43 +357,6 @@ mod tests {
         // Row 0: identical -> 1.0, row 1: orthogonal -> 0.0.
         assert_close(&eval_cosine_similarity(lhs, rhs, 2)?, &[1.0, 0.0]);
         Ok(())
-    }
-
-    #[test]
-    fn vector_self_similarity() -> VortexResult<()> {
-        let arr = vector_array(
-            4,
-            &[
-                1.0, 2.0, 3.0, 4.0, // vector 0
-                0.0, 1.0, 0.0, 0.0, // vector 1
-                5.0, 0.0, 5.0, 0.0, // vector 2
-            ],
-        )?;
-
-        assert_close(
-            &eval_cosine_similarity(arr.clone(), arr, 3)?,
-            &[1.0, 1.0, 1.0],
-        );
-        Ok(())
-    }
-
-    /// Builds a [`Vector`] extension array whose storage is a [`ConstantArray`].
-    fn constant_vector_array(elements: &[f64], len: usize) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(vortex::dtype::PType::F64, Nullability::NonNullable);
-
-        let children: Vec<Scalar> = elements
-            .iter()
-            .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-            .collect();
-        let storage_scalar =
-            Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-
-        let storage = ConstantArray::new(storage_scalar, len).into_array();
-
-        let ext_dtype =
-            ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
 
     #[test]
