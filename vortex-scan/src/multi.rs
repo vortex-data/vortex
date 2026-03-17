@@ -102,10 +102,6 @@ impl MultiLayoutDataSource {
         session: &VortexSession,
     ) -> Self {
         let dtype = first.dtype().clone();
-        let concurrency = std::thread::available_parallelism()
-            .map(|v| v.get())
-            .unwrap_or(DEFAULT_CONCURRENCY);
-
         let mut children = Vec::with_capacity(1 + remaining.len());
         children.push(MultiLayoutChild::Opened(first));
         children.extend(remaining.into_iter().map(MultiLayoutChild::Deferred));
@@ -114,7 +110,7 @@ impl MultiLayoutDataSource {
             dtype,
             session: session.clone(),
             children,
-            concurrency,
+            concurrency: DEFAULT_CONCURRENCY,
         }
     }
 
@@ -128,10 +124,6 @@ impl MultiLayoutDataSource {
         factories: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
     ) -> Self {
-        let concurrency = std::thread::available_parallelism()
-            .map(|v| v.get())
-            .unwrap_or(DEFAULT_CONCURRENCY);
-
         Self {
             dtype,
             session: session.clone(),
@@ -139,14 +131,14 @@ impl MultiLayoutDataSource {
                 .into_iter()
                 .map(MultiLayoutChild::Deferred)
                 .collect(),
-            concurrency,
+            concurrency: DEFAULT_CONCURRENCY,
         }
     }
 
     /// Sets the concurrency for opening deferred readers.
     ///
     /// Controls how many file opens run in parallel via `buffer_unordered`.
-    /// Defaults to the number of available CPU cores.
+    /// Defaults to a fixed budget.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
         self

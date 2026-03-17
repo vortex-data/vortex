@@ -61,7 +61,7 @@ pub struct ScanBuilder<A> {
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
-    /// The number of splits to make progress on concurrently **per-thread**.
+    /// The total number of splits to make progress on concurrently.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
@@ -80,6 +80,7 @@ pub struct ScanBuilder<A> {
 }
 
 const DEFAULT_TARGET_OUTPUT_ROWS: usize = DEFAULT_TARGET_OUTPUT_ROWS_HINT;
+const DEFAULT_SCAN_CONCURRENCY: usize = 16;
 const MIN_TARGET_OUTPUT_BYTES: usize = 1 << 20;
 const MAX_TARGET_OUTPUT_BYTES: usize = 8 << 20;
 const DEFAULT_VARIABLE_ROW_BYTES: usize = 32;
@@ -96,9 +97,9 @@ impl ScanBuilder<ArrayRef> {
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
-            // We default to four tasks per worker thread, which allows for some I/O lookahead
-            // without too much impact on work-stealing.
-            concurrency: 4,
+            // Keep one explicit scan-concurrency budget rather than multiplying by the
+            // runtime's worker count later.
+            concurrency: DEFAULT_SCAN_CONCURRENCY,
             map_fn: Arc::new(Ok),
             metrics_registry: None,
             file_stats: None,
@@ -186,8 +187,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.concurrency
     }
 
-    /// The number of row splits to make progress on concurrently per-thread, must
-    /// be greater than 0.
+    /// The total number of row splits to make progress on concurrently.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
         self.concurrency = concurrency;
@@ -400,10 +400,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
                     let ordered = builder.ordered;
-                    let num_workers = std::thread::available_parallelism()
-                        .map(|n| n.get())
-                        .unwrap_or(1);
-                    let concurrency = builder.concurrency * num_workers;
+                    let concurrency = builder.concurrency;
                     let handle = builder.session.handle();
                     let execute_handle = handle.clone();
                     let task = handle.spawn_blocking(move || {

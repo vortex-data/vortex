@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -40,7 +39,6 @@ pub struct FlatReader {
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
-    array: OnceLock<SharedArrayFuture>,
 }
 
 impl FlatReader {
@@ -55,38 +53,33 @@ impl FlatReader {
             name,
             segment_source,
             session,
-            array: Default::default(),
         }
     }
 
     /// Register the segment request and return a future that would resolve into the deserialised array.
     fn array_future(&self) -> SharedArrayFuture {
-        self.array
-            .get_or_init(|| {
-                let row_count = usize::try_from(self.layout.row_count())
-                    .vortex_expect("row count must fit in usize");
-                let segment_fut = self.segment_source.request(self.layout.segment_id());
-                let ctx = self.layout.array_ctx().clone();
-                let session = self.session.clone();
-                let dtype = self.layout.dtype().clone();
-                let array_tree = self.layout.array_tree().cloned();
-                async move {
-                    let segment = segment_fut.await?;
-                    let parts = if let Some(array_tree) = array_tree {
-                        // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
-                        ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
-                    } else {
-                        // Parse the flatbuffer from the segment itself.
-                        ArrayParts::try_from(segment)?
-                    };
-                    parts
-                        .decode(&dtype, row_count, &ctx, &session)
-                        .map_err(Arc::new)
-                }
-                .boxed()
-                .shared()
-            })
-            .clone()
+        let row_count =
+            usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
+        let segment_fut = self.segment_source.request(self.layout.segment_id());
+        let ctx = self.layout.array_ctx().clone();
+        let session = self.session.clone();
+        let dtype = self.layout.dtype().clone();
+        let array_tree = self.layout.array_tree().cloned();
+        async move {
+            let segment = segment_fut.await?;
+            let parts = if let Some(array_tree) = array_tree {
+                // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
+                ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
+            } else {
+                // Parse the flatbuffer from the segment itself.
+                ArrayParts::try_from(segment)?
+            };
+            parts
+                .decode(&dtype, row_count, &ctx, &session)
+                .map_err(Arc::new)
+        }
+        .boxed()
+        .shared()
     }
 }
 

@@ -71,7 +71,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     selection: Selection,
     /// The natural splits of the file.
     splits: Splits,
-    /// The number of splits to make progress on concurrently **per-thread**.
+    /// The total number of splits to make progress on concurrently.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
@@ -148,11 +148,12 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
-        let num_workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
-        let concurrency = self.concurrency * num_workers;
-        self.execute_stream(row_range, concurrency, self.ordered, self.session.handle())
+        self.execute_stream(
+            row_range,
+            self.concurrency,
+            self.ordered,
+            self.session.handle(),
+        )
     }
 
     fn legacy_stream_from_ranges(

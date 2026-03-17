@@ -101,7 +101,7 @@ config_namespace! {
         /// all expressions are evaluated after the scan.
         pub projection_pushdown: bool, default = false
         /// The intra-partition scan concurrency, controlling the number of row splits to process
-        /// concurrently per-thread within each file.
+        /// concurrently within each file.
         ///
         /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.
