@@ -1011,9 +1011,9 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
 fn test_slice_aggregate_consistency(array: &ArrayRef) {
+    use crate::aggregate_fn::fns::nan_count::nan_count;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::compute::min_max;
-    use crate::compute::nan_count;
     use crate::dtype::DType;
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -1091,8 +1091,10 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
 
     // Test nan_count for floating point types
     if array.dtype().is_float()
-        && let (Ok(slice_nan_count), Ok(canonical_nan_count)) =
-            (nan_count(&sliced), nan_count(&canonical_sliced))
+        && let (Ok(slice_nan_count), Ok(canonical_nan_count)) = (
+            nan_count(&sliced, &mut ctx),
+            nan_count(&canonical_sliced, &mut ctx),
+        )
     {
         assert_eq!(
             slice_nan_count, canonical_nan_count,
