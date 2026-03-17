@@ -352,7 +352,7 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     let factor_f = T::F10[exp.f as usize];
     let factor_ie = T::IF10[exp.e as usize];
 
-    // Encode all values in a single vectorizable pass with pre-computed factors.
+    // Pass 1: Encode all values in a single vectorizable pass with pre-computed factors.
     // Using extend_trusted with an iterator allows the compiler to auto-vectorize.
     encoded_output.extend_trusted(
         chunk
@@ -361,13 +361,25 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     );
     assert_eq!(encoded_output.len(), num_prev_encoded + chunk.len());
 
-    // Find patches by checking decode equality, collecting indices and values directly.
+    // Find patches by decode-equality check in two phases:
+    // Phase 1: Count mismatches in a branchless loop (enables auto-vectorization).
+    // Phase 2: Gather patch indices/values only if there are patches (common case: none).
     let encoded_slice = &encoded_output[num_prev_encoded..];
-    for (i, (&original, &encoded)) in chunk.iter().zip(encoded_slice.iter()).enumerate() {
+    let mut patch_count: usize = 0;
+    for (&original, &encoded) in chunk.iter().zip(encoded_slice.iter()) {
         let decoded = T::from_int(encoded) * factor_f * factor_ie;
-        if !decoded.is_eq(original) {
-            patch_indices.push((num_prev_encoded + i) as u64);
-            patch_values.push(original);
+        patch_count += !decoded.is_eq(original) as usize;
+    }
+
+    if patch_count > 0 {
+        patch_indices.reserve(patch_count);
+        patch_values.reserve(patch_count);
+        for (i, (&original, &encoded)) in chunk.iter().zip(encoded_slice.iter()).enumerate() {
+            let decoded = T::from_int(encoded) * factor_f * factor_ie;
+            if !decoded.is_eq(original) {
+                patch_indices.push((num_prev_encoded + i) as u64);
+                patch_values.push(original);
+            }
         }
     }
     let chunk_patch_count = patch_indices.len() - num_prev_patches;
