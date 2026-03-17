@@ -24,7 +24,12 @@ pub fn offsets_to_lengths<P: NativePType>(offsets: &[P]) -> Buffer<P> {
 /// Maximum number of buffer bytes that can be referenced by a single `BinaryView`
 pub const MAX_BUFFER_LEN: usize = i32::MAX as usize;
 
-/// Split a large buffer of input `bytes` holding string data
+/// Build `BinaryView`s from a contiguous byte buffer and per-element lengths.
+///
+/// When total data exceeds `max_buffer_len` (2 GiB), buffers are split to ensure
+/// offsets fit in `u32`. When data fits in a single buffer, per-element split checks
+/// are skipped entirely.
+#[allow(clippy::cast_possible_truncation)]
 pub fn build_views<P: NativePType + AsPrimitive<usize>>(
     start_buf_index: u32,
     max_buffer_len: usize,
@@ -33,35 +38,58 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
     let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
 
-    let mut buffers = Vec::new();
-    let mut buf_index = start_buf_index;
+    if bytes.len() <= max_buffer_len {
+        // Fast path: all data fits in a single buffer. No split checks needed per element
+        // and offsets are guaranteed to fit in u32 (max_buffer_len <= i32::MAX < u32::MAX).
+        let bytes_ptr = bytes.as_slice().as_ptr();
 
-    let mut offset = 0;
-    for &len in lens {
-        let len = len.as_();
-        assert!(len <= max_buffer_len, "values cannot exceed max_buffer_len");
-
-        if (offset + len) > max_buffer_len {
-            // Roll the buffer every 2GiB, to avoid overflowing VarBinView offset field
-            let rest = bytes.split_off(offset);
-
-            buffers.push(bytes.freeze());
-            buf_index += 1;
-            offset = 0;
-
-            bytes = rest;
+        let mut offset: usize = 0;
+        for &len in lens {
+            let len: usize = len.as_();
+            // SAFETY: the sum of all lengths equals bytes.len() and we process them
+            // sequentially, so offset + len <= bytes.len() at every iteration.
+            let value = unsafe { std::slice::from_raw_parts(bytes_ptr.add(offset), len) };
+            let view = BinaryView::make_view(value, start_buf_index, offset as u32);
+            // SAFETY: we reserved the right capacity beforehand.
+            unsafe { views.push_unchecked(view) };
+            offset += len;
         }
-        let view = BinaryView::make_view(&bytes[offset..][..len], buf_index, offset.as_());
-        // SAFETY: we reserved the right capacity beforehand
-        unsafe { views.push_unchecked(view) };
-        offset += len;
-    }
 
-    if !bytes.is_empty() {
-        buffers.push(bytes.freeze());
-    }
+        let buffers = if bytes.is_empty() {
+            Vec::new()
+        } else {
+            vec![bytes.freeze()]
+        };
 
-    (buffers, views.freeze())
+        (buffers, views.freeze())
+    } else {
+        // Slow path: may need to split across multiple 2 GiB buffers.
+        let mut buffers = Vec::new();
+        let mut buf_index = start_buf_index;
+        let mut offset = 0;
+
+        for &len in lens {
+            let len = len.as_();
+            assert!(len <= max_buffer_len, "values cannot exceed max_buffer_len");
+
+            if (offset + len) > max_buffer_len {
+                let rest = bytes.split_off(offset);
+                buffers.push(bytes.freeze());
+                buf_index += 1;
+                offset = 0;
+                bytes = rest;
+            }
+            let view = BinaryView::make_view(&bytes[offset..][..len], buf_index, offset.as_());
+            unsafe { views.push_unchecked(view) };
+            offset += len;
+        }
+
+        if !bytes.is_empty() {
+            buffers.push(bytes.freeze());
+        }
+
+        (buffers, views.freeze())
+    }
 }
 
 #[cfg(test)]
