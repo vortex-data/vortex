@@ -19,7 +19,6 @@ use crate::dfa::FsstMatcher;
 use crate::dfa::dfa_scan_to_bitbuf;
 
 impl LikeKernel for FSST {
-    #[allow(clippy::cast_possible_truncation)]
     fn like(
         array: &FSSTArray,
         pattern: &ArrayRef,
@@ -347,7 +346,10 @@ mod tests {
             LikeOptions::default(),
             &mut SESSION.create_execution_ctx(),
         )?;
-        assert!(direct.is_some(), "254-byte contains needle should stay on the DFA path");
+        assert!(
+            direct.is_some(),
+            "254-byte contains needle should stay on the DFA path"
+        );
         assert_arrays_eq!(direct.unwrap(), BoolArray::from_iter([true, false, true]));
         Ok(())
     }
