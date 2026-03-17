@@ -14,6 +14,7 @@ use vortex_session::VortexSession;
 use super::DictArray;
 use super::DictMetadata;
 use super::take_canonical;
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
@@ -23,6 +24,7 @@ use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -196,13 +198,16 @@ impl VTable for Dict {
             return Ok(ExecutionStep::Done(canonical));
         }
 
-        // TODO(joe): if the values are constant return a constant
-        let values = array.values().clone().execute::<Canonical>(ctx)?;
-        let codes = array
-            .codes()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_primitive();
+        // Fast path: try to get values as canonical without the full execute loop.
+        // For already-canonical values (common case), this avoids optimize() + matcher checks.
+        let values = match array.values().as_opt::<AnyCanonical>() {
+            Some(cv) => Canonical::from(cv),
+            None => array.values().clone().execute::<Canonical>(ctx)?,
+        };
+
+        // Fast path: execute codes directly to PrimitiveArray, avoiding the
+        // Canonical execute loop (which runs optimize() + 9 type checks).
+        let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
         // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
         //  the filter function since they're typically optimised for this case.
@@ -250,6 +255,14 @@ pub(super) fn execute_fast_path(
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
                 .into_array(),
+        ));
+    }
+
+    // Single dictionary value with non-nullable codes → expand to constant array
+    if array.values().len() == 1 && !array.codes().dtype().is_nullable() {
+        let scalar = array.values().scalar_at(0)?;
+        return Ok(Some(
+            ConstantArray::new(scalar, array.codes.len()).into_array(),
         ));
     }
 

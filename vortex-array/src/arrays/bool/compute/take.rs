@@ -51,7 +51,10 @@ impl TakeExecute for Bool {
     }
 }
 
-pub(crate) fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
+pub(crate) fn take_valid_indices<I: AsPrimitive<usize>>(
+    bools: &BitBuffer,
+    indices: &[I],
+) -> BitBuffer {
     // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
     // the overhead to convert to a Vec<bool>.
     if bools.len() <= 4096 {

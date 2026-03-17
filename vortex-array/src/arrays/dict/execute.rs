@@ -33,10 +33,10 @@ use crate::arrays::dict::TakeReduce;
 use crate::arrays::primitive::compute::take::take_primitive_direct;
 use crate::arrays::varbinview::compute::take::take_views;
 use crate::buffer::BufferHandle;
-use crate::match_each_integer_ptype;
-use crate::match_each_decimal_value_type;
-use crate::validity::Validity;
 use crate::builtins::ArrayBuiltins;
+use crate::match_each_decimal_value_type;
+use crate::match_each_integer_ptype;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
@@ -67,7 +67,10 @@ pub fn take_canonical(
 ///
 /// This avoids going through VTable dispatch for the common cases where values are
 /// non-nullable (just use codes' validity directly).
-fn dict_take_validity(values_validity: &Validity, codes: &PrimitiveArray) -> VortexResult<Validity> {
+fn dict_take_validity(
+    values_validity: &Validity,
+    codes: &PrimitiveArray,
+) -> VortexResult<Validity> {
     match values_validity {
         Validity::NonNullable => {
             // Values are non-nullable: result validity is determined solely by codes.
@@ -94,20 +97,29 @@ fn dict_take_validity(values_validity: &Validity, codes: &PrimitiveArray) -> Vor
     }
 }
 
+/// Convert PrimitiveArray codes validity to a Mask without VTable dispatch.
+///
+/// This is cheaper than `codes.validity_mask()` which goes through the full VTable
+/// dispatch chain. Since we know codes is a PrimitiveArray, we can read validity directly.
+fn codes_to_mask(codes: &PrimitiveArray) -> VortexResult<Mask> {
+    match codes.validity() {
+        Validity::NonNullable | Validity::AllValid => Ok(Mask::AllTrue(codes.len())),
+        Validity::AllInvalid => Ok(Mask::AllFalse(codes.len())),
+        Validity::Array(_) => codes.validity_mask(),
+    }
+}
+
 /// Take for NullArray is trivial - just create a new NullArray with the new length.
 fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
     NullArray::new(codes.len())
 }
 
 /// Optimized bool take: directly gathers bits using codes without TakeExecute overhead.
-fn take_bool(
-    array: &BoolArray,
-    codes: &PrimitiveArray,
-) -> VortexResult<BoolArray> {
+fn take_bool(array: &BoolArray, codes: &PrimitiveArray) -> VortexResult<BoolArray> {
     let validity = dict_take_validity(array.validity(), codes)?;
 
     // For null codes, we need to fill them with valid indices before gathering bits.
-    let codes_mask = codes.validity_mask()?;
+    let codes_mask = codes_to_mask(codes)?;
     let buffer = match &codes_mask {
         Mask::AllTrue(_) => {
             match_each_integer_ptype!(codes.ptype(), |I| {
@@ -135,20 +147,14 @@ fn take_bool(
 }
 
 /// Optimized primitive take: directly calls the SIMD/AVX2 kernel without TakeExecute overhead.
-fn take_primitive(
-    array: &PrimitiveArray,
-    codes: &PrimitiveArray,
-) -> VortexResult<PrimitiveArray> {
+fn take_primitive(array: &PrimitiveArray, codes: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let validity = dict_take_validity(array.validity(), codes)?;
     let result = take_primitive_direct(array, codes, validity)?;
     Ok(result.as_::<crate::arrays::Primitive>().clone())
 }
 
 /// Optimized decimal take: directly gathers decimal values without TakeExecute overhead.
-fn take_decimal(
-    array: &DecimalArray,
-    codes: &PrimitiveArray,
-) -> VortexResult<DecimalArray> {
+fn take_decimal(array: &DecimalArray, codes: &PrimitiveArray) -> VortexResult<DecimalArray> {
     let validity = dict_take_validity(array.validity(), codes)?;
 
     let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
@@ -169,7 +175,7 @@ fn take_varbinview(
     codes: &PrimitiveArray,
 ) -> VortexResult<VarBinViewArray> {
     let validity = dict_take_validity(array.validity(), codes)?;
-    let codes_mask = codes.validity_mask()?;
+    let codes_mask = codes_to_mask(codes)?;
     let views_buffer = match_each_integer_ptype!(codes.ptype(), |I| {
         take_views(array.views(), codes.as_slice::<I>(), &codes_mask)
     });
@@ -179,9 +185,7 @@ fn take_varbinview(
         Ok(VarBinViewArray::new_handle_unchecked(
             BufferHandle::new_host(views_buffer.into_byte_buffer()),
             array.buffers().clone(),
-            array
-                .dtype()
-                .union_nullability(codes.dtype().nullability()),
+            array.dtype().union_nullability(codes.dtype().nullability()),
             validity,
         ))
     }
