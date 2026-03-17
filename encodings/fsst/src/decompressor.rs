@@ -146,81 +146,32 @@ impl OptimizedDecompressor {
             }};
         }
 
-        // Emit symbols before the first escape at byte `$esc_pos`, write the
-        // escaped literal, and advance `in_ptr` past the consumed input.
-        // Each arm is a row in a jump table — ~4% faster than a loop.
+        // Emit symbols before the first escape, write the escaped literal,
+        // and advance `in_ptr`. The loop body is small enough for LLVM to
+        // unroll when `pos` is a known constant from `trailing_zeros`.
         macro_rules! emit_before_escape {
-            ($b:expr, $esc_pos:expr) => {
-                match $esc_pos {
-                    7 => {
-                        emit_symbol!(($b) & 0xFF);
-                        emit_symbol!(($b >> 8) & 0xFF);
-                        emit_symbol!(($b >> 16) & 0xFF);
-                        emit_symbol!(($b >> 24) & 0xFF);
-                        emit_symbol!(($b >> 32) & 0xFF);
-                        emit_symbol!(($b >> 40) & 0xFF);
-                        emit_symbol!(($b >> 48) & 0xFF);
-                        in_ptr = in_ptr.add(7);
-                    }
-                    6 => {
-                        emit_symbol!(($b) & 0xFF);
-                        emit_symbol!(($b >> 8) & 0xFF);
-                        emit_symbol!(($b >> 16) & 0xFF);
-                        emit_symbol!(($b >> 24) & 0xFF);
-                        emit_symbol!(($b >> 32) & 0xFF);
-                        emit_symbol!(($b >> 40) & 0xFF);
-                        out_ptr.write((($b >> 56) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(8);
-                    }
-                    5 => {
-                        emit_symbol!(($b) & 0xFF);
-                        emit_symbol!(($b >> 8) & 0xFF);
-                        emit_symbol!(($b >> 16) & 0xFF);
-                        emit_symbol!(($b >> 24) & 0xFF);
-                        emit_symbol!(($b >> 32) & 0xFF);
-                        out_ptr.write((($b >> 48) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(7);
-                    }
-                    4 => {
-                        emit_symbol!(($b) & 0xFF);
-                        emit_symbol!(($b >> 8) & 0xFF);
-                        emit_symbol!(($b >> 16) & 0xFF);
-                        emit_symbol!(($b >> 24) & 0xFF);
-                        out_ptr.write((($b >> 40) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(6);
-                    }
-                    3 => {
-                        emit_symbol!(($b) & 0xFF);
-                        emit_symbol!(($b >> 8) & 0xFF);
-                        emit_symbol!(($b >> 16) & 0xFF);
-                        out_ptr.write((($b >> 32) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(5);
-                    }
-                    2 => {
-                        emit_symbol!(($b) & 0xFF);
-                        emit_symbol!(($b >> 8) & 0xFF);
-                        out_ptr.write((($b >> 24) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(4);
-                    }
-                    1 => {
-                        emit_symbol!(($b) & 0xFF);
-                        out_ptr.write((($b >> 16) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(3);
-                    }
-                    0 => {
-                        out_ptr.write((($b >> 8) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(2);
-                    }
-                    _ => core::hint::unreachable_unchecked(),
+            ($b:expr, $esc_pos:expr) => {{
+                let b = $b;
+                let pos = $esc_pos;
+                // Emit each non-escape symbol before the escape byte.
+                let mut i = 0usize;
+                while i < pos {
+                    emit_symbol!((b >> (i as u32 * 8)) & 0xFF);
+                    i += 1;
                 }
-            };
+                if pos < 7 {
+                    // Literal byte follows the escape within this block.
+                    let literal_shift = (pos as u32 + 1) * 8;
+                    out_ptr.write(((b >> literal_shift) & 0xFF) as u8);
+                    out_ptr = out_ptr.add(1);
+                    in_ptr = in_ptr.add(pos + 2);
+                } else {
+                    // Escape is at byte 7 — literal is in the next block.
+                    // Just consume the 7 symbols; the outer loop will
+                    // re-read starting at the escape byte.
+                    in_ptr = in_ptr.add(7);
+                }
+            }};
         }
 
         let out_end32 = Self::block_end(out_end, 256, decoded.len());
