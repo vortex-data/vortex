@@ -52,6 +52,8 @@ pub struct StringStats {
     estimated_distinct_count: u32,
     value_count: u32,
     null_count: u32,
+    /// Cached sample stats to avoid redundant recomputation during scheme selection.
+    cached_sample: std::sync::OnceLock<Box<StringStats>>,
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
@@ -94,6 +96,7 @@ impl StringStats {
             value_count: u32::try_from(value_count)?,
             null_count: u32::try_from(null_count)?,
             estimated_distinct_count: estimated_distinct,
+            cached_sample: std::sync::OnceLock::new(),
         })
     }
 }
@@ -111,10 +114,16 @@ impl CompressorStats for StringStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
+        if let Some(cached) = self.cached_sample.get() {
+            return (**cached).clone();
+        }
+
         let sampled =
             sample(&self.src.clone().into_array(), sample_size, sample_count).to_varbinview();
+        let result = Self::generate_opts(&sampled, opts);
 
-        Self::generate_opts(&sampled, opts)
+        drop(self.cached_sample.set(Box::new(result.clone())));
+        result
     }
 }
 

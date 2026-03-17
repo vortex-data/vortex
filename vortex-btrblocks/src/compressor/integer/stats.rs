@@ -161,6 +161,10 @@ pub struct IntegerStats {
     pub(super) average_run_length: u32,
     pub(super) distinct_values_count: u32,
     pub(crate) typed: ErasedStats,
+    /// Cached sample stats to avoid redundant recomputation during scheme selection.
+    /// Multiple schemes call `sample()` with the same deterministic parameters,
+    /// so caching the result avoids repeated sampling + stats generation.
+    cached_sample: std::sync::OnceLock<Box<IntegerStats>>,
 }
 
 impl IntegerStats {
@@ -195,10 +199,19 @@ impl CompressorStats for IntegerStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
+        // Return cached sample if available (sampling is deterministic with a fixed seed,
+        // so the result is always the same for a given source array and parameters).
+        if let Some(cached) = self.cached_sample.get() {
+            return (**cached).clone();
+        }
+
         let sampled =
             sample(&self.src.clone().into_array(), sample_size, sample_count).to_primitive();
+        let result = Self::generate_opts(&sampled, opts);
 
-        Self::generate_opts(&sampled, opts)
+        // Cache for subsequent calls from other schemes
+        drop(self.cached_sample.set(Box::new(result.clone())));
+        result
     }
 }
 
@@ -241,6 +254,7 @@ where
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     } else if array.all_invalid()? {
         return Ok(IntegerStats {
@@ -257,6 +271,7 @@ where
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     }
 
@@ -383,6 +398,7 @@ where
         average_run_length: value_count / runs,
         distinct_values_count,
         typed: typed.into(),
+        cached_sample: std::sync::OnceLock::new(),
     })
 }
 
@@ -480,6 +496,7 @@ fn u8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     } else if array.all_invalid()? {
         return Ok(IntegerStats {
@@ -496,6 +513,7 @@ fn u8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     }
 
@@ -583,6 +601,7 @@ fn u8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
             distinct_values,
         }
         .into(),
+        cached_sample: std::sync::OnceLock::new(),
     })
 }
 
@@ -603,6 +622,7 @@ fn i8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     } else if array.all_invalid()? {
         return Ok(IntegerStats {
@@ -619,6 +639,7 @@ fn i8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     }
 
@@ -704,6 +725,7 @@ fn i8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
             distinct_values,
         }
         .into(),
+        cached_sample: std::sync::OnceLock::new(),
     })
 }
 

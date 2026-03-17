@@ -102,8 +102,12 @@ pub trait SchemeExt: Scheme {
         ctx: CompressorContext,
         excludes: &[Self::CodeType],
     ) -> VortexResult<f64> {
-        let sample = if ctx.is_sample {
-            stats.clone()
+        // When we're already compressing a sample, use the stats directly
+        // (avoid cloning). When not a sample, compute sample stats (cached
+        // by the stats impl to avoid redundant recomputation across schemes).
+        let (sample_ref, _owned);
+        if ctx.is_sample {
+            sample_ref = stats;
         } else {
             let source_len = stats.source().len();
             let sample_count = sample_count_approx_one_percent(source_len);
@@ -114,13 +118,14 @@ pub trait SchemeExt: Scheme {
                 source_len
             );
 
-            stats.sample(SAMPLE_SIZE, sample_count)
+            _owned = stats.sample(SAMPLE_SIZE, sample_count);
+            sample_ref = &_owned;
         };
 
         let after = self
-            .compress(btr_blocks_compressor, &sample, ctx.as_sample(), excludes)?
+            .compress(btr_blocks_compressor, sample_ref, ctx.as_sample(), excludes)?
             .nbytes();
-        let before = sample.source().nbytes();
+        let before = sample_ref.source().nbytes();
 
         tracing::debug!(
             "estimate_compression_ratio_with_sampling(compressor={self:#?} ctx={ctx:?}) = {}",

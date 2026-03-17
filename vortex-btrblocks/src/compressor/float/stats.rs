@@ -64,6 +64,8 @@ pub struct FloatStats {
     pub(crate) average_run_length: u32,
     pub(crate) distinct_values: ErasedDistinctValues,
     pub(crate) distinct_values_count: u32,
+    /// Cached sample stats to avoid redundant recomputation during scheme selection.
+    cached_sample: std::sync::OnceLock<Box<FloatStats>>,
 }
 
 impl FloatStats {
@@ -93,10 +95,16 @@ impl CompressorStats for FloatStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
+        if let Some(cached) = self.cached_sample.get() {
+            return (**cached).clone();
+        }
+
         let sampled =
             sample(&self.src.clone().into_array(), sample_size, sample_count).to_primitive();
+        let result = Self::generate_opts(&sampled, opts);
 
-        Self::generate_opts(&sampled, opts)
+        drop(self.cached_sample.set(Box::new(result.clone())));
+        result
     }
 }
 
@@ -134,6 +142,7 @@ where
                 values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     } else if array.all_invalid()? {
         return Ok(FloatStats {
@@ -146,6 +155,7 @@ where
                 values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
+            cached_sample: std::sync::OnceLock::new(),
         });
     }
 
@@ -224,6 +234,7 @@ where
             values: distinct_values,
         }
         .into(),
+        cached_sample: std::sync::OnceLock::new(),
     })
 }
 
