@@ -968,3 +968,739 @@ pub fn generate_timestamps_with_prefix(n: usize) -> Vec<String> {
         })
         .collect()
 }
+
+// ---------------------------------------------------------------------------
+// HTTP headers generator (request/response header lines)
+// ---------------------------------------------------------------------------
+
+const HTTP_HEADER_NAMES: &[&str] = &[
+    "Content-Type",
+    "Accept-Encoding",
+    "X-Request-Id",
+    "Authorization",
+    "Cache-Control",
+    "Content-Length",
+    "X-Forwarded-For",
+    "User-Agent",
+    "Accept",
+    "Host",
+    "Connection",
+    "X-Correlation-Id",
+    "Set-Cookie",
+    "ETag",
+    "Vary",
+];
+
+const HTTP_HEADER_VALUES: &[(&str, &[&str])] = &[
+    (
+        "Content-Type",
+        &[
+            "application/json",
+            "text/html; charset=utf-8",
+            "application/xml",
+            "text/plain",
+            "application/octet-stream",
+            "multipart/form-data",
+            "application/x-www-form-urlencoded",
+            "application/grpc",
+            "image/png",
+            "text/css",
+        ],
+    ),
+    (
+        "Accept-Encoding",
+        &[
+            "gzip, deflate",
+            "gzip, deflate, br",
+            "br",
+            "identity",
+            "gzip",
+            "deflate",
+            "zstd, gzip, deflate",
+            "gzip, br",
+            "*",
+            "compress",
+        ],
+    ),
+    (
+        "Cache-Control",
+        &[
+            "no-cache",
+            "no-store",
+            "max-age=3600",
+            "max-age=86400",
+            "public, max-age=31536000",
+            "private, no-cache",
+            "must-revalidate",
+            "no-cache, no-store, must-revalidate",
+            "s-maxage=600",
+            "max-age=0",
+        ],
+    ),
+    (
+        "Accept",
+        &[
+            "application/json",
+            "text/html",
+            "*/*",
+            "application/xml",
+            "text/plain",
+            "application/json, text/plain, */*",
+            "text/html, application/xhtml+xml",
+            "image/webp, image/apng, */*",
+            "application/signed-exchange",
+            "application/grpc",
+        ],
+    ),
+    (
+        "Connection",
+        &[
+            "keep-alive",
+            "close",
+            "upgrade",
+            "keep-alive",
+            "keep-alive",
+            "close",
+            "keep-alive",
+            "keep-alive",
+            "close",
+            "keep-alive",
+        ],
+    ),
+    (
+        "Vary",
+        &[
+            "Accept-Encoding",
+            "Accept",
+            "Origin",
+            "Accept-Encoding, Accept",
+            "Accept-Encoding, Origin",
+            "Cookie",
+            "Accept-Language",
+            "User-Agent",
+            "Accept-Encoding, Accept-Language",
+            "Origin, Accept",
+        ],
+    ),
+];
+
+/// Generates HTTP request/response header lines like `"Content-Type: application/json"`.
+pub fn generate_http_headers(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(2001);
+
+    let generic_values: &[&str] = &[
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "192.168.1.42",
+        "api.example.com",
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+        "session_id=abc123def456; Path=/; HttpOnly",
+        "W/\"5e8c4a6b\"",
+        "1024",
+        "4096",
+        "keep-alive",
+        "en-US,en;q=0.9",
+    ];
+
+    (0..n)
+        .map(|_| {
+            let header_name = HTTP_HEADER_NAMES[rng.random_range(0..HTTP_HEADER_NAMES.len())];
+
+            // Try to find a specific value pool for this header
+            let value = if let Some((_, vals)) = HTTP_HEADER_VALUES
+                .iter()
+                .find(|(name, _)| *name == header_name)
+            {
+                vals[rng.random_range(0..vals.len())].to_string()
+            } else {
+                // For headers without specific pools, generate contextual values
+                match header_name {
+                    "X-Request-Id" | "X-Correlation-Id" => {
+                        format!(
+                            "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                            rng.random_range(0..u32::MAX),
+                            rng.random_range(0..u16::MAX),
+                            rng.random_range(0..u16::MAX),
+                            rng.random_range(0..u16::MAX),
+                            rng.random_range(0..u64::MAX) & 0xFFFF_FFFF_FFFF,
+                        )
+                    }
+                    "Content-Length" => {
+                        format!("{}", rng.random_range(0..1_000_000u32))
+                    }
+                    "X-Forwarded-For" => {
+                        format!(
+                            "{}.{}.{}.{}",
+                            rng.random_range(1..255u32),
+                            rng.random_range(0..256u32),
+                            rng.random_range(0..256u32),
+                            rng.random_range(1..255u32),
+                        )
+                    }
+                    _ => generic_values[rng.random_range(0..generic_values.len())].to_string(),
+                }
+            };
+
+            format!("{header_name}: {value}")
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// IPv4 CIDR firewall/ACL rules generator
+// ---------------------------------------------------------------------------
+
+const CIDR_ACTIONS: &[&str] = &["allow", "deny"];
+const CIDR_PROTOCOLS: &[&str] = &["tcp", "udp", "icmp"];
+const CIDR_PORTS: &[u16] = &[
+    22, 53, 80, 443, 993, 1433, 3306, 3389, 5432, 6379, 8080, 8443,
+];
+const CIDR_DEST_RANGES: &[&str] = &[
+    "10.0.0.0/8",
+    "10.0.1.0/24",
+    "10.1.0.0/16",
+    "10.10.0.0/16",
+    "172.16.0.0/12",
+    "172.16.1.0/24",
+    "172.20.0.0/16",
+    "192.168.0.0/16",
+    "192.168.1.0/24",
+    "192.168.10.0/24",
+    "192.168.100.0/24",
+    "0.0.0.0/0",
+];
+const CIDR_SRC_RANGES: &[&str] = &[
+    "192.168.1.0/24",
+    "192.168.0.0/16",
+    "10.0.0.0/8",
+    "10.0.1.0/24",
+    "172.16.0.0/12",
+    "172.16.5.0/24",
+    "203.0.113.0/24",
+    "198.51.100.0/24",
+    "any",
+    "any",
+    "any",
+];
+
+/// Generates firewall/ACL rules like `"allow 10.0.0.0/8 tcp 443 from 192.168.1.0/24"`.
+pub fn generate_ipv4_cidr_rules(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(2002);
+    (0..n)
+        .map(|_| {
+            let action = CIDR_ACTIONS[rng.random_range(0..CIDR_ACTIONS.len())];
+            let dest = CIDR_DEST_RANGES[rng.random_range(0..CIDR_DEST_RANGES.len())];
+            let proto = CIDR_PROTOCOLS[rng.random_range(0..CIDR_PROTOCOLS.len())];
+            let src = CIDR_SRC_RANGES[rng.random_range(0..CIDR_SRC_RANGES.len())];
+
+            if proto == "icmp" {
+                format!("{action} {dest} {proto} from {src}")
+            } else {
+                let port = CIDR_PORTS[rng.random_range(0..CIDR_PORTS.len())];
+                format!("{action} {dest} {proto} {port} from {src}")
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Prometheus exposition format metrics generator
+// ---------------------------------------------------------------------------
+
+const PROM_METRIC_NAMES: &[&str] = &[
+    "http_requests_total",
+    "http_request_duration_seconds",
+    "process_cpu_seconds_total",
+    "process_resident_memory_bytes",
+    "go_goroutines",
+    "node_cpu_seconds_total",
+    "up",
+    "scrape_duration_seconds",
+    "grpc_server_handled_total",
+    "api_errors_total",
+];
+
+const PROM_LABEL_KEYS: &[&str] = &[
+    "method", "handler", "status", "instance", "job", "mode", "le", "quantile",
+];
+
+const PROM_LABEL_VALUES: &[&str] = &[
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "/api/v1/users",
+    "/api/v1/orders",
+    "/api/v2/products",
+    "/healthz",
+    "/metrics",
+    "200",
+    "201",
+    "404",
+    "500",
+    "localhost:9090",
+    "prometheus",
+    "node-exporter",
+    "idle",
+    "user",
+    "system",
+    "0.5",
+    "0.9",
+    "0.99",
+];
+
+/// Generates Prometheus exposition format lines like
+/// `http_requests_total{method="GET",handler="/api/v1/users",status="200"} 1234 1678901234`.
+pub fn generate_prometheus_metrics(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(2003);
+    (0..n)
+        .map(|_| {
+            let metric = PROM_METRIC_NAMES[rng.random_range(0..PROM_METRIC_NAMES.len())];
+            let num_labels = rng.random_range(1..5usize);
+
+            let mut labels = Vec::with_capacity(num_labels);
+            for _ in 0..num_labels {
+                let key = PROM_LABEL_KEYS[rng.random_range(0..PROM_LABEL_KEYS.len())];
+                let val = PROM_LABEL_VALUES[rng.random_range(0..PROM_LABEL_VALUES.len())];
+                labels.push(format!("{key}=\"{val}\""));
+            }
+
+            let value = rng.random_range(0..1_000_000u64);
+            let timestamp = rng.random_range(1_678_000_000..1_710_000_000u64);
+
+            format!(
+                "{metric}{{{labels}}} {value} {timestamp}",
+                labels = labels.join(",")
+            )
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// DNS wire format binary generator (simplified)
+// ---------------------------------------------------------------------------
+
+const DNS_DOMAIN_COMPONENTS: &[&str] = &[
+    "www",
+    "mail",
+    "ns1",
+    "ns2",
+    "api",
+    "cdn",
+    "static",
+    "img",
+    "docs",
+    "blog",
+    "google",
+    "yahoo",
+    "amazon",
+    "cloudflare",
+    "github",
+    "example",
+    "com",
+    "net",
+    "org",
+    "io",
+];
+
+const DNS_QUERY_TYPES: &[u16] = &[
+    1,  // A
+    2,  // NS
+    5,  // CNAME
+    15, // MX
+    16, // TXT
+    28, // AAAA
+];
+
+/// Generates simplified DNS wire format packets.
+///
+/// Each packet contains: 2-byte transaction ID, 2-byte flags (`0x0100` for query
+/// or `0x8180` for response), 2-byte question count, then one or more questions
+/// encoded as length-prefixed labels (e.g., `[3]www[6]google[3]com[0]`) followed
+/// by 2-byte type and 2-byte class.
+pub fn generate_dns_wire_binary(n: usize) -> Vec<Vec<u8>> {
+    let mut rng = StdRng::seed_from_u64(2004);
+    (0..n)
+        .map(|_| {
+            let mut pkt = Vec::with_capacity(64);
+
+            // Transaction ID (2 bytes)
+            let txn_id: u16 = rng.random_range(0..u16::MAX);
+            pkt.extend_from_slice(&txn_id.to_be_bytes());
+
+            // Flags (2 bytes): query or response
+            let flags: u16 = if rng.random_bool(0.6) { 0x0100 } else { 0x8180 };
+            pkt.extend_from_slice(&flags.to_be_bytes());
+
+            // Question count (2 bytes)
+            let qcount: u16 = rng.random_range(1..4);
+            pkt.extend_from_slice(&qcount.to_be_bytes());
+
+            // Encode each question
+            for _ in 0..qcount {
+                // Build domain name from 2-4 random components
+                let num_labels = rng.random_range(2..5usize);
+                for _ in 0..num_labels {
+                    let component =
+                        DNS_DOMAIN_COMPONENTS[rng.random_range(0..DNS_DOMAIN_COMPONENTS.len())];
+                    let label_bytes = component.as_bytes();
+                    pkt.push(u8::try_from(label_bytes.len()).unwrap());
+                    pkt.extend_from_slice(label_bytes);
+                }
+                // Null terminator for domain name
+                pkt.push(0);
+
+                // Query type (2 bytes)
+                let qtype = DNS_QUERY_TYPES[rng.random_range(0..DNS_QUERY_TYPES.len())];
+                pkt.extend_from_slice(&qtype.to_be_bytes());
+
+                // Query class (2 bytes): IN = 1
+                pkt.extend_from_slice(&1u16.to_be_bytes());
+            }
+
+            pkt
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Parquet-like column metadata binary generator
+// ---------------------------------------------------------------------------
+
+const PARQUET_COL_NAMES: &[&str] = &[
+    "user_id",
+    "timestamp",
+    "event_type",
+    "amount",
+    "currency",
+    "session_id",
+    "page_url",
+    "referrer",
+    "duration_ms",
+    "status_code",
+    "country",
+    "device_type",
+    "browser",
+    "ip_address",
+    "payload",
+];
+
+/// Generates simplified Parquet-like column metadata binary records.
+///
+/// Each record contains: 4-byte magic `"PAR1"`, then 3-8 column chunks where each
+/// chunk has a 1-byte type tag (0-6), 4-byte LE offset, 4-byte LE size, and a
+/// length-prefixed column name drawn from a pool of ~15 analytics column names.
+pub fn generate_parquet_footer_binary(n: usize) -> Vec<Vec<u8>> {
+    let mut rng = StdRng::seed_from_u64(3001);
+    (0..n)
+        .map(|_| {
+            let mut buf = Vec::with_capacity(128);
+            // 4-byte magic
+            buf.extend_from_slice(b"PAR1");
+            let num_chunks = rng.random_range(3..9usize);
+            for _ in 0..num_chunks {
+                // 1-byte type tag (0=bool, 1=int32, 2=int64, 3=float, 4=double, 5=string, 6=binary)
+                buf.push(rng.random_range(0..7u8));
+                // 4-byte LE offset
+                let offset: u32 = rng.random_range(0..1_000_000);
+                buf.extend_from_slice(&offset.to_le_bytes());
+                // 4-byte LE size
+                let size: u32 = rng.random_range(64..65536);
+                buf.extend_from_slice(&size.to_le_bytes());
+                // length-prefixed column name
+                let name = PARQUET_COL_NAMES[rng.random_range(0..PARQUET_COL_NAMES.len())];
+                let name_bytes = name.as_bytes();
+                #[allow(clippy::cast_possible_truncation)]
+                buf.push(name_bytes.len() as u8); // column names are all <256 bytes
+                buf.extend_from_slice(name_bytes);
+            }
+            buf
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Spark query plan strings generator
+// ---------------------------------------------------------------------------
+
+const SPARK_OPERATORS: &[&str] = &[
+    "HashAggregate",
+    "Sort",
+    "Exchange",
+    "Project",
+    "Filter",
+    "FileScan parquet",
+    "BroadcastHashJoin",
+    "ShuffledHashJoin",
+    "SortMergeJoin",
+    "Window",
+];
+
+const SPARK_COLUMNS: &[&str] = &[
+    "user_id",
+    "amount",
+    "timestamp",
+    "event_type",
+    "session_id",
+    "country",
+    "product_id",
+    "quantity",
+    "price",
+    "category",
+    "order_id",
+    "status",
+];
+
+const SPARK_AGG_FUNCTIONS: &[&str] = &[
+    "sum",
+    "count",
+    "avg",
+    "max",
+    "min",
+    "first",
+    "collect_list",
+    "approx_count_distinct",
+];
+
+/// Generates Spark-style physical query plan fragments.
+///
+/// Each plan starts with `"== Physical Plan =="` followed by 3-6 operators at
+/// increasing indentation with `+- ` connectors. Operators include `HashAggregate`,
+/// `Sort`, `Exchange`, `FileScan parquet`, etc., with column references in `name#id`
+/// notation.
+pub fn generate_spark_plan_strings(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(3002);
+    (0..n)
+        .map(|_| {
+            let mut plan = String::with_capacity(256);
+            plan.push_str("== Physical Plan ==\n");
+            let depth = rng.random_range(3..7usize);
+            for level in 0..depth {
+                if level > 0 {
+                    for _ in 0..level {
+                        plan.push_str("   ");
+                    }
+                    plan.push_str("+- ");
+                }
+                let op = SPARK_OPERATORS[rng.random_range(0..SPARK_OPERATORS.len())];
+                plan.push_str(op);
+                let ncols = rng.random_range(1..4usize);
+                plan.push('(');
+                match op {
+                    "HashAggregate" => {
+                        plan.push_str("keys=[");
+                        for i in 0..ncols {
+                            if i > 0 {
+                                plan.push_str(", ");
+                            }
+                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
+                            let col_id = rng.random_range(100..999u32);
+                            plan.push_str(&format!("{col}#{col_id}"));
+                        }
+                        plan.push_str("], functions=[");
+                        let nfuncs = rng.random_range(1..3usize);
+                        for i in 0..nfuncs {
+                            if i > 0 {
+                                plan.push_str(", ");
+                            }
+                            let func =
+                                SPARK_AGG_FUNCTIONS[rng.random_range(0..SPARK_AGG_FUNCTIONS.len())];
+                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
+                            let col_id = rng.random_range(100..999u32);
+                            plan.push_str(&format!("{func}({col}#{col_id})"));
+                        }
+                        plan.push(']');
+                    }
+                    "Exchange" => {
+                        let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
+                        let col_id = rng.random_range(100..999u32);
+                        let partitions = rng.random_range(50..400u32);
+                        plan.push_str(&format!("hashpartitioning({col}#{col_id}, {partitions})"));
+                    }
+                    "FileScan parquet" => {
+                        plan.push('[');
+                        for i in 0..ncols {
+                            if i > 0 {
+                                plan.push(',');
+                            }
+                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
+                            let col_id = rng.random_range(100..999u32);
+                            plan.push_str(&format!("{col}#{col_id}"));
+                        }
+                        plan.push(']');
+                    }
+                    _ => {
+                        for i in 0..ncols {
+                            if i > 0 {
+                                plan.push_str(", ");
+                            }
+                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
+                            let col_id = rng.random_range(100..999u32);
+                            plan.push_str(&format!("{col}#{col_id}"));
+                        }
+                    }
+                }
+                plan.push(')');
+                if level < depth - 1 {
+                    plan.push('\n');
+                }
+            }
+            plan
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Arrow IPC-like binary generator
+// ---------------------------------------------------------------------------
+
+const ARROW_FIELD_NAMES: &[&str] = &[
+    "id",
+    "name",
+    "timestamp",
+    "value",
+    "label",
+    "payload",
+    "score",
+    "count",
+    "flag",
+    "data",
+    "key",
+    "index",
+];
+
+/// Generates simplified Arrow IPC-like binary records.
+///
+/// Each record contains: 4-byte continuation marker `0xFFFFFFFF`, 4-byte LE metadata
+/// length, then flatbuffer-style field descriptors (1-byte type, 2-byte name offset,
+/// 1-byte nullable flag) for 3-8 fields, followed by a 4-byte LE body length.
+pub fn generate_arrow_ipc_binary(n: usize) -> Vec<Vec<u8>> {
+    let mut rng = StdRng::seed_from_u64(3003);
+    (0..n)
+        .map(|_| {
+            let mut buf = Vec::with_capacity(128);
+            // 4-byte continuation marker
+            buf.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            // Placeholder for metadata length
+            let meta_len_pos = buf.len();
+            buf.extend_from_slice(&0u32.to_le_bytes());
+            let meta_start = buf.len();
+            let num_fields = rng.random_range(3..9usize);
+            for _ in 0..num_fields {
+                // 1-byte type (0=null, 1=int, 2=float, 3=utf8, 4=binary)
+                buf.push(rng.random_range(0..5u8));
+                // 2-byte name_offset
+                let name_idx = rng.random_range(0..ARROW_FIELD_NAMES.len());
+                #[allow(clippy::cast_possible_truncation)]
+                let name_offset = (name_idx * 16) as u16; // 12 names * 16 fits in u16
+                buf.extend_from_slice(&name_offset.to_le_bytes());
+                // 1-byte nullable flag
+                buf.push(if rng.random_bool(0.3) { 1 } else { 0 });
+            }
+            // Patch metadata length
+            #[allow(clippy::cast_possible_truncation)]
+            let meta_len = (buf.len() - meta_start) as u32; // metadata is at most ~32 bytes
+            buf[meta_len_pos..meta_len_pos + 4].copy_from_slice(&meta_len.to_le_bytes());
+            // 4-byte body length
+            let body_len: u32 = rng.random_range(1024..1_048_576);
+            buf.extend_from_slice(&body_len.to_le_bytes());
+            buf
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// JSONL (JSON Lines) generator
+// ---------------------------------------------------------------------------
+
+const JSONL_EVENT_TYPES: &[&str] = &[
+    "page_view",
+    "click",
+    "purchase",
+    "signup",
+    "logout",
+    "search",
+    "add_to_cart",
+    "error",
+];
+
+const JSONL_PROP_KEYS: &[&str] = &[
+    "page",
+    "ref",
+    "device",
+    "browser",
+    "os",
+    "campaign",
+    "source",
+    "medium",
+    "duration",
+    "scroll_depth",
+];
+
+const JSONL_PROP_VALUES: &[&str] = &[
+    "/home",
+    "/products",
+    "/checkout",
+    "/search",
+    "/profile",
+    "google",
+    "facebook",
+    "twitter",
+    "email",
+    "direct",
+    "mobile",
+    "desktop",
+    "tablet",
+    "chrome",
+    "firefox",
+];
+
+/// Generates JSONL (one JSON object per line) records resembling event tracking data.
+///
+/// Each line is a complete JSON object with an event type, user ID, timestamp,
+/// a nested `"props"` object with 3-6 key-value pairs, and 0-3 additional top-level
+/// fields (`amount`, `success`, `v`).
+pub fn generate_json_lines(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(3004);
+    (0..n)
+        .map(|_| {
+            let mut line = String::with_capacity(256);
+            line.push('{');
+            let event = JSONL_EVENT_TYPES[rng.random_range(0..JSONL_EVENT_TYPES.len())];
+            line.push_str(&format!("\"event\":\"{event}\""));
+            let user_id = rng.random_range(10000..99999u32);
+            line.push_str(&format!(",\"user\":\"u_{user_id}\""));
+            let ts = rng.random_range(1_678_000_000..1_700_000_000u64);
+            line.push_str(&format!(",\"ts\":{ts}"));
+            let nprops = rng.random_range(3..7usize);
+            line.push_str(",\"props\":{");
+            for i in 0..nprops {
+                if i > 0 {
+                    line.push(',');
+                }
+                let key = JSONL_PROP_KEYS[rng.random_range(0..JSONL_PROP_KEYS.len())];
+                let val = JSONL_PROP_VALUES[rng.random_range(0..JSONL_PROP_VALUES.len())];
+                line.push_str(&format!("\"{key}\":\"{val}\""));
+            }
+            line.push('}');
+            let extra_fields = rng.random_range(0..4usize);
+            if extra_fields > 0 {
+                let amount = rng.random_range(1..10000u32);
+                line.push_str(&format!(",\"amount\":{amount}"));
+            }
+            if extra_fields > 1 {
+                let success = if rng.random_bool(0.8) {
+                    "true"
+                } else {
+                    "false"
+                };
+                line.push_str(&format!(",\"success\":{success}"));
+            }
+            if extra_fields > 2 {
+                let version = rng.random_range(1..10u32);
+                line.push_str(&format!(",\"v\":{version}"));
+            }
+            line.push('}');
+            line
+        })
+        .collect()
+}
