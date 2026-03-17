@@ -23,6 +23,7 @@ use std::ops::Shr;
 use num_traits::Float;
 use num_traits::One;
 use num_traits::PrimInt;
+use num_traits::Zero;
 use rustc_hash::FxBuildHasher;
 use vortex_array::DynArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -212,32 +213,37 @@ impl RDEncoder {
         );
 
         let doubles = array.as_slice::<T>();
+        let n = doubles.len();
 
-        let mut left_parts: BufferMut<u16> = BufferMut::with_capacity(doubles.len());
-        let mut right_parts: BufferMut<T::UINT> = BufferMut::with_capacity(doubles.len());
-        let mut exceptions_pos: BufferMut<u64> = BufferMut::with_capacity(doubles.len() / 4);
-        let mut exceptions: BufferMut<u16> = BufferMut::with_capacity(doubles.len() / 4);
+        let mut right_parts: BufferMut<T::UINT> = BufferMut::with_capacity(n);
+        let mut exceptions_pos: BufferMut<u64> = BufferMut::with_capacity(n / 4);
+        let mut exceptions: BufferMut<u16> = BufferMut::with_capacity(n / 4);
 
         let right_mask = T::UINT::one().shl(self.right_bit_width as _) - T::UINT::one();
         let max_code = self.codes.len() - 1;
         let left_bit_width = bit_width!(max_code);
         let rbw = self.right_bit_width as usize;
 
-        // Pass 1: Extract right parts via extend_trusted (auto-vectorizable bit masking).
+        // Vectorizable pass: extract right parts via bit masking.
         right_parts.extend_trusted(doubles.iter().map(|&v| T::to_bits(v) & right_mask));
 
-        // Pass 2: Dict-encode left parts and collect exceptions (scalar, has branching).
+        // Pre-allocate left_parts at full size so we can write via direct indexing.
+        let mut left_parts: BufferMut<u16> = BufferMut::zeroed(n);
+        let left_slice = left_parts.as_mut_slice();
+
+        // Dict-encode left parts and collect exceptions.
         let reverse_flat = &self.reverse_flat;
         for (idx, &v) in doubles.iter().enumerate() {
             let left = <T as ALPRDFloat>::to_u16(T::to_bits(v).shr(rbw));
-
-            let lookup = reverse_flat[left as usize];
+            // SAFETY: left is at most 16 bits, reverse_flat has 2^16 entries.
+            let lookup = unsafe { *reverse_flat.get_unchecked(left as usize) };
             if lookup != NOT_IN_DICT {
-                left_parts.push(lookup - 1);
+                // SAFETY: idx < n and left_slice has exactly n elements.
+                unsafe { *left_slice.get_unchecked_mut(idx) = lookup - 1 };
             } else {
+                // left_slice[idx] is already 0 from zeroed allocation.
                 exceptions.push(left);
                 exceptions_pos.push(idx as _);
-                left_parts.push(0u16);
             }
         }
 
@@ -314,22 +320,25 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     let shift = right_bit_width as usize;
 
-    // Build a pre-shifted dictionary: each entry is already widened to T::UINT
-    // and shifted left by right_bit_width. This moves the shift out of the hot
-    // decode loop and into a small (max 8 entry) dictionary lookup.
-    let dict_shifted: Vec<T::UINT> = left_parts_dict
-        .iter()
-        .map(|&v| <T as ALPRDFloat>::from_u16(v) << shift)
-        .collect();
-
-    // Single-pass: dictionary-lookup the left code, shift, and OR into right_parts in place.
-    let right_slice = right_parts.as_mut_slice();
-    for (right, &code) in right_slice.iter_mut().zip(left_parts.iter()) {
-        // SAFETY: codes are dictionary-encoded indices guaranteed to be < dict_shifted.len()
-        // by the encoder. Eliminating bounds checks helps auto-vectorization.
-        let shifted = unsafe { *dict_shifted.get_unchecked(code as usize) };
-        *right = shifted | *right;
+    // Build a pre-shifted dictionary on the stack (max 16 entries) to avoid heap allocation.
+    let dict_len = left_parts_dict.len();
+    let mut dict_shifted = [T::UINT::zero(); MAX_DICT_SIZE as usize];
+    for (i, &v) in left_parts_dict.iter().enumerate() {
+        dict_shifted[i] = <T as ALPRDFloat>::from_u16(v) << shift;
     }
+
+    // Dict-lookup the left code, OR into right_parts in place.
+    let right_slice = right_parts.as_mut_slice();
+    let dict_ptr = dict_shifted.as_ptr();
+    right_slice
+        .iter_mut()
+        .zip(left_parts.iter())
+        .for_each(|(right, &code)| {
+            // SAFETY: codes are dictionary-encoded indices guaranteed to be < dict_len.
+            debug_assert!((code as usize) < dict_len);
+            let shifted = unsafe { *dict_ptr.add(code as usize) };
+            *right = shifted | *right;
+        });
 
     // Apply any patches (patch values are raw u16, so we widen and shift them).
     if let Some(patches) = left_parts_patches {
@@ -344,10 +353,10 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         );
     }
 
-    // Reinterpret bits as floats.
-    Ok(right_parts
-        .map_each_in_place(|bits| T::from_bits(bits))
-        .freeze())
+    // Reinterpret bits as floats via zero-cost transmute instead of per-element from_bits.
+    // SAFETY: T::UINT and T have the same size and alignment (u32/f32, u64/f64),
+    // and all bit patterns were originally encoded from valid floats.
+    Ok(unsafe { right_parts.transmute::<T>() }.freeze())
 }
 
 /// Apply patches directly to the combined (left|right) buffer.
@@ -495,8 +504,7 @@ fn find_best_dictionary_small(
             });
         }
 
-        let mut dictionary =
-            HashMap::with_capacity_and_hasher(MAX_DICT_SIZE as _, FxBuildHasher);
+        let mut dictionary = HashMap::with_capacity_and_hasher(MAX_DICT_SIZE as _, FxBuildHasher);
         let mut exception_count = 0usize;
         for (i, &(bits, count)) in bit_counts.iter().enumerate() {
             if i < dict_size {
