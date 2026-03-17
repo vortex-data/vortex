@@ -166,6 +166,8 @@ fn slice_arrow_buffer(bencher: Bencher, length: usize) {
 #[divan::bench(args = INPUT_SIZE)]
 fn true_count_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::from_iter((0..length).map(true_count_pattern));
+    buffer.true_count();
+
     bencher
         .with_inputs(|| &buffer)
         .bench_refs(|buffer| buffer.true_count())
@@ -176,6 +178,9 @@ fn true_count_arrow_buffer(bencher: Bencher, length: usize) {
     let buffer = Arrow(BooleanBuffer::from_iter(
         (0..length).map(true_count_pattern),
     ));
+
+    buffer.0.count_set_bits();
+
     bencher
         .with_inputs(|| &buffer)
         .bench_refs(|buffer| buffer.0.count_set_bits());

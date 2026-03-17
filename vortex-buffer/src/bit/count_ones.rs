@@ -70,24 +70,6 @@ fn mask_byte(byte: u8, bit_offset: usize, bit_len: usize) -> u8 {
 fn count_ones_aligned(bytes: &[u8]) -> usize {
     #[cfg(target_arch = "x86_64")]
     {
-        // When the target feature is guaranteed at compile time, skip runtime detection.
-        #[cfg(all(target_feature = "avx512f", target_feature = "avx512vpopcntdq"))]
-        if bytes.len() >= 64 {
-            // SAFETY: Compile-time target feature guarantees availability.
-            return unsafe { count_ones_aligned_avx512(bytes) };
-        }
-
-        #[cfg(all(
-            not(all(target_feature = "avx512f", target_feature = "avx512vpopcntdq")),
-            target_feature = "avx2"
-        ))]
-        if bytes.len() >= 32 {
-            // SAFETY: Compile-time target feature guarantees availability.
-            return unsafe { count_ones_aligned_avx2(bytes) };
-        }
-
-        // Fall back to runtime detection when features aren't compile-time guaranteed.
-        #[cfg(not(all(target_feature = "avx512f", target_feature = "avx512vpopcntdq")))]
         if bytes.len() >= 64
             && is_x86_feature_detected!("avx512f")
             && is_x86_feature_detected!("avx512vpopcntdq")
@@ -96,7 +78,6 @@ fn count_ones_aligned(bytes: &[u8]) -> usize {
             return unsafe { count_ones_aligned_avx512(bytes) };
         }
 
-        #[cfg(not(target_feature = "avx2"))]
         if bytes.len() >= 32 && is_x86_feature_detected!("avx2") {
             // SAFETY: Runtime detection guarantees the required target features.
             return unsafe { count_ones_aligned_avx2(bytes) };
