@@ -441,7 +441,9 @@ jobs:
           cache-tools: true
       - uses: ./.github/actions/setup-prebuild
       - name: Install nightly for sanitizer
-        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rust-src rustfmt clippy llvm-tools-preview
+        run: |
+          rustup toolchain install $NIGHTLY_TOOLCHAIN
+          rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
