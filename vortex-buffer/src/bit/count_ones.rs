@@ -197,6 +197,7 @@ mod tests {
 
     use crate::BitBuffer;
 
+    #[cfg_attr(miri, ignore)]
     #[rstest]
     fn test_count_ones_matches_iteration_for_slices(
         #[values(
