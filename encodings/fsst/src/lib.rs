@@ -25,4 +25,5 @@ pub mod test_utils;
 mod tests;
 
 pub use array::*;
+pub use canonical::fsst_batch_decode;
 pub use compress::*;
