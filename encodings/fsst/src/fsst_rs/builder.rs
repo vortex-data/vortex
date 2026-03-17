@@ -532,7 +532,7 @@ impl CompressorBuilder {
 /// Value 128 uses the full sample. Value 129 is a special "stabilization" pass
 /// that uses the full sample but skips merges to let the table settle.
 #[cfg(not(miri))]
-const GENERATIONS: [usize; 11] = [4usize, 12, 28, 48, 68, 98, 128, 128, 128, 128, 129];
+const GENERATIONS: [usize; 13] = [4usize, 8, 16, 24, 36, 48, 64, 80, 98, 128, 128, 128, 129];
 #[cfg(miri)]
 const GENERATIONS: [usize; 3] = [8usize, 38, 128];
 
