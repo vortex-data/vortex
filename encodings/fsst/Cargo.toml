@@ -25,6 +25,7 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [features]
 _test-harness = ["dep:rand", "vortex-array/_test-harness"]
@@ -33,7 +34,9 @@ _test-harness = ["dep:rand", "vortex-array/_test-harness"]
 divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
+snap = "1"
 vortex-array = { workspace = true, features = ["_test-harness"] }
+zstd = { workspace = true }
 
 [[bench]]
 name = "fsst_compress"
@@ -52,6 +55,11 @@ required-features = ["_test-harness"]
 
 [[bench]]
 name = "chunked_dict_fsst_builder"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
+name = "compression_compare"
 harness = false
 required-features = ["_test-harness"]
 
