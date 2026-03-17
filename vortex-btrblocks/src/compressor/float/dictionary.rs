@@ -12,26 +12,80 @@ use vortex_array::dtype::half::f16;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 
 use super::stats::ErasedDistinctValues;
 use super::stats::FloatStats;
 
-macro_rules! typed_encode {
-    ($stats:ident, $typed:ident, $validity:ident, $typ:ty) => {{
-        let values: Buffer<$typ> = $typed.values.iter().map(|x| x.0).collect();
+/// Trait for converting float types to their bit representation for total ordering.
+trait FloatBits: Copy {
+    type Bits: Ord + Copy;
+    fn to_sort_key(self) -> Self::Bits;
+}
 
-        let max_code = values.len();
+impl FloatBits for f16 {
+    type Bits = u16;
+    fn to_sort_key(self) -> u16 {
+        let bits = self.to_bits();
+        // Convert to a representation where total ordering works:
+        // if sign bit is set, flip all bits; otherwise flip only sign bit.
+        if bits & 0x8000 != 0 {
+            !bits
+        } else {
+            bits ^ 0x8000
+        }
+    }
+}
+
+impl FloatBits for f32 {
+    type Bits = u32;
+    fn to_sort_key(self) -> u32 {
+        let bits = self.to_bits();
+        if bits & 0x8000_0000 != 0 {
+            !bits
+        } else {
+            bits ^ 0x8000_0000
+        }
+    }
+}
+
+impl FloatBits for f64 {
+    type Bits = u64;
+    fn to_sort_key(self) -> u64 {
+        let bits = self.to_bits();
+        if bits & 0x8000_0000_0000_0000 != 0 {
+            !bits
+        } else {
+            bits ^ 0x8000_0000_0000_0000
+        }
+    }
+}
+
+macro_rules! typed_encode {
+    ($stats:ident, $typed:ident, $validity:ident, $typ:ty, $utyp:ty) => {{
+        // Collect and sort distinct values using total ordering on bit patterns
+        let mut values: Vec<$typ> = $typed.values.iter().map(|x| x.0).collect();
+        values.sort_unstable_by_key(|v| v.to_sort_key());
+        let values_buf: Buffer<$typ> = values.into();
+
+        let max_code = values_buf.len();
         let codes = if max_code <= u8::MAX as usize {
-            let buf =
-                <DictEncoder as Encode<$typ, u8>>::encode(&values, $stats.src.as_slice::<$typ>());
+            let buf = encode_float_sorted::<$typ, $utyp, u8>(
+                values_buf.as_slice(),
+                $stats.src.as_slice::<$typ>(),
+            );
             PrimitiveArray::new(buf, $validity.clone()).into_array()
         } else if max_code <= u16::MAX as usize {
-            let buf =
-                <DictEncoder as Encode<$typ, u16>>::encode(&values, $stats.src.as_slice::<$typ>());
+            let buf = encode_float_sorted::<$typ, $utyp, u16>(
+                values_buf.as_slice(),
+                $stats.src.as_slice::<$typ>(),
+            );
             PrimitiveArray::new(buf, $validity.clone()).into_array()
         } else {
-            let buf =
-                <DictEncoder as Encode<$typ, u32>>::encode(&values, $stats.src.as_slice::<$typ>());
+            let buf = encode_float_sorted::<$typ, $utyp, u32>(
+                values_buf.as_slice(),
+                $stats.src.as_slice::<$typ>(),
+            );
             PrimitiveArray::new(buf, $validity.clone()).into_array()
         };
 
@@ -39,9 +93,9 @@ macro_rules! typed_encode {
             Validity::NonNullable => Validity::NonNullable,
             _ => Validity::AllValid,
         };
-        let values = PrimitiveArray::new(values, values_validity).into_array();
+        let values = PrimitiveArray::new(values_buf, values_validity).into_array();
 
-        // SAFETY: enforced by the DictEncoder
+        // SAFETY: enforced by the encode function
         unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) }
     }};
 }
@@ -50,51 +104,53 @@ macro_rules! typed_encode {
 pub fn dictionary_encode(stats: &FloatStats) -> DictArray {
     let validity = stats.src.validity();
     match &stats.distinct_values {
-        ErasedDistinctValues::F16(typed) => typed_encode!(stats, typed, validity, f16),
-        ErasedDistinctValues::F32(typed) => typed_encode!(stats, typed, validity, f32),
-        ErasedDistinctValues::F64(typed) => typed_encode!(stats, typed, validity, f64),
+        ErasedDistinctValues::F16(typed) => typed_encode!(stats, typed, validity, f16, u16),
+        ErasedDistinctValues::F32(typed) => typed_encode!(stats, typed, validity, f32, u32),
+        ErasedDistinctValues::F64(typed) => typed_encode!(stats, typed, validity, f64, u64),
     }
 }
 
-struct DictEncoder;
+/// Encode float values into dictionary codes using sorted distinct values with binary search
+/// on bit representations for total ordering.
+#[allow(clippy::cast_possible_truncation)]
+#[inline]
+fn encode_float_sorted<T, U, I>(sorted_distinct: &[T], values: &[T]) -> Buffer<I>
+where
+    T: FloatBits<Bits = U> + Copy,
+    U: Ord + Copy,
+    I: Copy + Default + TryFrom<usize>,
+    <I as TryFrom<usize>>::Error: std::fmt::Debug,
+{
+    // Pre-compute sort keys for the distinct values
+    let distinct_keys: Vec<U> = sorted_distinct.iter().map(|v| v.to_sort_key()).collect();
 
-trait Encode<T, I> {
-    /// Using the distinct value set, turn the values into a set of codes.
-    fn encode(distinct: &[T], values: &[T]) -> Buffer<I>;
-}
+    let mut output = BufferMut::with_capacity(values.len());
 
-macro_rules! impl_encode {
-    ($typ:ty, $utyp:ty) => { impl_encode!($typ, $utyp, u8, u16, u32); };
-    ($typ:ty, $utyp:ty, $($ityp:ty),+) => {
-        $(
-        impl Encode<$typ, $ityp> for DictEncoder {
-            #[allow(clippy::cast_possible_truncation)]
-            fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
-                let mut codes =
-                    vortex_utils::aliases::hash_map::HashMap::<$utyp, $ityp>::with_capacity(
-                        distinct.len(),
-                    );
-                for (code, &value) in distinct.iter().enumerate() {
-                    codes.insert(value.to_bits(), code as $ityp);
-                }
-
-                let mut output = vortex_buffer::BufferMut::with_capacity(values.len());
-                for value in values {
-                    // Any code lookups which fail are for nulls, so their value
-                    // does not matter.
-                    output.push(codes.get(&value.to_bits()).copied().unwrap_or_default());
-                }
-
-                return output.freeze();
-            }
+    if distinct_keys.len() <= 16 {
+        for &value in values {
+            let key = value.to_sort_key();
+            let code = distinct_keys
+                .iter()
+                .position(|&d| d == key)
+                .map(|idx| I::try_from(idx).unwrap_or_default())
+                .unwrap_or_default();
+            // SAFETY: we have exactly sized output to be as large as values.
+            unsafe { output.push_unchecked(code) };
         }
-        )*
-    };
-}
+    } else {
+        for &value in values {
+            let key = value.to_sort_key();
+            let code = distinct_keys
+                .binary_search(&key)
+                .map(|idx| I::try_from(idx).unwrap_or_default())
+                .unwrap_or_default();
+            // SAFETY: we have exactly sized output to be as large as values.
+            unsafe { output.push_unchecked(code) };
+        }
+    }
 
-impl_encode!(f16, u16);
-impl_encode!(f32, u32);
-impl_encode!(f64, u64);
+    output.freeze()
+}
 
 #[cfg(test)]
 mod tests {

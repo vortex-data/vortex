@@ -168,9 +168,17 @@ impl IntegerStats {
         input: &PrimitiveArray,
         opts: GenerateStatsOptions,
     ) -> VortexResult<Self> {
-        match_each_integer_ptype!(input.ptype(), |T| {
-            typed_int_stats::<T>(input, opts.count_distinct_values)
-        })
+        // Use specialized flat-array stats for u8/i8 when counting distinct values.
+        // These avoid all HashMap hashing overhead by using direct-indexed 256-entry arrays.
+        match input.ptype() {
+            vortex_array::dtype::PType::U8 if opts.count_distinct_values => u8_int_stats(input),
+            vortex_array::dtype::PType::I8 if opts.count_distinct_values => i8_int_stats(input),
+            _ => {
+                match_each_integer_ptype!(input.ptype(), |T| {
+                    typed_int_stats::<T>(input, opts.count_distinct_values)
+                })
+            }
+        }
     }
 }
 
@@ -448,6 +456,255 @@ fn inner_loop_naive<T: IntegerPType>(
             }
         }
     }
+}
+
+/// Specialized stats generation for u8 arrays using a flat `[u32; 256]` counting array.
+///
+/// This is significantly faster than the generic HashMap-based approach because:
+/// - No hashing overhead (direct array indexing)
+/// - No hash table resizing or collision handling
+/// - Better cache locality for the counting array (1KB fits in L1)
+fn u8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
+    if array.is_empty() {
+        return Ok(IntegerStats {
+            src: array.clone(),
+            null_count: 0,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            typed: TypedStats {
+                min: u8::MAX,
+                max: u8::MIN,
+                top_value: 0u8,
+                top_count: 0,
+                distinct_values: HashMap::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        });
+    } else if array.all_invalid()? {
+        return Ok(IntegerStats {
+            src: array.clone(),
+            null_count: u32::try_from(array.len())?,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            typed: TypedStats {
+                min: u8::MAX,
+                max: u8::MIN,
+                top_value: 0u8,
+                top_count: 0,
+                distinct_values: HashMap::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        });
+    }
+
+    let validity = array.validity_mask()?;
+    let null_count = validity.false_count();
+    let value_count = validity.true_count();
+
+    let head_idx = validity
+        .first()
+        .vortex_expect("All null masks have been handled before");
+    let buffer = array.to_buffer::<u8>();
+    let head = buffer[head_idx];
+
+    // Flat counting array - direct index by value, no hashing needed
+    let mut counts = [0u32; 256];
+    let mut prev = head;
+    let mut runs = 1u32;
+
+    let sliced = &buffer.as_slice()[head_idx..array.len()];
+    match validity.bit_buffer() {
+        AllOr::All => {
+            for &value in sliced {
+                counts[value as usize] += 1;
+                if value != prev {
+                    prev = value;
+                    runs += 1;
+                }
+            }
+        }
+        AllOr::None => unreachable!("All invalid arrays have been handled before"),
+        AllOr::Some(v) => {
+            let mask = v.slice(head_idx..array.len());
+            for (idx, &value) in sliced.iter().enumerate() {
+                if mask.value(idx) {
+                    counts[value as usize] += 1;
+                    if value != prev {
+                        prev = value;
+                        runs += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Convert flat counts to HashMap for compatibility with TypedStats
+    let mut distinct_values = HashMap::with_capacity_and_hasher(256, FxBuildHasher);
+    let mut top_value = 0u8;
+    let mut top_count = 0u32;
+    for (val, &count) in counts.iter().enumerate() {
+        if count > 0 {
+            #[allow(clippy::cast_possible_truncation)]
+            let val = val as u8;
+            distinct_values.insert(NativeValue(val), count);
+            if count > top_count {
+                top_count = count;
+                top_value = val;
+            }
+        }
+    }
+
+    let distinct_values_count = u32::try_from(distinct_values.len())?;
+    let null_count = u32::try_from(null_count)?;
+    let value_count = u32::try_from(value_count)?;
+
+    let min = array
+        .statistics()
+        .compute_as::<u8>(Stat::Min)
+        .vortex_expect("min should be computed");
+    let max = array
+        .statistics()
+        .compute_as::<u8>(Stat::Max)
+        .vortex_expect("max should be computed");
+
+    Ok(IntegerStats {
+        src: array.clone(),
+        null_count,
+        value_count,
+        average_run_length: value_count / runs,
+        distinct_values_count,
+        typed: TypedStats {
+            min,
+            max,
+            top_value,
+            top_count,
+            distinct_values,
+        }
+        .into(),
+    })
+}
+
+/// Specialized stats generation for i8 arrays using a flat `[u32; 256]` counting array.
+fn i8_int_stats(array: &PrimitiveArray) -> VortexResult<IntegerStats> {
+    if array.is_empty() {
+        return Ok(IntegerStats {
+            src: array.clone(),
+            null_count: 0,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            typed: TypedStats {
+                min: i8::MAX,
+                max: i8::MIN,
+                top_value: 0i8,
+                top_count: 0,
+                distinct_values: HashMap::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        });
+    } else if array.all_invalid()? {
+        return Ok(IntegerStats {
+            src: array.clone(),
+            null_count: u32::try_from(array.len())?,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            typed: TypedStats {
+                min: i8::MAX,
+                max: i8::MIN,
+                top_value: 0i8,
+                top_count: 0,
+                distinct_values: HashMap::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        });
+    }
+
+    let validity = array.validity_mask()?;
+    let null_count = validity.false_count();
+    let value_count = validity.true_count();
+
+    let head_idx = validity
+        .first()
+        .vortex_expect("All null masks have been handled before");
+    let buffer = array.to_buffer::<i8>();
+    let head = buffer[head_idx];
+
+    let mut counts = [0u32; 256];
+    let mut prev = head;
+    let mut runs = 1u32;
+
+    let sliced = &buffer.as_slice()[head_idx..array.len()];
+    match validity.bit_buffer() {
+        AllOr::All => {
+            for &value in sliced {
+                counts[value as u8 as usize] += 1;
+                if value != prev {
+                    prev = value;
+                    runs += 1;
+                }
+            }
+        }
+        AllOr::None => unreachable!("All invalid arrays have been handled before"),
+        AllOr::Some(v) => {
+            let mask = v.slice(head_idx..array.len());
+            for (idx, &value) in sliced.iter().enumerate() {
+                if mask.value(idx) {
+                    counts[value as u8 as usize] += 1;
+                    if value != prev {
+                        prev = value;
+                        runs += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut distinct_values = HashMap::with_capacity_and_hasher(256, FxBuildHasher);
+    let mut top_value = 0i8;
+    let mut top_count = 0u32;
+    for (idx, &count) in counts.iter().enumerate() {
+        if count > 0 {
+            #[allow(clippy::cast_possible_truncation)]
+            let val = idx as u8 as i8;
+            distinct_values.insert(NativeValue(val), count);
+            if count > top_count {
+                top_count = count;
+                top_value = val;
+            }
+        }
+    }
+
+    let distinct_values_count = u32::try_from(distinct_values.len())?;
+    let null_count = u32::try_from(null_count)?;
+    let value_count = u32::try_from(value_count)?;
+
+    let min = array
+        .statistics()
+        .compute_as::<i8>(Stat::Min)
+        .vortex_expect("min should be computed");
+    let max = array
+        .statistics()
+        .compute_as::<i8>(Stat::Max)
+        .vortex_expect("max should be computed");
+
+    Ok(IntegerStats {
+        src: array.clone(),
+        null_count,
+        value_count,
+        average_run_length: value_count / runs,
+        distinct_values_count,
+        typed: TypedStats {
+            min,
+            max,
+            top_value,
+            top_count,
+            distinct_values,
+        }
+        .into(),
+    })
 }
 
 #[cfg(test)]
