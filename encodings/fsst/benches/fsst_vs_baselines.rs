@@ -760,3 +760,163 @@ fn compress_snappy_struct_binary(bencher: Bencher) {
         .with_inputs(|| (snap::raw::Encoder::new(), data.as_slice()))
         .bench_refs(|(enc, d)| enc.compress_vec(d).unwrap());
 }
+
+// ---------------------------------------------------------------------------
+// Throughput benchmarks: FSST decompress
+// ---------------------------------------------------------------------------
+
+#[divan::bench]
+fn decompress_fsst_urls(bencher: Bencher) {
+    let varbin = strings_to_varbin(&STRUCTURED_URLS);
+    let compressor = fsst_train_compressor(&varbin);
+    let decompressor = compressor.decompressor();
+    let compressed: Vec<Vec<u8>> = STRUCTURED_URLS
+        .iter()
+        .map(|s| compressor.compress(s.as_bytes()))
+        .collect();
+    bencher
+        .with_inputs(|| (&compressed, &decompressor))
+        .bench_refs(|(data, dec)| {
+            for c in data.iter() {
+                dec.decompress(c);
+            }
+        });
+}
+
+#[divan::bench]
+fn decompress_fsst_log_lines(bencher: Bencher) {
+    let varbin = strings_to_varbin(&LOG_LINES);
+    let compressor = fsst_train_compressor(&varbin);
+    let decompressor = compressor.decompressor();
+    let compressed: Vec<Vec<u8>> = LOG_LINES
+        .iter()
+        .map(|s| compressor.compress(s.as_bytes()))
+        .collect();
+    bencher
+        .with_inputs(|| (&compressed, &decompressor))
+        .bench_refs(|(data, dec)| {
+            for c in data.iter() {
+                dec.decompress(c);
+            }
+        });
+}
+
+#[divan::bench]
+fn decompress_fsst_json(bencher: Bencher) {
+    let varbin = strings_to_varbin(&JSON_STRINGS);
+    let compressor = fsst_train_compressor(&varbin);
+    let decompressor = compressor.decompressor();
+    let compressed: Vec<Vec<u8>> = JSON_STRINGS
+        .iter()
+        .map(|s| compressor.compress(s.as_bytes()))
+        .collect();
+    bencher
+        .with_inputs(|| (&compressed, &decompressor))
+        .bench_refs(|(data, dec)| {
+            for c in data.iter() {
+                dec.decompress(c);
+            }
+        });
+}
+
+#[divan::bench]
+fn decompress_fsst_random_binary(bencher: Bencher) {
+    let varbin = bytes_to_varbin(&RANDOM_BINARY);
+    let compressor = fsst_train_compressor(&varbin);
+    let decompressor = compressor.decompressor();
+    let compressed: Vec<Vec<u8>> = RANDOM_BINARY
+        .iter()
+        .map(|b| compressor.compress(b))
+        .collect();
+    bencher
+        .with_inputs(|| (&compressed, &decompressor))
+        .bench_refs(|(data, dec)| {
+            for c in data.iter() {
+                dec.decompress(c);
+            }
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Throughput benchmarks: zstd decompress
+// ---------------------------------------------------------------------------
+
+#[divan::bench]
+fn decompress_zstd_urls(bencher: Bencher) {
+    let data = concat_strings(&STRUCTURED_URLS);
+    let compressed = zstd::encode_all(data.as_slice(), 3).unwrap();
+    bencher
+        .with_inputs(|| compressed.as_slice())
+        .bench_refs(|d| zstd::decode_all(*d).unwrap());
+}
+
+#[divan::bench]
+fn decompress_zstd_log_lines(bencher: Bencher) {
+    let data = concat_strings(&LOG_LINES);
+    let compressed = zstd::encode_all(data.as_slice(), 3).unwrap();
+    bencher
+        .with_inputs(|| compressed.as_slice())
+        .bench_refs(|d| zstd::decode_all(*d).unwrap());
+}
+
+#[divan::bench]
+fn decompress_zstd_json(bencher: Bencher) {
+    let data = concat_strings(&JSON_STRINGS);
+    let compressed = zstd::encode_all(data.as_slice(), 3).unwrap();
+    bencher
+        .with_inputs(|| compressed.as_slice())
+        .bench_refs(|d| zstd::decode_all(*d).unwrap());
+}
+
+#[divan::bench]
+fn decompress_zstd_random_binary(bencher: Bencher) {
+    let data = concat_bytes(&RANDOM_BINARY);
+    let compressed = zstd::encode_all(data.as_slice(), 3).unwrap();
+    bencher
+        .with_inputs(|| compressed.as_slice())
+        .bench_refs(|d| zstd::decode_all(*d).unwrap());
+}
+
+// ---------------------------------------------------------------------------
+// Throughput benchmarks: snappy decompress
+// ---------------------------------------------------------------------------
+
+#[divan::bench]
+fn decompress_snappy_urls(bencher: Bencher) {
+    let data = concat_strings(&STRUCTURED_URLS);
+    let mut enc = snap::raw::Encoder::new();
+    let compressed = enc.compress_vec(&data).unwrap();
+    bencher
+        .with_inputs(|| (snap::raw::Decoder::new(), compressed.as_slice()))
+        .bench_refs(|(dec, d)| dec.decompress_vec(d).unwrap());
+}
+
+#[divan::bench]
+fn decompress_snappy_log_lines(bencher: Bencher) {
+    let data = concat_strings(&LOG_LINES);
+    let mut enc = snap::raw::Encoder::new();
+    let compressed = enc.compress_vec(&data).unwrap();
+    bencher
+        .with_inputs(|| (snap::raw::Decoder::new(), compressed.as_slice()))
+        .bench_refs(|(dec, d)| dec.decompress_vec(d).unwrap());
+}
+
+#[divan::bench]
+fn decompress_snappy_json(bencher: Bencher) {
+    let data = concat_strings(&JSON_STRINGS);
+    let mut enc = snap::raw::Encoder::new();
+    let compressed = enc.compress_vec(&data).unwrap();
+    bencher
+        .with_inputs(|| (snap::raw::Decoder::new(), compressed.as_slice()))
+        .bench_refs(|(dec, d)| dec.decompress_vec(d).unwrap());
+}
+
+#[divan::bench]
+fn decompress_snappy_random_binary(bencher: Bencher) {
+    let data = concat_bytes(&RANDOM_BINARY);
+    let mut enc = snap::raw::Encoder::new();
+    let compressed = enc.compress_vec(&data).unwrap();
+    bencher
+        .with_inputs(|| (snap::raw::Decoder::new(), compressed.as_slice()))
+        .bench_refs(|(dec, d)| dec.decompress_vec(d).unwrap());
+}
