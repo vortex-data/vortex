@@ -14,8 +14,10 @@ use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::compute;
+use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
@@ -294,21 +296,16 @@ impl ListViewArray {
             let last_size = self.size_at(self.len() - 1);
             last_offset + last_size
         } else {
-            // Offsets and sizes can have different primitive types (e.g. u32 vs u16).
-            // Cast the narrower to the wider since arithmetic requires identical operand types.
-            let (offsets, sizes) = if self.offsets().dtype().as_ptype().byte_width()
-                >= self.sizes().dtype().as_ptype().byte_width()
-            {
-                (
-                    self.offsets().clone(),
-                    self.sizes().cast(self.offsets().dtype().clone())?,
-                )
+            // Cast offsets and sizes to the widest integer type to prevent
+            // overflow when computing offsets + sizes. The end offset may not
+            // fit in the integer width otherwise.
+            let wide_dtype = DType::from(if self.offsets().dtype().as_ptype().is_unsigned_int() {
+                PType::U64
             } else {
-                (
-                    self.offsets().cast(self.sizes().dtype().clone())?,
-                    self.sizes().clone(),
-                )
-            };
+                PType::I64
+            });
+            let offsets = self.offsets().cast(wide_dtype.clone())?;
+            let sizes = self.sizes().cast(wide_dtype)?;
 
             let min_max = compute::min_max(
                 &offsets
@@ -611,5 +608,21 @@ mod tests {
         assert!(ListViewArray::should_use_take(127_000, 1_000));
         // avg = 128 → LBL
         assert!(!ListViewArray::should_use_take(128_000, 1_000));
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/6973>.
+    /// Both offsets and sizes are u8, and offset + size exceeds u8::MAX.
+    #[test]
+    fn test_rebuild_trim_elements_sum_overflows_type() -> VortexResult<()> {
+        let elements = PrimitiveArray::from_iter(vec![0i32; 261]).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![215u8, 0]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![46u8, 10]).into_array();
+
+        let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
+
+        // min(offsets) = 0, so nothing to trim; output should equal input.
+        assert_arrays_eq!(trimmed, listview);
+        Ok(())
     }
 }
