@@ -147,6 +147,8 @@ impl ALPRDFloat for f32 {
 pub struct RDEncoder {
     right_bit_width: u8,
     codes: Vec<u16>,
+    /// Reverse lookup from left_bits value to dictionary code.
+    reverse_lookup: HashMap<u16, u16, FxBuildHasher>,
 }
 
 impl RDEncoder {
@@ -164,17 +166,21 @@ impl RDEncoder {
             codes[code as usize] = bits
         });
 
-        Self {
-            right_bit_width: dictionary.right_bit_width,
-            codes,
-        }
+        Self::from_parts(dictionary.right_bit_width, codes)
     }
 
     /// Build a new encoder from known parameters.
     pub fn from_parts(right_bit_width: u8, codes: Vec<u16>) -> Self {
+        let reverse_lookup = codes
+            .iter()
+            .enumerate()
+            .map(|(code, &bits)| (bits, code as u16))
+            .collect::<HashMap<u16, u16, FxBuildHasher>>();
+
         Self {
             right_bit_width,
             codes,
+            reverse_lookup,
         }
     }
 
@@ -208,23 +214,18 @@ impl RDEncoder {
         let max_code = self.codes.len() - 1;
         let left_bit_width = bit_width!(max_code);
 
-        for v in doubles.iter().copied() {
-            right_parts.push(T::to_bits(v) & right_mask);
-            left_parts.push(<T as ALPRDFloat>::to_u16(
-                T::to_bits(v).shr(self.right_bit_width as _),
-            ));
-        }
+        // Split each value into left/right parts and dict-encode in a single pass.
+        for (idx, v) in doubles.iter().copied().enumerate() {
+            let bits = T::to_bits(v);
+            right_parts.push(bits & right_mask);
+            let left = <T as ALPRDFloat>::to_u16(bits.shr(self.right_bit_width as _));
 
-        // dict-encode the left-parts, keeping track of exceptions
-        for (idx, left) in left_parts.iter_mut().enumerate() {
-            // TODO: revisit if we need to change the branch order for perf.
-            if let Some(code) = self.codes.iter().position(|v| *v == *left) {
-                *left = code as u16;
+            if let Some(&code) = self.reverse_lookup.get(&left) {
+                left_parts.push(code);
             } else {
-                exceptions.push(*left);
+                exceptions.push(left);
                 exceptions_pos.push(idx as _);
-
-                *left = 0u16;
+                left_parts.push(0u16);
             }
         }
 
@@ -302,35 +303,48 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
     }
 
-    // Decode the left-parts dictionary
-    let mut values = BufferMut::<u16>::from_iter(
-        left_parts
-            .iter()
-            .map(|code| left_parts_dict[*code as usize]),
-    );
+    let shift = right_bit_width as usize;
 
-    // Apply any patches
+    // Build a pre-shifted dictionary: each entry is already widened to T::UINT
+    // and shifted left by right_bit_width. This moves the shift out of the hot
+    // decode loop and into a small (max 8 entry) dictionary lookup.
+    let dict_shifted: Vec<T::UINT> = left_parts_dict
+        .iter()
+        .map(|&v| <T as ALPRDFloat>::from_u16(v) << shift)
+        .collect();
+
+    // Decode the left-parts using the pre-shifted dictionary, producing T::UINT
+    // values that are already in their final shifted position.
+    let mut shifted_values =
+        BufferMut::<T::UINT>::from_iter(left_parts.iter().map(|code| dict_shifted[*code as usize]));
+
+    // Apply any patches (patch values are raw u16, so we widen and shift them).
     if let Some(patches) = left_parts_patches {
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        alp_rd_apply_patches(&mut values, &indices, &patch_values, patches.offset());
+        alp_rd_apply_patches_shifted::<T>(
+            &mut shifted_values,
+            &indices,
+            &patch_values,
+            patches.offset(),
+            shift,
+        );
     }
 
-    // Shift the left-parts and add in the right-parts.
-    Ok(alp_rd_decode_core(
-        left_parts_dict,
-        right_bit_width,
-        right_parts,
-        values,
-    ))
+    // OR shifted left-parts with right-parts and reinterpret as floats.
+    Ok(alp_rd_decode_core_shifted::<T>(right_parts, shifted_values))
 }
 
-/// Apply patches to the decoded left-parts values.
-fn alp_rd_apply_patches(
-    values: &mut BufferMut<u16>,
+/// Apply patches to pre-shifted left-parts values.
+///
+/// Patch values are raw u16 left-parts that need to be widened and shifted
+/// before being written into the shifted values buffer.
+fn alp_rd_apply_patches_shifted<F: ALPRDFloat>(
+    shifted_values: &mut BufferMut<F::UINT>,
     indices: &PrimitiveArray,
     patch_values: &PrimitiveArray,
     offset: usize,
+    shift: usize,
 ) {
     match_each_integer_ptype!(indices.ptype(), |T| {
         indices
@@ -339,26 +353,27 @@ fn alp_rd_apply_patches(
             .copied()
             .map(|idx| idx - offset as T)
             .zip(patch_values.as_slice::<u16>().iter())
-            .for_each(|(idx, v)| values[idx as usize] = *v);
+            .for_each(|(idx, v)| {
+                shifted_values[idx as usize] = <F as ALPRDFloat>::from_u16(*v) << shift;
+            });
     })
 }
 
-/// Core decode logic shared between `alp_rd_decode` and `execute_alp_rd_decode`.
-fn alp_rd_decode_core<T: ALPRDFloat>(
-    _left_parts_dict: &[u16],
-    right_bit_width: u8,
-    right_parts: BufferMut<T::UINT>,
-    values: BufferMut<u16>,
+/// Core decode logic that combines pre-shifted left parts with right parts.
+///
+/// The shifted left parts already contain `(left_value << right_bit_width)` as `T::UINT`,
+/// so this function only needs to OR them with the right parts and reinterpret as floats.
+fn alp_rd_decode_core_shifted<T: ALPRDFloat>(
+    mut right_parts: BufferMut<T::UINT>,
+    shifted_values: BufferMut<T::UINT>,
 ) -> Buffer<T> {
-    // Shift the left-parts and add in the right-parts.
-    let mut index = 0;
+    let shifted_slice = shifted_values.as_ref();
+    let right_slice = right_parts.as_mut_slice();
+    for (right, &left) in right_slice.iter_mut().zip(shifted_slice.iter()) {
+        *right = left | *right;
+    }
     right_parts
-        .map_each_in_place(|right| {
-            let left = values[index];
-            index += 1;
-            let left = <T as ALPRDFloat>::from_u16(left);
-            T::from_bits((left << (right_bit_width as usize)) | right)
-        })
+        .map_each_in_place(|bits| T::from_bits(bits))
         .freeze()
 }
 
@@ -406,25 +421,25 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
         .map(|v| <T as ALPRDFloat>::to_u16(T::to_bits(v).shr(right_bw as _)))
         .for_each(|item| *counts.entry(item).or_default() += 1);
 
-    // Sorted counts: sort by negative count so that heavy hitters sort first.
-    let mut sorted_bit_counts: Vec<(u16, usize)> = counts.into_iter().collect_vec();
-    sorted_bit_counts.sort_by_key(|(_, count)| count.wrapping_neg());
-
-    // Assign the most-frequently occurring left-bits as dictionary codes, up to `dict_size`...
-    let mut dictionary = HashMap::with_capacity_and_hasher(max_dict_size as _, FxBuildHasher);
-    let mut code = 0u16;
-    while code < (max_dict_size as _) && (code as usize) < sorted_bit_counts.len() {
-        let (bits, _) = sorted_bit_counts[code as usize];
-        dictionary.insert(bits, code);
-        code += 1;
+    // Partial sort: only need the top `dict_size` elements by frequency.
+    let dict_size = max_dict_size as usize;
+    let mut bit_counts: Vec<(u16, usize)> = counts.into_iter().collect_vec();
+    if bit_counts.len() > dict_size {
+        bit_counts.select_nth_unstable_by_key(dict_size.saturating_sub(1), |(_, count)| {
+            count.wrapping_neg()
+        });
     }
 
-    // ...and the rest are exceptions.
-    let exception_count: usize = sorted_bit_counts
-        .iter()
-        .skip(code as _)
-        .map(|(_, count)| *count)
-        .sum();
+    // Build dictionary and count exceptions in a single pass over the partitioned vector.
+    let mut dictionary = HashMap::with_capacity_and_hasher(max_dict_size as _, FxBuildHasher);
+    let mut exception_count = 0usize;
+    for (i, &(bits, count)) in bit_counts.iter().enumerate() {
+        if i < dict_size {
+            dictionary.insert(bits, i as u16);
+        } else {
+            exception_count += count;
+        }
+    }
 
     // Left bit-width is determined based on the actual dictionary size.
     let max_code = dictionary.len() - 1;

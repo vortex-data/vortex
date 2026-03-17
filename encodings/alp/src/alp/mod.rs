@@ -111,25 +111,81 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
                 .cloned()
                 .collect_vec()
         });
+        let sample_values = sample.as_deref().unwrap_or(values);
 
         for e in (0..Self::MAX_EXPONENT).rev() {
             for f in 0..e {
-                let (_, encoded, _, exc_patches, _) = Self::encode(
-                    sample.as_deref().unwrap_or(values),
-                    Some(Exponents { e, f }),
-                );
-
-                let size = Self::estimate_encoded_size(&encoded, &exc_patches);
+                let exp = Exponents { e, f };
+                let size = Self::estimate_for_exponents(sample_values, exp);
                 if size < best_nbytes {
                     best_nbytes = size;
-                    best_exp = Exponents { e, f };
+                    best_exp = exp;
                 } else if size == best_nbytes && e - f < best_exp.e - best_exp.f {
-                    best_exp = Exponents { e, f };
+                    best_exp = exp;
+                }
+            }
+
+            // If the best exponents so far produced zero patches on the sample,
+            // that is likely optimal -- no need to search lower e values.
+            if best_nbytes > 0 && best_exp.e == e {
+                let patch_free = sample_values.iter().all(|&v| {
+                    let encoded = Self::encode_single_unchecked(v, best_exp);
+                    Self::decode_single(encoded, best_exp).is_eq(v)
+                });
+                if patch_free {
+                    break;
                 }
             }
         }
 
         best_exp
+    }
+
+    /// Lightweight estimation of encoded size for a given set of exponents.
+    ///
+    /// Unlike [`Self::encode`], this avoids allocating output buffers, tracking
+    /// chunk offsets, gathering patch values, and computing fill values. It only
+    /// counts mismatches (patches) and tracks the encoded value range to estimate
+    /// bitwidth.
+    #[inline]
+    fn estimate_for_exponents(sample: &[Self], exponents: Exponents) -> usize {
+        let mut patch_count: usize = 0;
+        let mut enc_min: Option<Self::ALPInt> = None;
+        let mut enc_max: Option<Self::ALPInt> = None;
+
+        for &v in sample {
+            let encoded = Self::encode_single_unchecked(v, exponents);
+            let decoded = Self::decode_single(encoded, exponents);
+            if !decoded.is_eq(v) {
+                patch_count += 1;
+            } else {
+                enc_min = Some(match enc_min {
+                    Some(cur) if cur < encoded => cur,
+                    _ => encoded,
+                });
+                enc_max = Some(match enc_max {
+                    Some(cur) if cur > encoded => cur,
+                    _ => encoded,
+                });
+            }
+        }
+
+        let bits_per_encoded = enc_min
+            .zip(enc_max)
+            .and_then(|(min, max)| max.checked_sub(&min))
+            .and_then(|range| range.to_u64())
+            .and_then(|range| {
+                range
+                    .checked_ilog2()
+                    .map(|bits| (bits + 1) as usize)
+                    .or(Some(0))
+            })
+            .unwrap_or(size_of::<Self::ALPInt>() * 8);
+
+        let encoded_bytes = (sample.len() * bits_per_encoded).div_ceil(8);
+        let patch_bytes = patch_count * (size_of::<Self>() + size_of::<u16>());
+
+        encoded_bytes + patch_bytes
     }
 
     #[inline]
@@ -235,25 +291,28 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     }
 
     fn decode_buffer(encoded: BufferMut<Self::ALPInt>, exponents: Exponents) -> BufferMut<Self> {
-        encoded.map_each_in_place(move |encoded| Self::decode_single(encoded, exponents))
+        let factor_f = Self::F10[exponents.f as usize];
+        let factor_e = Self::IF10[exponents.e as usize];
+        encoded.map_each_in_place(move |encoded| Self::from_int(encoded) * factor_f * factor_e)
     }
 
     fn decode_into(encoded: &[Self::ALPInt], exponents: Exponents, output: &mut [Self]) {
         assert_eq!(encoded.len(), output.len());
-
+        let factor_f = Self::F10[exponents.f as usize];
+        let factor_e = Self::IF10[exponents.e as usize];
         for i in 0..encoded.len() {
-            output[i] = Self::decode_single(encoded[i], exponents)
+            output[i] = Self::from_int(encoded[i]) * factor_f * factor_e;
         }
     }
 
     fn decode_slice_inplace(encoded: &mut [Self::ALPInt], exponents: Exponents) {
+        let factor_f = Self::F10[exponents.f as usize];
+        let factor_e = Self::IF10[exponents.e as usize];
         let decoded: &mut [Self] = unsafe { transmute(encoded) };
-        decoded.iter_mut().for_each(|v| {
-            *v = Self::decode_single(
-                unsafe { transmute_copy::<Self, Self::ALPInt>(v) },
-                exponents,
-            )
-        })
+        for v in decoded.iter_mut() {
+            let int_val: Self::ALPInt = unsafe { transmute_copy(v) };
+            *v = Self::from_int(int_val) * factor_f * factor_e;
+        }
     }
 
     #[inline(always)]
@@ -288,45 +347,36 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     assert_eq!(patch_indices.len(), patch_values.len());
     let has_filled = fill_value.is_some();
 
-    // encode the chunk, counting the number of patches
-    let mut chunk_patch_count = 0;
-    encoded_output.extend_trusted(chunk.iter().map(|&v| {
-        let encoded = T::encode_single_unchecked(v, exp);
-        let decoded = T::decode_single(encoded, exp);
-        let neq = !decoded.is_eq(v) as usize;
-        chunk_patch_count += neq;
-        encoded
-    }));
-    let chunk_patch_count = chunk_patch_count; // immutable hereafter
+    // Pre-compute factors to avoid repeated table lookups in the hot loop.
+    let factor_e = T::F10[exp.e as usize];
+    let factor_if = T::IF10[exp.f as usize];
+    let factor_f = T::F10[exp.f as usize];
+    let factor_ie = T::IF10[exp.e as usize];
+
+    // Encode all values in a single pass with pre-computed factors.
+    encoded_output.extend_trusted(
+        chunk
+            .iter()
+            .map(|&v| (v * factor_e * factor_if).fast_round().as_int()),
+    );
     assert_eq!(encoded_output.len(), num_prev_encoded + chunk.len());
 
-    if chunk_patch_count > 0 {
-        // we need to gather the patches for this chunk
-        // preallocate space for the patches (plus one because our loop may attempt to write one past the end)
-        patch_indices.reserve(chunk_patch_count + 1);
-        patch_values.reserve(chunk_patch_count + 1);
-
-        // record the patches in this chunk
-        let patch_indices_mut = patch_indices.spare_capacity_mut();
-        let patch_values_mut = patch_values.spare_capacity_mut();
-        let mut chunk_patch_index = 0;
-        for i in num_prev_encoded..encoded_output.len() {
-            let decoded = T::decode_single(encoded_output[i], exp);
-            // write() is only safe to call more than once because the values are primitive (i.e., Drop is a no-op)
-            patch_indices_mut[chunk_patch_index].write(i as u64);
-            patch_values_mut[chunk_patch_index].write(chunk[i - num_prev_encoded]);
-            chunk_patch_index += !decoded.is_eq(chunk[i - num_prev_encoded]) as usize;
-        }
-        assert_eq!(chunk_patch_index, chunk_patch_count);
-        unsafe {
-            patch_indices.set_len(num_prev_patches + chunk_patch_count);
-            patch_values.set_len(num_prev_patches + chunk_patch_count);
+    // Find patches by checking decode equality, collecting indices and values directly.
+    // This eliminates the previous two-pass approach that first counted patches and then
+    // re-decoded every value to gather them.
+    let encoded_slice = &encoded_output[num_prev_encoded..];
+    for (i, (&original, &encoded)) in chunk.iter().zip(encoded_slice.iter()).enumerate() {
+        let decoded = T::from_int(encoded) * factor_f * factor_ie;
+        if !decoded.is_eq(original) {
+            patch_indices.push((num_prev_encoded + i) as u64);
+            patch_values.push(original);
         }
     }
+    let chunk_patch_count = patch_indices.len() - num_prev_patches;
 
     // find the first successfully encoded value (i.e., not patched)
     // this is our fill value for missing values
-    if fill_value.is_none() && (num_prev_encoded + chunk_patch_count < encoded_output.len()) {
+    if fill_value.is_none() && (chunk_patch_count < chunk.len()) {
         assert_eq!(num_prev_encoded, num_prev_patches);
         for i in num_prev_encoded..encoded_output.len() {
             if i >= patch_indices.len() || patch_indices[i] != i as u64 {
