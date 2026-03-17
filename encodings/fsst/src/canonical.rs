@@ -9,11 +9,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
-use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
-use vortex_array::arrays::varbinview::build_views::build_views;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
@@ -77,15 +76,91 @@ pub(crate) fn fsst_decode_views(
         decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
     unsafe { uncompressed_bytes.set_len(len) };
 
-    // Directly create the binary views.
-    match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
-        Ok(build_views(
-            start_buf_index,
-            MAX_BUFFER_LEN,
-            uncompressed_bytes,
-            uncompressed_lens_array.as_slice::<P>(),
-        ))
-    })
+    // Convert lengths to usize and build views with inlined fast path.
+    #[allow(clippy::cast_possible_truncation)]
+    let lens_usize: Vec<usize> = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
+        uncompressed_lens_array
+            .as_slice::<P>()
+            .iter()
+            .map(|x| *x as usize)
+            .collect()
+    });
+
+    Ok(build_views_fast(
+        start_buf_index,
+        uncompressed_bytes,
+        &lens_usize,
+    ))
+}
+
+/// Optimized view builder for FSST decompression.
+///
+/// Unlike the general-purpose `build_views`, this version:
+/// - Inlines the view construction (avoids `#[inline(never)]` `make_view` call per string)
+/// - Skips buffer splitting (asserts total data fits in one buffer)
+/// - Uses raw pointer writes to construct views directly
+#[allow(clippy::cast_possible_truncation)]
+fn build_views_fast(
+    buf_index: u32,
+    bytes: ByteBufferMut,
+    lens: &[usize],
+) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
+    let src = bytes.as_slice();
+    let mut offset: usize = 0;
+
+    for &len in lens {
+        // SAFETY: we reserved the right capacity in `with_capacity` above.
+        unsafe {
+            let view = make_view_inline(src, offset, len, buf_index);
+            views.push_unchecked(view);
+        }
+        offset += len;
+    }
+
+    debug_assert_eq!(offset, src.len(), "lengths must sum to total buffer size");
+
+    let buffers = if bytes.is_empty() {
+        Vec::new()
+    } else {
+        vec![bytes.freeze()]
+    };
+
+    (buffers, views.freeze())
+}
+
+/// Inline view construction — avoids the `#[inline(never)]` overhead of `BinaryView::make_view`.
+///
+/// Constructs the 16-byte view directly via `u128` to bypass private field access.
+/// Layout (little-endian):
+/// - Inlined (len <= 12): [size:u32][data:12 bytes]
+/// - Reference (len > 12): [size:u32][prefix:4 bytes][buf_index:u32][offset:u32]
+#[inline(always)]
+#[allow(clippy::cast_possible_truncation)]
+unsafe fn make_view_inline(src: &[u8], offset: usize, len: usize, buf_index: u32) -> BinaryView {
+    debug_assert!(offset + len <= src.len());
+
+    if len <= BinaryView::MAX_INLINED_SIZE {
+        // Inlined: zero 16 bytes, write size at byte 0, copy data at byte 4.
+        let mut bytes = [0u8; 16];
+        bytes[..4].copy_from_slice(&(len as u32).to_le_bytes());
+        // SAFETY: len <= 12, and src[offset..offset+len] is valid.
+        unsafe {
+            std::ptr::copy_nonoverlapping(src.as_ptr().add(offset), bytes.as_mut_ptr().add(4), len);
+        }
+        BinaryView::from(u128::from_le_bytes(bytes))
+    } else {
+        // Reference: size + 4-byte prefix + buffer index + offset.
+        let mut bytes = [0u8; 16];
+        bytes[..4].copy_from_slice(&(len as u32).to_le_bytes());
+        // SAFETY: len > 12 so there are at least 4 bytes at src[offset..].
+        unsafe {
+            std::ptr::copy_nonoverlapping(src.as_ptr().add(offset), bytes.as_mut_ptr().add(4), 4);
+        }
+        bytes[8..12].copy_from_slice(&buf_index.to_le_bytes());
+        bytes[12..16].copy_from_slice(&(offset as u32).to_le_bytes());
+        BinaryView::from(u128::from_le_bytes(bytes))
+    }
 }
 
 #[cfg(test)]
