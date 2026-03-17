@@ -9,6 +9,7 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::FutureExt;
+use tracing::Instrument;
 use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandleRef;
@@ -65,11 +66,13 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
+        let span = tracing::Span::current();
         let abort_handle = self.runtime().spawn(
             async move {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
                 drop(send.send(f.await));
             }
+            .instrument(span)
             .boxed(),
         );
         Task {
@@ -103,7 +106,9 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
+        let span = tracing::Span::current();
         let abort_handle = self.runtime().spawn_cpu(Box::new(move || {
+            let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -123,7 +128,9 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
+        let span = tracing::Span::current();
         let abort_handle = self.runtime().spawn_blocking_io(Box::new(move || {
+            let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.

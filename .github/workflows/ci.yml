@@ -236,8 +236,9 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
-      - name: Rust Build (${{matrix.config.name}})
-        run: ${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private"
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
@@ -497,14 +498,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build CUDA crates
-        run: |
-          cargo build --locked --all-features --all-targets \
-            -p vortex-cuda \
-            -p vortex-cub \
-            -p vortex-nvcomp \
-            -p gpu-scan-cli \
-            -p vortex-test-e2e-cuda
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: >-
+            cargo build --locked --all-features --all-targets
+            -p vortex-cuda -p vortex-cub -p vortex-nvcomp
+            -p gpu-scan-cli -p vortex-test-e2e-cuda
       - name: Clippy CUDA crates
         run: |
           cargo clippy --locked --all-features --all-targets \
@@ -658,6 +657,10 @@ jobs:
         if: matrix.os != 'windows-x64'
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
+      - uses: ./.github/actions/check-rebuild
+        if: matrix.os != 'windows-x64'
+        with:
+          command: "cargo test --locked --workspace --all-features --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -780,6 +783,9 @@ jobs:
           cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
           cmake --build vortex-cxx/examples/build --parallel $(nproc)
           vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "cargo build --locked -p vortex-cxx --lib"
 
   sqllogic-test:
     name: "SQL logic tests"
@@ -805,7 +811,9 @@ jobs:
         run: |
           ./vortex-sqllogictest/slt/tpch/generate_data.sh
           cargo test -p vortex-sqllogictest --test sqllogictests
-
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: "cargo test -p vortex-sqllogictest --test sqllogictests --no-run"
 
   wasm-integration:
     name: "wasm-integration"

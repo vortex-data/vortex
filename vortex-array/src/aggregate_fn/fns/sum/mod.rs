@@ -214,9 +214,7 @@ impl AggregateFnVTable for Sum {
     ) -> VortexResult<()> {
         // Constants compute scalar * len and combine via combine_partials.
         if let Columnar::Constant(c) = batch {
-            if let Some(product) =
-                multiply_constant(c.scalar(), c.len(), &partial.return_dtype)?
-            {
+            if let Some(product) = multiply_constant(c.scalar(), c.len(), &partial.return_dtype)? {
                 self.combine_partials(partial, product)?;
             }
             return Ok(());

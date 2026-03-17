@@ -17,7 +17,9 @@
     _Pragma("GCC diagnostic push")                                             \
     _Pragma("GCC diagnostic ignored \"-Wall\"")                                \
     _Pragma("GCC diagnostic ignored \"-Wextra\"")                              \
-    _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
+    _Pragma("GCC diagnostic ignored \"-Wpedantic\"")                           \
+    _Pragma("GCC diagnostic ignored \"-Wunused-parameter\"")                   \
+    _Pragma("GCC diagnostic ignored \"-Wtype-limits\"")
 #define DUCKDB_INCLUDES_END _Pragma("GCC diagnostic pop")
 #else
 #define DUCKDB_INCLUDES_BEGIN

@@ -7,6 +7,7 @@
 // Read:  session.open_options().open_buffer(buf) (sync), into_array_stream() (async)
 
 use std::path::Path;
+use std::sync::Arc;
 
 use futures::stream;
 use tokio::runtime::Runtime;
@@ -14,7 +15,10 @@ use vortex::VortexSessionDefault;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::LayoutStrategy;
+use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;
@@ -25,27 +29,93 @@ fn runtime() -> VortexResult<Runtime> {
     Runtime::new().map_err(|e| vortex_error::vortex_err!("failed to create tokio runtime: {e}"))
 }
 
-/// Write a sequence of array chunks as a `.vortex` file.
-pub fn write_file(path: &Path, chunks: Vec<ArrayRef>) -> VortexResult<()> {
-    let dtype = chunks[0].dtype().clone();
-    let stream = ArrayStreamAdapter::new(dtype, stream::iter(chunks.into_iter().map(Ok)));
+/// Write a sequence of array chunks as a `.vortex` file with no compression.
+///
+/// Uses `FlatLayoutStrategy` directly — no repartitioning, no zone maps, no dictionary
+/// encoding, no compression. Each chunk is serialized as a single flat segment.
+pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
 
     runtime()?.block_on(async {
         let session = VortexSession::default().with_tokio();
         let mut file = tokio::fs::File::create(path)
             .await
             .map_err(|e| vortex_error::vortex_err!("failed to create {}: {e}", path.display()))?;
-        let _summary = session.write_options().write(&mut file, stream).await?;
+        let _summary = session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut file, stream)
+            .await?;
         Ok(())
     })
 }
 
+/// Write a sequence of array chunks to an in-memory `.vortex` byte buffer with no compression.
+pub fn write_file_to_bytes(chunk: ArrayRef) -> VortexResult<ByteBuffer> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+
+    runtime()?.block_on(async {
+        let session = VortexSession::default().with_tokio();
+        let mut bytes = Vec::new();
+        let _summary = session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, stream)
+            .await?;
+        Ok(ByteBuffer::from(bytes))
+    })
+}
+
+/// Write a `.vortex` file using a caller-provided layout strategy (compressor pipeline).
+pub fn write_compressed(
+    path: &Path,
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<()> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+
+    runtime()?.block_on(async {
+        let session = VortexSession::default().with_tokio();
+        let mut file = tokio::fs::File::create(path)
+            .await
+            .map_err(|e| vortex_error::vortex_err!("failed to create {}: {e}", path.display()))?;
+        let _summary = session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut file, stream)
+            .await?;
+        Ok(())
+    })
+}
+
+/// Write a `.vortex` file into an in-memory byte buffer using a caller-provided layout strategy.
+pub fn write_compressed_to_bytes(
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<ByteBuffer> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+
+    runtime()?.block_on(async {
+        let session = VortexSession::default().with_tokio();
+        let mut bytes = Vec::new();
+        let _summary = session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, stream)
+            .await?;
+        Ok(ByteBuffer::from(bytes))
+    })
+}
+
 /// Read a `.vortex` file from bytes, returning the arrays.
-pub fn read_file(bytes: ByteBuffer) -> VortexResult<Vec<ArrayRef>> {
+pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef> {
     runtime()?.block_on(async {
         let session = VortexSession::default().with_tokio();
         let file = session.open_options().open_buffer(bytes)?;
-        let arr = file.scan()?.into_array_stream()?.read_all().await?;
-        Ok(vec![arr])
+        file.scan()?.into_array_stream()?.read_all().await
     })
 }

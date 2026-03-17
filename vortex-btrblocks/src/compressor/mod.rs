@@ -1,7 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compressor traits for type-specific compression.
+//! Type-specific compressor traits that drive scheme selection and compression.
+//!
+//! [`Compressor`] defines the interface: generate statistics for an array via
+//! [`Compressor::gen_stats`], and provide available [`Scheme`]s via [`Compressor::schemes`].
+//!
+//! [`CompressorExt`] is blanket-implemented for all `Compressor`s and adds the core logic:
+//!
+//! - [`CompressorExt::choose_scheme`] iterates all schemes, skips excluded ones, and calls
+//!   [`Scheme::expected_compression_ratio`] on each. It returns the scheme with the highest ratio
+//!   above 1.0, or falls back to the default. See the [`scheme`](crate::scheme) module for how
+//!   ratio estimation works.
+//! - [`CompressorExt::compress`] generates stats, calls `choose_scheme()`, and applies the
+//!   result. If compression did not shrink the array, the original is returned.
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;

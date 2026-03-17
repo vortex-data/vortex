@@ -25,7 +25,7 @@ path = "src/validate_main.rs"
 
 [dependencies]
 # Vortex crates
-vortex = { workspace = true, features = ["files", "tokio"] }
+vortex = { workspace = true, features = ["files", "tokio", "zstd"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
@@ -37,7 +37,9 @@ arrow-array = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 
-# ClickBench parquet reading
+# ClickBench parquet reading + writing
+arrow-select = { workspace = true }
+bytes = { workspace = true }
 parquet = { workspace = true }
 
 # Async runtime
@@ -52,3 +54,4 @@ chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+tempfile = { workspace = true }

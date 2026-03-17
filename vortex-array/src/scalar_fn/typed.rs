@@ -81,6 +81,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     // Bound methods — options accessed from self
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
+    fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>>;
     fn reduce(
         &self,
         node: &dyn ReduceNode,
@@ -172,6 +173,10 @@ impl<V: ScalarFnVTable> DynScalarFn for ScalarFn<V> {
 
     fn return_dtype(&self, arg_dtypes: &[DType]) -> VortexResult<DType> {
         V::return_dtype(&self.vtable, &self.options, arg_dtypes)
+    }
+
+    fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>> {
+        V::coerce_args(&self.vtable, &self.options, arg_types)
     }
 
     fn reduce(
