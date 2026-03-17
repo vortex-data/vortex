@@ -864,16 +864,13 @@ impl CompressorBuilder {
             let symbol1_len = symbol1.len();
             let count = counters.count1(code1);
 
-            // From the c++ impl:
-            // "improves both compression speed (less candidates), but also quality!!"
-            // For longer symbols, we use a lower threshold since they're more valuable
-            // per slot (each occurrence saves more bytes).
-            let min_count = if symbol1_len >= 4 {
-                2 * sample_frac / 128
-            } else {
-                5 * sample_frac / 128
-            };
-            if count < min_count {
+            // Filter out zero-count symbols. We use a minimal threshold of 1
+            // rather than the original C++ heuristic (which scaled min_count by
+            // sample_frac) because the gain-based priority queue already ranks
+            // candidates effectively. Allowing more candidates gives the gain
+            // heuristic a larger pool to select the best 255 symbols from,
+            // improving compression for datasets with diverse byte distributions.
+            if count == 0 {
                 continue;
             }
 
