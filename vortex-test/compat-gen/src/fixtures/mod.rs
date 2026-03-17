@@ -16,7 +16,7 @@ use vortex_error::vortex_bail;
 use crate::manifest::FixtureEntry;
 
 /// Top-level trait that the runner (compat-gen / compat-validate) interacts with.
-pub trait Fixture: Send + Sync {
+pub trait Fixture {
     /// Filename for this fixture, e.g. "primitives.vortex" or "tpch_lineitem.regular.vortex".
     fn name(&self) -> &str;
 
@@ -28,7 +28,7 @@ pub trait Fixture: Send + Sync {
 }
 
 /// A deterministic fixture that produces a single array written via flat layout (no compression).
-pub trait FlatLayoutFixture: Send + Sync {
+pub trait FlatLayoutFixture {
     /// The filename for this fixture, e.g. "primitives.vortex".
     fn name(&self) -> &str;
 
@@ -53,7 +53,7 @@ pub trait FlatLayoutFixture: Send + Sync {
 ///
 /// Each dataset fixture is written twice: once with the default (BtrBlocks) compressor
 /// and once with compact encodings (Pco + Zstd).
-pub trait DatasetFixture: Send + Sync {
+pub trait DatasetFixture {
     /// Base name without strategy suffix, e.g. "tpch_lineitem".
     fn name(&self) -> &str;
 
