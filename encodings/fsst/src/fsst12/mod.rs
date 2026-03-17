@@ -28,6 +28,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_utils::aliases::hash_set::HashSet;
 
 #[cfg(test)]
 mod tests;
@@ -788,8 +789,7 @@ impl TableBuilder {
         // Pick top multi-byte symbols, deduplicating by (value, len).
         self.symbols.clear();
         let max_symbols = MAX_MULTI_SYMBOLS.min(TRAIN_CODE_RANGE - TRAIN_CODE_BASE);
-        let mut seen_values: vortex_utils::aliases::hash_set::HashSet<(u64, u8)> =
-            vortex_utils::aliases::hash_set::HashSet::default();
+        let mut seen_values: HashSet<(u64, u8)> = HashSet::default();
 
         for (_, sym) in candidates {
             if self.symbols.len() >= max_symbols {
@@ -828,7 +828,9 @@ fn insert_hash(hash_table: &mut [HashEntry], value: u64, len: u8, code: u16) {
 #[inline]
 fn load_word(data: &[u8]) -> u64 {
     if data.len() >= 8 {
-        u64::from_le_bytes([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]])
+        u64::from_le_bytes([
+            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+        ])
     } else {
         let mut buf = [0u8; 8];
         buf[..data.len()].copy_from_slice(data);
