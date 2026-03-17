@@ -150,17 +150,32 @@ Attempts to break the dependency (prefix-sum, interleaving, dual-cursor) add mor
 
 ## Potential Future Directions
 
+### 18. Inlined `build_views` in FSST canonicalize path (SHIPPED ✅)
+**Idea**: Replace the general-purpose `build_views()` (which calls `#[inline(never)]` `BinaryView::make_view()` per string) with an FSST-specific version that inlines view construction via `u128` byte manipulation.
+**Result**: **26-47% end-to-end speedup** for short/medium strings. The biggest single improvement in this entire optimization effort.
+**Key insight**: `make_view()` is `#[inline(never)]` with a 13-arm match, causing a function call per string. For 10k strings of average length 16 bytes, view building was 72% of total end-to-end time. Inlining eliminates the function call overhead and enables the compiler to keep loop variables in registers.
+
+| Workload | Before | After | End-to-end Speedup |
+|---|---|---|---|
+| Low escape (10k, 16) | 116.8µs | 61.7µs | **-47%** |
+| Low escape (10k, 64) | 219.1µs | 161.4µs | **-26%** |
+| Low escape (100k, 64) | 2266µs | 1799µs | **-21%** |
+| URLs (10k) | 154.0µs | 93.3µs | **-39%** |
+| URLs (100k) | 1599µs | 1084µs | **-32%** |
+
+## Potential Future Directions
+
 These were **not explored** and might yield additional improvements:
 
-1. **Optimizing the `build_views` path** (`canonical.rs`): The end-to-end `to_canonical` benchmarks include view building (`BinaryView` construction from decompressed bytes + uncompressed lengths). This is a significant portion of end-to-end time, especially for short strings where the decompression itself is fast.
+1. **Multi-threaded decompression**: Splitting the compressed stream by string boundaries and decompressing chunks in parallel. Requires knowing string boundaries in the compressed stream (from the VarBin offsets).
 
-2. **Multi-threaded decompression**: Splitting the compressed stream by string boundaries and decompressing chunks in parallel. Requires knowing string boundaries in the compressed stream (from the VarBin offsets).
+2. **ARM NEON intrinsics**: The current code is x86-focused. ARM NEON has different performance characteristics (e.g., `vceqq_u8` for escape detection, different OOO capabilities).
 
-3. **ARM NEON intrinsics**: The current code is x86-focused. ARM NEON has different performance characteristics (e.g., `vceqq_u8` for escape detection, different OOO capabilities).
+3. **Profile-guided optimization (PGO)**: The compiler doesn't know that `escape_mask == 0` is the hot path. PGO would optimize code layout accordingly. (The `cold()` hints partially address this, but PGO could further optimize the 32-code loop body layout.)
 
-4. **Profile-guided optimization (PGO)**: The compiler doesn't know that `escape_mask == 0` is the hot path. PGO would optimize code layout accordingly. (The `cold()` hints partially address this, but PGO could further optimize the 32-code loop body layout.)
+4. **Batch decompression with per-string offsets**: Instead of decompressing the entire string heap as one blob and then building views, decompress strings individually into their final positions, eliminating the separate view-building pass.
 
-7. **Batch decompression with per-string offsets**: Instead of decompressing the entire string heap as one blob and then building views, decompress strings individually into their final positions, eliminating the separate view-building pass.
+5. **Upstream `make_view` inlining**: The `#[inline(never)]` on `BinaryView::make_view()` in `vortex-array` hurts all callers, not just FSST. Making it `#[inline]` (or providing an `#[inline(always)]` variant) would benefit all VarBinView builders without requiring per-encoding workarounds.
 
 ## Files
 
