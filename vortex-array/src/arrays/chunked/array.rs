@@ -107,8 +107,8 @@ impl ChunkedArray {
     #[inline]
     pub fn chunk(&self, idx: usize) -> &ArrayRef {
         assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
-
-        &self.chunks[idx]
+        // SAFETY: bounds checked by the assert above.
+        unsafe { self.chunks.get_unchecked(idx) }
     }
 
     pub fn nchunks(&self) -> usize {

@@ -21,6 +21,7 @@ use crate::bit::BitIndexIterator;
 use crate::bit::BitIterator;
 use crate::bit::BitSliceIterator;
 use crate::bit::UnalignedBitChunk;
+use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
@@ -316,7 +317,7 @@ impl BitBuffer {
 
     /// Get the number of set bits in the buffer.
     pub fn true_count(&self) -> usize {
-        self.unaligned_chunks().count_ones()
+        count_ones(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Get the number of unset bits in the buffer.

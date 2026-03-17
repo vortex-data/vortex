@@ -224,4 +224,4 @@ pub fn vortex_zstd::ZstdMetadata::clear(&mut self)
 
 pub fn vortex_zstd::ZstdMetadata::encoded_len(&self) -> usize
 
-pub fn vortex_zstd::reconstruct_views(buffer: &vortex_buffer::ByteBuffer) -> vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::view::BinaryView>
+pub fn vortex_zstd::reconstruct_views(buffer: &vortex_buffer::ByteBuffer, max_buffer_len: usize) -> (alloc::vec::Vec<vortex_buffer::ByteBuffer>, vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::view::BinaryView>)

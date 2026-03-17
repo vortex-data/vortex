@@ -10,6 +10,7 @@
 mod arrow;
 mod buf;
 mod buf_mut;
+mod count_ones;
 mod macros;
 mod ops;
 

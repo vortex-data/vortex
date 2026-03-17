@@ -116,7 +116,9 @@ impl ScalarFnVTable for Zip {
         let if_false = args.get(1)?;
         let mask_array = args.get(2)?;
 
-        let mask = mask_array.execute::<BoolArray>(ctx)?.to_mask();
+        let mask = mask_array
+            .execute::<BoolArray>(ctx)?
+            .to_mask_fill_null_false();
 
         let return_dtype = if_true
             .dtype()
@@ -228,6 +230,7 @@ mod tests {
 
     use super::zip_impl;
     use crate::ArrayRef;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -235,13 +238,14 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
-    use crate::arrays::VarBinViewArray;
+    use crate::arrays::VarBinView;
     use crate::arrow::IntoArrowArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
     use crate::builders::VarBinViewBuilder;
     use crate::builtins::ArrayBuiltins;
+    use crate::columnar::Columnar;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -372,10 +376,12 @@ mod tests {
         let mask = Mask::from_indices(len, indices);
         let mask_array = mask.into_array();
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask_array
             .clone()
             .zip(const1.clone(), const2.clone())?
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<Columnar>(&mut ctx)?
+            .into_array();
 
         insta::assert_snapshot!(result.display_tree(), @r"
         root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
@@ -390,7 +396,7 @@ mod tests {
 
         let wrapped_result = mask_array
             .zip(wrapped1, wrapped2)?
-            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<ArrayRef>(&mut ctx)?;
         assert!(wrapped_result.is::<Struct>());
 
         Ok(())
@@ -431,11 +437,13 @@ mod tests {
         let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
         let mask_array = mask.clone().into_array();
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let zipped = mask_array
             .zip(if_true.clone(), if_false.clone())
             .unwrap()
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<ArrayRef>(&mut ctx)
             .unwrap();
+        let zipped = zipped.as_opt::<VarBinView>().unwrap();
         assert_eq!(zipped.nbuffers(), 2);
 
         let expected = arrow_zip(
@@ -448,7 +456,7 @@ mod tests {
         )
         .unwrap();
 
-        let actual = zipped.into_array().into_arrow_preferred().unwrap();
+        let actual = zipped.clone().into_array().into_arrow_preferred().unwrap();
         assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }

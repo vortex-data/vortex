@@ -33,41 +33,18 @@
 - **Commit**: {{COMMIT}}
 - **Crash Artifact**: {{ARTIFACT_URL}}
 
-### Reproduction
+### Reproduce
+
+```bash
+cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb=0
+```
 
 <details>
+<summary>Reproduction Steps</summary>
 
-1. Download the crash artifact:
-   - **Direct download**: {{ARTIFACT_URL}}
-   - Extract the zip file (`unzip`)
-     - The path should look like `/path/to/{{FUZZ_TARGET}}/{{CRASH_FILE}}`
-     - You can create a `./fuzz/artifacts` directory that will be git-ignored in the `vortex` repo
-     - Full path would be `./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}}`
+1. Download the crash artifact: {{ARTIFACT_URL}}
 
-2. Reproduce locally:
-
-```bash
-cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} /path/to/crash_file -- -rss_limit_mb=0
-```
-
-3. Get a backtrace:
-
-```bash
-RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} /path/to/crash_file -- -rss_limit_mb=0
-```
-
-```bash
-RUST_BACKTRACE=full cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} /path/to/crash_file -- -rss_limit_mb=0
-```
-
-</details>
-
-### Workflow Example
-
-Assuming you download the zipfile to `~/Downloads`, and your working directory is the repository
-root, you can follow these steps:
-
-<details>
+2. Assuming you download the zipfile to `~/Downloads`, and your working directory is the repository root:
 
 ```bash
 # Create the artifacts directory if you haven't already.
@@ -83,7 +60,7 @@ unzip ./fuzz/artifacts/{{FUZZ_TARGET}}-crash-artifacts.zip -d ./fuzz/artifacts/
 rm ./fuzz/artifacts/{{FUZZ_TARGET}}-crash-artifacts.zip
 ```
 
-You can now reproduce with:
+3. Reproduce the crash:
 
 ```bash
 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb=0
@@ -97,6 +74,19 @@ RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./f
 
 ```bash
 RUST_BACKTRACE=full cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb=0
+```
+
+</details>
+
+<details>
+<summary>Single command to get a backtrace</summary>
+
+```bash
+mkdir -p ./fuzz/artifacts
+mv ~/Downloads/{{FUZZ_TARGET}}-crash-artifacts.zip ./fuzz/artifacts/
+unzip ./fuzz/artifacts/{{FUZZ_TARGET}}-crash-artifacts.zip -d ./fuzz/artifacts/
+rm ./fuzz/artifacts/{{FUZZ_TARGET}}-crash-artifacts.zip
+RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb=0
 ```
 
 </details>

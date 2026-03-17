@@ -29,39 +29,10 @@ impl ZipKernel for Chunked {
             .union_nullability(if_false.dtype().nullability());
         let mut out_chunks = Vec::with_capacity(if_true.nchunks() + if_false.nchunks());
 
-        let mut lhs_idx = 0;
-        let mut rhs_idx = 0;
-        let mut lhs_offset = 0;
-        let mut rhs_offset = 0;
-        let mut pos = 0;
-        let total_len = if_true.len();
-
-        while pos < total_len {
-            let lhs_chunk = if_true.chunk(lhs_idx);
-            let rhs_chunk = if_false.chunk(rhs_idx);
-
-            let lhs_rem = lhs_chunk.len() - lhs_offset;
-            let rhs_rem = rhs_chunk.len() - rhs_offset;
-            let take_until = lhs_rem.min(rhs_rem);
-
-            let mask_slice = mask.slice(pos..pos + take_until)?;
-            let lhs_slice = lhs_chunk.slice(lhs_offset..lhs_offset + take_until)?;
-            let rhs_slice = rhs_chunk.slice(rhs_offset..rhs_offset + take_until)?;
-
-            out_chunks.push(mask_slice.zip(lhs_slice, rhs_slice)?);
-
-            pos += take_until;
-            lhs_offset += take_until;
-            rhs_offset += take_until;
-
-            if lhs_offset == lhs_chunk.len() {
-                lhs_idx += 1;
-                lhs_offset = 0;
-            }
-            if rhs_offset == rhs_chunk.len() {
-                rhs_idx += 1;
-                rhs_offset = 0;
-            }
+        for pair in if_true.paired_chunks(if_false) {
+            let pair = pair?;
+            let mask_slice = mask.slice(pair.pos)?;
+            out_chunks.push(mask_slice.zip(pair.left, pair.right)?);
         }
 
         // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
