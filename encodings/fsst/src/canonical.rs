@@ -67,7 +67,7 @@ pub(crate) fn fsst_decode_views(
         fsst_array.symbols().as_slice(),
         fsst_array.symbol_lengths().as_slice(),
     );
-    let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
+    let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + VIEW_BUILD_PADDING);
     let len =
         decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
     unsafe { uncompressed_bytes.set_len(len) };
@@ -82,6 +82,10 @@ pub(crate) fn fsst_decode_views(
     })
 }
 
+/// Minimum padding (in bytes) required after the logical end of the source buffer
+/// for safe 16-byte unaligned reads in `make_view_inline`.
+pub const VIEW_BUILD_PADDING: usize = 16;
+
 /// Optimized view builder for FSST decompression.
 ///
 /// Unlike the general-purpose `build_views`, this version:
@@ -89,6 +93,11 @@ pub(crate) fn fsst_decode_views(
 /// - Skips buffer splitting (FSST data fits in one buffer)
 /// - Uses raw pointer writes to construct views directly
 /// - Generic over the length type to avoid an intermediate `Vec<usize>` allocation
+///
+/// # Safety requirement
+///
+/// `bytes` must have at least [`VIEW_BUILD_PADDING`] bytes of allocated capacity
+/// beyond the logical length, to allow safe 16-byte unaligned reads at any offset.
 #[allow(clippy::cast_possible_truncation)]
 pub fn build_views_fast<P: NativePType + AsPrimitive<usize>>(
     buf_index: u32,
@@ -96,20 +105,19 @@ pub fn build_views_fast<P: NativePType + AsPrimitive<usize>>(
     lens: &[P],
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
     let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
-    let src = bytes.as_slice();
+    let src = bytes.as_slice().as_ptr();
     let mut offset: usize = 0;
 
     for &raw_len in lens {
         let len: usize = raw_len.as_();
-        // SAFETY: we reserved the right capacity in `with_capacity` above.
+        // SAFETY: we reserved the right capacity in `with_capacity` above,
+        // and the source buffer has VIEW_BUILD_PADDING bytes of padding.
         unsafe {
             let view = make_view_inline(src, offset, len, buf_index);
             views.push_unchecked(view);
         }
         offset += len;
     }
-
-    debug_assert_eq!(offset, src.len(), "lengths must sum to total buffer size");
 
     let buffers = if bytes.is_empty() {
         Vec::new()
@@ -120,37 +128,56 @@ pub fn build_views_fast<P: NativePType + AsPrimitive<usize>>(
     (buffers, views.freeze())
 }
 
+/// Byte masks for zeroing out trailing bytes when constructing inlined views.
+/// `INLINE_MASKS[n]` keeps the lowest `n` bytes of a `u128`.
+#[allow(clippy::cast_possible_truncation)]
+const INLINE_MASKS: [u128; 13] = {
+    let mut table = [0u128; 13];
+    let mut i = 1usize;
+    while i <= 12 {
+        table[i] = (1u128 << (i as u32 * 8)) - 1;
+        i += 1;
+    }
+    table
+};
+
 /// Inline view construction — avoids the `#[inline(never)]` overhead of `BinaryView::make_view`.
 ///
-/// Constructs the 16-byte view directly via `u128` to bypass private field access.
-/// Layout (little-endian):
-/// - Inlined (len <= 12): [size:u32][data:12 bytes]
-/// - Reference (len > 12): [size:u32][prefix:4 bytes][buf_index:u32][offset:u32]
+/// For inlined views (len <= 12): performs a single 16-byte unaligned read from the source,
+/// masks to `len` bytes, shifts into position, and ORs in the length — no zero-init or
+/// variable-length copy needed.
+///
+/// For reference views (len > 12): reads a 4-byte prefix and constructs the view directly
+/// via arithmetic.
+///
+/// # Safety
+///
+/// The source buffer must have at least 16 bytes of readable memory from `offset`
+/// (i.e., padding after the logical end). The caller must ensure `offset + len <= src.len()`.
 #[inline(always)]
 #[allow(clippy::cast_possible_truncation)]
-unsafe fn make_view_inline(src: &[u8], offset: usize, len: usize, buf_index: u32) -> BinaryView {
-    debug_assert!(offset + len <= src.len());
-
+unsafe fn make_view_inline(
+    src: *const u8,
+    offset: usize,
+    len: usize,
+    buf_index: u32,
+) -> BinaryView {
     if len <= BinaryView::MAX_INLINED_SIZE {
-        // Inlined: zero 16 bytes, write size at byte 0, copy data at byte 4.
-        let mut bytes = [0u8; 16];
-        bytes[..4].copy_from_slice(&(len as u32).to_le_bytes());
-        // SAFETY: len <= 12, and src[offset..offset+len] is valid.
-        unsafe {
-            std::ptr::copy_nonoverlapping(src.as_ptr().add(offset), bytes.as_mut_ptr().add(4), len);
-        }
-        BinaryView::from(u128::from_le_bytes(bytes))
+        // Read 16 bytes from source (buffer has >=16 bytes padding, so this is safe).
+        // Mask to keep only `len` bytes, shift into data position (bytes 4-15),
+        // and OR in the length at bytes 0-3.
+        let raw = unsafe { src.add(offset).cast::<u128>().read_unaligned() };
+        let masked = raw & INLINE_MASKS[len];
+        BinaryView::from((len as u128) | (masked << 32))
     } else {
-        // Reference: size + 4-byte prefix + buffer index + offset.
-        let mut bytes = [0u8; 16];
-        bytes[..4].copy_from_slice(&(len as u32).to_le_bytes());
-        // SAFETY: len > 12 so there are at least 4 bytes at src[offset..].
-        unsafe {
-            std::ptr::copy_nonoverlapping(src.as_ptr().add(offset), bytes.as_mut_ptr().add(4), 4);
-        }
-        bytes[8..12].copy_from_slice(&buf_index.to_le_bytes());
-        bytes[12..16].copy_from_slice(&(offset as u32).to_le_bytes());
-        BinaryView::from(u128::from_le_bytes(bytes))
+        // Reference view: [size:u32][prefix:4 bytes][buf_index:u32][offset:u32]
+        let prefix = unsafe { src.add(offset).cast::<u32>().read_unaligned() };
+        BinaryView::from(
+            (len as u128)
+                | ((prefix as u128) << 32)
+                | ((buf_index as u128) << 64)
+                | ((offset as u128) << 96),
+        )
     }
 }
 

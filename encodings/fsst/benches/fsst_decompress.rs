@@ -20,6 +20,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::session::ArraySession;
 use vortex_buffer::ByteBufferMut;
 use vortex_fsst::FSSTArray;
+use vortex_fsst::canonical::VIEW_BUILD_PADDING;
 use vortex_fsst::canonical::build_views_fast;
 use vortex_fsst::decompressor::OptimizedDecompressor;
 use vortex_fsst::fsst_compress;
@@ -125,6 +126,14 @@ static FILE_PATHS: LazyLock<FSSTArray> = LazyLock::new(|| test_utils::make_fsst_
 struct DecompressedData {
     bytes: Vec<u8>,
     lens: Vec<u64>,
+}
+
+/// Create a padded `ByteBufferMut` from a byte slice, with extra capacity for safe
+/// 16-byte unaligned reads in `build_views_fast`.
+fn padded_buffer(data: &[u8]) -> ByteBufferMut {
+    let mut buf = ByteBufferMut::with_capacity(data.len() + VIEW_BUILD_PADDING);
+    buf.extend_from_slice(data);
+    buf
 }
 
 fn pre_decompress(encoded: &FSSTArray) -> DecompressedData {
@@ -244,7 +253,7 @@ fn views_old_short_strings(bencher: Bencher) {
 fn views_new_short_strings(bencher: Bencher) {
     let d = &*SHORT_STRINGS_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }
@@ -264,7 +273,7 @@ fn views_old_medium_strings(bencher: Bencher) {
 fn views_new_medium_strings(bencher: Bencher) {
     let d = &*MEDIUM_STRINGS_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }
@@ -284,7 +293,7 @@ fn views_old_emails(bencher: Bencher) {
 fn views_new_emails(bencher: Bencher) {
     let d = &*EMAILS_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }
@@ -304,7 +313,7 @@ fn views_old_short_urls(bencher: Bencher) {
 fn views_new_short_urls(bencher: Bencher) {
     let d = &*SHORT_URLS_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }
@@ -324,7 +333,7 @@ fn views_old_clickbench_urls(bencher: Bencher) {
 fn views_new_clickbench_urls(bencher: Bencher) {
     let d = &*CLICKBENCH_URLS_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }
@@ -344,7 +353,7 @@ fn views_old_log_lines(bencher: Bencher) {
 fn views_new_log_lines(bencher: Bencher) {
     let d = &*LOG_LINES_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }
@@ -364,7 +373,7 @@ fn views_old_json_strings(bencher: Bencher) {
 fn views_new_json_strings(bencher: Bencher) {
     let d = &*JSON_STRINGS_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }
@@ -384,7 +393,7 @@ fn views_old_file_paths(bencher: Bencher) {
 fn views_new_file_paths(bencher: Bencher) {
     let d = &*FILE_PATHS_DEC;
     bencher.bench(|| {
-        let bytes = ByteBufferMut::copy_from(&d.bytes);
+        let bytes = padded_buffer(&d.bytes);
         build_views_fast(0, bytes, &d.lens)
     });
 }

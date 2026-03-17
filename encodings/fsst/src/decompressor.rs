@@ -189,13 +189,41 @@ impl OptimizedDecompressor {
                 let b2 = in_ptr.add(16).cast::<u64>().read_unaligned();
                 let b3 = in_ptr.add(24).cast::<u64>().read_unaligned();
 
-                if Self::escape_mask(b0)
-                    | Self::escape_mask(b1)
-                    | Self::escape_mask(b2)
-                    | Self::escape_mask(b3)
-                    != 0
-                {
+                let m0 = Self::escape_mask(b0);
+                let m1 = Self::escape_mask(b1);
+                let m2 = Self::escape_mask(b2);
+                let m3 = Self::escape_mask(b3);
+
+                if (m0 | m1 | m2 | m3) != 0 {
                     cold();
+                    // Process escape-free blocks before the first escape,
+                    // then handle the escape and break to re-check bounds.
+                    if m0 != 0 {
+                        let first_esc = (m0.trailing_zeros() >> 3) as usize;
+                        emit_before_escape!(b0, first_esc);
+                        break;
+                    }
+                    emit_block!(b0);
+                    in_ptr = in_ptr.add(8);
+
+                    if m1 != 0 {
+                        let first_esc = (m1.trailing_zeros() >> 3) as usize;
+                        emit_before_escape!(b1, first_esc);
+                        break;
+                    }
+                    emit_block!(b1);
+                    in_ptr = in_ptr.add(8);
+
+                    if m2 != 0 {
+                        let first_esc = (m2.trailing_zeros() >> 3) as usize;
+                        emit_before_escape!(b2, first_esc);
+                        break;
+                    }
+                    emit_block!(b2);
+                    in_ptr = in_ptr.add(8);
+
+                    let first_esc = (m3.trailing_zeros() >> 3) as usize;
+                    emit_before_escape!(b3, first_esc);
                     break;
                 }
 
