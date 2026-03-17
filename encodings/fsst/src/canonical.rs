@@ -19,6 +19,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
+use crate::decompressor::OptimizedDecompressor;
 
 pub(super) fn canonicalize_fsst(
     array: &FSSTArray,
@@ -66,8 +67,11 @@ pub(crate) fn fsst_decode_views(
             .sum()
     });
 
-    // Bulk-decompress the entire array.
-    let decompressor = fsst_array.decompressor();
+    // Bulk-decompress the entire array using the optimized decompressor.
+    let decompressor = OptimizedDecompressor::new(
+        fsst_array.symbols().as_slice(),
+        fsst_array.symbol_lengths().as_slice(),
+    );
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
     let len =
         decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());

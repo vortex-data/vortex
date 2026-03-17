@@ -55,5 +55,10 @@ name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["_test-harness"]
 
+[[bench]]
+name = "fsst_decompress"
+harness = false
+required-features = ["_test-harness"]
+
 [package.metadata.cargo-machete]
 ignored = ["fsst-rs"]

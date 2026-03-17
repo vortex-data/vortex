@@ -15,6 +15,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+pub mod decompressor;
 mod kernel;
 mod ops;
 mod rules;
