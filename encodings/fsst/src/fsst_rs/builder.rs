@@ -532,22 +532,35 @@ impl CompressorBuilder {
 /// Value 128 uses the full sample. Value 129 is a special "stabilization" pass
 /// that uses the full sample but skips merges to let the table settle.
 #[cfg(not(miri))]
-const GENERATIONS: [usize; 9] = [4usize, 12, 28, 48, 68, 98, 128, 128, 129];
+const GENERATIONS: [usize; 11] = [4usize, 12, 28, 48, 68, 98, 128, 128, 128, 128, 129];
 #[cfg(miri)]
 const GENERATIONS: [usize; 3] = [8usize, 38, 128];
 
 const FSST_SAMPLETARGET: usize = 1 << 15;
-const FSST_SAMPLEMAX: usize = 1 << 16;
+/// Larger sample for final training generations to improve convergence
+/// without paying the cost of processing the entire corpus.
+const FSST_SAMPLETARGET_FINAL: usize = 1 << 17;
+const FSST_SAMPLEMAX: usize = 1 << 18;
 const FSST_SAMPLELINE: usize = 512;
 
-/// Create a sample from a set of strings in the input.
+/// Create a sample from a set of strings in the input with a configurable target size.
 ///
-/// Sample is constructing by copying "chunks" from the `str_in`s into the `sample_buf`, the
+/// Sample is constructed by copying "chunks" from the `str_in`s into the `sample_buf`, the
 /// returned slices are pointers into the `sample_buf`.
+///
+/// Uses stratified sampling: evenly spaced strings are selected to ensure coverage of the
+/// full dataset, rather than random jumping which may miss important patterns in diverse data.
+/// Within each selected string, a chunk position is chosen using a hash to add variety across
+/// generations (different seeds).
 ///
 /// SAFETY: sample_buf must be >= FSST_SAMPLEMAX bytes long. Providing something less may cause unexpected failures.
 #[allow(clippy::ptr_arg)]
-fn make_sample<'a, 'b: 'a>(sample_buf: &'a mut Vec<u8>, str_in: &Vec<&'b [u8]>) -> Vec<&'a [u8]> {
+fn make_sample_with_target<'a, 'b: 'a>(
+    sample_buf: &'a mut Vec<u8>,
+    str_in: &Vec<&'b [u8]>,
+    seed: u64,
+    sample_target: usize,
+) -> Vec<&'a [u8]> {
     assert!(
         sample_buf.capacity() >= FSST_SAMPLEMAX,
         "sample_buf.len() < FSST_SAMPLEMAX"
@@ -556,24 +569,35 @@ fn make_sample<'a, 'b: 'a>(sample_buf: &'a mut Vec<u8>, str_in: &Vec<&'b [u8]>) 
     let mut sample: Vec<&[u8]> = Vec::new();
 
     let tot_size: usize = str_in.iter().map(|s| s.len()).sum();
-    if tot_size < FSST_SAMPLETARGET {
+    if tot_size < sample_target {
         return str_in.clone();
     }
 
-    let mut sample_rnd = fsst_hash(4637947);
-    let sample_lim = FSST_SAMPLETARGET;
+    let sample_lim = sample_target;
     let mut sample_buf_offset: usize = 0;
 
-    while sample_buf_offset < sample_lim {
-        sample_rnd = fsst_hash(sample_rnd);
-        let line_nr = (sample_rnd as usize) % str_in.len();
+    // Stratified sampling: evenly space selections across the input to ensure
+    // coverage of the full dataset rather than clustering via random hash jumps.
+    let estimated_chunks = sample_lim / FSST_SAMPLELINE + 1;
+    let stride = if str_in.len() > estimated_chunks {
+        str_in.len() / estimated_chunks
+    } else {
+        1
+    };
 
-        // Find the first non-empty chunk starting at line_nr, wrapping around if
-        // necessary.
-        let Some(line) = (line_nr..str_in.len())
-            .chain(0..line_nr)
-            .map(|line_nr| str_in[line_nr])
-            .find(|line| !line.is_empty())
+    let start_offset = (seed as usize) % stride.max(1);
+    let mut sample_rnd = fsst_hash(seed);
+    let mut line_idx = start_offset;
+
+    while sample_buf_offset < sample_lim {
+        if line_idx >= str_in.len() {
+            line_idx %= str_in.len();
+        }
+
+        let Some((found_idx, line)) = (line_idx..str_in.len())
+            .chain(0..line_idx)
+            .map(|i| (i, str_in[i]))
+            .find(|(_, line)| !line.is_empty())
         else {
             return sample;
         };
@@ -593,6 +617,7 @@ fn make_sample<'a, 'b: 'a>(sample_buf: &'a mut Vec<u8>, str_in: &Vec<&'b [u8]>) 
         sample.push(slice);
 
         sample_buf_offset += len;
+        line_idx = found_idx + stride;
     }
 
     sample
@@ -627,22 +652,35 @@ impl Compressor {
         let mut sample_memory = Vec::with_capacity(FSST_SAMPLEMAX);
         let mut pqueue = BinaryHeap::with_capacity(65_536);
 
-        let sample = make_sample(&mut sample_memory, values);
-        for sample_frac in GENERATIONS {
-            // Record first-byte counts only in early generations to help
-            // discover useful single-byte symbols. In later rounds, skip
-            // to avoid biasing the symbol table toward short symbols.
+        for (gen_idx, sample_frac) in GENERATIONS.iter().copied().enumerate() {
+            // Resample each round with a different seed so the algorithm sees diverse
+            // data across generations.
+            sample_memory.clear();
+            let seed = 4637947u64.wrapping_add(gen_idx as u64 * 2654435761);
+
+            // Final generations use a larger sample (4x) for better convergence
+            // without the cost of processing the entire corpus.
+            let sample = if sample_frac >= 128 {
+                make_sample_with_target(&mut sample_memory, values, seed, FSST_SAMPLETARGET_FINAL)
+            } else {
+                make_sample_with_target(&mut sample_memory, values, seed, FSST_SAMPLETARGET)
+            };
+
+            // Record first-byte counts only in early generations to help discover
+            // useful single-byte symbols. In later rounds, skip to avoid biasing
+            // the symbol table toward short symbols.
             let record_first_byte = sample_frac <= 28;
 
             for (i, line) in sample.iter().enumerate() {
-                if sample_frac < 128 && ((fsst_hash(i as u64) & 127) as usize) > sample_frac {
+                // In early generations, sub-sample for faster exploration.
+                // In later generations (sample_frac >= 128), use the full sample.
+                if sample_frac < 128 && (fsst_hash(i as u64) & 127) as usize > sample_frac {
                     continue;
                 }
 
                 builder.compress_count(line, &mut counters, record_first_byte);
             }
 
-            // Clear the heap before we use it again
             pqueue.clear();
             builder.optimize(&counters, sample_frac, &mut pqueue);
             counters.clear();
