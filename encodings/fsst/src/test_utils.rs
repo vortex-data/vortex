@@ -67,6 +67,30 @@ pub fn gen_dict_fsst_test_data<T: NativePType>(
 
 pub const NUM_STRINGS: usize = 100_000;
 
+/// Generate a random alphanumeric word of given length range.
+fn random_word(rng: &mut StdRng, min_len: usize, max_len: usize) -> String {
+    let len = rng.random_range(min_len..=max_len);
+    let charset = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    (0..len)
+        .map(|_| charset[rng.random_range(0..charset.len())] as char)
+        .collect()
+}
+
+/// Generate a random lowercase alphabetic word.
+fn random_alpha_word(rng: &mut StdRng, min_len: usize, max_len: usize) -> String {
+    let len = rng.random_range(min_len..=max_len);
+    (0..len)
+        .map(|_| (b'a' + rng.random_range(0..26u8)) as char)
+        .collect()
+}
+
+/// Generate a random hex string of given byte count.
+fn random_hex(rng: &mut StdRng, bytes: usize) -> String {
+    (0..bytes)
+        .map(|_| format!("{:02x}", rng.random_range(0..256u32)))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // URL generator (ClickBench-style weighted domains)
 // ---------------------------------------------------------------------------
@@ -144,66 +168,94 @@ pub fn make_fsst_urls(n: usize) -> FSSTArray {
 // ClickBench-style URL generator (longer URLs with query params, fragments)
 // ---------------------------------------------------------------------------
 
-const CB_DOMAINS: &[&str] = &[
-    "www.google.com",
-    "yandex.ru",
-    "mail.ru",
-    "vk.com",
-    "www.youtube.com",
-    "www.facebook.com",
-    "ok.ru",
-    "go.mail.ru",
-    "www.avito.ru",
-    "pogoda.yandex.ru",
-    "news.yandex.ru",
-    "maps.yandex.ru",
-    "market.yandex.ru",
-    "afisha.yandex.ru",
-    "auto.ru",
-    "www.kinopoisk.ru",
-    "www.ozon.ru",
-    "www.wildberries.ru",
-    "aliexpress.ru",
-    "lenta.ru",
+const CB_TLDS: &[&str] = &[
+    "com", "ru", "org", "net", "io", "co.uk", "de", "fr", "jp", "br", "in", "au", "ca", "es", "it",
+    "nl", "se", "ch", "pl", "cz",
 ];
 
-const CB_PATHS: &[&str] = &[
-    "/search",
-    "/catalog/electronics/smartphones",
-    "/product/item/123456789",
-    "/news/2024/03/15/article-about-technology",
-    "/user/profile/settings/notifications",
-    "/api/v2/catalog/search",
-    "/checkout/cart/summary",
-    "/blog/2024/how-to-optimize-database-queries-for-better-performance",
-    "/category/home-and-garden/furniture/tables",
-    "/",
+const CB_PATH_SEGMENTS: &[&str] = &[
+    "search",
+    "catalog",
+    "product",
+    "news",
+    "user",
+    "api",
+    "checkout",
+    "blog",
+    "category",
+    "settings",
+    "profile",
+    "dashboard",
+    "admin",
+    "docs",
+    "help",
+    "download",
+    "upload",
+    "stream",
+    "analytics",
+    "report",
+    "feed",
+    "notifications",
+    "messages",
+    "orders",
+    "cart",
+    "wishlist",
+    "compare",
+    "reviews",
+    "support",
+    "faq",
+    "about",
+    "contact",
+    "terms",
+    "privacy",
+    "sitemap",
+    "robots",
+    "health",
+    "status",
+    "metrics",
+    "v1",
+    "v2",
+    "v3",
 ];
 
-const CB_PARAMS: &[&str] = &[
-    "?utm_source=google&utm_medium=cpc&utm_campaign=spring_sale_2024&utm_content=banner_v2",
-    "?q=buy+smartphone+online+cheap+free+shipping&category=electronics&sort=price_asc&page=3",
-    "?ref=main_page_carousel_block_position_4&sessionid=abc123def456",
-    "?from=tabbar&clid=2270455&text=weather+forecast+tomorrow",
-    "?lr=213&msid=1234567890.12345&suggest_reqid=abcdef&csg=12345",
-    "",
-    "",
-    "",
-    "?page=1&per_page=20",
-    "?source=serp&forceshow=1",
-];
-
-const CB_FRAGMENTS: &[&str] = &[
-    "",
-    "",
-    "",
-    "#section-reviews",
-    "#comments",
-    "#price-history",
-    "",
-    "",
-    "",
-    "",
+const CB_PARAM_KEYS: &[&str] = &[
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_content",
+    "q",
+    "category",
+    "sort",
+    "page",
+    "per_page",
+    "ref",
+    "sessionid",
+    "from",
+    "clid",
+    "text",
+    "lr",
+    "msid",
+    "suggest_reqid",
+    "csg",
+    "source",
+    "forceshow",
+    "lang",
+    "region",
+    "currency",
+    "format",
+    "callback",
+    "token",
+    "sig",
+    "ts",
+    "v",
+    "debug",
+    "preview",
+    "draft",
+    "filter",
+    "tag",
+    "id",
+    "offset",
+    "limit",
 ];
 
 pub fn generate_clickbench_urls(n: usize) -> Vec<String> {
@@ -215,11 +267,51 @@ pub fn generate_clickbench_urls(n: usize) -> Vec<String> {
             } else {
                 "http"
             };
-            let domain = CB_DOMAINS[rng.random_range(0..CB_DOMAINS.len())];
-            let path = CB_PATHS[rng.random_range(0..CB_PATHS.len())];
-            let params = CB_PARAMS[rng.random_range(0..CB_PARAMS.len())];
-            let fragment = CB_FRAGMENTS[rng.random_range(0..CB_FRAGMENTS.len())];
-            format!("{scheme}://{domain}{path}{params}{fragment}")
+            // Generate varied domain: optional subdomain + random name + tld
+            let subdomain = match rng.random_range(0..4u32) {
+                0 => "www.".to_string(),
+                1 => format!("{}.", random_alpha_word(&mut rng, 2, 6)),
+                _ => String::new(),
+            };
+            let domain_name = random_alpha_word(&mut rng, 3, 12);
+            let tld = CB_TLDS[rng.random_range(0..CB_TLDS.len())];
+
+            // Generate path with 1-5 segments, mixing fixed and random
+            let depth = rng.random_range(1..6usize);
+            let path: String = (0..depth)
+                .map(|_| {
+                    if rng.random_bool(0.6) {
+                        CB_PATH_SEGMENTS[rng.random_range(0..CB_PATH_SEGMENTS.len())].to_string()
+                    } else {
+                        random_word(&mut rng, 3, 15)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+
+            // Generate 0-5 query params
+            let num_params = rng.random_range(0..6usize);
+            let params = if num_params > 0 {
+                let pairs: Vec<String> = (0..num_params)
+                    .map(|_| {
+                        let key = CB_PARAM_KEYS[rng.random_range(0..CB_PARAM_KEYS.len())];
+                        let val = random_word(&mut rng, 1, 20);
+                        format!("{key}={val}")
+                    })
+                    .collect();
+                format!("?{}", pairs.join("&"))
+            } else {
+                String::new()
+            };
+
+            // Optional fragment
+            let fragment = if rng.random_bool(0.15) {
+                format!("#{}", random_word(&mut rng, 3, 15))
+            } else {
+                String::new()
+            };
+
+            format!("{scheme}://{subdomain}{domain_name}.{tld}/{path}{params}{fragment}")
         })
         .collect()
 }
@@ -304,57 +396,89 @@ pub fn make_fsst_short_urls(n: usize) -> FSSTArray {
 // Log lines generator (Apache/nginx-style access logs)
 // ---------------------------------------------------------------------------
 
-const LOG_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"];
-const LOG_PATHS: &[&str] = &[
-    "/api/v1/users",
-    "/api/v2/products/search",
-    "/healthcheck",
-    "/static/js/app.bundle.min.js",
-    "/favicon.ico",
-    "/login",
-    "/dashboard/analytics",
-    "/api/v1/orders/12345/status",
-    "/graphql",
-    "/metrics",
-];
+const LOG_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
 const LOG_STATUS: &[u16] = &[
-    200, 200, 200, 200, 200, 201, 301, 302, 400, 403, 404, 500, 502,
+    200, 200, 200, 200, 200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 405, 408, 429, 500, 502,
+    503,
 ];
-const LOG_IPS: &[&str] = &[
-    "192.168.1.1",
-    "10.0.0.42",
-    "172.16.0.100",
-    "203.0.113.50",
-    "198.51.100.23",
-    "8.8.8.8",
-    "1.1.1.1",
-    "74.125.200.100",
-    "151.101.1.69",
-    "93.184.216.34",
-];
-const LOG_UAS: &[&str] = &[
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+const LOG_UA_PREFIXES: &[&str] = &[
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Mozilla/5.0 (X11; Linux x86_64)",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+    "Mozilla/5.0 (Linux; Android 14)",
+];
+const LOG_UA_ENGINES: &[&str] = &["AppleWebKit/537.36 (KHTML, like Gecko)", "Gecko/20100101"];
+const LOG_UA_BROWSERS: &[&str] = &[
+    "Chrome/120.0.0.0 Safari/537.36",
+    "Chrome/119.0.0.0 Safari/537.36",
+    "Firefox/121.0",
+    "Firefox/120.0",
+    "Safari/605.1.15",
+    "Edge/120.0.0.0",
+];
+const LOG_BOT_UAS: &[&str] = &[
     "curl/7.81.0",
+    "curl/8.4.0",
     "python-requests/2.28.1",
+    "python-requests/2.31.0",
     "Go-http-client/1.1",
+    "Go-http-client/2.0",
     "Googlebot/2.1 (+http://www.google.com/bot.html)",
+    "Bingbot/2.0 (+http://www.bing.com/bingbot.htm)",
+    "Apache-HttpClient/4.5.14",
+    "okhttp/4.12.0",
 ];
 
 pub fn generate_log_lines(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(456);
     (0..n)
         .map(|_| {
-            let ip = LOG_IPS[rng.random_range(0..LOG_IPS.len())];
+            // Random IP address
+            let ip = format!(
+                "{}.{}.{}.{}",
+                rng.random_range(1..224u32),
+                rng.random_range(0..256u32),
+                rng.random_range(0..256u32),
+                rng.random_range(1..255u32),
+            );
             let method = LOG_METHODS[rng.random_range(0..LOG_METHODS.len())];
-            let path = LOG_PATHS[rng.random_range(0..LOG_PATHS.len())];
+            // Random path with 1-4 segments
+            let depth = rng.random_range(1..5usize);
+            let path_segments: Vec<String> = (0..depth)
+                .map(|_| random_alpha_word(&mut rng, 2, 12))
+                .collect();
+            let path = format!("/{}", path_segments.join("/"));
+            // Optional query string
+            let query = if rng.random_bool(0.4) {
+                format!("?{}={}", random_alpha_word(&mut rng, 2, 8), rng.random_range(1..100000u32))
+            } else {
+                String::new()
+            };
             let status = LOG_STATUS[rng.random_range(0..LOG_STATUS.len())];
-            let size = rng.random_range(100..50000);
-            let ua = LOG_UAS[rng.random_range(0..LOG_UAS.len())];
+            let size = rng.random_range(50..500000u32);
+            let day = rng.random_range(1..29u32);
+            let month = rng.random_range(1..13u32);
+            let hour = rng.random_range(0..24u32);
+            let minute = rng.random_range(0..60u32);
+            let second = rng.random_range(0..60u32);
+            // Varied user agents
+            let ua = if rng.random_bool(0.3) {
+                LOG_BOT_UAS[rng.random_range(0..LOG_BOT_UAS.len())].to_string()
+            } else {
+                let prefix = LOG_UA_PREFIXES[rng.random_range(0..LOG_UA_PREFIXES.len())];
+                let engine = LOG_UA_ENGINES[rng.random_range(0..LOG_UA_ENGINES.len())];
+                let browser = LOG_UA_BROWSERS[rng.random_range(0..LOG_UA_BROWSERS.len())];
+                format!("{prefix} {engine} {browser}")
+            };
+            // Varied referrer
+            let referrer = if rng.random_bool(0.5) {
+                "-".to_string()
+            } else {
+                format!("https://{}.com/{}", random_alpha_word(&mut rng, 4, 10), random_alpha_word(&mut rng, 3, 8))
+            };
             format!(
-                r#"{ip} - - [15/Mar/2024:10:{:02}:{:02} +0000] "{method} {path} HTTP/1.1" {status} {size} "-" "{ua}""#,
-                rng.random_range(0..60u32),
-                rng.random_range(0..60u32),
+                r#"{ip} - - [{day:02}/{month:02}/2024:{hour:02}:{minute:02}:{second:02} +0000] "{method} {path}{query} HTTP/1.1" {status} {size} "{referrer}" "{ua}""#,
             )
         })
         .collect()
@@ -374,45 +498,111 @@ pub fn make_fsst_log_lines(n: usize) -> FSSTArray {
 // JSON strings generator (typical API response payloads)
 // ---------------------------------------------------------------------------
 
-const JSON_NAMES: &[&str] = &[
-    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Hank", "Ivy", "Jack",
-];
-const JSON_CITIES: &[&str] = &[
-    "New York",
-    "London",
-    "Tokyo",
-    "Berlin",
-    "Sydney",
-    "Toronto",
-    "Paris",
-    "Mumbai",
-    "São Paulo",
-    "Seoul",
-];
-const JSON_TAGS: &[&str] = &[
-    "premium",
+const JSON_FIELD_NAMES: &[&str] = &[
+    "id",
+    "name",
+    "email",
+    "age",
+    "city",
+    "country",
+    "status",
+    "role",
+    "tags",
+    "active",
+    "created_at",
+    "updated_at",
+    "score",
+    "balance",
+    "plan",
+    "org",
+    "team",
+    "department",
+    "title",
+    "phone",
+    "address",
+    "zip",
+    "state",
+    "lat",
+    "lng",
     "verified",
-    "admin",
-    "moderator",
-    "subscriber",
-    "trial",
-    "enterprise",
-    "developer",
+    "premium",
+    "notes",
+    "description",
+    "url",
+    "avatar",
+    "locale",
+    "timezone",
+    "currency",
 ];
 
 pub fn generate_json_strings(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(789);
     (0..n)
         .map(|_| {
-            let name = JSON_NAMES[rng.random_range(0..JSON_NAMES.len())];
-            let city = JSON_CITIES[rng.random_range(0..JSON_CITIES.len())];
-            let age = rng.random_range(18..80u32);
-            let tag1 = JSON_TAGS[rng.random_range(0..JSON_TAGS.len())];
-            let tag2 = JSON_TAGS[rng.random_range(0..JSON_TAGS.len())];
-            let id = rng.random_range(10000..99999u32);
-            format!(
-                r#"{{"id":{id},"name":"{name}","age":{age},"city":"{city}","tags":["{tag1}","{tag2}"],"active":true}}"#
-            )
+            let mut json = String::with_capacity(256);
+            json.push('{');
+            // Vary the number of fields per record (3-8)
+            let nfields = rng.random_range(3..9usize);
+            for i in 0..nfields {
+                if i > 0 {
+                    json.push(',');
+                }
+                let field = JSON_FIELD_NAMES[rng.random_range(0..JSON_FIELD_NAMES.len())];
+                json.push('"');
+                json.push_str(field);
+                json.push_str("\":");
+                // Vary value types
+                match rng.random_range(0..5u32) {
+                    0 => {
+                        // string value - random word
+                        json.push('"');
+                        json.push_str(&random_alpha_word(&mut rng, 3, 15));
+                        json.push('"');
+                    }
+                    1 => {
+                        // integer
+                        let v = rng.random_range(0..1_000_000u32);
+                        json.push_str(&v.to_string());
+                    }
+                    2 => {
+                        // float
+                        let v = rng.random_range(0..100000u32) as f64 / 100.0;
+                        json.push_str(&format!("{v:.2}"));
+                    }
+                    3 => {
+                        // boolean
+                        json.push_str(if rng.random_bool(0.5) {
+                            "true"
+                        } else {
+                            "false"
+                        });
+                    }
+                    _ => {
+                        // array of strings
+                        let arr_len = rng.random_range(1..4usize);
+                        json.push('[');
+                        for j in 0..arr_len {
+                            if j > 0 {
+                                json.push(',');
+                            }
+                            json.push('"');
+                            json.push_str(&random_alpha_word(&mut rng, 3, 10));
+                            json.push('"');
+                        }
+                        json.push(']');
+                    }
+                }
+            }
+            // Sometimes add a nested object
+            if rng.random_bool(0.4) {
+                json.push_str(",\"meta\":{\"src\":\"");
+                json.push_str(&random_alpha_word(&mut rng, 4, 10));
+                json.push_str("\",\"v\":");
+                json.push_str(&rng.random_range(1..100u32).to_string());
+                json.push('}');
+            }
+            json.push('}');
+            json
         })
         .collect()
 }
@@ -432,38 +622,48 @@ pub fn make_fsst_json_strings(n: usize) -> FSSTArray {
 // ---------------------------------------------------------------------------
 
 const PATH_ROOTS: &[&str] = &[
-    "/home/user",
+    "/home",
     "/var/log",
     "/etc",
-    "/usr/local/bin",
-    "/opt/app",
+    "/usr/local",
+    "/opt",
     "/tmp",
-    "/srv/www",
-    "/data/warehouse",
+    "/srv",
+    "/data",
+    "/mnt",
+    "/run",
 ];
-const PATH_DIRS: &[&str] = &[
-    "src",
-    "build",
-    "dist",
-    "node_modules",
-    "target/release",
-    "config",
-    ".cache",
-    "logs/2024",
-    "backups/daily",
-    "migrations",
-];
-const PATH_FILES: &[&str] = &[
-    "main.rs",
-    "index.ts",
-    "config.yaml",
-    "Dockerfile",
-    "schema.sql",
-    "app.log",
-    "data.parquet",
-    "model.onnx",
-    "README.md",
-    "package.json",
+const PATH_EXTENSIONS: &[&str] = &[
+    "rs",
+    "ts",
+    "js",
+    "py",
+    "go",
+    "java",
+    "c",
+    "h",
+    "cpp",
+    "yaml",
+    "yml",
+    "json",
+    "toml",
+    "xml",
+    "sql",
+    "log",
+    "txt",
+    "md",
+    "csv",
+    "parquet",
+    "avro",
+    "proto",
+    "html",
+    "css",
+    "scss",
+    "conf",
+    "cfg",
+    "ini",
+    "sh",
+    "dockerfile",
 ];
 
 pub fn generate_file_paths(n: usize) -> Vec<String> {
@@ -471,17 +671,16 @@ pub fn generate_file_paths(n: usize) -> Vec<String> {
     (0..n)
         .map(|_| {
             let root = PATH_ROOTS[rng.random_range(0..PATH_ROOTS.len())];
-            let dir = PATH_DIRS[rng.random_range(0..PATH_DIRS.len())];
-            let file = PATH_FILES[rng.random_range(0..PATH_FILES.len())];
-            let depth = rng.random_range(0..3u32);
-            let mut path = format!("{root}/{dir}");
+            let depth = rng.random_range(2..7usize);
+            let mut path = root.to_string();
             for _ in 0..depth {
-                let subdir = PATH_DIRS[rng.random_range(0..PATH_DIRS.len())];
                 path.push('/');
-                path.push_str(subdir);
+                path.push_str(&random_alpha_word(&mut rng, 2, 12));
             }
             path.push('/');
-            path.push_str(file);
+            path.push_str(&random_alpha_word(&mut rng, 3, 15));
+            path.push('.');
+            path.push_str(PATH_EXTENSIONS[rng.random_range(0..PATH_EXTENSIONS.len())]);
             path
         })
         .collect()
@@ -501,39 +700,32 @@ pub fn make_fsst_file_paths(n: usize) -> FSSTArray {
 // Email addresses generator
 // ---------------------------------------------------------------------------
 
-const EMAIL_USERS: &[&str] = &[
-    "john.doe",
-    "jane.smith",
-    "admin",
-    "support",
-    "no-reply",
-    "sales.team",
-    "dev+test",
-    "marketing",
-    "info",
-    "contact.us",
+const EMAIL_TLDS: &[&str] = &[
+    "com", "org", "net", "io", "co", "dev", "app", "ru", "uk", "de", "fr", "jp",
 ];
-const EMAIL_DOMAINS: &[&str] = &[
-    "gmail.com",
-    "yahoo.com",
-    "outlook.com",
-    "company.io",
-    "example.org",
-    "mail.ru",
-    "protonmail.com",
-    "fastmail.com",
-    "icloud.com",
-    "hey.com",
-];
+const EMAIL_SEPARATORS: &[&str] = &[".", "-", "_", "+", ""];
 
 pub fn generate_emails(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(654);
     (0..n)
         .map(|_| {
-            let user = EMAIL_USERS[rng.random_range(0..EMAIL_USERS.len())];
-            let domain = EMAIL_DOMAINS[rng.random_range(0..EMAIL_DOMAINS.len())];
-            let suffix = rng.random_range(0..1000u32);
-            format!("{user}{suffix}@{domain}")
+            // Random local part: 1-3 segments with random separators
+            let num_parts = rng.random_range(1..4usize);
+            let local: Vec<String> = (0..num_parts)
+                .map(|_| random_alpha_word(&mut rng, 2, 10))
+                .collect();
+            let sep = EMAIL_SEPARATORS[rng.random_range(0..EMAIL_SEPARATORS.len())];
+            let local_part = local.join(sep);
+            // Optional numeric suffix
+            let suffix = if rng.random_bool(0.4) {
+                rng.random_range(1..9999u32).to_string()
+            } else {
+                String::new()
+            };
+            // Random domain
+            let domain_name = random_alpha_word(&mut rng, 3, 12);
+            let tld = EMAIL_TLDS[rng.random_range(0..EMAIL_TLDS.len())];
+            format!("{local_part}{suffix}@{domain_name}.{tld}")
         })
         .collect()
 }
@@ -589,102 +781,116 @@ pub fn make_fsst_rare_match(n: usize) -> FSSTArray {
 // SQL queries generator (high keyword repetition)
 // ---------------------------------------------------------------------------
 
-const SQL_TABLES: &[&str] = &[
-    "users",
-    "orders",
-    "products",
-    "customers",
-    "invoices",
-    "payments",
-    "sessions",
-    "events",
-    "accounts",
-    "transactions",
+const SQL_OPERATORS: &[&str] = &[
+    "=",
+    ">",
+    "<",
+    ">=",
+    "<=",
+    "!=",
+    "LIKE",
+    "IN",
+    "IS NOT NULL",
+    "IS NULL",
+    "BETWEEN",
 ];
-const SQL_COLUMNS: &[&str] = &[
-    "id",
-    "name",
-    "email",
-    "created_at",
-    "updated_at",
-    "status",
-    "amount",
-    "quantity",
-    "price",
-    "description",
-    "category",
-    "region",
+const SQL_FUNCTIONS: &[&str] = &[
+    "COUNT", "SUM", "AVG", "MAX", "MIN", "COALESCE", "NULLIF", "CAST", "TRIM", "LOWER", "UPPER",
 ];
-const SQL_STATUSES: &[&str] = &[
-    "'active'",
-    "'inactive'",
-    "'pending'",
-    "'completed'",
-    "'cancelled'",
+const SQL_JOIN_TYPES: &[&str] = &[
+    "INNER JOIN",
+    "LEFT JOIN",
+    "RIGHT JOIN",
+    "LEFT OUTER JOIN",
+    "CROSS JOIN",
 ];
-const SQL_OPERATORS: &[&str] = &["=", ">", "<", ">=", "<=", "!=", "LIKE", "IN"];
 
 pub fn generate_sql_queries(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(1001);
     (0..n)
         .map(|_| {
-            let kind = rng.random_range(0..3u32);
-            let table = SQL_TABLES[rng.random_range(0..SQL_TABLES.len())];
+            let table = random_alpha_word(&mut rng, 4, 15);
+            let kind = rng.random_range(0..5u32);
             match kind {
-                0 => {
-                    // SELECT
-                    let ncols = rng.random_range(2..6usize);
-                    let cols: Vec<&str> = (0..ncols)
-                        .map(|_| SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())])
+                0 | 1 => {
+                    // SELECT (most common)
+                    let ncols = rng.random_range(2..8usize);
+                    let cols: Vec<String> = (0..ncols)
+                        .map(|_| {
+                            if rng.random_bool(0.2) {
+                                let func = SQL_FUNCTIONS[rng.random_range(0..SQL_FUNCTIONS.len())];
+                                let col = random_alpha_word(&mut rng, 3, 12);
+                                format!("{func}({col})")
+                            } else {
+                                random_alpha_word(&mut rng, 3, 12)
+                            }
+                        })
                         .collect();
-                    let nconds = rng.random_range(1..4usize);
+                    let nconds = rng.random_range(1..5usize);
                     let mut where_parts = Vec::with_capacity(nconds);
                     for _ in 0..nconds {
-                        let col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
+                        let col = random_alpha_word(&mut rng, 3, 10);
                         let op = SQL_OPERATORS[rng.random_range(0..SQL_OPERATORS.len())];
-                        let val = if op == "LIKE" {
-                            format!("'%pattern_{}'", rng.random_range(0..100u32))
-                        } else if op == "IN" {
-                            format!(
-                                "({}, {}, {})",
-                                rng.random_range(1..1000u32),
-                                rng.random_range(1..1000u32),
-                                rng.random_range(1..1000u32)
-                            )
-                        } else {
-                            let status = SQL_STATUSES[rng.random_range(0..SQL_STATUSES.len())];
-                            status.to_string()
+                        let val = match op {
+                            "LIKE" => format!("'%{}%'", random_alpha_word(&mut rng, 3, 8)),
+                            "IN" => {
+                                let cnt = rng.random_range(2..5usize);
+                                let vals: Vec<String> = (0..cnt)
+                                    .map(|_| rng.random_range(1..100000u32).to_string())
+                                    .collect();
+                                format!("({})", vals.join(", "))
+                            }
+                            "IS NOT NULL" | "IS NULL" | "BETWEEN" => String::new(),
+                            _ => {
+                                if rng.random_bool(0.5) {
+                                    format!("'{}'", random_alpha_word(&mut rng, 3, 10))
+                                } else {
+                                    rng.random_range(1..1000000u32).to_string()
+                                }
+                            }
                         };
-                        where_parts.push(format!("{col} {op} {val}"));
+                        if val.is_empty() {
+                            where_parts.push(format!("{col} {op}"));
+                        } else {
+                            where_parts.push(format!("{col} {op} {val}"));
+                        }
                     }
-                    let order_col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
+                    // Optional JOIN
+                    let join = if rng.random_bool(0.4) {
+                        let jtype = SQL_JOIN_TYPES[rng.random_range(0..SQL_JOIN_TYPES.len())];
+                        let jtable = random_alpha_word(&mut rng, 4, 12);
+                        let jcol1 = random_alpha_word(&mut rng, 3, 10);
+                        let jcol2 = random_alpha_word(&mut rng, 3, 10);
+                        format!(" {jtype} {jtable} ON {table}.{jcol1} = {jtable}.{jcol2}")
+                    } else {
+                        String::new()
+                    };
+                    let order_col = random_alpha_word(&mut rng, 3, 10);
                     let dir = if rng.random_bool(0.5) { "ASC" } else { "DESC" };
-                    let limit = rng.random_range(10..1000u32);
+                    let limit = rng.random_range(10..10000u32);
                     format!(
-                        "SELECT {} FROM {} WHERE {} ORDER BY {} {} LIMIT {}",
+                        "SELECT {} FROM {}{} WHERE {} ORDER BY {} {} LIMIT {}",
                         cols.join(", "),
                         table,
+                        join,
                         where_parts.join(" AND "),
                         order_col,
                         dir,
                         limit,
                     )
                 }
-                1 => {
+                2 => {
                     // INSERT
-                    let ncols = rng.random_range(3..7usize);
-                    let cols: Vec<&str> = (0..ncols)
-                        .map(|_| SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())])
+                    let ncols = rng.random_range(3..8usize);
+                    let cols: Vec<String> = (0..ncols)
+                        .map(|_| random_alpha_word(&mut rng, 3, 12))
                         .collect();
                     let vals: Vec<String> = (0..ncols)
                         .map(|_| {
                             if rng.random_bool(0.5) {
-                                format!(
-                                    "'{}'",
-                                    SQL_STATUSES[rng.random_range(0..SQL_STATUSES.len())]
-                                )
+                                format!("'{}'", random_alpha_word(&mut rng, 3, 15))
                             } else {
-                                rng.random_range(1..100000u32).to_string()
+                                rng.random_range(1..1000000u32).to_string()
                             }
                         })
                         .collect();
@@ -695,18 +901,22 @@ pub fn generate_sql_queries(n: usize) -> Vec<String> {
                         vals.join(", "),
                     )
                 }
-                _ => {
+                3 => {
                     // UPDATE
-                    let nsets = rng.random_range(1..4usize);
+                    let nsets = rng.random_range(1..5usize);
                     let set_parts: Vec<String> = (0..nsets)
                         .map(|_| {
-                            let col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
-                            let val = SQL_STATUSES[rng.random_range(0..SQL_STATUSES.len())];
+                            let col = random_alpha_word(&mut rng, 3, 10);
+                            let val = if rng.random_bool(0.5) {
+                                format!("'{}'", random_alpha_word(&mut rng, 3, 12))
+                            } else {
+                                rng.random_range(1..1000000u32).to_string()
+                            };
                             format!("{col} = {val}")
                         })
                         .collect();
-                    let cond_col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
-                    let cond_val = rng.random_range(1..100000u32);
+                    let cond_col = random_alpha_word(&mut rng, 3, 10);
+                    let cond_val = rng.random_range(1..1000000u32);
                     format!(
                         "UPDATE {} SET {} WHERE {} = {}",
                         table,
@@ -714,6 +924,12 @@ pub fn generate_sql_queries(n: usize) -> Vec<String> {
                         cond_col,
                         cond_val,
                     )
+                }
+                _ => {
+                    // DELETE
+                    let col = random_alpha_word(&mut rng, 3, 10);
+                    let val = rng.random_range(1..1000000u32);
+                    format!("DELETE FROM {} WHERE {} = {}", table, col, val)
                 }
             }
         })
@@ -724,24 +940,12 @@ pub fn generate_sql_queries(n: usize) -> Vec<String> {
 // XML fragments generator (nested tags, attributes, namespaces)
 // ---------------------------------------------------------------------------
 
-const XML_TAGS: &[&str] = &[
-    "record", "entry", "item", "element", "node", "data", "field", "row", "value", "property",
+const XML_NAMESPACES: &[&str] = &[
+    "ns1", "ns2", "xsi", "xsd", "soap", "app", "svc", "core", "ext", "cfg",
 ];
-const XML_NAMESPACES: &[&str] = &["ns1", "ns2", "xsi", "xsd", "soap", "app"];
-const XML_ATTRS: &[&str] = &[
+const XML_ATTR_NAMES: &[&str] = &[
     "id", "type", "name", "class", "version", "status", "priority", "lang", "encoding", "format",
-];
-const XML_ATTR_VALUES: &[&str] = &[
-    "primary",
-    "secondary",
-    "active",
-    "deprecated",
-    "1.0",
-    "2.0",
-    "utf-8",
-    "json",
-    "xml",
-    "default",
+    "scope", "ref", "key", "source", "target", "mode", "level", "enabled",
 ];
 
 pub fn generate_xml_fragments(n: usize) -> Vec<String> {
@@ -749,31 +953,38 @@ pub fn generate_xml_fragments(n: usize) -> Vec<String> {
     (0..n)
         .map(|_| {
             let mut xml = String::with_capacity(256);
-            let depth = rng.random_range(2..5usize);
+            let depth = rng.random_range(2..6usize);
             let mut tags_stack = Vec::with_capacity(depth);
-            for _ in 0..depth {
-                let ns = XML_NAMESPACES[rng.random_range(0..XML_NAMESPACES.len())];
-                let tag = XML_TAGS[rng.random_range(0..XML_TAGS.len())];
-                let nattrs = rng.random_range(1..4usize);
+            for d in 0..depth {
+                let use_ns = rng.random_bool(0.6);
+                let tag = random_alpha_word(&mut rng, 3, 12);
+                let qualified = if use_ns {
+                    let ns = XML_NAMESPACES[rng.random_range(0..XML_NAMESPACES.len())];
+                    format!("{ns}:{tag}")
+                } else {
+                    tag
+                };
                 xml.push('<');
-                xml.push_str(ns);
-                xml.push(':');
-                xml.push_str(tag);
+                xml.push_str(&qualified);
+                let nattrs = rng.random_range(0..4usize);
                 for _ in 0..nattrs {
-                    let attr = XML_ATTRS[rng.random_range(0..XML_ATTRS.len())];
-                    let val = XML_ATTR_VALUES[rng.random_range(0..XML_ATTR_VALUES.len())];
+                    let attr = XML_ATTR_NAMES[rng.random_range(0..XML_ATTR_NAMES.len())];
                     xml.push(' ');
                     xml.push_str(attr);
                     xml.push_str("=\"");
-                    xml.push_str(val);
+                    // Random attribute value
+                    xml.push_str(&random_word(&mut rng, 2, 15));
                     xml.push('"');
                 }
                 xml.push('>');
-                tags_stack.push(format!("{ns}:{tag}"));
+                // Add text content at intermediate levels sometimes
+                if d < depth - 1 && rng.random_bool(0.3) {
+                    xml.push_str(&random_alpha_word(&mut rng, 5, 20));
+                }
+                tags_stack.push(qualified);
             }
             // inner text content
-            let inner_id = rng.random_range(1000..99999u32);
-            xml.push_str(&format!("value_{inner_id}"));
+            xml.push_str(&random_word(&mut rng, 5, 30));
             // close tags in reverse
             for qualified in tags_stack.iter().rev() {
                 xml.push_str("</");
@@ -819,152 +1030,130 @@ pub fn generate_repeated_binary(n: usize) -> Vec<Vec<u8>> {
 }
 
 // ---------------------------------------------------------------------------
-// CSV rows generator (fixed schema with repeated categorical values)
+// CSV rows generator (varied schemas and values)
 // ---------------------------------------------------------------------------
-
-const CSV_NAMES: &[&str] = &[
-    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Hank", "Ivy", "Jack", "Karen",
-    "Leo", "Mia", "Nathan", "Olivia",
-];
-const CSV_CITIES: &[&str] = &[
-    "New York",
-    "Los Angeles",
-    "Chicago",
-    "Houston",
-    "Phoenix",
-    "Philadelphia",
-    "San Antonio",
-    "San Diego",
-];
-const CSV_STATUSES: &[&str] = &["active", "inactive", "pending", "suspended", "trial"];
 
 pub fn generate_csv_rows(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(1004);
-    (0..n)
-        .map(|_| {
-            let name = CSV_NAMES[rng.random_range(0..CSV_NAMES.len())];
-            let age = rng.random_range(18..75u32);
-            let city = CSV_CITIES[rng.random_range(0..CSV_CITIES.len())];
-            let status = CSV_STATUSES[rng.random_range(0..CSV_STATUSES.len())];
-            let score = rng.random_range(0..1000u32);
-            format!("{name},{age},{city},{status},{score}")
-        })
-        .collect()
+    // Generate random column headers (reused across rows for this "table")
+    let ncols = rng.random_range(5..10usize);
+    let headers: Vec<String> = (0..ncols)
+        .map(|_| random_alpha_word(&mut rng, 3, 12))
+        .collect();
+    let mut rows = Vec::with_capacity(n);
+    // First row is the header
+    rows.push(headers.join(","));
+    for _ in 1..n {
+        let values: Vec<String> = (0..ncols)
+            .map(|_| {
+                match rng.random_range(0..4u32) {
+                    0 => rng.random_range(0..1000000u32).to_string(),
+                    1 => format!("{:.2}", rng.random_range(0..100000u32) as f64 / 100.0),
+                    2 => random_alpha_word(&mut rng, 3, 15),
+                    _ => {
+                        // Quoted string with possible spaces
+                        let w1 = random_alpha_word(&mut rng, 3, 8);
+                        let w2 = random_alpha_word(&mut rng, 3, 8);
+                        format!("\"{w1} {w2}\"")
+                    }
+                }
+            })
+            .collect();
+        rows.push(values.join(","));
+    }
+    rows
 }
 
 // ---------------------------------------------------------------------------
 // Key-value config lines generator (shared prefixes)
 // ---------------------------------------------------------------------------
 
-const CONFIG_SECTIONS: &[&str] = &[
-    "database",
-    "server",
-    "logging",
-    "cache",
-    "security",
-    "messaging",
-    "monitoring",
-];
-const CONFIG_SUBSECTIONS: &[&str] = &[
-    "connection",
-    "pool",
-    "timeout",
-    "retry",
-    "buffer",
-    "auth",
-    "tls",
-    "metrics",
-];
-const CONFIG_KEYS: &[&str] = &[
-    "max_size",
-    "min_size",
-    "idle_timeout",
-    "connect_timeout",
-    "read_timeout",
-    "write_timeout",
-    "enabled",
-    "level",
-    "host",
-    "port",
-    "interval",
-    "threshold",
-];
-const CONFIG_VALUES: &[&str] = &[
-    "true",
-    "false",
-    "10",
-    "50",
-    "100",
-    "256",
-    "1024",
-    "5000",
-    "30000",
-    "localhost",
-    "0.0.0.0",
-    "/var/log/app.log",
-    "INFO",
-    "DEBUG",
-    "WARN",
-];
-
 pub fn generate_key_value_config(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(1005);
     (0..n)
         .map(|_| {
-            let section = CONFIG_SECTIONS[rng.random_range(0..CONFIG_SECTIONS.len())];
-            let subsection = CONFIG_SUBSECTIONS[rng.random_range(0..CONFIG_SUBSECTIONS.len())];
-            let key = CONFIG_KEYS[rng.random_range(0..CONFIG_KEYS.len())];
-            let value = CONFIG_VALUES[rng.random_range(0..CONFIG_VALUES.len())];
-            format!("{section}.{subsection}.{key} = {value}")
+            // Build a dotted key path with 2-4 random segments
+            let depth = rng.random_range(2..5usize);
+            let key_path: Vec<String> = (0..depth)
+                .map(|_| random_alpha_word(&mut rng, 3, 12))
+                .collect();
+            // Random value of various types
+            let value = match rng.random_range(0..5u32) {
+                0 => rng.random_range(0..65536u32).to_string(),
+                1 => if rng.random_bool(0.5) {
+                    "true"
+                } else {
+                    "false"
+                }
+                .to_string(),
+                2 => format!(
+                    "{}.{}.{}.{}",
+                    rng.random_range(0..256u32),
+                    rng.random_range(0..256u32),
+                    rng.random_range(0..256u32),
+                    rng.random_range(0..256u32)
+                ),
+                3 => format!(
+                    "/{}/{}/{}",
+                    random_alpha_word(&mut rng, 3, 8),
+                    random_alpha_word(&mut rng, 3, 8),
+                    random_alpha_word(&mut rng, 3, 8)
+                ),
+                _ => random_alpha_word(&mut rng, 3, 15),
+            };
+            // Vary the separator style
+            let sep = match rng.random_range(0..3u32) {
+                0 => " = ",
+                1 => "=",
+                _ => ": ",
+            };
+            format!("{}{sep}{value}", key_path.join("."))
         })
         .collect()
 }
 
 // ---------------------------------------------------------------------------
-// Timestamps with prefix generator (highly repetitive prefix pattern)
+// Timestamps with prefix generator
 // ---------------------------------------------------------------------------
 
-const TS_LEVELS: &[&str] = &["INFO", "DEBUG", "WARN", "ERROR", "TRACE"];
-const TS_SERVICES: &[&str] = &[
-    "api-gateway",
-    "user-service",
-    "order-service",
-    "payment-service",
-    "auth-service",
-    "notification-service",
-];
-const TS_MESSAGES: &[&str] = &[
-    "Request processed successfully",
-    "Connection established to upstream",
-    "Cache miss for key lookup",
-    "Retrying failed operation attempt",
-    "Rate limit threshold exceeded",
-    "Health check passed",
-    "Configuration reloaded from disk",
-    "Session token refreshed",
-    "Background job completed",
-    "Metric batch flushed to sink",
-    "Circuit breaker state changed",
-    "Graceful shutdown initiated",
-];
+const TS_LEVELS: &[&str] = &["INFO", "DEBUG", "WARN", "ERROR", "TRACE", "FATAL"];
 
 pub fn generate_timestamps_with_prefix(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(1006);
     (0..n)
         .map(|_| {
+            let year = rng.random_range(2020..2025u32);
             let month = rng.random_range(1..13u32);
             let day = rng.random_range(1..29u32);
             let hour = rng.random_range(0..24u32);
             let minute = rng.random_range(0..60u32);
             let second = rng.random_range(0..60u32);
             let millis = rng.random_range(0..1000u32);
+            let micro = rng.random_range(0..1000u32);
             let level = TS_LEVELS[rng.random_range(0..TS_LEVELS.len())];
-            let service = TS_SERVICES[rng.random_range(0..TS_SERVICES.len())];
-            let message = TS_MESSAGES[rng.random_range(0..TS_MESSAGES.len())];
-            let req_id = rng.random_range(10000..99999u32);
-            format!(
-                "2024-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z {level} [{service}] {message} req_id={req_id}"
-            )
+            // Random service name like "order-processor" or "auth-svc"
+            let svc = format!("{}-{}", random_alpha_word(&mut rng, 3, 10), random_alpha_word(&mut rng, 2, 8));
+            // Random message: 3-8 words
+            let nwords = rng.random_range(3..9usize);
+            let msg: Vec<String> = (0..nwords)
+                .map(|_| random_alpha_word(&mut rng, 2, 10))
+                .collect();
+            let req_id = random_hex(&mut rng, 8);
+            // Vary the format
+            match rng.random_range(0..3u32) {
+                0 => format!(
+                    "{year}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z {level} [{svc}] {} req_id={req_id}",
+                    msg.join(" ")
+                ),
+                1 => format!(
+                    "{year}/{month:02}/{day:02} {hour:02}:{minute:02}:{second:02}.{millis:03}{micro:03} [{level}] {svc}: {} trace={req_id}",
+                    msg.join(" ")
+                ),
+                _ => format!(
+                    "[{level}] {year}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} {svc} - {} (id={req_id})",
+                    msg.join(" ")
+                ),
+            }
         })
         .collect()
 }
@@ -989,157 +1178,116 @@ const HTTP_HEADER_NAMES: &[&str] = &[
     "Set-Cookie",
     "ETag",
     "Vary",
+    "X-Frame-Options",
+    "X-XSS-Protection",
+    "Strict-Transport-Security",
+    "Content-Security-Policy",
+    "X-Content-Type-Options",
+    "Access-Control-Allow-Origin",
+    "Access-Control-Allow-Methods",
+    "X-Powered-By",
+    "X-RateLimit-Remaining",
+    "X-RateLimit-Limit",
+    "Retry-After",
+    "Location",
+    "Server",
+    "Date",
+    "Expires",
+    "Pragma",
+    "Transfer-Encoding",
+    "X-Trace-Id",
 ];
 
-const HTTP_HEADER_VALUES: &[(&str, &[&str])] = &[
-    (
-        "Content-Type",
-        &[
-            "application/json",
-            "text/html; charset=utf-8",
-            "application/xml",
-            "text/plain",
-            "application/octet-stream",
-            "multipart/form-data",
-            "application/x-www-form-urlencoded",
-            "application/grpc",
-            "image/png",
-            "text/css",
-        ],
-    ),
-    (
-        "Accept-Encoding",
-        &[
-            "gzip, deflate",
-            "gzip, deflate, br",
-            "br",
-            "identity",
-            "gzip",
-            "deflate",
-            "zstd, gzip, deflate",
-            "gzip, br",
-            "*",
-            "compress",
-        ],
-    ),
-    (
-        "Cache-Control",
-        &[
-            "no-cache",
-            "no-store",
-            "max-age=3600",
-            "max-age=86400",
-            "public, max-age=31536000",
-            "private, no-cache",
-            "must-revalidate",
-            "no-cache, no-store, must-revalidate",
-            "s-maxage=600",
-            "max-age=0",
-        ],
-    ),
-    (
-        "Accept",
-        &[
-            "application/json",
-            "text/html",
-            "*/*",
-            "application/xml",
-            "text/plain",
-            "application/json, text/plain, */*",
-            "text/html, application/xhtml+xml",
-            "image/webp, image/apng, */*",
-            "application/signed-exchange",
-            "application/grpc",
-        ],
-    ),
-    (
-        "Connection",
-        &[
-            "keep-alive",
-            "close",
-            "upgrade",
-            "keep-alive",
-            "keep-alive",
-            "close",
-            "keep-alive",
-            "keep-alive",
-            "close",
-            "keep-alive",
-        ],
-    ),
-    (
-        "Vary",
-        &[
-            "Accept-Encoding",
-            "Accept",
-            "Origin",
-            "Accept-Encoding, Accept",
-            "Accept-Encoding, Origin",
-            "Cookie",
-            "Accept-Language",
-            "User-Agent",
-            "Accept-Encoding, Accept-Language",
-            "Origin, Accept",
-        ],
-    ),
+const HTTP_CONTENT_TYPES: &[&str] = &[
+    "application/json",
+    "text/html; charset=utf-8",
+    "application/xml",
+    "text/plain",
+    "application/octet-stream",
+    "multipart/form-data",
+    "application/x-www-form-urlencoded",
+    "application/grpc",
+    "image/png",
+    "text/css",
+    "application/javascript",
+    "application/pdf",
+    "image/svg+xml",
+    "text/csv",
 ];
 
-/// Generates HTTP request/response header lines like `"Content-Type: application/json"`.
+/// Generates HTTP request/response header lines.
 pub fn generate_http_headers(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(2001);
-
-    let generic_values: &[&str] = &[
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "192.168.1.42",
-        "api.example.com",
-        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0",
-        "session_id=abc123def456; Path=/; HttpOnly",
-        "W/\"5e8c4a6b\"",
-        "1024",
-        "4096",
-        "keep-alive",
-        "en-US,en;q=0.9",
-    ];
-
     (0..n)
         .map(|_| {
             let header_name = HTTP_HEADER_NAMES[rng.random_range(0..HTTP_HEADER_NAMES.len())];
-
-            // Try to find a specific value pool for this header
-            let value = if let Some((_, vals)) = HTTP_HEADER_VALUES
-                .iter()
-                .find(|(name, _)| *name == header_name)
-            {
-                vals[rng.random_range(0..vals.len())].to_string()
-            } else {
-                // For headers without specific pools, generate contextual values
-                match header_name {
-                    "X-Request-Id" | "X-Correlation-Id" => {
-                        format!(
-                            "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-                            rng.random_range(0..u32::MAX),
-                            rng.random_range(0..u16::MAX),
-                            rng.random_range(0..u16::MAX),
-                            rng.random_range(0..u16::MAX),
-                            rng.random_range(0..u64::MAX) & 0xFFFF_FFFF_FFFF,
-                        )
-                    }
-                    "Content-Length" => {
-                        format!("{}", rng.random_range(0..1_000_000u32))
-                    }
-                    "X-Forwarded-For" => {
-                        format!(
-                            "{}.{}.{}.{}",
-                            rng.random_range(1..255u32),
-                            rng.random_range(0..256u32),
-                            rng.random_range(0..256u32),
-                            rng.random_range(1..255u32),
-                        )
-                    }
-                    _ => generic_values[rng.random_range(0..generic_values.len())].to_string(),
+            let value = match header_name {
+                "Content-Type" | "Accept" => {
+                    HTTP_CONTENT_TYPES[rng.random_range(0..HTTP_CONTENT_TYPES.len())].to_string()
                 }
+                "X-Request-Id" | "X-Correlation-Id" | "X-Trace-Id" | "ETag" => {
+                    let len = rng.random_range(8..20usize);
+                    random_hex(&mut rng, len)
+                }
+                "Content-Length"
+                | "X-RateLimit-Remaining"
+                | "X-RateLimit-Limit"
+                | "Retry-After" => rng.random_range(0..10_000_000u32).to_string(),
+                "X-Forwarded-For" => {
+                    let n_ips = rng.random_range(1..4usize);
+                    let ips: Vec<String> = (0..n_ips)
+                        .map(|_| {
+                            format!(
+                                "{}.{}.{}.{}",
+                                rng.random_range(1..224u32),
+                                rng.random_range(0..256u32),
+                                rng.random_range(0..256u32),
+                                rng.random_range(1..255u32)
+                            )
+                        })
+                        .collect();
+                    ips.join(", ")
+                }
+                "Authorization" => {
+                    format!("Bearer {}", random_hex(&mut rng, 32))
+                }
+                "Host" | "Server" | "X-Powered-By" => {
+                    format!(
+                        "{}.{}",
+                        random_alpha_word(&mut rng, 3, 10),
+                        random_alpha_word(&mut rng, 2, 4)
+                    )
+                }
+                "Set-Cookie" => {
+                    let name = random_alpha_word(&mut rng, 3, 10);
+                    let val = random_hex(&mut rng, 16);
+                    let domain = random_alpha_word(&mut rng, 4, 10);
+                    format!("{name}={val}; Domain={domain}.com; Path=/; HttpOnly; Secure")
+                }
+                "Cache-Control" => {
+                    let max_age = rng.random_range(0..86400u32);
+                    if rng.random_bool(0.3) {
+                        "no-cache, no-store, must-revalidate".to_string()
+                    } else {
+                        format!("public, max-age={max_age}")
+                    }
+                }
+                "User-Agent" => {
+                    let ver = rng.random_range(90..130u32);
+                    format!(
+                        "Mozilla/5.0 ({}) AppleWebKit/537.36 Chrome/{ver}.0.0.0",
+                        random_alpha_word(&mut rng, 5, 20)
+                    )
+                }
+                "Location" | "Access-Control-Allow-Origin" => {
+                    format!(
+                        "https://{}.com/{}",
+                        random_alpha_word(&mut rng, 4, 10),
+                        random_alpha_word(&mut rng, 3, 12)
+                    )
+                }
+                _ => random_word(&mut rng, 5, 30),
             };
-
             format!("{header_name}: {value}")
         })
         .collect()
@@ -1149,54 +1297,47 @@ pub fn generate_http_headers(n: usize) -> Vec<String> {
 // IPv4 CIDR firewall/ACL rules generator
 // ---------------------------------------------------------------------------
 
-const CIDR_ACTIONS: &[&str] = &["allow", "deny"];
-const CIDR_PROTOCOLS: &[&str] = &["tcp", "udp", "icmp"];
-const CIDR_PORTS: &[u16] = &[
-    22, 53, 80, 443, 993, 1433, 3306, 3389, 5432, 6379, 8080, 8443,
-];
-const CIDR_DEST_RANGES: &[&str] = &[
-    "10.0.0.0/8",
-    "10.0.1.0/24",
-    "10.1.0.0/16",
-    "10.10.0.0/16",
-    "172.16.0.0/12",
-    "172.16.1.0/24",
-    "172.20.0.0/16",
-    "192.168.0.0/16",
-    "192.168.1.0/24",
-    "192.168.10.0/24",
-    "192.168.100.0/24",
-    "0.0.0.0/0",
-];
-const CIDR_SRC_RANGES: &[&str] = &[
-    "192.168.1.0/24",
-    "192.168.0.0/16",
-    "10.0.0.0/8",
-    "10.0.1.0/24",
-    "172.16.0.0/12",
-    "172.16.5.0/24",
-    "203.0.113.0/24",
-    "198.51.100.0/24",
-    "any",
-    "any",
-    "any",
-];
+const CIDR_ACTIONS: &[&str] = &["allow", "deny", "reject", "drop", "accept", "log"];
+const CIDR_PROTOCOLS: &[&str] = &["tcp", "udp", "icmp", "sctp", "gre", "any"];
 
-/// Generates firewall/ACL rules like `"allow 10.0.0.0/8 tcp 443 from 192.168.1.0/24"`.
+/// Generates firewall/ACL rules with random CIDR ranges.
 pub fn generate_ipv4_cidr_rules(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(2002);
     (0..n)
         .map(|_| {
             let action = CIDR_ACTIONS[rng.random_range(0..CIDR_ACTIONS.len())];
-            let dest = CIDR_DEST_RANGES[rng.random_range(0..CIDR_DEST_RANGES.len())];
             let proto = CIDR_PROTOCOLS[rng.random_range(0..CIDR_PROTOCOLS.len())];
-            let src = CIDR_SRC_RANGES[rng.random_range(0..CIDR_SRC_RANGES.len())];
-
-            if proto == "icmp" {
+            // Random CIDR ranges
+            let dest = format!(
+                "{}.{}.{}.0/{}",
+                rng.random_range(1..224u32),
+                rng.random_range(0..256u32),
+                rng.random_range(0..256u32),
+                rng.random_range(8..33u32),
+            );
+            let src = if rng.random_bool(0.2) {
+                "any".to_string()
+            } else {
+                format!(
+                    "{}.{}.{}.0/{}",
+                    rng.random_range(1..224u32),
+                    rng.random_range(0..256u32),
+                    rng.random_range(0..256u32),
+                    rng.random_range(8..33u32),
+                )
+            };
+            // Optional port (random, not from fixed list)
+            if proto == "icmp" || proto == "gre" || proto == "any" {
                 format!("{action} {dest} {proto} from {src}")
             } else {
-                let port = CIDR_PORTS[rng.random_range(0..CIDR_PORTS.len())];
-                format!("{action} {dest} {proto} {port} from {src}")
+                let port = rng.random_range(1..65536u32);
+                // Optional comment
+                let comment = if rng.random_bool(0.3) {
+                    format!(" # {}", random_alpha_word(&mut rng, 4, 15))
+                } else {
+                    String::new()
+                };
+                format!("{action} {dest} {proto} {port} from {src}{comment}")
             }
         })
         .collect()
@@ -1206,65 +1347,69 @@ pub fn generate_ipv4_cidr_rules(n: usize) -> Vec<String> {
 // Prometheus exposition format metrics generator
 // ---------------------------------------------------------------------------
 
-const PROM_METRIC_NAMES: &[&str] = &[
-    "http_requests_total",
-    "http_request_duration_seconds",
-    "process_cpu_seconds_total",
-    "process_resident_memory_bytes",
-    "go_goroutines",
-    "node_cpu_seconds_total",
-    "up",
-    "scrape_duration_seconds",
-    "grpc_server_handled_total",
-    "api_errors_total",
+const PROM_METRIC_SUFFIXES: &[&str] = &[
+    "_total",
+    "_duration_seconds",
+    "_bytes",
+    "_count",
+    "_sum",
+    "_bucket",
+    "_info",
+    "_created",
+    "_ratio",
 ];
 
 const PROM_LABEL_KEYS: &[&str] = &[
-    "method", "handler", "status", "instance", "job", "mode", "le", "quantile",
+    "method",
+    "handler",
+    "status",
+    "instance",
+    "job",
+    "mode",
+    "le",
+    "quantile",
+    "namespace",
+    "pod",
+    "container",
+    "node",
+    "endpoint",
+    "service",
+    "code",
+    "version",
+    "region",
+    "cluster",
+    "env",
+    "tenant",
 ];
 
-const PROM_LABEL_VALUES: &[&str] = &[
-    "GET",
-    "POST",
-    "PUT",
-    "DELETE",
-    "/api/v1/users",
-    "/api/v1/orders",
-    "/api/v2/products",
-    "/healthz",
-    "/metrics",
-    "200",
-    "201",
-    "404",
-    "500",
-    "localhost:9090",
-    "prometheus",
-    "node-exporter",
-    "idle",
-    "user",
-    "system",
-    "0.5",
-    "0.9",
-    "0.99",
-];
-
-/// Generates Prometheus exposition format lines like
-/// `http_requests_total{method="GET",handler="/api/v1/users",status="200"} 1234 1678901234`.
+/// Generates Prometheus exposition format lines.
 pub fn generate_prometheus_metrics(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(2003);
     (0..n)
         .map(|_| {
-            let metric = PROM_METRIC_NAMES[rng.random_range(0..PROM_METRIC_NAMES.len())];
-            let num_labels = rng.random_range(1..5usize);
+            // Random metric name: prefix_suffix
+            let prefix = random_alpha_word(&mut rng, 3, 12);
+            let suffix = PROM_METRIC_SUFFIXES[rng.random_range(0..PROM_METRIC_SUFFIXES.len())];
+            let metric = format!("{prefix}{suffix}");
 
+            let num_labels = rng.random_range(1..6usize);
             let mut labels = Vec::with_capacity(num_labels);
             for _ in 0..num_labels {
                 let key = PROM_LABEL_KEYS[rng.random_range(0..PROM_LABEL_KEYS.len())];
-                let val = PROM_LABEL_VALUES[rng.random_range(0..PROM_LABEL_VALUES.len())];
+                // Random label value
+                let val = if rng.random_bool(0.3) {
+                    rng.random_range(0..1000u32).to_string()
+                } else {
+                    random_alpha_word(&mut rng, 2, 15)
+                };
                 labels.push(format!("{key}=\"{val}\""));
             }
 
-            let value = rng.random_range(0..1_000_000u64);
+            let value = if rng.random_bool(0.3) {
+                format!("{:.6}", rng.random_range(0..1000000u32) as f64 / 1000.0)
+            } else {
+                rng.random_range(0..10_000_000u64).to_string()
+            };
             let timestamp = rng.random_range(1_678_000_000..1_710_000_000u64);
 
             format!(
@@ -1279,82 +1424,58 @@ pub fn generate_prometheus_metrics(n: usize) -> Vec<String> {
 // DNS wire format binary generator (simplified)
 // ---------------------------------------------------------------------------
 
-const DNS_DOMAIN_COMPONENTS: &[&str] = &[
-    "www",
-    "mail",
-    "ns1",
-    "ns2",
-    "api",
-    "cdn",
-    "static",
-    "img",
-    "docs",
-    "blog",
-    "google",
-    "yahoo",
-    "amazon",
-    "cloudflare",
-    "github",
-    "example",
-    "com",
-    "net",
-    "org",
-    "io",
-];
+const DNS_QUERY_TYPES: &[u16] = &[1, 2, 5, 6, 12, 15, 16, 28, 33, 35, 43, 44, 46, 48, 52, 65];
 
-const DNS_QUERY_TYPES: &[u16] = &[
-    1,  // A
-    2,  // NS
-    5,  // CNAME
-    15, // MX
-    16, // TXT
-    28, // AAAA
-];
-
-/// Generates simplified DNS wire format packets.
-///
-/// Each packet contains: 2-byte transaction ID, 2-byte flags (`0x0100` for query
-/// or `0x8180` for response), 2-byte question count, then one or more questions
-/// encoded as length-prefixed labels (e.g., `[3]www[6]google[3]com[0]`) followed
-/// by 2-byte type and 2-byte class.
+/// Generates simplified DNS wire format packets with random domain labels.
 pub fn generate_dns_wire_binary(n: usize) -> Vec<Vec<u8>> {
     let mut rng = StdRng::seed_from_u64(2004);
     (0..n)
         .map(|_| {
-            let mut pkt = Vec::with_capacity(64);
+            let mut pkt = Vec::with_capacity(96);
 
             // Transaction ID (2 bytes)
             let txn_id: u16 = rng.random_range(0..u16::MAX);
             pkt.extend_from_slice(&txn_id.to_be_bytes());
 
-            // Flags (2 bytes): query or response
+            // Flags (2 bytes)
             let flags: u16 = if rng.random_bool(0.6) { 0x0100 } else { 0x8180 };
             pkt.extend_from_slice(&flags.to_be_bytes());
 
-            // Question count (2 bytes)
+            // Question count
             let qcount: u16 = rng.random_range(1..4);
             pkt.extend_from_slice(&qcount.to_be_bytes());
 
-            // Encode each question
             for _ in 0..qcount {
-                // Build domain name from 2-4 random components
-                let num_labels = rng.random_range(2..5usize);
+                // Random domain labels (2-5 labels, each 2-12 chars)
+                let num_labels = rng.random_range(2..6usize);
                 for _ in 0..num_labels {
-                    let component =
-                        DNS_DOMAIN_COMPONENTS[rng.random_range(0..DNS_DOMAIN_COMPONENTS.len())];
-                    let label_bytes = component.as_bytes();
-                    pkt.push(u8::try_from(label_bytes.len()).unwrap());
+                    let label = random_alpha_word(&mut rng, 2, 12);
+                    let label_bytes = label.as_bytes();
+                    #[allow(clippy::cast_possible_truncation)]
+                    pkt.push(label_bytes.len() as u8);
                     pkt.extend_from_slice(label_bytes);
                 }
-                // Null terminator for domain name
                 pkt.push(0);
-
-                // Query type (2 bytes)
                 let qtype = DNS_QUERY_TYPES[rng.random_range(0..DNS_QUERY_TYPES.len())];
                 pkt.extend_from_slice(&qtype.to_be_bytes());
-
-                // Query class (2 bytes): IN = 1
                 pkt.extend_from_slice(&1u16.to_be_bytes());
+            }
+
+            // For responses, add some random answer data
+            if flags == 0x8180 && rng.random_bool(0.5) {
+                let ans_count = rng.random_range(1..4usize);
+                for _ in 0..ans_count {
+                    // Pointer + type + class + TTL + rdlength + rdata
+                    pkt.extend_from_slice(&0xC00Cu16.to_be_bytes());
+                    pkt.extend_from_slice(&1u16.to_be_bytes()); // type A
+                    pkt.extend_from_slice(&1u16.to_be_bytes()); // class IN
+                    let ttl: u32 = rng.random_range(60..86400);
+                    pkt.extend_from_slice(&ttl.to_be_bytes());
+                    pkt.extend_from_slice(&4u16.to_be_bytes()); // rdlength
+                    for _ in 0..4 {
+                        pkt.push(rng.random_range(1..255u8));
+                    }
+                }
             }
 
             pkt
@@ -1366,53 +1487,52 @@ pub fn generate_dns_wire_binary(n: usize) -> Vec<Vec<u8>> {
 // Parquet-like column metadata binary generator
 // ---------------------------------------------------------------------------
 
-const PARQUET_COL_NAMES: &[&str] = &[
-    "user_id",
-    "timestamp",
-    "event_type",
-    "amount",
-    "currency",
-    "session_id",
-    "page_url",
-    "referrer",
-    "duration_ms",
-    "status_code",
-    "country",
-    "device_type",
-    "browser",
-    "ip_address",
-    "payload",
-];
-
-/// Generates simplified Parquet-like column metadata binary records.
-///
-/// Each record contains: 4-byte magic `"PAR1"`, then 3-8 column chunks where each
-/// chunk has a 1-byte type tag (0-6), 4-byte LE offset, 4-byte LE size, and a
-/// length-prefixed column name drawn from a pool of ~15 analytics column names.
+/// Generates simplified Parquet-like column metadata binary records with random column names.
 pub fn generate_parquet_footer_binary(n: usize) -> Vec<Vec<u8>> {
     let mut rng = StdRng::seed_from_u64(3001);
     (0..n)
         .map(|_| {
-            let mut buf = Vec::with_capacity(128);
+            let mut buf = Vec::with_capacity(256);
             // 4-byte magic
             buf.extend_from_slice(b"PAR1");
-            let num_chunks = rng.random_range(3..9usize);
+            // Version byte
+            buf.push(rng.random_range(1..4u8));
+            let num_chunks = rng.random_range(3..12usize);
             for _ in 0..num_chunks {
-                // 1-byte type tag (0=bool, 1=int32, 2=int64, 3=float, 4=double, 5=string, 6=binary)
+                // 1-byte type tag
                 buf.push(rng.random_range(0..7u8));
                 // 4-byte LE offset
-                let offset: u32 = rng.random_range(0..1_000_000);
+                let offset: u32 = rng.random_range(0..100_000_000);
                 buf.extend_from_slice(&offset.to_le_bytes());
                 // 4-byte LE size
-                let size: u32 = rng.random_range(64..65536);
+                let size: u32 = rng.random_range(64..1_000_000);
                 buf.extend_from_slice(&size.to_le_bytes());
-                // length-prefixed column name
-                let name = PARQUET_COL_NAMES[rng.random_range(0..PARQUET_COL_NAMES.len())];
+                // 4-byte LE num_values
+                let num_vals: u32 = rng.random_range(100..10_000_000);
+                buf.extend_from_slice(&num_vals.to_le_bytes());
+                // 1-byte encoding (0=plain, 1=rle, 2=delta, 3=dict)
+                buf.push(rng.random_range(0..4u8));
+                // 1-byte compression (0=none, 1=snappy, 2=gzip, 3=zstd)
+                buf.push(rng.random_range(0..4u8));
+                // length-prefixed random column name
+                let name = random_alpha_word(&mut rng, 3, 20);
                 let name_bytes = name.as_bytes();
                 #[allow(clippy::cast_possible_truncation)]
-                buf.push(name_bytes.len() as u8); // column names are all <256 bytes
+                buf.push(name_bytes.len() as u8);
                 buf.extend_from_slice(name_bytes);
+                // Optional statistics block
+                if rng.random_bool(0.5) {
+                    // min/max values (8 bytes each)
+                    for _ in 0..16 {
+                        buf.push(rng.random::<u8>());
+                    }
+                }
             }
+            // Footer size + magic
+            #[allow(clippy::cast_possible_truncation)]
+            let footer_size = buf.len() as u32; // footer is at most ~1KB
+            buf.extend_from_slice(&footer_size.to_le_bytes());
+            buf.extend_from_slice(b"PAR1");
             buf
         })
         .collect()
@@ -1433,21 +1553,15 @@ const SPARK_OPERATORS: &[&str] = &[
     "ShuffledHashJoin",
     "SortMergeJoin",
     "Window",
-];
-
-const SPARK_COLUMNS: &[&str] = &[
-    "user_id",
-    "amount",
-    "timestamp",
-    "event_type",
-    "session_id",
-    "country",
-    "product_id",
-    "quantity",
-    "price",
-    "category",
-    "order_id",
-    "status",
+    "GlobalLimit",
+    "LocalLimit",
+    "Union",
+    "Expand",
+    "Generate",
+    "SubqueryAlias",
+    "Coalesce",
+    "ReusedExchange",
+    "AdaptiveSparkPlan",
 ];
 
 const SPARK_AGG_FUNCTIONS: &[&str] = &[
@@ -1457,23 +1571,22 @@ const SPARK_AGG_FUNCTIONS: &[&str] = &[
     "max",
     "min",
     "first",
+    "last",
     "collect_list",
+    "collect_set",
     "approx_count_distinct",
+    "stddev",
+    "variance",
 ];
 
-/// Generates Spark-style physical query plan fragments.
-///
-/// Each plan starts with `"== Physical Plan =="` followed by 3-6 operators at
-/// increasing indentation with `+- ` connectors. Operators include `HashAggregate`,
-/// `Sort`, `Exchange`, `FileScan parquet`, etc., with column references in `name#id`
-/// notation.
+/// Generates Spark-style physical query plan fragments with random column names.
 pub fn generate_spark_plan_strings(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(3002);
     (0..n)
         .map(|_| {
-            let mut plan = String::with_capacity(256);
+            let mut plan = String::with_capacity(512);
             plan.push_str("== Physical Plan ==\n");
-            let depth = rng.random_range(3..7usize);
+            let depth = rng.random_range(3..8usize);
             for level in 0..depth {
                 if level > 0 {
                     for _ in 0..level {
@@ -1483,7 +1596,7 @@ pub fn generate_spark_plan_strings(n: usize) -> Vec<String> {
                 }
                 let op = SPARK_OPERATORS[rng.random_range(0..SPARK_OPERATORS.len())];
                 plan.push_str(op);
-                let ncols = rng.random_range(1..4usize);
+                let ncols = rng.random_range(1..5usize);
                 plan.push('(');
                 match op {
                     "HashAggregate" => {
@@ -1492,49 +1605,66 @@ pub fn generate_spark_plan_strings(n: usize) -> Vec<String> {
                             if i > 0 {
                                 plan.push_str(", ");
                             }
-                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
-                            let col_id = rng.random_range(100..999u32);
+                            let col = random_alpha_word(&mut rng, 3, 15);
+                            let col_id = rng.random_range(100..9999u32);
                             plan.push_str(&format!("{col}#{col_id}"));
                         }
                         plan.push_str("], functions=[");
-                        let nfuncs = rng.random_range(1..3usize);
+                        let nfuncs = rng.random_range(1..4usize);
                         for i in 0..nfuncs {
                             if i > 0 {
                                 plan.push_str(", ");
                             }
                             let func =
                                 SPARK_AGG_FUNCTIONS[rng.random_range(0..SPARK_AGG_FUNCTIONS.len())];
-                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
-                            let col_id = rng.random_range(100..999u32);
+                            let col = random_alpha_word(&mut rng, 3, 12);
+                            let col_id = rng.random_range(100..9999u32);
                             plan.push_str(&format!("{func}({col}#{col_id})"));
                         }
                         plan.push(']');
                     }
                     "Exchange" => {
-                        let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
-                        let col_id = rng.random_range(100..999u32);
-                        let partitions = rng.random_range(50..400u32);
+                        let col = random_alpha_word(&mut rng, 3, 12);
+                        let col_id = rng.random_range(100..9999u32);
+                        let partitions = rng.random_range(50..1000u32);
                         plan.push_str(&format!("hashpartitioning({col}#{col_id}, {partitions})"));
                     }
                     "FileScan parquet" => {
+                        let table = random_alpha_word(&mut rng, 5, 15);
+                        plan.push_str(&format!("[{table}] "));
                         plan.push('[');
                         for i in 0..ncols {
                             if i > 0 {
                                 plan.push(',');
                             }
-                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
-                            let col_id = rng.random_range(100..999u32);
+                            let col = random_alpha_word(&mut rng, 3, 12);
+                            let col_id = rng.random_range(100..9999u32);
                             plan.push_str(&format!("{col}#{col_id}"));
                         }
                         plan.push(']');
+                    }
+                    "Filter" => {
+                        let col = random_alpha_word(&mut rng, 3, 12);
+                        let col_id = rng.random_range(100..9999u32);
+                        let op_str = if rng.random_bool(0.5) {
+                            "isnotnull"
+                        } else {
+                            "=="
+                        };
+                        if op_str == "isnotnull" {
+                            plan.push_str(&format!("isnotnull({col}#{col_id})"));
+                        } else {
+                            let val = rng.random_range(0..10000u32);
+                            plan.push_str(&format!("({col}#{col_id} == {val})"));
+                        }
                     }
                     _ => {
                         for i in 0..ncols {
                             if i > 0 {
                                 plan.push_str(", ");
                             }
-                            let col = SPARK_COLUMNS[rng.random_range(0..SPARK_COLUMNS.len())];
-                            let col_id = rng.random_range(100..999u32);
+                            let col = random_alpha_word(&mut rng, 3, 12);
+                            let col_id = rng.random_range(100..9999u32);
                             plan.push_str(&format!("{col}#{col_id}"));
                         }
                     }
@@ -1553,55 +1683,55 @@ pub fn generate_spark_plan_strings(n: usize) -> Vec<String> {
 // Arrow IPC-like binary generator
 // ---------------------------------------------------------------------------
 
-const ARROW_FIELD_NAMES: &[&str] = &[
-    "id",
-    "name",
-    "timestamp",
-    "value",
-    "label",
-    "payload",
-    "score",
-    "count",
-    "flag",
-    "data",
-    "key",
-    "index",
-];
-
-/// Generates simplified Arrow IPC-like binary records.
-///
-/// Each record contains: 4-byte continuation marker `0xFFFFFFFF`, 4-byte LE metadata
-/// length, then flatbuffer-style field descriptors (1-byte type, 2-byte name offset,
-/// 1-byte nullable flag) for 3-8 fields, followed by a 4-byte LE body length.
+/// Generates simplified Arrow IPC-like binary records with random field names.
 pub fn generate_arrow_ipc_binary(n: usize) -> Vec<Vec<u8>> {
     let mut rng = StdRng::seed_from_u64(3003);
     (0..n)
         .map(|_| {
-            let mut buf = Vec::with_capacity(128);
+            let mut buf = Vec::with_capacity(256);
             // 4-byte continuation marker
             buf.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
             // Placeholder for metadata length
             let meta_len_pos = buf.len();
             buf.extend_from_slice(&0u32.to_le_bytes());
             let meta_start = buf.len();
-            let num_fields = rng.random_range(3..9usize);
+            // Schema: num_fields (2 bytes) + field descriptors
+            let num_fields = rng.random_range(3..12usize);
+            #[allow(clippy::cast_possible_truncation)]
+            buf.extend_from_slice(&(num_fields as u16).to_le_bytes());
             for _ in 0..num_fields {
-                // 1-byte type (0=null, 1=int, 2=float, 3=utf8, 4=binary)
-                buf.push(rng.random_range(0..5u8));
-                // 2-byte name_offset
-                let name_idx = rng.random_range(0..ARROW_FIELD_NAMES.len());
-                #[allow(clippy::cast_possible_truncation)]
-                let name_offset = (name_idx * 16) as u16; // 12 names * 16 fits in u16
-                buf.extend_from_slice(&name_offset.to_le_bytes());
+                // 1-byte type (0=null, 1=int8, 2=int16, ..., 7=utf8, 8=binary)
+                buf.push(rng.random_range(0..9u8));
+                // 1-byte bit_width
+                buf.push(match rng.random_range(0..4u8) {
+                    0 => 8,
+                    1 => 16,
+                    2 => 32,
+                    _ => 64,
+                });
                 // 1-byte nullable flag
                 buf.push(if rng.random_bool(0.3) { 1 } else { 0 });
+                // length-prefixed random field name
+                let name = random_alpha_word(&mut rng, 3, 18);
+                let name_bytes = name.as_bytes();
+                #[allow(clippy::cast_possible_truncation)]
+                buf.push(name_bytes.len() as u8);
+                buf.extend_from_slice(name_bytes);
+                // Optional dictionary encoding info
+                if rng.random_bool(0.2) {
+                    buf.push(1); // has_dictionary
+                    let dict_id: u16 = rng.random_range(0..1000);
+                    buf.extend_from_slice(&dict_id.to_le_bytes());
+                } else {
+                    buf.push(0);
+                }
             }
             // Patch metadata length
             #[allow(clippy::cast_possible_truncation)]
-            let meta_len = (buf.len() - meta_start) as u32; // metadata is at most ~32 bytes
+            let meta_len = (buf.len() - meta_start) as u32;
             buf[meta_len_pos..meta_len_pos + 4].copy_from_slice(&meta_len.to_le_bytes());
             // 4-byte body length
-            let body_len: u32 = rng.random_range(1024..1_048_576);
+            let body_len: u32 = rng.random_range(1024..10_000_000);
             buf.extend_from_slice(&body_len.to_le_bytes());
             buf
         })
@@ -1612,92 +1742,67 @@ pub fn generate_arrow_ipc_binary(n: usize) -> Vec<Vec<u8>> {
 // JSONL (JSON Lines) generator
 // ---------------------------------------------------------------------------
 
-const JSONL_EVENT_TYPES: &[&str] = &[
-    "page_view",
-    "click",
-    "purchase",
-    "signup",
-    "logout",
-    "search",
-    "add_to_cart",
-    "error",
-];
-
-const JSONL_PROP_KEYS: &[&str] = &[
-    "page",
-    "ref",
-    "device",
-    "browser",
-    "os",
-    "campaign",
-    "source",
-    "medium",
-    "duration",
-    "scroll_depth",
-];
-
-const JSONL_PROP_VALUES: &[&str] = &[
-    "/home",
-    "/products",
-    "/checkout",
-    "/search",
-    "/profile",
-    "google",
-    "facebook",
-    "twitter",
-    "email",
-    "direct",
-    "mobile",
-    "desktop",
-    "tablet",
-    "chrome",
-    "firefox",
-];
-
-/// Generates JSONL (one JSON object per line) records resembling event tracking data.
-///
-/// Each line is a complete JSON object with an event type, user ID, timestamp,
-/// a nested `"props"` object with 3-6 key-value pairs, and 0-3 additional top-level
-/// fields (`amount`, `success`, `v`).
+/// Generates JSONL records with varied schemas and random field names/values.
 pub fn generate_json_lines(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(3004);
     (0..n)
         .map(|_| {
             let mut line = String::with_capacity(256);
             line.push('{');
-            let event = JSONL_EVENT_TYPES[rng.random_range(0..JSONL_EVENT_TYPES.len())];
-            line.push_str(&format!("\"event\":\"{event}\""));
-            let user_id = rng.random_range(10000..99999u32);
-            line.push_str(&format!(",\"user\":\"u_{user_id}\""));
-            let ts = rng.random_range(1_678_000_000..1_700_000_000u64);
+            // Random event type
+            line.push_str("\"event\":\"");
+            line.push_str(&random_alpha_word(&mut rng, 4, 15));
+            line.push('"');
+            // Random user id
+            let user_id = random_hex(&mut rng, 8);
+            line.push_str(&format!(",\"user\":\"{user_id}\""));
+            let ts = rng.random_range(1_600_000_000..1_710_000_000u64);
             line.push_str(&format!(",\"ts\":{ts}"));
-            let nprops = rng.random_range(3..7usize);
+            // Nested props with random keys and values
+            let nprops = rng.random_range(2..8usize);
             line.push_str(",\"props\":{");
             for i in 0..nprops {
                 if i > 0 {
                     line.push(',');
                 }
-                let key = JSONL_PROP_KEYS[rng.random_range(0..JSONL_PROP_KEYS.len())];
-                let val = JSONL_PROP_VALUES[rng.random_range(0..JSONL_PROP_VALUES.len())];
-                line.push_str(&format!("\"{key}\":\"{val}\""));
+                let key = random_alpha_word(&mut rng, 2, 10);
+                line.push('"');
+                line.push_str(&key);
+                line.push_str("\":");
+                // Vary value types
+                match rng.random_range(0..3u32) {
+                    0 => {
+                        line.push('"');
+                        line.push_str(&random_alpha_word(&mut rng, 3, 15));
+                        line.push('"');
+                    }
+                    1 => {
+                        line.push_str(&rng.random_range(0..100000u32).to_string());
+                    }
+                    _ => {
+                        line.push_str(if rng.random_bool(0.5) {
+                            "true"
+                        } else {
+                            "false"
+                        });
+                    }
+                }
             }
             line.push('}');
-            let extra_fields = rng.random_range(0..4usize);
-            if extra_fields > 0 {
-                let amount = rng.random_range(1..10000u32);
-                line.push_str(&format!(",\"amount\":{amount}"));
-            }
-            if extra_fields > 1 {
-                let success = if rng.random_bool(0.8) {
-                    "true"
+            // Random extra top-level fields
+            let extras = rng.random_range(0..4usize);
+            for _ in 0..extras {
+                let key = random_alpha_word(&mut rng, 3, 10);
+                line.push_str(",\"");
+                line.push_str(&key);
+                line.push_str("\":");
+                if rng.random_bool(0.5) {
+                    line.push_str(&rng.random_range(0..100000u32).to_string());
                 } else {
-                    "false"
-                };
-                line.push_str(&format!(",\"success\":{success}"));
-            }
-            if extra_fields > 2 {
-                let version = rng.random_range(1..10u32);
-                line.push_str(&format!(",\"v\":{version}"));
+                    line.push('"');
+                    line.push_str(&random_alpha_word(&mut rng, 3, 12));
+                    line.push('"');
+                }
             }
             line.push('}');
             line
@@ -1709,119 +1814,88 @@ pub fn generate_json_lines(n: usize) -> Vec<String> {
 // Markdown fragments generator (headers, lists, code blocks, links)
 // ---------------------------------------------------------------------------
 
-const MD_HEADER_WORDS: &[&str] = &[
-    "Introduction",
-    "Overview",
-    "Architecture",
-    "Configuration",
-    "Deployment",
-    "Performance",
-    "Security",
-    "Troubleshooting",
-    "Reference",
-    "Migration",
-    "API",
-    "Guide",
-    "Tutorial",
-    "Quickstart",
-    "Advanced",
-];
-const MD_BODY_WORDS: &[&str] = &[
-    "the",
-    "system",
-    "processes",
-    "incoming",
-    "requests",
-    "using",
-    "configured",
-    "middleware",
-    "pipeline",
-    "ensure",
-    "proper",
-    "authentication",
-    "before",
-    "forwarding",
-    "to",
-    "upstream",
-    "services",
-    "with",
-    "retries",
-    "enabled",
-];
-const MD_CODE_LANGS: &[&str] = &["rust", "python", "javascript", "go"];
-const MD_LINK_TITLES: &[&str] = &[
-    "documentation",
-    "source code",
-    "issue tracker",
-    "release notes",
-    "changelog",
-    "contributing guide",
-    "license",
-    "examples",
-    "benchmarks",
-    "FAQ",
-];
-const MD_LINK_URLS: &[&str] = &[
-    "https://docs.example.com/guide",
-    "https://github.com/org/repo",
-    "https://github.com/org/repo/issues",
-    "https://example.com/releases/v2.0",
-    "https://wiki.example.com/setup",
-    "https://docs.example.com/api/reference",
-    "https://example.com/blog/best-practices",
-    "https://crates.io/crates/example",
-];
-const MD_CODE_SNIPPETS: &[&str] = &[
-    "let config = Config::from_env();",
-    "def handle_request(req):",
-    "const server = createServer(handler);",
-    "func main() { log.Println(\"starting\") }",
-    "fn process(input: &[u8]) -> Result<()>",
-    "import asyncio",
-    "export default function App() {}",
-    "ctx, cancel := context.WithTimeout(ctx, 5*time.Second)",
+const MD_CODE_LANGS: &[&str] = &[
+    "rust",
+    "python",
+    "javascript",
+    "go",
+    "java",
+    "typescript",
+    "bash",
+    "sql",
+    "yaml",
+    "json",
 ];
 
-/// Generates markdown text fragments with headers, bullet lists, code blocks, and links.
+/// Generates markdown text fragments with random content.
 pub fn generate_markdown_fragments(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(4001);
     (0..n)
         .map(|_| {
-            let num_lines = rng.random_range(2..6usize);
+            let num_lines = rng.random_range(2..7usize);
             let mut lines = Vec::with_capacity(num_lines);
             for i in 0..num_lines {
                 let kind = if i == 0 {
                     0 // always start with a header
                 } else {
-                    rng.random_range(1..4u32)
+                    rng.random_range(1..5u32)
                 };
                 match kind {
                     0 => {
-                        let depth = rng.random_range(1..4usize);
+                        let depth = rng.random_range(1..5usize);
                         let hashes: String = "#".repeat(depth);
-                        let w1 = MD_HEADER_WORDS[rng.random_range(0..MD_HEADER_WORDS.len())];
-                        let w2 = MD_HEADER_WORDS[rng.random_range(0..MD_HEADER_WORDS.len())];
-                        lines.push(format!("{hashes} {w1} {w2}"));
+                        let nwords = rng.random_range(2..5usize);
+                        let words: Vec<String> = (0..nwords)
+                            .map(|_| {
+                                let mut w = random_alpha_word(&mut rng, 3, 12);
+                                // Capitalize first letter
+                                if let Some(c) = w.get_mut(0..1) {
+                                    c.make_ascii_uppercase();
+                                }
+                                w
+                            })
+                            .collect();
+                        lines.push(format!("{hashes} {}", words.join(" ")));
                     }
                     1 => {
-                        let nwords = rng.random_range(4..8usize);
-                        let words: Vec<&str> = (0..nwords)
-                            .map(|_| MD_BODY_WORDS[rng.random_range(0..MD_BODY_WORDS.len())])
+                        // Bullet list item
+                        let nwords = rng.random_range(4..12usize);
+                        let words: Vec<String> = (0..nwords)
+                            .map(|_| random_alpha_word(&mut rng, 2, 10))
                             .collect();
-                        lines.push(format!("- {}", words.join(" ")));
+                        let bullet = if rng.random_bool(0.5) { "-" } else { "*" };
+                        lines.push(format!("{bullet} {}", words.join(" ")));
                     }
                     2 => {
+                        // Code block
                         let lang = MD_CODE_LANGS[rng.random_range(0..MD_CODE_LANGS.len())];
-                        let snippet = MD_CODE_SNIPPETS[rng.random_range(0..MD_CODE_SNIPPETS.len())];
-                        lines.push(format!("```{lang}\n{snippet}\n```"));
+                        let nwords = rng.random_range(3..8usize);
+                        let snippet: Vec<String> = (0..nwords)
+                            .map(|_| random_alpha_word(&mut rng, 2, 12))
+                            .collect();
+                        lines.push(format!("```{lang}\n{}\n```", snippet.join(" ")));
+                    }
+                    3 => {
+                        // Link
+                        let nwords = rng.random_range(2..5usize);
+                        let prefix: Vec<String> = (0..nwords)
+                            .map(|_| random_alpha_word(&mut rng, 2, 10))
+                            .collect();
+                        let title = random_alpha_word(&mut rng, 4, 15);
+                        let domain = random_alpha_word(&mut rng, 4, 12);
+                        let path = random_alpha_word(&mut rng, 3, 10);
+                        lines.push(format!(
+                            "{} [{title}](https://{domain}.com/{path})",
+                            prefix.join(" ")
+                        ));
                     }
                     _ => {
-                        let prefix_words: Vec<&str> = (0..rng.random_range(2..5usize))
-                            .map(|_| MD_BODY_WORDS[rng.random_range(0..MD_BODY_WORDS.len())])
+                        // Plain paragraph
+                        let nwords = rng.random_range(6..15usize);
+                        let words: Vec<String> = (0..nwords)
+                            .map(|_| random_alpha_word(&mut rng, 2, 12))
                             .collect();
-                        let title = MD_LINK_TITLES[rng.random_range(0..MD_LINK_TITLES.len())];
-                        let url = MD_LINK_URLS[rng.random_range(0..MD_LINK_URLS.len())];
-                        lines.push(format!("{} [{title}]({url})", prefix_words.join(" ")));
+                        lines.push(words.join(" "));
                     }
                 }
             }
@@ -1834,106 +1908,68 @@ pub fn generate_markdown_fragments(n: usize) -> Vec<String> {
 // Stack traces generator (Java/Python-style)
 // ---------------------------------------------------------------------------
 
-const ST_JAVA_PACKAGES: &[&str] = &[
-    "com.example.service",
-    "com.example.controller",
-    "com.example.repository",
-    "com.example.config",
-    "org.springframework.web",
-    "org.springframework.security",
-    "org.apache.catalina.core",
-    "org.apache.tomcat.util",
-    "io.netty.channel",
-    "io.grpc.internal",
-    "com.google.common.util",
-    "com.zaxxer.hikari",
-];
-const ST_CLASSES: &[&str] = &[
-    "UserService",
-    "OrderController",
-    "PaymentGateway",
-    "AuthFilter",
-    "SessionManager",
-    "CacheProvider",
-    "DatabasePool",
-    "RequestHandler",
-    "MessageBroker",
-    "ConfigLoader",
-    "MetricsCollector",
-    "HealthChecker",
-    "RateLimiter",
-    "CircuitBreaker",
-    "EventDispatcher",
-];
-const ST_METHODS: &[&str] = &[
-    "getUser",
-    "processOrder",
-    "validateToken",
-    "handleRequest",
-    "executeQuery",
-    "sendMessage",
-    "loadConfig",
-    "checkHealth",
-    "refreshCache",
-    "authenticate",
-    "serialize",
-    "dispatch",
-    "connect",
-    "initialize",
-    "shutdown",
-    "retry",
-    "transform",
-    "aggregate",
-    "publish",
-    "subscribe",
-];
-const ST_PYTHON_MODULES: &[&str] = &[
-    "/app/handlers/auth.py",
-    "/app/handlers/api.py",
-    "/app/models/user.py",
-    "/app/services/payment.py",
-    "/app/middleware/logging.py",
-    "/app/utils/crypto.py",
-    "/app/core/config.py",
-    "/app/db/session.py",
-    "/usr/lib/python3.11/asyncio/tasks.py",
-    "/usr/lib/python3.11/concurrent/futures/thread.py",
-    "/site-packages/fastapi/routing.py",
-    "/site-packages/sqlalchemy/engine/base.py",
+const ST_JAVA_PKG_PREFIXES: &[&str] = &["com", "org", "io", "net", "dev", "co"];
+const ST_EXCEPTION_TYPES: &[&str] = &[
+    "RuntimeException",
+    "NullPointerException",
+    "IllegalStateException",
+    "IOException",
+    "TimeoutException",
+    "SecurityException",
+    "IllegalArgumentException",
+    "UnsupportedOperationException",
+    "ConcurrentModificationException",
+    "OutOfMemoryError",
 ];
 
-/// Generates Java/Python-style stack traces with package paths, class names, and line numbers.
+/// Generates Java/Python-style stack traces with random package/class/method names.
 pub fn generate_stack_traces(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(4002);
     (0..n)
         .map(|_| {
             let is_java = rng.random_bool(0.5);
-            let depth = rng.random_range(3..7usize);
+            let depth = rng.random_range(3..10usize);
             let mut frames = Vec::with_capacity(depth);
             for _ in 0..depth {
                 if is_java {
-                    let pkg = ST_JAVA_PACKAGES[rng.random_range(0..ST_JAVA_PACKAGES.len())];
-                    let class = ST_CLASSES[rng.random_range(0..ST_CLASSES.len())];
-                    let method = ST_METHODS[rng.random_range(0..ST_METHODS.len())];
-                    let line = rng.random_range(10..500u32);
-                    frames.push(format!("\tat {pkg}.{class}.{method}({class}.java:{line})"));
+                    // Random package: com.example.randomword.randomword
+                    let prefix =
+                        ST_JAVA_PKG_PREFIXES[rng.random_range(0..ST_JAVA_PKG_PREFIXES.len())];
+                    let org = random_alpha_word(&mut rng, 4, 10);
+                    let pkg = random_alpha_word(&mut rng, 4, 12);
+                    let mut class = random_alpha_word(&mut rng, 5, 15);
+                    if let Some(c) = class.get_mut(0..1) {
+                        c.make_ascii_uppercase();
+                    }
+                    let method = random_alpha_word(&mut rng, 4, 15);
+                    let line = rng.random_range(10..2000u32);
+                    frames.push(format!(
+                        "\tat {prefix}.{org}.{pkg}.{class}.{method}({class}.java:{line})"
+                    ));
                 } else {
-                    let module = ST_PYTHON_MODULES[rng.random_range(0..ST_PYTHON_MODULES.len())];
-                    let method = ST_METHODS[rng.random_range(0..ST_METHODS.len())];
-                    let line = rng.random_range(10..500u32);
+                    // Random Python module path
+                    let depth_parts = rng.random_range(2..5usize);
+                    let parts: Vec<String> = (0..depth_parts)
+                        .map(|_| random_alpha_word(&mut rng, 3, 10))
+                        .collect();
+                    let module = format!("/{}.py", parts.join("/"));
+                    let method = random_alpha_word(&mut rng, 4, 15);
+                    let line = rng.random_range(10..2000u32);
                     frames.push(format!("  File \"{module}\", line {line}, in {method}"));
                 }
             }
             if is_java {
-                let class = ST_CLASSES[rng.random_range(0..ST_CLASSES.len())];
-                format!(
-                    "java.lang.RuntimeException: Operation failed in {class}\n{}",
-                    frames.join("\n")
-                )
+                let exc = ST_EXCEPTION_TYPES[rng.random_range(0..ST_EXCEPTION_TYPES.len())];
+                let msg = random_alpha_word(&mut rng, 5, 20);
+                format!("java.lang.{exc}: {msg}\n{}", frames.join("\n"))
             } else {
-                let class = ST_CLASSES[rng.random_range(0..ST_CLASSES.len())];
+                let mut exc_class = random_alpha_word(&mut rng, 5, 15);
+                if let Some(c) = exc_class.get_mut(0..1) {
+                    c.make_ascii_uppercase();
+                }
+                let msg = random_alpha_word(&mut rng, 5, 25);
                 format!(
-                    "Traceback (most recent call last):\n{}\n{class}Error: operation failed",
+                    "Traceback (most recent call last):\n{}\n{exc_class}Error: {msg}",
                     frames.join("\n")
                 )
             }
@@ -1945,23 +1981,6 @@ pub fn generate_stack_traces(n: usize) -> Vec<String> {
 // CSS rules generator (selectors, properties, values)
 // ---------------------------------------------------------------------------
 
-const CSS_SELECTORS: &[&str] = &[
-    ".container",
-    "#main",
-    ".btn-primary",
-    "nav > ul",
-    ".sidebar",
-    ".card",
-    "header",
-    "footer",
-    ".modal-overlay",
-    ".form-group",
-    ".text-muted",
-    "section > div",
-    ".grid-item",
-    ".dropdown-menu",
-    "input[type=\"text\"]",
-];
 const CSS_PROPERTIES: &[&str] = &[
     "display",
     "justify-content",
@@ -1976,6 +1995,7 @@ const CSS_PROPERTIES: &[&str] = &[
     "width",
     "height",
     "max-width",
+    "min-height",
     "position",
     "overflow",
     "gap",
@@ -1983,70 +2003,101 @@ const CSS_PROPERTIES: &[&str] = &[
     "box-shadow",
     "opacity",
     "z-index",
+    "transition",
+    "transform",
+    "cursor",
+    "text-decoration",
+    "text-align",
+    "line-height",
+    "letter-spacing",
+    "flex",
+    "grid-template-columns",
+    "grid-gap",
+    "white-space",
+    "text-overflow",
+    "visibility",
+    "outline",
+    "background",
+    "top",
+    "left",
+    "right",
+    "bottom",
 ];
-const CSS_VALUES_DISPLAY: &[&str] = &["flex", "grid", "block", "inline-block", "none"];
-const CSS_VALUES_JUSTIFY: &[&str] = &[
-    "center",
-    "flex-start",
-    "flex-end",
-    "space-between",
-    "space-around",
-];
-const CSS_VALUES_SPACING: &[&str] = &[
-    "0", "4px", "8px", "12px", "16px", "24px", "32px", "1rem", "1.5rem", "2rem",
-];
-const CSS_VALUES_COLOR: &[&str] = &[
-    "#333333",
-    "#ffffff",
-    "#e0e0e0",
-    "#1a73e8",
-    "#f44336",
-    "rgba(0, 0, 0, 0.1)",
-    "transparent",
-    "inherit",
-];
-const CSS_VALUES_BORDER: &[&str] = &[
-    "none",
-    "1px solid #e0e0e0",
-    "2px solid #1a73e8",
-    "1px dashed #ccc",
-    "1px solid transparent",
-];
-const CSS_VALUES_FONT: &[&str] = &[
-    "12px", "14px", "16px", "18px", "24px", "0.875rem", "1rem", "1.25rem",
-];
-const CSS_VALUES_WEIGHT: &[&str] = &["normal", "bold", "400", "500", "600", "700"];
-const CSS_VALUES_MISC: &[&str] = &[
-    "auto", "100%", "50%", "200px", "300px", "relative", "absolute", "fixed", "hidden", "1",
-];
+const CSS_SELECTOR_PREFIXES: &[&str] = &[".", "#", "", ".", "#", ".", ".", ""];
 
-/// Generates CSS rule blocks with selectors, properties, and contextual values.
+/// Generates CSS rule blocks with random selectors and properties.
 pub fn generate_css_rules(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(4003);
     (0..n)
         .map(|_| {
-            let selector = CSS_SELECTORS[rng.random_range(0..CSS_SELECTORS.len())];
-            let num_props = rng.random_range(2..6usize);
+            // Random selector
+            let prefix = CSS_SELECTOR_PREFIXES[rng.random_range(0..CSS_SELECTOR_PREFIXES.len())];
+            let name = random_alpha_word(&mut rng, 3, 15);
+            let selector = if rng.random_bool(0.3) {
+                // Compound selector
+                let prefix2 =
+                    CSS_SELECTOR_PREFIXES[rng.random_range(0..CSS_SELECTOR_PREFIXES.len())];
+                let name2 = random_alpha_word(&mut rng, 3, 12);
+                let combinator = match rng.random_range(0..3u32) {
+                    0 => " > ",
+                    1 => " ",
+                    _ => " ~ ",
+                };
+                format!("{prefix}{name}{combinator}{prefix2}{name2}")
+            } else if rng.random_bool(0.2) {
+                // Pseudo-class
+                let pseudo = match rng.random_range(0..4u32) {
+                    0 => ":hover",
+                    1 => ":focus",
+                    2 => ":active",
+                    _ => "::before",
+                };
+                format!("{prefix}{name}{pseudo}")
+            } else {
+                format!("{prefix}{name}")
+            };
+
+            let num_props = rng.random_range(2..7usize);
             let mut declarations = Vec::with_capacity(num_props);
             for _ in 0..num_props {
                 let prop = CSS_PROPERTIES[rng.random_range(0..CSS_PROPERTIES.len())];
+                // Generate random but plausible values
                 let value = match prop {
-                    "display" => CSS_VALUES_DISPLAY[rng.random_range(0..CSS_VALUES_DISPLAY.len())],
-                    "justify-content" | "align-items" => {
-                        CSS_VALUES_JUSTIFY[rng.random_range(0..CSS_VALUES_JUSTIFY.len())]
+                    "display" => match rng.random_range(0..5u32) {
+                        0 => "flex",
+                        1 => "grid",
+                        2 => "block",
+                        3 => "inline-block",
+                        _ => "none",
                     }
-                    "padding" | "margin" | "gap" => {
-                        CSS_VALUES_SPACING[rng.random_range(0..CSS_VALUES_SPACING.len())]
+                    .to_string(),
+                    "color" | "background-color" | "border-color" => {
+                        format!("#{:06x}", rng.random_range(0..0xFFFFFFu32))
                     }
-                    "background-color" | "color" => {
-                        CSS_VALUES_COLOR[rng.random_range(0..CSS_VALUES_COLOR.len())]
+                    "padding" | "margin" | "gap" | "top" | "left" | "right" | "bottom" => {
+                        format!("{}px", rng.random_range(0..64u32))
                     }
-                    "border" => CSS_VALUES_BORDER[rng.random_range(0..CSS_VALUES_BORDER.len())],
-                    "font-size" => CSS_VALUES_FONT[rng.random_range(0..CSS_VALUES_FONT.len())],
-                    "font-weight" => {
-                        CSS_VALUES_WEIGHT[rng.random_range(0..CSS_VALUES_WEIGHT.len())]
+                    "font-size" | "line-height" | "letter-spacing" => {
+                        format!("{:.1}rem", rng.random_range(5..30u32) as f64 / 10.0)
                     }
-                    _ => CSS_VALUES_MISC[rng.random_range(0..CSS_VALUES_MISC.len())],
+                    "width" | "height" | "max-width" | "min-height" => {
+                        if rng.random_bool(0.5) {
+                            format!("{}px", rng.random_range(10..1200u32))
+                        } else {
+                            format!("{}%", rng.random_range(10..101u32))
+                        }
+                    }
+                    "z-index" => rng.random_range(1..1000u32).to_string(),
+                    "opacity" => format!("{:.2}", rng.random_range(0..100u32) as f64 / 100.0),
+                    "border-radius" => format!("{}px", rng.random_range(0..24u32)),
+                    "box-shadow" => format!(
+                        "{}px {}px {}px rgba(0, 0, 0, {:.2})",
+                        rng.random_range(0..10u32),
+                        rng.random_range(0..10u32),
+                        rng.random_range(0..20u32),
+                        rng.random_range(5..50u32) as f64 / 100.0,
+                    ),
+                    _ => random_alpha_word(&mut rng, 3, 12),
                 };
                 declarations.push(format!("{prop}: {value};"));
             }
@@ -2059,7 +2110,7 @@ pub fn generate_css_rules(n: usize) -> Vec<String> {
 // Shell commands generator (kubectl, docker, git, curl, etc.)
 // ---------------------------------------------------------------------------
 
-const SHELL_COMMANDS: &[&str] = &[
+const SHELL_COMMANDS_LIST: &[&str] = &[
     "kubectl",
     "docker",
     "git",
@@ -2070,23 +2121,51 @@ const SHELL_COMMANDS: &[&str] = &[
     "npm",
     "ssh",
     "rsync",
+    "helm",
+    "make",
+    "go",
+    "python3",
+    "pip",
+    "gradle",
+    "mvn",
+    "systemctl",
+    "journalctl",
+    "find",
+    "tar",
+    "gzip",
+    "chmod",
+    "chown",
+    "ln",
+    "cp",
+    "mv",
 ];
+
 const SHELL_KUBECTL_SUB: &[&str] = &[
     "get pods",
     "get deployments",
     "get services",
+    "get nodes",
+    "get namespaces",
     "describe pod",
+    "describe service",
     "logs",
     "apply -f",
     "delete pod",
     "rollout status",
+    "rollout restart",
     "scale deployment",
     "exec -it",
+    "port-forward",
+    "top pods",
+    "get events",
+    "get configmaps",
 ];
+
 const SHELL_DOCKER_SUB: &[&str] = &[
     "run -d",
     "build -t",
     "compose up -d",
+    "compose down",
     "ps -a",
     "exec -it",
     "pull",
@@ -2094,54 +2173,18 @@ const SHELL_DOCKER_SUB: &[&str] = &[
     "logs --tail=100",
     "inspect",
     "network create",
-];
-const SHELL_FLAGS: &[&str] = &[
-    "-n production",
-    "--selector=app=api",
-    "-o json",
-    "--rm",
-    "--name=redis",
-    "-p 6379:6379",
-    "-v /data:/data",
-    "--timeout=30s",
-    "--recursive",
-    "-L",
-    "--follow",
-    "--all-namespaces",
-    "--format='{{.ID}}'",
-    "--no-cache",
-    "-e NODE_ENV=production",
-];
-const SHELL_ARGS: &[&str] = &[
-    "redis:7-alpine",
-    "nginx:latest",
-    "postgres:15",
-    "node:20-slim",
-    "user@bastion.example.com",
-    "s3://my-bucket/data/",
-    "./deploy/manifests/",
-    "https://api.example.com/v2/health",
-    "main.tf",
-    "origin/main",
-];
-const SHELL_PIPES: &[&str] = &[
-    "| jq '.items[].metadata.name'",
-    "| grep -v Completed",
-    "| wc -l",
-    "| head -20",
-    "| sort -k2 -rn",
-    "| tee output.log",
-    "| xargs -I{} echo {}",
-    ">> /var/log/deploy.log 2>&1",
+    "volume create",
+    "system prune",
+    "image ls",
 ];
 
-/// Generates shell command lines with subcommands, flags, arguments, and optional pipes.
+/// Generates shell command lines with random subcommands, flags, and arguments.
 pub fn generate_shell_commands(n: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(4004);
     (0..n)
         .map(|_| {
-            let cmd = SHELL_COMMANDS[rng.random_range(0..SHELL_COMMANDS.len())];
-            let mut parts = Vec::with_capacity(6);
+            let cmd = SHELL_COMMANDS_LIST[rng.random_range(0..SHELL_COMMANDS_LIST.len())];
+            let mut parts = Vec::with_capacity(8);
             parts.push(cmd.to_string());
             match cmd {
                 "kubectl" => {
@@ -2154,19 +2197,73 @@ pub fn generate_shell_commands(n: usize) -> Vec<String> {
                         SHELL_DOCKER_SUB[rng.random_range(0..SHELL_DOCKER_SUB.len())].to_string(),
                     );
                 }
-                _ => {}
+                _ => {
+                    // Random subcommand
+                    parts.push(random_alpha_word(&mut rng, 2, 10));
+                }
             }
-            let num_flags = rng.random_range(1..4usize);
+            // Random flags (1-5)
+            let num_flags = rng.random_range(1..6usize);
             for _ in 0..num_flags {
-                parts.push(SHELL_FLAGS[rng.random_range(0..SHELL_FLAGS.len())].to_string());
+                if rng.random_bool(0.5) {
+                    // Long flag
+                    let flag_name = random_alpha_word(&mut rng, 3, 12);
+                    if rng.random_bool(0.5) {
+                        let val = random_word(&mut rng, 2, 15);
+                        parts.push(format!("--{flag_name}={val}"));
+                    } else {
+                        parts.push(format!("--{flag_name}"));
+                    }
+                } else {
+                    // Short flag
+                    let flag_char = (b'a' + rng.random_range(0..26u8)) as char;
+                    if rng.random_bool(0.4) {
+                        let val = random_word(&mut rng, 2, 10);
+                        parts.push(format!("-{flag_char} {val}"));
+                    } else {
+                        parts.push(format!("-{flag_char}"));
+                    }
+                }
             }
-            let arg = SHELL_ARGS[rng.random_range(0..SHELL_ARGS.len())];
-            parts.push(arg.to_string());
+            // Random argument(s)
+            let nargs = rng.random_range(1..3usize);
+            for _ in 0..nargs {
+                match rng.random_range(0..4u32) {
+                    0 => {
+                        // URL
+                        let domain = random_alpha_word(&mut rng, 4, 10);
+                        let path = random_alpha_word(&mut rng, 3, 8);
+                        parts.push(format!("https://{domain}.com/{path}"));
+                    }
+                    1 => {
+                        // File path
+                        let dir = random_alpha_word(&mut rng, 3, 8);
+                        let file = random_alpha_word(&mut rng, 3, 10);
+                        parts.push(format!("./{dir}/{file}"));
+                    }
+                    2 => {
+                        // Docker image
+                        let img = random_alpha_word(&mut rng, 3, 10);
+                        let tag = random_alpha_word(&mut rng, 2, 6);
+                        parts.push(format!("{img}:{tag}"));
+                    }
+                    _ => {
+                        parts.push(random_word(&mut rng, 3, 15));
+                    }
+                }
+            }
             let mut command = parts.join(" ");
-            if rng.random_bool(0.4) {
-                let pipe = SHELL_PIPES[rng.random_range(0..SHELL_PIPES.len())];
+            // Optional pipe
+            if rng.random_bool(0.35) {
+                let pipe_cmd = match rng.random_range(0..5u32) {
+                    0 => format!("| jq '.{}'", random_alpha_word(&mut rng, 3, 10)),
+                    1 => format!("| grep {}", random_alpha_word(&mut rng, 3, 8)),
+                    2 => "| wc -l".to_string(),
+                    3 => format!("| head -{}", rng.random_range(5..100u32)),
+                    _ => format!("| sort -k{} -rn", rng.random_range(1..5u32)),
+                };
                 command.push(' ');
-                command.push_str(pipe);
+                command.push_str(&pipe_cmd);
             }
             command
         })

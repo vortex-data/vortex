@@ -56,7 +56,7 @@ fn main() {
 // Static benchmark datasets
 // ---------------------------------------------------------------------------
 
-const N: usize = 10_000;
+const N: usize = 50_000;
 
 /// Mostly-random binary data: random bytes with a few repeated 4-byte patterns.
 fn make_random_binary_dataset() -> Vec<Vec<u8>> {
