@@ -37,7 +37,8 @@ arrow-array = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 
-# ClickBench parquet reading
+# ClickBench parquet reading + writing
+arrow-select = { workspace = true }
 bytes = { workspace = true }
 parquet = { workspace = true }
 
@@ -54,3 +55,4 @@ clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+
