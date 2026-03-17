@@ -6,9 +6,11 @@
 //!
 //! Key optimizations over the baseline fsst-rs implementation:
 //! 1. Symbols stored as `u64` directly, avoiding `Symbol::to_u64()` conversion per lookup.
-//! 2. Multi-level block processing: 32-code, 16-code, and 8-code fast paths that process
+//! 2. Multi-level block processing: 32-code and 8-code fast paths that process
 //!    compressed data in large chunks when no escape codes are present.
-//! 3. Fully unrolled escape handling via match statement for optimal branch prediction.
+//! 3. Unified loop that re-enters the 32-code fast path after handling escapes,
+//!    instead of permanently dropping to the slower 8-code path.
+//! 4. Fully unrolled escape handling via match statement for optimal branch prediction.
 
 use std::mem::MaybeUninit;
 
@@ -26,20 +28,6 @@ pub struct OptimizedDecompressor {
     symbols: Box<[u64; 256]>,
     /// Symbol lengths indexed by code (0-255). Each value is 1-8.
     lengths: Box<[u8; 256]>,
-    /// Combined table: symbol bytes (low 8 bytes) + length (byte 8).
-    /// Ensures a single cache line hit for both symbol and length.
-    combined: Box<[SymbolEntry; 256]>,
-}
-
-/// Combined symbol + length entry for single-lookup access.
-/// Packed to 16 bytes to fit 4 entries per cache line.
-#[repr(C, align(16))]
-#[derive(Clone, Copy)]
-pub struct SymbolEntry {
-    /// Symbol bytes packed as little-endian u64.
-    pub symbol: u64,
-    /// Symbol length (1-8).
-    pub length: u64,
 }
 
 impl OptimizedDecompressor {
@@ -53,25 +41,13 @@ impl OptimizedDecompressor {
 
         let mut sym_table = Box::new([0u64; 256]);
         let mut len_table = Box::new([1u8; 256]);
-        let mut combined = Box::new(
-            [SymbolEntry {
-                symbol: 0,
-                length: 1,
-            }; 256],
-        );
         for (i, (sym, &len)) in symbols.iter().zip(lengths.iter()).enumerate() {
-            let s = sym.to_u64();
-            sym_table[i] = s;
+            sym_table[i] = sym.to_u64();
             len_table[i] = len;
-            combined[i] = SymbolEntry {
-                symbol: s,
-                length: len as u64,
-            };
         }
         Self {
             symbols: sym_table,
             lengths: len_table,
-            combined,
         }
     }
 
@@ -209,12 +185,40 @@ impl OptimizedDecompressor {
             };
         }
 
-        // 32-code fast path: process four 8-byte blocks when all are escape-free.
-        if decoded.len() >= 256 && compressed.len() >= 32 {
-            let block_out_end = out_end.sub(256);
-            let block_in_end = in_end.sub(32);
+        // Precompute loop bounds. When the buffer is too small for a given
+        // fast path, use a pointer that makes the loop condition immediately
+        // false. For output bounds, we use a null pointer so that
+        // `out_ptr <= null` is always false. For input bounds, we use
+        // the beginning of compressed data so `in_ptr < compressed.as_ptr()`
+        // is immediately false.
+        let null: *const u8 = core::ptr::null();
+        let block_out_end32 = if decoded.len() >= 256 {
+            out_end.sub(256)
+        } else {
+            null
+        };
+        let block_in_end32 = if compressed.len() >= 32 {
+            in_end.sub(32)
+        } else {
+            null
+        };
+        let block_out_end8 = if decoded.len() >= 64 {
+            out_end.sub(64)
+        } else {
+            null
+        };
+        let block_in_end8 = if compressed.len() >= 8 {
+            in_end.sub(8)
+        } else {
+            null
+        };
 
-            while out_ptr.cast_const() <= block_out_end && in_ptr < block_in_end {
+        // Unified loop: try 32-code escape-free batches, handle escapes at
+        // 8-code granularity, then re-enter the 32-code path. This avoids
+        // permanently dropping to the slower path after the first escape.
+        'outer: while out_ptr.cast_const() <= block_out_end8 && in_ptr < block_in_end8 {
+            // Inner 32-code escape-free fast path.
+            while out_ptr.cast_const() <= block_out_end32 && in_ptr < block_in_end32 {
                 let b0 = in_ptr.cast::<u64>().read_unaligned();
                 let b1 = in_ptr.add(8).cast::<u64>().read_unaligned();
                 let b2 = in_ptr.add(16).cast::<u64>().read_unaligned();
@@ -233,17 +237,15 @@ impl OptimizedDecompressor {
                     in_ptr = in_ptr.add(32);
                     continue;
                 }
-                // Fall through to 8-code path for escape handling.
                 break;
             }
-        }
 
-        // 8-code fast path with escape handling.
-        if decoded.len() >= 64 && compressed.len() >= 8 {
-            let block_out_end = out_end.sub(64);
-            let block_in_end = in_end.sub(8);
-
-            while out_ptr.cast_const() <= block_out_end && in_ptr < block_in_end {
+            // Process up to 4 blocks at 8-code granularity (with escape
+            // handling), then re-try the 32-code path.
+            for _ in 0..4 {
+                if out_ptr.cast_const() > block_out_end8 || in_ptr >= block_in_end8 {
+                    break 'outer;
+                }
                 let block = in_ptr.cast::<u64>().read_unaligned();
                 let escape_mask = Self::escape_mask(block);
 
@@ -277,411 +279,6 @@ impl OptimizedDecompressor {
         );
 
         out_ptr.offset_from(out_begin) as usize
-    }
-}
-
-// ============ Experimental decompressor variants for benchmarking ============
-
-#[cfg(target_arch = "x86_64")]
-#[allow(unsafe_op_in_unsafe_fn)]
-mod avx512 {
-    use std::arch::x86_64::_mm512_cmpeq_epi8_mask;
-    use std::arch::x86_64::_mm512_loadu_si512;
-    use std::arch::x86_64::_mm512_set1_epi8;
-    use std::mem::MaybeUninit;
-
-    use fsst::ESCAPE_CODE;
-
-    use super::OptimizedDecompressor;
-
-    impl OptimizedDecompressor {
-        /// AVX-512 escape detection: scan 64 bytes with `vpcmpeqb`, emit symbols
-        /// with scalar code. Only the scan uses AVX-512 instructions.
-        ///
-        /// # Safety
-        ///
-        /// Requires AVX-512F and AVX-512BW.
-        #[target_feature(enable = "avx512f", enable = "avx512bw")]
-        pub unsafe fn decompress_avx512_scan(
-            &self,
-            compressed: &[u8],
-            decoded: &mut [MaybeUninit<u8>],
-        ) -> usize {
-            assert!(
-                decoded.len() >= compressed.len() / 2,
-                "decoded buffer too small"
-            );
-
-            let mut in_ptr = compressed.as_ptr();
-            let in_end = in_ptr.add(compressed.len());
-
-            let mut out_ptr: *mut u8 = decoded.as_mut_ptr().cast();
-            let out_begin = out_ptr.cast_const();
-            let out_end = decoded.as_ptr().add(decoded.len()).cast::<u8>();
-
-            let symbols = self.symbols.as_ptr();
-            let lengths = self.lengths.as_ptr();
-
-            let esc_vec = _mm512_set1_epi8(ESCAPE_CODE as i8);
-
-            macro_rules! emit_symbol {
-                ($code:expr) => {{
-                    let c = $code as usize;
-                    out_ptr.cast::<u64>().write_unaligned(*symbols.add(c));
-                    out_ptr = out_ptr.add(*lengths.add(c) as usize);
-                }};
-            }
-
-            macro_rules! emit_block {
-                ($block:expr) => {{
-                    emit_symbol!(($block) & 0xFF);
-                    emit_symbol!(($block >> 8) & 0xFF);
-                    emit_symbol!(($block >> 16) & 0xFF);
-                    emit_symbol!(($block >> 24) & 0xFF);
-                    emit_symbol!(($block >> 32) & 0xFF);
-                    emit_symbol!(($block >> 40) & 0xFF);
-                    emit_symbol!(($block >> 48) & 0xFF);
-                    emit_symbol!(($block >> 56) & 0xFF);
-                }};
-            }
-
-            // AVX-512 fast path: scan 64 bytes for escapes at once.
-            if decoded.len() >= 512 && compressed.len() >= 64 {
-                let block_out_end = out_end.sub(512);
-                let block_in_end = in_end.sub(64);
-
-                while out_ptr.cast_const() <= block_out_end && in_ptr <= block_in_end {
-                    let chunk = _mm512_loadu_si512(in_ptr.cast());
-                    let esc_mask: u64 = _mm512_cmpeq_epi8_mask(chunk, esc_vec);
-
-                    if esc_mask == 0 {
-                        // No escapes in 64 bytes. Emit all 8 blocks.
-                        for blk in 0..8 {
-                            let b = in_ptr.add(blk * 8).cast::<u64>().read_unaligned();
-                            emit_block!(b);
-                        }
-                        in_ptr = in_ptr.add(64);
-                        continue;
-                    }
-
-                    // Escapes found. Process complete 8-byte blocks before
-                    // the first escape, then fall through to scalar.
-                    let first_esc = esc_mask.trailing_zeros() as usize;
-                    let full_blocks = first_esc / 8;
-                    for blk in 0..full_blocks {
-                        let b = in_ptr.add(blk * 8).cast::<u64>().read_unaligned();
-                        emit_block!(b);
-                    }
-                    in_ptr = in_ptr.add(full_blocks * 8);
-                    break;
-                }
-            }
-
-            // 32-code fast path.
-            if out_end.offset_from(out_ptr) >= 256 && in_end.offset_from(in_ptr) >= 32 {
-                let block_out_end = out_end.sub(256);
-                let block_in_end = in_end.sub(32);
-
-                while out_ptr.cast_const() <= block_out_end && in_ptr < block_in_end {
-                    let b0 = in_ptr.cast::<u64>().read_unaligned();
-                    let b1 = in_ptr.add(8).cast::<u64>().read_unaligned();
-                    let b2 = in_ptr.add(16).cast::<u64>().read_unaligned();
-                    let b3 = in_ptr.add(24).cast::<u64>().read_unaligned();
-
-                    let esc = Self::escape_mask(b0)
-                        | Self::escape_mask(b1)
-                        | Self::escape_mask(b2)
-                        | Self::escape_mask(b3);
-
-                    if esc == 0 {
-                        emit_block!(b0);
-                        emit_block!(b1);
-                        emit_block!(b2);
-                        emit_block!(b3);
-                        in_ptr = in_ptr.add(32);
-                        continue;
-                    }
-                    break;
-                }
-            }
-
-            // 8-code + scalar tail.
-            self.decompress_tail(&mut in_ptr, in_end, &mut out_ptr, out_end);
-
-            debug_assert_eq!(in_ptr, in_end);
-            out_ptr.offset_from(out_begin) as usize
-        }
-    }
-}
-
-impl OptimizedDecompressor {
-    /// Decompress using the combined symbol+length table.
-    ///
-    /// Single table lookup per code instead of two separate lookups.
-    /// The combined table is 4KB (256 * 16 bytes) — still fits in L1.
-    pub fn decompress_combined_table(
-        &self,
-        compressed: &[u8],
-        decoded: &mut [MaybeUninit<u8>],
-    ) -> usize {
-        assert!(
-            decoded.len() >= compressed.len() / 2,
-            "decoded buffer too small"
-        );
-        unsafe { self.decompress_combined_inner(compressed, decoded) }
-    }
-
-    #[inline(always)]
-    #[allow(unsafe_op_in_unsafe_fn, clippy::cast_possible_truncation)]
-    unsafe fn decompress_combined_inner(
-        &self,
-        compressed: &[u8],
-        decoded: &mut [MaybeUninit<u8>],
-    ) -> usize {
-        let mut in_ptr = compressed.as_ptr();
-        let in_end = in_ptr.add(compressed.len());
-
-        let mut out_ptr: *mut u8 = decoded.as_mut_ptr().cast();
-        let out_begin = out_ptr.cast_const();
-        let out_end = decoded.as_ptr().add(decoded.len()).cast::<u8>();
-
-        let table = self.combined.as_ptr();
-
-        macro_rules! emit_symbol {
-            ($code:expr) => {{
-                let entry = &*table.add($code as usize);
-                out_ptr.cast::<u64>().write_unaligned(entry.symbol);
-                out_ptr = out_ptr.add(entry.length as usize);
-            }};
-        }
-
-        macro_rules! emit_block {
-            ($block:expr) => {{
-                emit_symbol!(($block) & 0xFF);
-                emit_symbol!(($block >> 8) & 0xFF);
-                emit_symbol!(($block >> 16) & 0xFF);
-                emit_symbol!(($block >> 24) & 0xFF);
-                emit_symbol!(($block >> 32) & 0xFF);
-                emit_symbol!(($block >> 40) & 0xFF);
-                emit_symbol!(($block >> 48) & 0xFF);
-                emit_symbol!(($block >> 56) & 0xFF);
-            }};
-        }
-
-        // 32-code fast path.
-        if decoded.len() >= 256 && compressed.len() >= 32 {
-            let block_out_end = out_end.sub(256);
-            let block_in_end = in_end.sub(32);
-
-            while out_ptr.cast_const() <= block_out_end && in_ptr < block_in_end {
-                let b0 = in_ptr.cast::<u64>().read_unaligned();
-                let b1 = in_ptr.add(8).cast::<u64>().read_unaligned();
-                let b2 = in_ptr.add(16).cast::<u64>().read_unaligned();
-                let b3 = in_ptr.add(24).cast::<u64>().read_unaligned();
-
-                let esc = Self::escape_mask(b0)
-                    | Self::escape_mask(b1)
-                    | Self::escape_mask(b2)
-                    | Self::escape_mask(b3);
-
-                if esc == 0 {
-                    emit_block!(b0);
-                    emit_block!(b1);
-                    emit_block!(b2);
-                    emit_block!(b3);
-                    in_ptr = in_ptr.add(32);
-                    continue;
-                }
-                break;
-            }
-        }
-
-        // 8-code fast path with escape handling.
-        if decoded.len() >= 64 && compressed.len() >= 8 {
-            let block_out_end = out_end.sub(64);
-            let block_in_end = in_end.sub(8);
-
-            while out_ptr.cast_const() <= block_out_end && in_ptr < block_in_end {
-                let block = in_ptr.cast::<u64>().read_unaligned();
-                let escape_mask = Self::escape_mask(block);
-
-                if escape_mask == 0 {
-                    emit_block!(block);
-                    in_ptr = in_ptr.add(8);
-                } else {
-                    let first_esc = (escape_mask.trailing_zeros() >> 3) as usize;
-                    // Emit codes before the escape.
-                    for shift in 0..first_esc {
-                        emit_symbol!((block >> (shift * 8)) & 0xFF);
-                    }
-                    // Handle the escape.
-                    if first_esc < 7 {
-                        out_ptr.write(((block >> ((first_esc + 1) * 8)) & 0xFF) as u8);
-                        out_ptr = out_ptr.add(1);
-                        in_ptr = in_ptr.add(first_esc + 2);
-                    } else {
-                        emit_symbol!((block) & 0xFF);
-                        emit_symbol!((block >> 8) & 0xFF);
-                        emit_symbol!((block >> 16) & 0xFF);
-                        emit_symbol!((block >> 24) & 0xFF);
-                        emit_symbol!((block >> 32) & 0xFF);
-                        emit_symbol!((block >> 40) & 0xFF);
-                        emit_symbol!((block >> 48) & 0xFF);
-                        in_ptr = in_ptr.add(7);
-                    }
-                }
-            }
-        }
-
-        // Scalar fallback.
-        while out_end.offset_from(out_ptr) > 8 && in_ptr < in_end {
-            let code = in_ptr.read();
-            in_ptr = in_ptr.add(1);
-            if code == ESCAPE_CODE {
-                out_ptr.write(in_ptr.read());
-                in_ptr = in_ptr.add(1);
-                out_ptr = out_ptr.add(1);
-            } else {
-                emit_symbol!(code);
-            }
-        }
-
-        debug_assert_eq!(in_ptr, in_end);
-        out_ptr.offset_from(out_begin) as usize
-    }
-
-    /// Shared 8-code + scalar tail, used by SIMD variants.
-    #[inline(always)]
-    #[allow(unsafe_op_in_unsafe_fn, clippy::cast_possible_truncation)]
-    unsafe fn decompress_tail(
-        &self,
-        in_ptr: &mut *const u8,
-        in_end: *const u8,
-        out_ptr: &mut *mut u8,
-        out_end: *const u8,
-    ) {
-        let symbols = self.symbols.as_ptr();
-        let lengths = self.lengths.as_ptr();
-
-        macro_rules! emit_symbol {
-            ($code:expr) => {{
-                let c = $code as usize;
-                (*out_ptr).cast::<u64>().write_unaligned(*symbols.add(c));
-                *out_ptr = (*out_ptr).add(*lengths.add(c) as usize);
-            }};
-        }
-
-        macro_rules! emit_block {
-            ($block:expr) => {{
-                emit_symbol!(($block) & 0xFF);
-                emit_symbol!(($block >> 8) & 0xFF);
-                emit_symbol!(($block >> 16) & 0xFF);
-                emit_symbol!(($block >> 24) & 0xFF);
-                emit_symbol!(($block >> 32) & 0xFF);
-                emit_symbol!(($block >> 40) & 0xFF);
-                emit_symbol!(($block >> 48) & 0xFF);
-                emit_symbol!(($block >> 56) & 0xFF);
-            }};
-        }
-
-        if in_end.offset_from(*in_ptr) >= 8 && out_end.offset_from(*out_ptr) >= 64 {
-            let block_out_end = out_end.sub(64);
-            let block_in_end = in_end.sub(8);
-
-            while (*out_ptr).cast_const() <= block_out_end && *in_ptr < block_in_end {
-                let block = (*in_ptr).cast::<u64>().read_unaligned();
-                let escape_mask = Self::escape_mask(block);
-
-                if escape_mask == 0 {
-                    emit_block!(block);
-                    *in_ptr = (*in_ptr).add(8);
-                } else {
-                    let first_esc = (escape_mask.trailing_zeros() >> 3) as usize;
-                    match first_esc {
-                        7 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            emit_symbol!((block >> 32) & 0xFF);
-                            emit_symbol!((block >> 40) & 0xFF);
-                            emit_symbol!((block >> 48) & 0xFF);
-                            *in_ptr = (*in_ptr).add(7);
-                        }
-                        6 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            emit_symbol!((block >> 32) & 0xFF);
-                            emit_symbol!((block >> 40) & 0xFF);
-                            (*out_ptr).write(((block >> 56) & 0xFF) as u8);
-                            *out_ptr = (*out_ptr).add(1);
-                            *in_ptr = (*in_ptr).add(8);
-                        }
-                        5 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            emit_symbol!((block >> 32) & 0xFF);
-                            (*out_ptr).write(((block >> 48) & 0xFF) as u8);
-                            *out_ptr = (*out_ptr).add(1);
-                            *in_ptr = (*in_ptr).add(7);
-                        }
-                        4 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            (*out_ptr).write(((block >> 40) & 0xFF) as u8);
-                            *out_ptr = (*out_ptr).add(1);
-                            *in_ptr = (*in_ptr).add(6);
-                        }
-                        3 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            (*out_ptr).write(((block >> 32) & 0xFF) as u8);
-                            *out_ptr = (*out_ptr).add(1);
-                            *in_ptr = (*in_ptr).add(5);
-                        }
-                        2 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            (*out_ptr).write(((block >> 24) & 0xFF) as u8);
-                            *out_ptr = (*out_ptr).add(1);
-                            *in_ptr = (*in_ptr).add(4);
-                        }
-                        1 => {
-                            emit_symbol!((block) & 0xFF);
-                            (*out_ptr).write(((block >> 16) & 0xFF) as u8);
-                            *out_ptr = (*out_ptr).add(1);
-                            *in_ptr = (*in_ptr).add(3);
-                        }
-                        0 => {
-                            (*out_ptr).write(((block >> 8) & 0xFF) as u8);
-                            *out_ptr = (*out_ptr).add(1);
-                            *in_ptr = (*in_ptr).add(2);
-                        }
-                        _ => core::hint::unreachable_unchecked(),
-                    }
-                }
-            }
-        }
-
-        // Scalar fallback.
-        while out_end.offset_from(*out_ptr) > 8 && *in_ptr < in_end {
-            let code = (*in_ptr).read();
-            *in_ptr = (*in_ptr).add(1);
-            if code == ESCAPE_CODE {
-                (*out_ptr).write((*in_ptr).read());
-                *in_ptr = (*in_ptr).add(1);
-                *out_ptr = (*out_ptr).add(1);
-            } else {
-                emit_symbol!(code);
-            }
-        }
     }
 }
 
@@ -816,6 +413,43 @@ mod tests {
         for _ in 0..1000 {
             let len = rng.random_range(1..500);
             let s: Vec<u8> = (0..len).map(|_| rng.random_range(b'a'..=b'z')).collect();
+            owned.push(s);
+        }
+        let lines: Vec<&[u8]> = owned.iter().map(|s| s.as_slice()).collect();
+
+        let compressor = fsst::Compressor::train(&lines);
+        let baseline = compressor.decompressor();
+        let optimized =
+            OptimizedDecompressor::new(compressor.symbol_table(), compressor.symbol_lengths());
+
+        let mut all_compressed = Vec::new();
+        let mut all_expected = Vec::new();
+        for line in &lines {
+            let compressed = compressor.compress(line);
+            all_compressed.extend_from_slice(&compressed);
+            all_expected.extend_from_slice(line);
+        }
+
+        let baseline_result = baseline.decompress(&all_compressed);
+
+        let mut opt_result =
+            Vec::with_capacity(baseline.max_decompression_capacity(&all_compressed) + 7);
+        let len = optimized.decompress_into(&all_compressed, opt_result.spare_capacity_mut());
+        unsafe { opt_result.set_len(len) };
+
+        assert_eq!(baseline_result, opt_result);
+        assert_eq!(all_expected, opt_result);
+        Ok(())
+    }
+
+    #[test]
+    fn test_large_corpus_with_escapes() -> VortexResult<()> {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut owned: Vec<Vec<u8>> = Vec::new();
+
+        for _ in 0..1000 {
+            let len = rng.random_range(1..500);
+            let s: Vec<u8> = (0..len).map(|_| rng.random_range(0..=255u8)).collect();
             owned.push(s);
         }
         let lines: Vec<&[u8]> = owned.iter().map(|s| s.as_slice()).collect();

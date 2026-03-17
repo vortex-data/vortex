@@ -172,7 +172,6 @@ fn raw_optimized_low_escape(bencher: Bencher, args: (usize, usize)) {
         encoded.symbol_lengths().as_slice(),
     );
     let bytes = encoded.codes().sliced_bytes();
-    // Use same capacity as baseline for fair comparison.
     let max_cap = encoded
         .decompressor()
         .max_decompression_capacity(bytes.as_slice())
@@ -209,7 +208,6 @@ fn raw_optimized_high_escape(bencher: Bencher, args: (usize, usize)) {
         encoded.symbol_lengths().as_slice(),
     );
     let bytes = encoded.codes().sliced_bytes();
-    // Use same capacity as baseline for fair comparison.
     let max_cap = encoded
         .decompressor()
         .max_decompression_capacity(bytes.as_slice())
