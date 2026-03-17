@@ -25,6 +25,10 @@
     clippy::option_map_or_none
 )]
 
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+
 #[cfg(test)]
 mod tests;
 
@@ -80,10 +84,12 @@ impl Symbol12 {
         self.value
     }
 
-    /// Returns the symbol bytes as a slice.
-    pub fn as_bytes(&self) -> Vec<u8> {
-        let bytes = self.value.to_le_bytes();
-        bytes[..self.len as usize].to_vec()
+    /// Returns the symbol bytes as a fixed-size array and the valid length.
+    ///
+    /// Only the first `self.len()` bytes of the returned array are meaningful.
+    #[inline]
+    pub fn to_bytes(&self) -> ([u8; MAX_SYMBOL_LEN], usize) {
+        (self.value.to_le_bytes(), self.len as usize)
     }
 
     /// Concatenate two symbols if the result fits within 8 bytes.
@@ -108,12 +114,6 @@ impl Symbol12 {
 pub struct Compressor12 {
     /// Multi-byte symbol table: code N maps to `symbols[N - SYMBOL_CODE_BASE]`.
     symbols: Vec<Symbol12>,
-
-    /// Symbol lengths for fast lookup during decompression.
-    symbol_lengths: Vec<u8>,
-
-    /// Symbol values for fast lookup during decompression.
-    symbol_values: Vec<u64>,
 
     /// Direct lookup for 2-byte patterns: `first_two_bytes -> code`.
     /// Returns `HASH_EMPTY` if no 2-byte symbol exists.
@@ -196,8 +196,6 @@ impl Compressor12 {
     fn empty() -> Self {
         Self {
             symbols: Vec::new(),
-            symbol_lengths: Vec::new(),
-            symbol_values: Vec::new(),
             codes_two_byte: vec![HASH_EMPTY; 65536],
             hash_table: vec![HashEntry::default(); HASH_TABLE_SIZE],
         }
@@ -212,14 +210,9 @@ impl Compressor12 {
 
         let mut codes_two_byte = vec![HASH_EMPTY; 65536];
         let mut hash_table = vec![HashEntry::default(); HASH_TABLE_SIZE];
-        let mut symbol_lengths = Vec::with_capacity(symbols.len());
-        let mut symbol_values = Vec::with_capacity(symbols.len());
 
         for (idx, sym) in symbols.iter().enumerate() {
             let code = SYMBOL_CODE_BASE + idx as u16;
-            symbol_lengths.push(sym.len);
-            symbol_values.push(sym.value);
-
             match sym.len() {
                 2 => {
                     codes_two_byte[sym.value as u16 as usize] = code;
@@ -233,8 +226,6 @@ impl Compressor12 {
 
         Self {
             symbols: symbols.to_vec(),
-            symbol_lengths,
-            symbol_values,
             codes_two_byte,
             hash_table,
         }
@@ -291,17 +282,9 @@ impl Compressor12 {
         &self.symbols
     }
 
-    /// Returns the number of multi-byte symbols in the table.
-    pub fn num_symbols(&self) -> usize {
-        self.symbols.len()
-    }
-
     /// Create a decompressor from this compressor's symbol table.
     pub fn decompressor(&self) -> Decompressor12 {
-        Decompressor12 {
-            symbol_lengths: self.symbol_lengths.clone(),
-            symbol_values: self.symbol_values.clone(),
-        }
+        Decompressor12::new(&self.symbols)
     }
 
     /// Serialize the symbol table to bytes for storage.
@@ -318,28 +301,38 @@ impl Compressor12 {
     }
 
     /// Deserialize a symbol table from bytes and rebuild the compressor.
-    ///
-    /// Returns `None` if the data is malformed.
-    pub fn deserialize_table(data: &[u8]) -> Option<Self> {
+    pub fn deserialize_table(data: &[u8]) -> VortexResult<Self> {
         if data.len() < 2 {
-            return None;
+            vortex_bail!(
+                "FSST-12 table too short: need at least 2 bytes, got {}",
+                data.len()
+            );
         }
         let num_symbols = u16::from_le_bytes([data[0], data[1]]) as usize;
         if data.len() < 2 + num_symbols * 9 {
-            return None;
+            vortex_bail!(
+                "FSST-12 table truncated: need {} bytes for {} symbols, got {}",
+                2 + num_symbols * 9,
+                num_symbols,
+                data.len()
+            );
         }
         let mut symbols = Vec::with_capacity(num_symbols);
         let mut offset = 2;
-        for _ in 0..num_symbols {
-            let value = u64::from_le_bytes(data[offset..offset + 8].try_into().ok()?);
+        for i in 0..num_symbols {
+            let value = u64::from_le_bytes(
+                data[offset..offset + 8]
+                    .try_into()
+                    .map_err(|_| vortex_err!("FSST-12 table: failed to read symbol {i}"))?,
+            );
             let len = data[offset + 8];
             if len == 0 || len > MAX_SYMBOL_LEN as u8 {
-                return None;
+                vortex_bail!("FSST-12 table: invalid symbol length {len} at index {i}");
             }
             symbols.push(Symbol12 { value, len });
             offset += 9;
         }
-        Some(Self::rebuild(&symbols))
+        Ok(Self::rebuild(&symbols))
     }
 
     #[inline]
@@ -383,12 +376,16 @@ impl Compressor12 {
         let mut rng = hash_rng(4637947);
         let mut sample = Vec::new();
         let mut sample_size = 0;
+        // Guard against infinite loop when all inputs are empty.
+        let max_attempts = inputs.len() * 4;
+        let mut attempts = 0;
 
-        while sample_size < target_size {
+        while sample_size < target_size && attempts < max_attempts {
             let idx = (rng as usize) % inputs.len();
             rng = hash_rng(rng);
             let line = inputs[idx];
             if line.is_empty() {
+                attempts += 1;
                 continue;
             }
             let chunk_start = (rng as usize) % line.len();
@@ -396,6 +393,7 @@ impl Compressor12 {
             let chunk_len = 512.min(line.len() - chunk_start);
             sample.push(line[chunk_start..chunk_start + chunk_len].to_vec());
             sample_size += chunk_len;
+            attempts = 0; // reset on progress
         }
 
         sample
@@ -460,11 +458,20 @@ fn unpack_12bit(data: &[u8]) -> Vec<u16> {
 /// FSST-12 Decompressor.
 #[derive(Clone)]
 pub struct Decompressor12 {
+    /// Flattened symbol lengths for O(1) lookup by code index.
     symbol_lengths: Vec<u8>,
+    /// Flattened symbol values for O(1) lookup by code index.
     symbol_values: Vec<u64>,
 }
 
 impl Decompressor12 {
+    fn new(symbols: &[Symbol12]) -> Self {
+        Self {
+            symbol_lengths: symbols.iter().map(|s| s.len).collect(),
+            symbol_values: symbols.iter().map(|s| s.value).collect(),
+        }
+    }
+
     /// Decompress a byte stream produced by [`Compressor12::compress`].
     pub fn decompress(&self, compressed: &[u8]) -> Vec<u8> {
         let mut output = Vec::with_capacity(compressed.len() * 3);
@@ -544,7 +551,12 @@ impl Decompressor12 {
             let len = self.symbol_lengths[idx] as usize;
             let val = self.symbol_values[idx];
             let bytes = val.to_le_bytes();
-            output[out_pos..out_pos + len].copy_from_slice(&bytes[..len]);
+            // Write all 8 bytes when space allows (avoids variable-length copy).
+            if out_pos + 8 <= output.len() {
+                output[out_pos..out_pos + 8].copy_from_slice(&bytes);
+            } else {
+                output[out_pos..out_pos + len].copy_from_slice(&bytes[..len]);
+            }
             len
         }
     }
@@ -815,10 +827,13 @@ fn insert_hash(hash_table: &mut [HashEntry], value: u64, len: u8, code: u16) {
 /// Load up to 8 bytes from `data` as a little-endian u64, zero-padding if shorter.
 #[inline]
 fn load_word(data: &[u8]) -> u64 {
-    let mut buf = [0u8; 8];
-    let n = data.len().min(8);
-    buf[..n].copy_from_slice(&data[..n]);
-    u64::from_le_bytes(buf)
+    if data.len() >= 8 {
+        u64::from_le_bytes([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]])
+    } else {
+        let mut buf = [0u8; 8];
+        buf[..data.len()].copy_from_slice(data);
+        u64::from_le_bytes(buf)
+    }
 }
 
 /// Hash function matching the reference cwida/fsst implementation.

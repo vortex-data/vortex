@@ -143,15 +143,18 @@ fn test_symbol_concat_too_long() {
 }
 
 #[test]
-fn test_symbol_as_bytes() {
+fn test_symbol_to_bytes() {
     let sym = Symbol12::from_bytes(b"hello");
-    assert_eq!(sym.as_bytes(), b"hello");
+    let (buf, len) = sym.to_bytes();
+    assert_eq!(&buf[..len], b"hello");
 
     let sym = Symbol12::from_bytes(b"x");
-    assert_eq!(sym.as_bytes(), b"x");
+    let (buf, len) = sym.to_bytes();
+    assert_eq!(&buf[..len], b"x");
 
     let sym = Symbol12::from_bytes(b"12345678");
-    assert_eq!(sym.as_bytes(), b"12345678");
+    let (buf, len) = sym.to_bytes();
+    assert_eq!(&buf[..len], b"12345678");
 }
 
 #[test]
@@ -204,9 +207,9 @@ fn test_large_diverse_corpus() {
     let compressor = Compressor12::train(&refs);
 
     assert!(
-        compressor.num_symbols() > 5,
+        compressor.symbols().len() > 5,
         "should learn multi-byte symbols, got {}",
-        compressor.num_symbols()
+        compressor.symbols().len()
     );
 
     let decompressor = compressor.decompressor();
@@ -290,7 +293,6 @@ fn test_serialize_deserialize_roundtrip() {
         assert_eq!(orig, rest);
     }
 
-    // Verify the restored compressor produces identical output
     let decompressor = restored.decompressor();
     for input in &corpus {
         let compressed = restored.compress(input);
@@ -304,25 +306,15 @@ fn test_deserialize_empty() {
     let compressor = Compressor12::train(&[]);
     let serialized = compressor.serialize_table();
     let restored = Compressor12::deserialize_table(&serialized).unwrap();
-    assert_eq!(restored.num_symbols(), 0);
+    assert_eq!(restored.symbols().len(), 0);
 }
 
 #[test]
 fn test_deserialize_malformed() {
-    assert!(Compressor12::deserialize_table(&[]).is_none());
-    assert!(Compressor12::deserialize_table(&[0]).is_none());
+    assert!(Compressor12::deserialize_table(&[]).is_err());
+    assert!(Compressor12::deserialize_table(&[0]).is_err());
     // Claims 1 symbol but no data follows
-    assert!(Compressor12::deserialize_table(&[1, 0]).is_none());
-}
-
-#[test]
-fn test_num_symbols() {
-    let compressor = Compressor12::train(&[]);
-    assert_eq!(compressor.num_symbols(), 0);
-
-    let corpus: Vec<&[u8]> = (0..100).map(|_| b"abcabc".as_ref()).collect();
-    let compressor = Compressor12::train(&corpus);
-    assert!(compressor.num_symbols() > 0);
+    assert!(Compressor12::deserialize_table(&[1, 0]).is_err());
 }
 
 #[test]
