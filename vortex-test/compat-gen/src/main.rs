@@ -51,7 +51,7 @@ fn main() -> VortexResult<()> {
     for fixture in &fixtures {
         let new_entries = fixture.write(&cli.output)?;
         for entry in &new_entries {
-            eprintln!("  wrote {}", entry.name);
+            eprintln!("  generated file: {}", entry.name);
         }
         entries.extend(new_entries);
     }

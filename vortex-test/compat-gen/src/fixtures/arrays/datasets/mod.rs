@@ -32,7 +32,6 @@ mod tests {
             .into_iter()
             .filter(|fixture| !is_clickbench_fixture(fixture.name()))
         {
-            eprintln!("--- writing {} regular to bytes ---", dataset.name());
             let array = dataset.build().unwrap();
             let regular_bytes = adapter::write_compressed_to_bytes(
                 array.clone(),
@@ -41,7 +40,6 @@ mod tests {
             .unwrap();
             let _regular = adapter::read_file(regular_bytes).unwrap();
 
-            eprintln!("--- writing {} compact to bytes ---", dataset.name());
             let compact_bytes = adapter::write_compressed_to_bytes(
                 array,
                 WriteStrategyBuilder::default()
