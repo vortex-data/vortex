@@ -6,8 +6,8 @@
 //!
 //! Key optimizations over the baseline fsst-rs implementation:
 //! 1. Symbols stored as `u64` directly, avoiding `Symbol::to_u64()` conversion per lookup.
-//! 2. Batched table lookups in the no-escape fast path: all 8 symbol lookups are issued
-//!    before any writes, allowing the CPU's out-of-order engine to overlap memory latency.
+//! 2. Multi-level block processing: 32-code, 16-code, and 8-code fast paths that process
+//!    compressed data in large chunks when no escape codes are present.
 //! 3. Fully unrolled escape handling via match statement for optimal branch prediction.
 
 use std::mem::MaybeUninit;
@@ -96,7 +96,123 @@ impl OptimizedDecompressor {
             }};
         }
 
-        // Fast path: process 8 codes at a time.
+        macro_rules! emit_block {
+            ($block:expr) => {{
+                emit_symbol!(($block) & 0xFF);
+                emit_symbol!(($block >> 8) & 0xFF);
+                emit_symbol!(($block >> 16) & 0xFF);
+                emit_symbol!(($block >> 24) & 0xFF);
+                emit_symbol!(($block >> 32) & 0xFF);
+                emit_symbol!(($block >> 40) & 0xFF);
+                emit_symbol!(($block >> 48) & 0xFF);
+                emit_symbol!(($block >> 56) & 0xFF);
+            }};
+        }
+
+        macro_rules! handle_escape_block {
+            ($block:expr, $first_esc:expr) => {
+                match $first_esc {
+                    7 => {
+                        emit_symbol!(($block) & 0xFF);
+                        emit_symbol!(($block >> 8) & 0xFF);
+                        emit_symbol!(($block >> 16) & 0xFF);
+                        emit_symbol!(($block >> 24) & 0xFF);
+                        emit_symbol!(($block >> 32) & 0xFF);
+                        emit_symbol!(($block >> 40) & 0xFF);
+                        emit_symbol!(($block >> 48) & 0xFF);
+                        in_ptr = in_ptr.add(7);
+                    }
+                    6 => {
+                        emit_symbol!(($block) & 0xFF);
+                        emit_symbol!(($block >> 8) & 0xFF);
+                        emit_symbol!(($block >> 16) & 0xFF);
+                        emit_symbol!(($block >> 24) & 0xFF);
+                        emit_symbol!(($block >> 32) & 0xFF);
+                        emit_symbol!(($block >> 40) & 0xFF);
+                        out_ptr.write((($block >> 56) & 0xFF) as u8);
+                        out_ptr = out_ptr.add(1);
+                        in_ptr = in_ptr.add(8);
+                    }
+                    5 => {
+                        emit_symbol!(($block) & 0xFF);
+                        emit_symbol!(($block >> 8) & 0xFF);
+                        emit_symbol!(($block >> 16) & 0xFF);
+                        emit_symbol!(($block >> 24) & 0xFF);
+                        emit_symbol!(($block >> 32) & 0xFF);
+                        out_ptr.write((($block >> 48) & 0xFF) as u8);
+                        out_ptr = out_ptr.add(1);
+                        in_ptr = in_ptr.add(7);
+                    }
+                    4 => {
+                        emit_symbol!(($block) & 0xFF);
+                        emit_symbol!(($block >> 8) & 0xFF);
+                        emit_symbol!(($block >> 16) & 0xFF);
+                        emit_symbol!(($block >> 24) & 0xFF);
+                        out_ptr.write((($block >> 40) & 0xFF) as u8);
+                        out_ptr = out_ptr.add(1);
+                        in_ptr = in_ptr.add(6);
+                    }
+                    3 => {
+                        emit_symbol!(($block) & 0xFF);
+                        emit_symbol!(($block >> 8) & 0xFF);
+                        emit_symbol!(($block >> 16) & 0xFF);
+                        out_ptr.write((($block >> 32) & 0xFF) as u8);
+                        out_ptr = out_ptr.add(1);
+                        in_ptr = in_ptr.add(5);
+                    }
+                    2 => {
+                        emit_symbol!(($block) & 0xFF);
+                        emit_symbol!(($block >> 8) & 0xFF);
+                        out_ptr.write((($block >> 24) & 0xFF) as u8);
+                        out_ptr = out_ptr.add(1);
+                        in_ptr = in_ptr.add(4);
+                    }
+                    1 => {
+                        emit_symbol!(($block) & 0xFF);
+                        out_ptr.write((($block >> 16) & 0xFF) as u8);
+                        out_ptr = out_ptr.add(1);
+                        in_ptr = in_ptr.add(3);
+                    }
+                    0 => {
+                        out_ptr.write((($block >> 8) & 0xFF) as u8);
+                        out_ptr = out_ptr.add(1);
+                        in_ptr = in_ptr.add(2);
+                    }
+                    _ => core::hint::unreachable_unchecked(),
+                }
+            };
+        }
+
+        // 32-code fast path: process four 8-byte blocks when all are escape-free.
+        if decoded.len() >= 256 && compressed.len() >= 32 {
+            let block_out_end = out_end.sub(256);
+            let block_in_end = in_end.sub(32);
+
+            while out_ptr.cast_const() <= block_out_end && in_ptr < block_in_end {
+                let b0 = in_ptr.cast::<u64>().read_unaligned();
+                let b1 = in_ptr.add(8).cast::<u64>().read_unaligned();
+                let b2 = in_ptr.add(16).cast::<u64>().read_unaligned();
+                let b3 = in_ptr.add(24).cast::<u64>().read_unaligned();
+
+                let esc = Self::escape_mask(b0)
+                    | Self::escape_mask(b1)
+                    | Self::escape_mask(b2)
+                    | Self::escape_mask(b3);
+
+                if esc == 0 {
+                    emit_block!(b0);
+                    emit_block!(b1);
+                    emit_block!(b2);
+                    emit_block!(b3);
+                    in_ptr = in_ptr.add(32);
+                    continue;
+                }
+                // Fall through to 8-code path for escape handling.
+                break;
+            }
+        }
+
+        // 8-code fast path with escape handling.
         if decoded.len() >= 64 && compressed.len() >= 8 {
             let block_out_end = out_end.sub(64);
             let block_in_end = in_end.sub(8);
@@ -106,88 +222,11 @@ impl OptimizedDecompressor {
                 let escape_mask = Self::escape_mask(block);
 
                 if escape_mask == 0 {
-                    // No escapes: emit all 8 symbols sequentially.
-                    emit_symbol!((block) & 0xFF);
-                    emit_symbol!((block >> 8) & 0xFF);
-                    emit_symbol!((block >> 16) & 0xFF);
-                    emit_symbol!((block >> 24) & 0xFF);
-                    emit_symbol!((block >> 32) & 0xFF);
-                    emit_symbol!((block >> 40) & 0xFF);
-                    emit_symbol!((block >> 48) & 0xFF);
-                    emit_symbol!((block >> 56) & 0xFF);
+                    emit_block!(block);
                     in_ptr = in_ptr.add(8);
                 } else {
-                    // Escape found: fully unrolled match for optimal branch prediction.
                     let first_esc = (escape_mask.trailing_zeros() >> 3) as usize;
-                    match first_esc {
-                        7 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            emit_symbol!((block >> 32) & 0xFF);
-                            emit_symbol!((block >> 40) & 0xFF);
-                            emit_symbol!((block >> 48) & 0xFF);
-                            in_ptr = in_ptr.add(7);
-                        }
-                        6 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            emit_symbol!((block >> 32) & 0xFF);
-                            emit_symbol!((block >> 40) & 0xFF);
-                            out_ptr.write(((block >> 56) & 0xFF) as u8);
-                            out_ptr = out_ptr.add(1);
-                            in_ptr = in_ptr.add(8);
-                        }
-                        5 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            emit_symbol!((block >> 32) & 0xFF);
-                            out_ptr.write(((block >> 48) & 0xFF) as u8);
-                            out_ptr = out_ptr.add(1);
-                            in_ptr = in_ptr.add(7);
-                        }
-                        4 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            emit_symbol!((block >> 24) & 0xFF);
-                            out_ptr.write(((block >> 40) & 0xFF) as u8);
-                            out_ptr = out_ptr.add(1);
-                            in_ptr = in_ptr.add(6);
-                        }
-                        3 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            emit_symbol!((block >> 16) & 0xFF);
-                            out_ptr.write(((block >> 32) & 0xFF) as u8);
-                            out_ptr = out_ptr.add(1);
-                            in_ptr = in_ptr.add(5);
-                        }
-                        2 => {
-                            emit_symbol!((block) & 0xFF);
-                            emit_symbol!((block >> 8) & 0xFF);
-                            out_ptr.write(((block >> 24) & 0xFF) as u8);
-                            out_ptr = out_ptr.add(1);
-                            in_ptr = in_ptr.add(4);
-                        }
-                        1 => {
-                            emit_symbol!((block) & 0xFF);
-                            out_ptr.write(((block >> 16) & 0xFF) as u8);
-                            out_ptr = out_ptr.add(1);
-                            in_ptr = in_ptr.add(3);
-                        }
-                        0 => {
-                            out_ptr.write(((block >> 8) & 0xFF) as u8);
-                            out_ptr = out_ptr.add(1);
-                            in_ptr = in_ptr.add(2);
-                        }
-                        _ => core::hint::unreachable_unchecked(),
-                    }
+                    handle_escape_block!(block, first_esc);
                 }
             }
         }
