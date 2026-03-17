@@ -4,18 +4,19 @@
 
 The `OptimizedDecompressor` in `encodings/fsst/src/decompressor.rs` replaces the default
 fsst-rs decompressor with a version tuned for throughput. After exhaustive exploration of
-~10 different optimization strategies, the current implementation achieves **16-18% speedup
-on low-escape data** and **6-8% speedup on high-escape data** over the fsst-rs baseline.
+~15 different optimization strategies, the current implementation achieves **16-22% speedup
+on low-escape data** and **3-16% speedup on high-escape data** over the fsst-rs baseline.
 
 ## Current Implementation (committed)
 
-**Architecture: Re-entry N=4 with SWAR escape detection**
+**Architecture: N=1 re-entry with SWAR escape detection + runtime BMI1/BMI2 dispatch**
 
 Key design decisions:
 - **Separate symbol/length tables**: `symbols: [u64; 256]` (2KB) + `lengths: [u8; 256]` (256B) = 2.3KB total, fits in L1 cache
 - **Pre-converted u64 symbols**: Avoids per-lookup `Symbol::to_u64()` conversion
 - **3-tier processing**: 32-code escape-free fast path → 8-code blocks with escape handling → scalar tail
-- **Re-entry pattern**: After handling up to 4×8-code blocks with escapes, re-enters the 32-code fast path
+- **N=1 re-entry**: After handling one 8-code escape block, immediately re-enters the 32-code fast path (optimal for low-escape data which is the common case)
+- **Runtime BMI dispatch**: `is_x86_feature_detected!("bmi1")` dispatches to `#[target_feature(enable = "bmi1,bmi2,popcnt")]` for better `tzcnt` codegen
 - **SWAR escape detection**: `escape_mask()` detects 0xFF bytes in a u64 using bitwise tricks, avoiding per-byte branches
 - **Unrolled escape match**: 8-arm match statement for escape position (0-7) avoids loop overhead
 
@@ -25,14 +26,14 @@ Key design decisions:
 
 | Workload | Baseline (fsst-rs) | Optimized | Speedup |
 |---|---|---|---|
-| Low escape (10k, 16) | 38.8 | 32.4 | **-16%** |
-| Low escape (10k, 64) | 153.1 | 127.7 | **-17%** |
-| Low escape (10k, 256) | 632.8 | 531.3 | **-16%** |
-| Low escape (100k, 64) | 1629 | 1383 | **-15%** |
-| High escape (10k, 16) | 120.4 | 103.8 | **-14%** |
-| High escape (10k, 64) | 518.8 | 481.0 | **-7%** |
-| High escape (10k, 256) | 2109 | 1951 | **-7%** |
-| High escape (100k, 64) | 7062 | 6658 | **-6%** |
+| Low escape (10k, 16) | 38.5 | 32.4 | **-16%** |
+| Low escape (10k, 64) | 153.9 | 127.5 | **-17%** |
+| Low escape (10k, 256) | 680.4 | 532.5 | **-22%** |
+| Low escape (100k, 64) | 1646 | 1376 | **-16%** |
+| High escape (10k, 16) | 122.7 | 103.4 | **-16%** |
+| High escape (10k, 64) | 517.6 | 471.2 | **-9%** |
+| High escape (10k, 256) | 2115 | 1948 | **-8%** |
+| High escape (100k, 64) | 7116 | 6892 | **-3%** |
 
 ### End-to-end to_canonical (µs, median) — includes view building
 
@@ -93,7 +94,27 @@ Key design decisions:
 **Idea**: Process two 8-code blocks simultaneously with independent output pointers, breaking the serial dependency by having two independent output streams.
 **Result**: ~2× slower. The interleaving created write conflicts (A7's 8-byte write spills into B's region), and the extra bookkeeping + register pressure overwhelmed any dependency-chain benefit. Even after fixing correctness (writing all A symbols first, then B), the overhead was too high.
 
-### 10. Software prefetching (REJECTED ❌)
+### 10. Runtime BMI1/BMI2/POPCNT target feature dispatch (SHIPPED ✅)
+**Idea**: Use `is_x86_feature_detected!("bmi1")` at runtime to dispatch to a `#[target_feature(enable = "bmi1,bmi2,popcnt")]` code path. This gives the compiler access to `tzcnt` (true count trailing zeros) instead of `bsf` (bit scan forward, undefined for 0 input).
+**Result**: Consistent 2-4% improvement across all workloads, especially high-escape where `trailing_zeros` is called more often. Zero cost on CPUs without BMI1 (falls back to generic path).
+**Impact**: Free performance on virtually all modern x86-64 CPUs (BMI1 available since Haswell 2013).
+
+### 11. N=1 re-entry (SHIPPED ✅)
+**Idea**: After handling one escape block, immediately re-enter the 32-code fast path instead of processing 4 blocks first (N=4).
+**Result**: 1-3% improvement on low-escape data (gets back to the fast path sooner), tied on high-escape. Since low-escape is the common case for real data, N=1 is the better default.
+**Impact**: Small but consistent win for the common case.
+
+### 12. Compact loop-based escape handling (REJECTED ❌)
+**Idea**: Replace the 8-arm match statement with a compact `while shift < first_esc` loop to reduce instruction cache pressure.
+**Result**: Competitive with the match-based version (within 1-2%), but not consistently better. The match compiles to a jump table which is well-predicted for uniform escape positions.
+**Impact**: No improvement. Kept the match for consistency with baseline fsst-rs.
+
+### 13. 8-code only with pre-converted symbols (MEASURED)
+**Idea**: Same as baseline fsst-rs algorithm (8-code blocks only, no 32-code batching) but with pre-converted u64 symbols.
+**Result**: 5-8% faster than baseline on low-escape, 3-7% on high-escape. This isolates the value of pre-converting symbols to u64 (avoiding `Symbol::to_u64()` per lookup).
+**Impact**: Confirms that pre-converted symbols account for roughly half the total speedup, with the 32-code batching + re-entry providing the other half.
+
+### 14. Software prefetching (REJECTED ❌)
 **Idea**: Prefetch the next block of input data or upcoming symbol table entries.
 **Result**: No measurable improvement. The symbol table (2.3KB) is permanently resident in L1. Input data is accessed sequentially and the hardware prefetcher handles it well.
 

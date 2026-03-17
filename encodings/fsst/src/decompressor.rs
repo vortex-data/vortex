@@ -8,9 +8,10 @@
 //! 1. Symbols stored as `u64` directly, avoiding `Symbol::to_u64()` conversion per lookup.
 //! 2. Multi-level block processing: 32-code and 8-code fast paths that process
 //!    compressed data in large chunks when no escape codes are present.
-//! 3. Unified loop that re-enters the 32-code fast path after handling escapes,
+//! 3. Unified loop that re-enters the 32-code fast path after handling each escape,
 //!    instead of permanently dropping to the slower 8-code path.
 //! 4. Fully unrolled escape handling via match statement for optimal branch prediction.
+//! 5. Runtime CPU feature detection for BMI1/BMI2/POPCNT-optimized codegen on x86-64.
 
 use std::mem::MaybeUninit;
 
@@ -55,6 +56,10 @@ impl OptimizedDecompressor {
     ///
     /// Returns the number of bytes written to `decoded`.
     ///
+    /// On x86-64 CPUs with BMI1/BMI2/POPCNT (virtually all modern CPUs),
+    /// this automatically dispatches to a target-feature-optimized code path
+    /// for better `trailing_zeros` codegen.
+    ///
     /// # Panics
     ///
     /// Panics if `decoded` is smaller than `compressed.len() / 2`.
@@ -65,7 +70,27 @@ impl OptimizedDecompressor {
         );
 
         // SAFETY: We carefully manage pointer bounds within the inner function.
+        // Use target-feature-optimized path when available for better tzcnt codegen.
+        #[cfg(target_arch = "x86_64")]
+        {
+            if std::arch::is_x86_feature_detected!("bmi1") {
+                // SAFETY: BMI1 feature is confirmed present by the runtime check.
+                return unsafe { self.decompress_inner_bmi(compressed, decoded) };
+            }
+        }
         unsafe { self.decompress_inner(compressed, decoded) }
+    }
+
+    /// BMI-optimized wrapper that enables better codegen for `trailing_zeros`.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "bmi1,bmi2,popcnt")]
+    #[allow(unsafe_op_in_unsafe_fn)]
+    unsafe fn decompress_inner_bmi(
+        &self,
+        compressed: &[u8],
+        decoded: &mut [MaybeUninit<u8>],
+    ) -> usize {
+        self.decompress_inner(compressed, decoded)
     }
 
     /// SWAR escape detection for a u64 block of 8 codes.
@@ -213,9 +238,10 @@ impl OptimizedDecompressor {
             null
         };
 
-        // Unified loop: try 32-code escape-free batches, handle escapes at
-        // 8-code granularity, then re-enter the 32-code path. This avoids
-        // permanently dropping to the slower path after the first escape.
+        // Unified loop: try 32-code escape-free batches, handle one escape at
+        // 8-code granularity, then immediately re-enter the 32-code path.
+        // N=1 re-entry is optimal for low-escape data (the common case) while
+        // being competitive for high-escape workloads.
         'outer: while out_ptr.cast_const() <= block_out_end8 && in_ptr < block_in_end8 {
             // Inner 32-code escape-free fast path.
             while out_ptr.cast_const() <= block_out_end32 && in_ptr < block_in_end32 {
@@ -240,22 +266,20 @@ impl OptimizedDecompressor {
                 break;
             }
 
-            // Process up to 4 blocks at 8-code granularity (with escape
-            // handling), then re-try the 32-code path.
-            for _ in 0..4 {
-                if out_ptr.cast_const() > block_out_end8 || in_ptr >= block_in_end8 {
-                    break 'outer;
-                }
-                let block = in_ptr.cast::<u64>().read_unaligned();
-                let escape_mask = Self::escape_mask(block);
+            // Process exactly 1 block at 8-code granularity, then immediately
+            // re-enter the 32-code path.
+            if out_ptr.cast_const() > block_out_end8 || in_ptr >= block_in_end8 {
+                break 'outer;
+            }
+            let block = in_ptr.cast::<u64>().read_unaligned();
+            let escape_mask = Self::escape_mask(block);
 
-                if escape_mask == 0 {
-                    emit_block!(block);
-                    in_ptr = in_ptr.add(8);
-                } else {
-                    let first_esc = (escape_mask.trailing_zeros() >> 3) as usize;
-                    handle_escape_block!(block, first_esc);
-                }
+            if escape_mask == 0 {
+                emit_block!(block);
+                in_ptr = in_ptr.add(8);
+            } else {
+                let first_esc = (escape_mask.trailing_zeros() >> 3) as usize;
+                handle_escape_block!(block, first_esc);
             }
         }
 
