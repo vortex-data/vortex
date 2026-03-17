@@ -1704,3 +1704,471 @@ pub fn generate_json_lines(n: usize) -> Vec<String> {
         })
         .collect()
 }
+
+// ---------------------------------------------------------------------------
+// Markdown fragments generator (headers, lists, code blocks, links)
+// ---------------------------------------------------------------------------
+
+const MD_HEADER_WORDS: &[&str] = &[
+    "Introduction",
+    "Overview",
+    "Architecture",
+    "Configuration",
+    "Deployment",
+    "Performance",
+    "Security",
+    "Troubleshooting",
+    "Reference",
+    "Migration",
+    "API",
+    "Guide",
+    "Tutorial",
+    "Quickstart",
+    "Advanced",
+];
+const MD_BODY_WORDS: &[&str] = &[
+    "the",
+    "system",
+    "processes",
+    "incoming",
+    "requests",
+    "using",
+    "configured",
+    "middleware",
+    "pipeline",
+    "ensure",
+    "proper",
+    "authentication",
+    "before",
+    "forwarding",
+    "to",
+    "upstream",
+    "services",
+    "with",
+    "retries",
+    "enabled",
+];
+const MD_CODE_LANGS: &[&str] = &["rust", "python", "javascript", "go"];
+const MD_LINK_TITLES: &[&str] = &[
+    "documentation",
+    "source code",
+    "issue tracker",
+    "release notes",
+    "changelog",
+    "contributing guide",
+    "license",
+    "examples",
+    "benchmarks",
+    "FAQ",
+];
+const MD_LINK_URLS: &[&str] = &[
+    "https://docs.example.com/guide",
+    "https://github.com/org/repo",
+    "https://github.com/org/repo/issues",
+    "https://example.com/releases/v2.0",
+    "https://wiki.example.com/setup",
+    "https://docs.example.com/api/reference",
+    "https://example.com/blog/best-practices",
+    "https://crates.io/crates/example",
+];
+const MD_CODE_SNIPPETS: &[&str] = &[
+    "let config = Config::from_env();",
+    "def handle_request(req):",
+    "const server = createServer(handler);",
+    "func main() { log.Println(\"starting\") }",
+    "fn process(input: &[u8]) -> Result<()>",
+    "import asyncio",
+    "export default function App() {}",
+    "ctx, cancel := context.WithTimeout(ctx, 5*time.Second)",
+];
+
+/// Generates markdown text fragments with headers, bullet lists, code blocks, and links.
+pub fn generate_markdown_fragments(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(4001);
+    (0..n)
+        .map(|_| {
+            let num_lines = rng.random_range(2..6usize);
+            let mut lines = Vec::with_capacity(num_lines);
+            for i in 0..num_lines {
+                let kind = if i == 0 {
+                    0 // always start with a header
+                } else {
+                    rng.random_range(1..4u32)
+                };
+                match kind {
+                    0 => {
+                        let depth = rng.random_range(1..4usize);
+                        let hashes: String = "#".repeat(depth);
+                        let w1 = MD_HEADER_WORDS[rng.random_range(0..MD_HEADER_WORDS.len())];
+                        let w2 = MD_HEADER_WORDS[rng.random_range(0..MD_HEADER_WORDS.len())];
+                        lines.push(format!("{hashes} {w1} {w2}"));
+                    }
+                    1 => {
+                        let nwords = rng.random_range(4..8usize);
+                        let words: Vec<&str> = (0..nwords)
+                            .map(|_| MD_BODY_WORDS[rng.random_range(0..MD_BODY_WORDS.len())])
+                            .collect();
+                        lines.push(format!("- {}", words.join(" ")));
+                    }
+                    2 => {
+                        let lang = MD_CODE_LANGS[rng.random_range(0..MD_CODE_LANGS.len())];
+                        let snippet = MD_CODE_SNIPPETS[rng.random_range(0..MD_CODE_SNIPPETS.len())];
+                        lines.push(format!("```{lang}\n{snippet}\n```"));
+                    }
+                    _ => {
+                        let prefix_words: Vec<&str> = (0..rng.random_range(2..5usize))
+                            .map(|_| MD_BODY_WORDS[rng.random_range(0..MD_BODY_WORDS.len())])
+                            .collect();
+                        let title = MD_LINK_TITLES[rng.random_range(0..MD_LINK_TITLES.len())];
+                        let url = MD_LINK_URLS[rng.random_range(0..MD_LINK_URLS.len())];
+                        lines.push(format!("{} [{title}]({url})", prefix_words.join(" ")));
+                    }
+                }
+            }
+            lines.join("\n")
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Stack traces generator (Java/Python-style)
+// ---------------------------------------------------------------------------
+
+const ST_JAVA_PACKAGES: &[&str] = &[
+    "com.example.service",
+    "com.example.controller",
+    "com.example.repository",
+    "com.example.config",
+    "org.springframework.web",
+    "org.springframework.security",
+    "org.apache.catalina.core",
+    "org.apache.tomcat.util",
+    "io.netty.channel",
+    "io.grpc.internal",
+    "com.google.common.util",
+    "com.zaxxer.hikari",
+];
+const ST_CLASSES: &[&str] = &[
+    "UserService",
+    "OrderController",
+    "PaymentGateway",
+    "AuthFilter",
+    "SessionManager",
+    "CacheProvider",
+    "DatabasePool",
+    "RequestHandler",
+    "MessageBroker",
+    "ConfigLoader",
+    "MetricsCollector",
+    "HealthChecker",
+    "RateLimiter",
+    "CircuitBreaker",
+    "EventDispatcher",
+];
+const ST_METHODS: &[&str] = &[
+    "getUser",
+    "processOrder",
+    "validateToken",
+    "handleRequest",
+    "executeQuery",
+    "sendMessage",
+    "loadConfig",
+    "checkHealth",
+    "refreshCache",
+    "authenticate",
+    "serialize",
+    "dispatch",
+    "connect",
+    "initialize",
+    "shutdown",
+    "retry",
+    "transform",
+    "aggregate",
+    "publish",
+    "subscribe",
+];
+const ST_PYTHON_MODULES: &[&str] = &[
+    "/app/handlers/auth.py",
+    "/app/handlers/api.py",
+    "/app/models/user.py",
+    "/app/services/payment.py",
+    "/app/middleware/logging.py",
+    "/app/utils/crypto.py",
+    "/app/core/config.py",
+    "/app/db/session.py",
+    "/usr/lib/python3.11/asyncio/tasks.py",
+    "/usr/lib/python3.11/concurrent/futures/thread.py",
+    "/site-packages/fastapi/routing.py",
+    "/site-packages/sqlalchemy/engine/base.py",
+];
+
+/// Generates Java/Python-style stack traces with package paths, class names, and line numbers.
+pub fn generate_stack_traces(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(4002);
+    (0..n)
+        .map(|_| {
+            let is_java = rng.random_bool(0.5);
+            let depth = rng.random_range(3..7usize);
+            let mut frames = Vec::with_capacity(depth);
+            for _ in 0..depth {
+                if is_java {
+                    let pkg = ST_JAVA_PACKAGES[rng.random_range(0..ST_JAVA_PACKAGES.len())];
+                    let class = ST_CLASSES[rng.random_range(0..ST_CLASSES.len())];
+                    let method = ST_METHODS[rng.random_range(0..ST_METHODS.len())];
+                    let line = rng.random_range(10..500u32);
+                    frames.push(format!("\tat {pkg}.{class}.{method}({class}.java:{line})"));
+                } else {
+                    let module = ST_PYTHON_MODULES[rng.random_range(0..ST_PYTHON_MODULES.len())];
+                    let method = ST_METHODS[rng.random_range(0..ST_METHODS.len())];
+                    let line = rng.random_range(10..500u32);
+                    frames.push(format!("  File \"{module}\", line {line}, in {method}"));
+                }
+            }
+            if is_java {
+                let class = ST_CLASSES[rng.random_range(0..ST_CLASSES.len())];
+                format!(
+                    "java.lang.RuntimeException: Operation failed in {class}\n{}",
+                    frames.join("\n")
+                )
+            } else {
+                let class = ST_CLASSES[rng.random_range(0..ST_CLASSES.len())];
+                format!(
+                    "Traceback (most recent call last):\n{}\n{class}Error: operation failed",
+                    frames.join("\n")
+                )
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// CSS rules generator (selectors, properties, values)
+// ---------------------------------------------------------------------------
+
+const CSS_SELECTORS: &[&str] = &[
+    ".container",
+    "#main",
+    ".btn-primary",
+    "nav > ul",
+    ".sidebar",
+    ".card",
+    "header",
+    "footer",
+    ".modal-overlay",
+    ".form-group",
+    ".text-muted",
+    "section > div",
+    ".grid-item",
+    ".dropdown-menu",
+    "input[type=\"text\"]",
+];
+const CSS_PROPERTIES: &[&str] = &[
+    "display",
+    "justify-content",
+    "align-items",
+    "padding",
+    "margin",
+    "border",
+    "background-color",
+    "color",
+    "font-size",
+    "font-weight",
+    "width",
+    "height",
+    "max-width",
+    "position",
+    "overflow",
+    "gap",
+    "border-radius",
+    "box-shadow",
+    "opacity",
+    "z-index",
+];
+const CSS_VALUES_DISPLAY: &[&str] = &["flex", "grid", "block", "inline-block", "none"];
+const CSS_VALUES_JUSTIFY: &[&str] = &[
+    "center",
+    "flex-start",
+    "flex-end",
+    "space-between",
+    "space-around",
+];
+const CSS_VALUES_SPACING: &[&str] = &[
+    "0", "4px", "8px", "12px", "16px", "24px", "32px", "1rem", "1.5rem", "2rem",
+];
+const CSS_VALUES_COLOR: &[&str] = &[
+    "#333333",
+    "#ffffff",
+    "#e0e0e0",
+    "#1a73e8",
+    "#f44336",
+    "rgba(0, 0, 0, 0.1)",
+    "transparent",
+    "inherit",
+];
+const CSS_VALUES_BORDER: &[&str] = &[
+    "none",
+    "1px solid #e0e0e0",
+    "2px solid #1a73e8",
+    "1px dashed #ccc",
+    "1px solid transparent",
+];
+const CSS_VALUES_FONT: &[&str] = &[
+    "12px", "14px", "16px", "18px", "24px", "0.875rem", "1rem", "1.25rem",
+];
+const CSS_VALUES_WEIGHT: &[&str] = &["normal", "bold", "400", "500", "600", "700"];
+const CSS_VALUES_MISC: &[&str] = &[
+    "auto", "100%", "50%", "200px", "300px", "relative", "absolute", "fixed", "hidden", "1",
+];
+
+/// Generates CSS rule blocks with selectors, properties, and contextual values.
+pub fn generate_css_rules(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(4003);
+    (0..n)
+        .map(|_| {
+            let selector = CSS_SELECTORS[rng.random_range(0..CSS_SELECTORS.len())];
+            let num_props = rng.random_range(2..6usize);
+            let mut declarations = Vec::with_capacity(num_props);
+            for _ in 0..num_props {
+                let prop = CSS_PROPERTIES[rng.random_range(0..CSS_PROPERTIES.len())];
+                let value = match prop {
+                    "display" => CSS_VALUES_DISPLAY[rng.random_range(0..CSS_VALUES_DISPLAY.len())],
+                    "justify-content" | "align-items" => {
+                        CSS_VALUES_JUSTIFY[rng.random_range(0..CSS_VALUES_JUSTIFY.len())]
+                    }
+                    "padding" | "margin" | "gap" => {
+                        CSS_VALUES_SPACING[rng.random_range(0..CSS_VALUES_SPACING.len())]
+                    }
+                    "background-color" | "color" => {
+                        CSS_VALUES_COLOR[rng.random_range(0..CSS_VALUES_COLOR.len())]
+                    }
+                    "border" => CSS_VALUES_BORDER[rng.random_range(0..CSS_VALUES_BORDER.len())],
+                    "font-size" => CSS_VALUES_FONT[rng.random_range(0..CSS_VALUES_FONT.len())],
+                    "font-weight" => {
+                        CSS_VALUES_WEIGHT[rng.random_range(0..CSS_VALUES_WEIGHT.len())]
+                    }
+                    _ => CSS_VALUES_MISC[rng.random_range(0..CSS_VALUES_MISC.len())],
+                };
+                declarations.push(format!("{prop}: {value};"));
+            }
+            format!("{selector} {{ {} }}", declarations.join(" "))
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Shell commands generator (kubectl, docker, git, curl, etc.)
+// ---------------------------------------------------------------------------
+
+const SHELL_COMMANDS: &[&str] = &[
+    "kubectl",
+    "docker",
+    "git",
+    "curl",
+    "aws",
+    "terraform",
+    "cargo",
+    "npm",
+    "ssh",
+    "rsync",
+];
+const SHELL_KUBECTL_SUB: &[&str] = &[
+    "get pods",
+    "get deployments",
+    "get services",
+    "describe pod",
+    "logs",
+    "apply -f",
+    "delete pod",
+    "rollout status",
+    "scale deployment",
+    "exec -it",
+];
+const SHELL_DOCKER_SUB: &[&str] = &[
+    "run -d",
+    "build -t",
+    "compose up -d",
+    "ps -a",
+    "exec -it",
+    "pull",
+    "push",
+    "logs --tail=100",
+    "inspect",
+    "network create",
+];
+const SHELL_FLAGS: &[&str] = &[
+    "-n production",
+    "--selector=app=api",
+    "-o json",
+    "--rm",
+    "--name=redis",
+    "-p 6379:6379",
+    "-v /data:/data",
+    "--timeout=30s",
+    "--recursive",
+    "-L",
+    "--follow",
+    "--all-namespaces",
+    "--format='{{.ID}}'",
+    "--no-cache",
+    "-e NODE_ENV=production",
+];
+const SHELL_ARGS: &[&str] = &[
+    "redis:7-alpine",
+    "nginx:latest",
+    "postgres:15",
+    "node:20-slim",
+    "user@bastion.example.com",
+    "s3://my-bucket/data/",
+    "./deploy/manifests/",
+    "https://api.example.com/v2/health",
+    "main.tf",
+    "origin/main",
+];
+const SHELL_PIPES: &[&str] = &[
+    "| jq '.items[].metadata.name'",
+    "| grep -v Completed",
+    "| wc -l",
+    "| head -20",
+    "| sort -k2 -rn",
+    "| tee output.log",
+    "| xargs -I{} echo {}",
+    ">> /var/log/deploy.log 2>&1",
+];
+
+/// Generates shell command lines with subcommands, flags, arguments, and optional pipes.
+pub fn generate_shell_commands(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(4004);
+    (0..n)
+        .map(|_| {
+            let cmd = SHELL_COMMANDS[rng.random_range(0..SHELL_COMMANDS.len())];
+            let mut parts = Vec::with_capacity(6);
+            parts.push(cmd.to_string());
+            match cmd {
+                "kubectl" => {
+                    parts.push(
+                        SHELL_KUBECTL_SUB[rng.random_range(0..SHELL_KUBECTL_SUB.len())].to_string(),
+                    );
+                }
+                "docker" => {
+                    parts.push(
+                        SHELL_DOCKER_SUB[rng.random_range(0..SHELL_DOCKER_SUB.len())].to_string(),
+                    );
+                }
+                _ => {}
+            }
+            let num_flags = rng.random_range(1..4usize);
+            for _ in 0..num_flags {
+                parts.push(SHELL_FLAGS[rng.random_range(0..SHELL_FLAGS.len())].to_string());
+            }
+            let arg = SHELL_ARGS[rng.random_range(0..SHELL_ARGS.len())];
+            parts.push(arg.to_string());
+            let mut command = parts.join(" ");
+            if rng.random_bool(0.4) {
+                let pipe = SHELL_PIPES[rng.random_range(0..SHELL_PIPES.len())];
+                command.push(' ');
+                command.push_str(pipe);
+            }
+            command
+        })
+        .collect()
+}
