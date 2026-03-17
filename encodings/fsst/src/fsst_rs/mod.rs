@@ -562,8 +562,10 @@ impl Compressor {
         // SAFETY: out_ptr is not null
         unsafe { out_ptr.byte_add(1).write_unaligned(first_byte) };
 
-        // First, check the two_bytes table
+        // Start both lookups simultaneously for instruction-level parallelism:
+        // the 2-byte table and the PHT probe can execute in parallel on the CPU.
         let code_twobyte = self.codes_two_byte[word as u16 as usize];
+        let entry = self.lossy_pht.lookup(word);
 
         if code_twobyte.code() < self.has_suffix_code {
             // 2 byte code without having to worry about longer matches.
@@ -573,9 +575,6 @@ impl Compressor {
             // Advance input by symbol length (2) and output by a single code byte
             (2, 1)
         } else {
-            // Probe the hash table
-            let entry = self.lossy_pht.lookup(word);
-
             // Now, downshift the `word` and the `entry` to see if they align.
             let ignored_bits = entry.ignored_bits;
             if entry.code != Code::UNUSED
