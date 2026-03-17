@@ -52,7 +52,7 @@ pub(crate) fn fsst_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    // Single pass over lengths: compute total_size for decompression buffer capacity.
+    // Compute exact total size for the decompression buffer.
     #[allow(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array
