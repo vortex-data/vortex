@@ -244,7 +244,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=rust-min-deps', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -252,9 +252,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
@@ -304,7 +302,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/tag=rust-lint-no-default', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=rust-lint-no-default', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -312,10 +310,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
@@ -328,7 +323,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/tag=public-api', github.run_id)
+          && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre/tag=public-api', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -336,10 +331,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install nightly for public-api
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN
       - name: Regenerate public API lock files
         run: cargo +$NIGHTLY_TOOLCHAIN xtask public-api
       - name: Verify lock files are up to date
@@ -369,7 +363,7 @@ jobs:
           - suite: tests
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
@@ -382,10 +376,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
       - name: Install grcov
         uses: taiki-e/install-action@grcov
       - name: Install nextest
@@ -423,7 +414,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/tag=rust-test-sanitizer', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=rust-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
     env:
       # Add debug symbols and enable ASAN/LSAN with better output
@@ -448,16 +439,9 @@ jobs:
         with:
           compiler: llvm
           cache-tools: true
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build cmake
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install nightly for sanitizer
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rust-src rustfmt clippy llvm-tools-preview
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -702,7 +686,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -712,9 +696,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
       - uses: ./.github/actions/system-info
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
@@ -753,7 +735,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/tag=cxx-build', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=cxx-build', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -761,10 +743,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
       - name: Build and run C++ unit tests
         run: |
           mkdir -p vortex-cxx/build
@@ -784,7 +763,7 @@ jobs:
     name: "SQL logic tests"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -792,10 +771,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -913,7 +889,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/tag=rust-publish-dry-run', github.run_id)
+          && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre/tag=rust-publish-dry-run', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -921,10 +897,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-prebuild
       - name: Install cargo-edit
         uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
         with:
