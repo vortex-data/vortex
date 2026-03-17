@@ -134,7 +134,7 @@ impl ALPRDFloat for f32 {
 /// (most significant) bits of many double vectors tend to be  the same, i.e. most doubles in a
 /// vector often use the same exponent and front bits. Compression proceeds by finding the best
 /// prefix of up to 16 bits that can be collapsed into a dictionary of
-/// up to 8 elements. Each double can then be broken into the front/left `L` bits, which neatly
+/// up to [`MAX_DICT_SIZE`] elements. Each double can then be broken into the front/left `L` bits, which neatly
 /// bit-packs down to 1-3 bits per element (depending on the actual dictionary size).
 /// The remaining `R` bits naturally bit-pack.
 ///
@@ -218,18 +218,18 @@ impl RDEncoder {
         let mut exceptions_pos: BufferMut<u64> = BufferMut::with_capacity(doubles.len() / 4);
         let mut exceptions: BufferMut<u16> = BufferMut::with_capacity(doubles.len() / 4);
 
-        // mask for right-parts
         let right_mask = T::UINT::one().shl(self.right_bit_width as _) - T::UINT::one();
         let max_code = self.codes.len() - 1;
         let left_bit_width = bit_width!(max_code);
+        let rbw = self.right_bit_width as usize;
 
-        // Split each value into left/right parts and dict-encode in a single pass.
-        // Uses a flat lookup table instead of HashMap for O(1) branchless dictionary lookup.
+        // Pass 1: Extract right parts via extend_trusted (auto-vectorizable bit masking).
+        right_parts.extend_trusted(doubles.iter().map(|&v| T::to_bits(v) & right_mask));
+
+        // Pass 2: Dict-encode left parts and collect exceptions (scalar, has branching).
         let reverse_flat = &self.reverse_flat;
-        for (idx, v) in doubles.iter().copied().enumerate() {
-            let bits = T::to_bits(v);
-            right_parts.push(bits & right_mask);
-            let left = <T as ALPRDFloat>::to_u16(bits.shr(self.right_bit_width as _));
+        for (idx, &v) in doubles.iter().enumerate() {
+            let left = <T as ALPRDFloat>::to_u16(T::to_bits(v).shr(rbw));
 
             let lookup = reverse_flat[left as usize];
             if lookup != NOT_IN_DICT {
@@ -258,9 +258,6 @@ impl RDEncoder {
                 .into_array()
         };
 
-        // Bit-pack the dict-encoded left-parts
-        // Bit-pack the right-parts
-        // Patches for exceptions.
         let exceptions = (!exceptions_pos.is_empty()).then(|| {
             let max_exc_pos = exceptions_pos.last().copied().unwrap_or_default();
             let bw = bit_width!(max_exc_pos) as u8;
@@ -325,11 +322,13 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         .map(|&v| <T as ALPRDFloat>::from_u16(v) << shift)
         .collect();
 
-    // Single-pass: dictionary-lookup the left code, shift, and OR into right_parts
-    // in place. This avoids allocating a separate shifted_values buffer.
+    // Single-pass: dictionary-lookup the left code, shift, and OR into right_parts in place.
     let right_slice = right_parts.as_mut_slice();
     for (right, &code) in right_slice.iter_mut().zip(left_parts.iter()) {
-        *right = dict_shifted[code as usize] | *right;
+        // SAFETY: codes are dictionary-encoded indices guaranteed to be < dict_shifted.len()
+        // by the encoder. Eliminating bounds checks helps auto-vectorization.
+        let shifted = unsafe { *dict_shifted.get_unchecked(code as usize) };
+        *right = shifted | *right;
     }
 
     // Apply any patches (patch values are raw u16, so we widen and shift them).
