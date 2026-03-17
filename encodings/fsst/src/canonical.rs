@@ -57,29 +57,24 @@ pub(crate) fn fsst_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    #[allow(clippy::cast_possible_truncation)]
-    let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
-        uncompressed_lens_array
-            .as_slice::<P>()
-            .iter()
-            .map(|x| *x as usize)
-            .sum()
-    });
-
-    // Bulk-decompress the entire array.
-    let decompressor = fsst_array.decompressor();
-    let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-    let len =
-        decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
-    unsafe { uncompressed_bytes.set_len(len) };
-
-    // Directly create the binary views.
+    // Single dispatch: sum lengths, decompress, and build views in one match arm.
     match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
+        let lens = uncompressed_lens_array.as_slice::<P>();
+        #[allow(clippy::cast_possible_truncation)]
+        let total_size: usize = lens.iter().map(|x| *x as usize).sum();
+
+        // Bulk-decompress the entire array.
+        let decompressor = fsst_array.decompressor();
+        let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
+        let len =
+            decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
+        unsafe { uncompressed_bytes.set_len(len) };
+
         Ok(build_views(
             start_buf_index,
             MAX_BUFFER_LEN,
             uncompressed_bytes,
-            uncompressed_lens_array.as_slice::<P>(),
+            lens,
         ))
     })
 }

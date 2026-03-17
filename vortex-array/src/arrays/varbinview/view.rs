@@ -10,7 +10,6 @@ use std::ops::Range;
 
 use static_assertions::assert_eq_align;
 use static_assertions::assert_eq_size;
-use vortex_error::VortexExpect;
 
 /// A view over a variable-length binary value.
 ///
@@ -111,9 +110,9 @@ impl BinaryView {
         } else {
             Self {
                 _ref: Ref {
-                    size: u32::try_from(len).vortex_expect("value length must fit in u32"),
-                    // SAFETY: len >= 13, so value[0..4] is always valid.
-                    prefix: unsafe { value[0..4].try_into().unwrap_unchecked() },
+                    size: len as u32,
+                    // SAFETY: len >= 13, so reading 4 bytes from the start is always valid.
+                    prefix: unsafe { (value.as_ptr() as *const [u8; 4]).read_unaligned() },
                     buffer_index: block,
                     offset,
                 },
