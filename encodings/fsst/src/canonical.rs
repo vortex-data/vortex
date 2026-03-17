@@ -3,12 +3,14 @@
 
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
+use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -43,13 +45,6 @@ pub(crate) fn fsst_decode_views(
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    // FSSTArray has two child arrays:
-    //  1. A VarBinArray, which holds the string heap of the compressed codes.
-    //  2. An uncompressed_lengths primitive array, storing the length of each original
-    //     string element.
-    // To speed up canonicalization, we can decompress the entire string-heap in a single
-    // call. We then turn our uncompressed_lengths into an offsets buffer
-    // necessary for a VarBinViewArray and construct the canonical array.
     let bytes = fsst_array.codes().sliced_bytes();
 
     let uncompressed_lens_array = fsst_array
@@ -57,6 +52,7 @@ pub(crate) fn fsst_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
+    // Single pass over lengths: compute total_size for decompression buffer capacity.
     #[allow(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array
@@ -66,7 +62,7 @@ pub(crate) fn fsst_decode_views(
             .sum()
     });
 
-    // Bulk-decompress the entire array using the optimized decompressor.
+    // Bulk-decompress the entire string heap in one call.
     let decompressor = OptimizedDecompressor::new(
         fsst_array.symbols().as_slice(),
         fsst_array.symbol_lengths().as_slice(),
@@ -76,40 +72,35 @@ pub(crate) fn fsst_decode_views(
         decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
     unsafe { uncompressed_bytes.set_len(len) };
 
-    // Convert lengths to usize and build views with inlined fast path.
-    #[allow(clippy::cast_possible_truncation)]
-    let lens_usize: Vec<usize> = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
-        uncompressed_lens_array
-            .as_slice::<P>()
-            .iter()
-            .map(|x| *x as usize)
-            .collect()
-    });
-
-    Ok(build_views_fast(
-        start_buf_index,
-        uncompressed_bytes,
-        &lens_usize,
-    ))
+    // Build views directly from the typed lengths slice — no intermediate Vec<usize> allocation.
+    match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
+        Ok(build_views_fast(
+            start_buf_index,
+            uncompressed_bytes,
+            uncompressed_lens_array.as_slice::<P>(),
+        ))
+    })
 }
 
 /// Optimized view builder for FSST decompression.
 ///
 /// Unlike the general-purpose `build_views`, this version:
 /// - Inlines the view construction (avoids `#[inline(never)]` `make_view` call per string)
-/// - Skips buffer splitting (asserts total data fits in one buffer)
+/// - Skips buffer splitting (FSST data fits in one buffer)
 /// - Uses raw pointer writes to construct views directly
+/// - Generic over the length type to avoid an intermediate `Vec<usize>` allocation
 #[allow(clippy::cast_possible_truncation)]
-fn build_views_fast(
+fn build_views_fast<P: NativePType + AsPrimitive<usize>>(
     buf_index: u32,
     bytes: ByteBufferMut,
-    lens: &[usize],
+    lens: &[P],
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
     let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
     let src = bytes.as_slice();
     let mut offset: usize = 0;
 
-    for &len in lens {
+    for &raw_len in lens {
+        let len: usize = raw_len.as_();
         // SAFETY: we reserved the right capacity in `with_capacity` above.
         unsafe {
             let view = make_view_inline(src, offset, len, buf_index);
