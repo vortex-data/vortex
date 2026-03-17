@@ -184,7 +184,8 @@ pub struct ZigZagArray {
 pub struct ZigZag;
 
 impl ZigZag {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
+    pub const NAME: &str = "vortex.zigzag";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 impl ZigZagArray {

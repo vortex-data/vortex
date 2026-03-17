@@ -230,5 +230,6 @@ impl VTable for VarBin {
 pub struct VarBin;
 
 impl VarBin {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbin");
+    pub const NAME: &str = "vortex.varbin";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }

@@ -231,5 +231,6 @@ impl VTable for List {
 pub struct List;
 
 impl List {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.list");
+    pub const NAME: &str = "vortex.list";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }

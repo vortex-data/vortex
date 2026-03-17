@@ -36,7 +36,8 @@ vtable!(Shared);
 pub struct Shared;
 
 impl Shared {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.shared");
+    pub const NAME: &str = "vortex.shared";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 impl VTable for Shared {

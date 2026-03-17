@@ -312,7 +312,8 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 pub struct Pco;
 
 impl Pco {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
+    pub const NAME: &str = "vortex.pco";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 #[derive(Clone, Debug)]

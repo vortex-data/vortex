@@ -43,7 +43,8 @@ vtable!(Slice);
 pub struct Slice;
 
 impl Slice {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.slice");
+    pub const NAME: &str = "vortex.slice";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 impl VTable for Slice {

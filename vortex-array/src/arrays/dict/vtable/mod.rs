@@ -48,7 +48,8 @@ vtable!(Dict);
 pub struct Dict;
 
 impl Dict {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
+    pub const NAME: &str = "vortex.dict";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 impl VTable for Dict {

@@ -225,5 +225,6 @@ impl VTable for Primitive {
 pub struct Primitive;
 
 impl Primitive {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.primitive");
+    pub const NAME: &str = "vortex.primitive";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }

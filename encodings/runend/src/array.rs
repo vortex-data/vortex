@@ -226,7 +226,8 @@ pub struct RunEndArrayParts {
 pub struct RunEnd;
 
 impl RunEnd {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
+    pub const NAME: &str = "vortex.runend";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 impl RunEndArray {

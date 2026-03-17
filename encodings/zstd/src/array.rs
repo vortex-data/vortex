@@ -294,7 +294,8 @@ impl VTable for Zstd {
 pub struct Zstd;
 
 impl Zstd {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
+    pub const NAME: &str = "vortex.zstd";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 #[derive(Clone, Debug)]

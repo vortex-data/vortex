@@ -201,7 +201,8 @@ impl VTable for Delta {
 pub struct Delta;
 
 impl Delta {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
+    pub const NAME: &str = "fastlanes.delta";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 #[cfg(test)]

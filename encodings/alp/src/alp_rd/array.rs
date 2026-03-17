@@ -371,7 +371,8 @@ pub struct ALPRDArray {
 pub struct ALPRD;
 
 impl ALPRD {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
+    pub const NAME: &str = "vortex.alprd";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 impl ALPRDArray {

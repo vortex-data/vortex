@@ -242,7 +242,8 @@ impl VTable for RLE {
 pub struct RLE;
 
 impl RLE {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
+    pub const NAME: &str = "fastlanes.rle";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 #[cfg(test)]

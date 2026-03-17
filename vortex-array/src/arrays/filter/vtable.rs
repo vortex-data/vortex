@@ -44,7 +44,8 @@ vtable!(Filter);
 pub struct Filter;
 
 impl Filter {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.filter");
+    pub const NAME: &str = "vortex.filter";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 impl VTable for Filter {

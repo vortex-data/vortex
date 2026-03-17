@@ -37,6 +37,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
 
+    use crate::ZigZag;
     use crate::ZigZagArray;
     use crate::zigzag_encode;
 
@@ -58,7 +59,7 @@ mod tests {
         // Note: The result might be wrapped, so let's check the encoding ID
         assert_eq!(
             casted.encoding_id().as_ref(),
-            "vortex.zigzag",
+            ZigZag::NAME,
             "Cast should preserve ZigZag encoding"
         );
 
@@ -77,7 +78,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             casted.encoding_id().as_ref(),
-            "vortex.zigzag",
+            ZigZag::NAME,
             "Should remain ZigZag encoded"
         );
 
@@ -96,7 +97,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             casted64.encoding_id().as_ref(),
-            "vortex.zigzag",
+            ZigZag::NAME,
             "Should remain ZigZag encoded"
         );
 

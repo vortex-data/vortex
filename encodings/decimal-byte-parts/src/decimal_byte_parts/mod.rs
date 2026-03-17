@@ -274,7 +274,8 @@ impl DecimalBytePartsArray {
 pub struct DecimalByteParts;
 
 impl DecimalByteParts {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
+    pub const NAME: &str = "vortex.decimal_byte_parts";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
 
 /// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.

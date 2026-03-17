@@ -211,5 +211,6 @@ impl VTable for Bool {
 pub struct Bool;
 
 impl Bool {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
+    pub const NAME: &str = "vortex.bool";
+    pub const ID: ArrayId = ArrayId::new_ref(Self::NAME);
 }
