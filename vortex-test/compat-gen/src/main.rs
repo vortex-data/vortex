@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs;
 use std::path::PathBuf;
 
 use chrono::Utc;
@@ -41,7 +42,7 @@ fn main() -> VortexResult<()> {
             );
         }
     } else {
-        std::fs::create_dir_all(&cli.output)
+        fs::create_dir_all(&cli.output)
             .map_err(|e| vortex_error::vortex_err!("failed to create output dir: {e}"))?;
     }
 
@@ -64,7 +65,7 @@ fn main() -> VortexResult<()> {
     let manifest_path = cli.output.join("manifest.json");
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| vortex_error::vortex_err!("failed to serialize manifest: {e}"))?;
-    std::fs::write(&manifest_path, manifest_json)
+    fs::write(&manifest_path, manifest_json)
         .map_err(|e| vortex_error::vortex_err!("failed to write manifest: {e}"))?;
     eprintln!("  wrote manifest.json");
 

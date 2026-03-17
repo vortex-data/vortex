@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use vortex_array::assert_arrays_eq;
@@ -8,7 +10,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::adapter;
 use crate::fixtures::all_fixtures;
@@ -39,7 +41,7 @@ pub fn validate_all(
         }
     }
 
-    let fresh_set: HashMap<&str, ()> = fresh_names.iter().map(|n| (n.as_str(), ())).collect();
+    let fresh_set: HashSet<&str> = fresh_names.iter().map(|n| n.as_str()).collect();
 
     let mut results = Vec::new();
     for version in versions {
@@ -52,8 +54,8 @@ pub fn validate_all(
 fn validate_version(
     source: &FixtureSource,
     version: &str,
-    fresh_dir: &std::path::Path,
-    fresh_set: &HashMap<&str, ()>,
+    fresh_dir: &Path,
+    fresh_set: &HashSet<&str>,
 ) -> VortexResult<VersionResult> {
     let manifest = source.fetch_manifest(version)?;
     let mut passed = 0;
@@ -61,7 +63,7 @@ fn validate_version(
     let mut failed = Vec::new();
 
     for entry in &manifest.fixtures {
-        if !fresh_set.contains_key(entry.name.as_str()) {
+        if !fresh_set.contains(entry.name.as_str()) {
             eprintln!(
                 "  warn: unknown fixture {} in v{version}, skipping",
                 entry.name
@@ -73,7 +75,7 @@ fn validate_version(
         eprintln!("  checking {} from v{version}...", entry.name);
         let stored_bytes = source.fetch_fixture(version, &entry.name)?;
         let fresh_path = fresh_dir.join(&entry.name);
-        let fresh_bytes = std::fs::read(&fresh_path).map_err(|e| {
+        let fresh_bytes = fs::read(&fresh_path).map_err(|e| {
             vortex_err!("failed to read fresh fixture {}: {e}", fresh_path.display())
         })?;
 
@@ -117,7 +119,7 @@ impl FixtureSource {
             }
             FixtureSource::Dir(dir) => {
                 let path = dir.join(format!("v{version}")).join("manifest.json");
-                std::fs::read(&path)
+                fs::read(&path)
                     .map_err(|e| vortex_err!("failed to read {}: {e}", path.display()))?
             }
         };
@@ -133,7 +135,7 @@ impl FixtureSource {
             }
             FixtureSource::Dir(dir) => {
                 let path = dir.join(format!("v{version}")).join(name);
-                std::fs::read(&path)
+                fs::read(&path)
                     .map_err(|e| vortex_err!("failed to read {}: {e}", path.display()))?
             }
         };
@@ -153,7 +155,7 @@ pub fn discover_versions(source: &FixtureSource) -> VortexResult<Vec<String>> {
         }
         FixtureSource::Dir(dir) => {
             let mut versions = Vec::new();
-            for entry in std::fs::read_dir(dir)
+            for entry in fs::read_dir(dir)
                 .map_err(|e| vortex_err!("failed to read dir {}: {e}", dir.display()))?
             {
                 let entry = entry.map_err(|e| vortex_err!("failed to read dir entry: {e}"))?;
