@@ -51,10 +51,6 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
-name = "bitpack_strategy"
-harness = false
-
-[[bench]]
 name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["_test-harness"]

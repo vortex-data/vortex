@@ -139,7 +139,7 @@
 //!
 //! There are two ways to handle the FSST escape code in the DFA:
 //!
-//! **Escape sentinel** (used by `ShiftDfa`, `FusedDfa`, `FsstPrefixDfa`):
+//! **Escape sentinel** (used by `FusedDfa`, `FsstPrefixDfa`):
 //! The escape code maps to a sentinel state. The scanner checks for it and
 //! reads the next byte from a separate escape transition table.
 //!
@@ -166,7 +166,6 @@
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 // ---------------------------------------------------------------------------
@@ -188,7 +187,7 @@ enum MatcherInner {
     Prefix(Box<FsstPrefixDfa>),
     ContainsBranchless(Box<BranchlessShiftDfa>),
     ContainsFlat(FlatBranchlessDfa),
-    Contains(FsstContainsDfa),
+    ContainsFused(FusedDfa),
 }
 
 impl FsstMatcher {
@@ -237,7 +236,7 @@ impl FsstMatcher {
                         needle,
                     ))
                 } else {
-                    MatcherInner::Contains(FsstContainsDfa::new(symbols, symbol_lengths, needle))
+                    MatcherInner::ContainsFused(FusedDfa::new(symbols, symbol_lengths, needle))
                 }
             }
         };
@@ -253,7 +252,7 @@ impl FsstMatcher {
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
             MatcherInner::ContainsBranchless(dfa) => dfa.matches(codes),
             MatcherInner::ContainsFlat(dfa) => dfa.matches(codes),
-            MatcherInner::Contains(dfa) => dfa.matches(codes),
+            MatcherInner::ContainsFused(dfa) => dfa.matches(codes),
         }
     }
 }
@@ -269,10 +268,10 @@ enum LikeKind<'a> {
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a str) -> Option<Self> {
         // `prefix%` (including just `%` where prefix is empty)
-        if let Some(prefix) = pattern.strip_suffix('%') {
-            if !prefix.contains(['%', '_']) {
-                return Some(LikeKind::Prefix(prefix));
-            }
+        if let Some(prefix) = pattern.strip_suffix('%')
+            && !prefix.contains(['%', '_'])
+        {
+            return Some(LikeKind::Prefix(prefix));
         }
 
         // `%needle%`
@@ -289,10 +288,6 @@ impl<'a> LikeKind<'a> {
 // Scan helper
 // ---------------------------------------------------------------------------
 
-/// Scan all strings through a DFA matcher, packing results directly into a
-/// `BitBuffer` one u64 word (64 strings) at a time. This avoids the overhead
-/// of `BitBufferMut::collect_bool`'s cross-crate closure indirection and
-/// guarantees the compiler can see the full loop body for optimization.
 // TODO: add N-way ILP overrun scan for higher throughput on short strings.
 #[inline]
 pub(crate) fn dfa_scan_to_bitbuf<T, F>(
@@ -306,36 +301,13 @@ where
     T: vortex_array::dtype::IntegerPType,
     F: Fn(&[u8]) -> bool,
 {
-    let n_words = n / 64;
-    let remainder = n % 64;
-    let mut words: BufferMut<u64> = BufferMut::with_capacity(n.div_ceil(64));
-
-    for chunk in 0..n_words {
-        let base = chunk * 64;
-        let mut word = 0u64;
-        let mut start: usize = offsets[base].as_();
-        for bit in 0..64 {
-            let end: usize = offsets[base + bit + 1].as_();
-            word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
-            start = end;
-        }
-        // SAFETY: we allocated capacity for n.div_ceil(64) words.
-        unsafe { words.push_unchecked(word) };
-    }
-
-    if remainder != 0 {
-        let base = n_words * 64;
-        let mut word = 0u64;
-        let mut start: usize = offsets[base].as_();
-        for bit in 0..remainder {
-            let end: usize = offsets[base + bit + 1].as_();
-            word |= ((matcher(&all_bytes[start..end]) != negated) as u64) << bit;
-            start = end;
-        }
-        unsafe { words.push_unchecked(word) };
-    }
-
-    BitBuffer::new(words.into_byte_buffer().freeze(), n)
+    let mut start: usize = offsets[0].as_();
+    BitBuffer::collect_bool(n, |i| {
+        let end: usize = offsets[i + 1].as_();
+        let result = matcher(&all_bytes[start..end]) != negated;
+        start = end;
+        result
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -346,11 +318,14 @@ where
 ///
 /// Each state occupies `bits` bits. The mask `(1 << bits) - 1` guarantees the
 /// result is at most 15 (for `bits = 4`), which always fits in `u8`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "masked to `bits` bits (≤4), result ≤ 15"
+)]
 #[inline(always)]
 fn shift_extract(packed: u64, state: u8, bits: u32) -> u8 {
     let mask = (1u64 << bits) - 1;
-    // bits ≤ 4 ⇒ mask ≤ 15 ⇒ result ≤ 15, always fits in u8.
-    u8::try_from((packed >> (u32::from(state) * bits)) & mask).unwrap()
+    ((packed >> (u32::from(state) * bits)) & mask) as u8
 }
 
 // ---------------------------------------------------------------------------
@@ -380,16 +355,21 @@ fn build_symbol_transitions(
             }
             let sym = symbols[code].to_u64().to_le_bytes();
             let sym_len = usize::from(symbol_lengths[code]);
-            // state < n_states ≤ 256, fits in u16
-            let mut s = u16::try_from(state).unwrap();
+            #[expect(clippy::cast_possible_truncation, reason = "state < n_states ≤ 256")]
+            let mut s = state as u16;
             for &b in &sym[..sym_len] {
                 if s == u16::from(accept_state) {
                     break;
                 }
                 s = byte_table[usize::from(s) * 256 + usize::from(b)];
             }
-            // s is a state id from byte_table, always < n_states ≤ 256
-            sym_trans[state * n_symbols + code] = u8::try_from(s).unwrap();
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "s is a state id < n_states ≤ 256"
+            )]
+            {
+                sym_trans[state * n_symbols + code] = s as u8;
+            }
         }
     }
     sym_trans
@@ -429,28 +409,64 @@ fn pack_shift_table(fused: &[u8], n_states: usize, bits: u32) -> [u64; 256] {
     for code_byte in 0..256usize {
         let mut val = 0u64;
         for state in 0..n_states {
-            // state < n_states ≤ 16 for 4-bit packing, fits in u32
-            val |= u64::from(fused[state * 256 + code_byte])
-                << (u32::try_from(state).unwrap() * bits);
+            #[expect(clippy::cast_possible_truncation, reason = "state < n_states ≤ 16")]
+            let shift = state as u32 * bits;
+            val |= u64::from(fused[state * 256 + code_byte]) << shift;
         }
         packed[code_byte] = val;
     }
     packed
 }
 
-/// Packs a byte-level KMP table into shift-encoded `u64` arrays for escape handling.
-fn pack_escape_shift_table(byte_table: &[u16], n_states: usize, bits: u32) -> [u64; 256] {
-    let mut packed = [0u64; 256];
-    for byte_val in 0..256usize {
-        let mut val = 0u64;
-        for state in 0..n_states {
-            // byte_table values are state ids < n_states ≤ 256, fit in u8
-            let next = u8::try_from(byte_table[state * 256 + byte_val]).unwrap();
-            val |= u64::from(next) << (u32::try_from(state).unwrap() * bits);
+/// Builds an escape-folded fused transition table for contains matching.
+///
+/// State layout: `[0..n-1]` match progress, `[n]` accept (sticky), `[n+1..2n]` escape shadows.
+/// Total states: `2 * needle.len() + 1`.
+///
+/// For normal states, the escape code maps to the corresponding escape shadow state.
+/// Escape shadow states use byte-level KMP transitions so the next literal byte
+/// resumes matching correctly — no branch needed in the scanner.
+fn build_escape_folded_table(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Vec<u8> {
+    let n = needle.len();
+    let total_states = 2 * n + 1;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "n ≤ FlatBranchlessDfa::MAX_NEEDLE_LEN (14)"
+    )]
+    let accept_state = n as u8;
+
+    let byte_table = kmp_byte_transitions(needle);
+    let sym_trans =
+        build_symbol_transitions(symbols, symbol_lengths, &byte_table, n + 1, accept_state);
+
+    let n_symbols = symbols.len();
+    let mut fused = vec![0u8; total_states * 256];
+    for code_byte in 0..256usize {
+        // Normal states 0..n
+        for s in 0..n {
+            if code_byte == usize::from(ESCAPE_CODE) {
+                #[expect(clippy::cast_possible_truncation, reason = "s + n + 1 ≤ 2*14 = 28")]
+                {
+                    fused[s * 256 + code_byte] = (s + n + 1) as u8;
+                }
+            } else if code_byte < n_symbols {
+                fused[s * 256 + code_byte] = sym_trans[s * n_symbols + code_byte];
+            }
         }
-        packed[byte_val] = val;
+        // Accept state (sticky)
+        fused[n * 256 + code_byte] = accept_state;
+        // Escape shadow states n+1..2n
+        for s in 0..n {
+            let esc_state = s + n + 1;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "byte_table state ids < n+1 ≤ 15"
+            )]
+            let next = byte_table[s * 256 + code_byte] as u8;
+            fused[esc_state * 256 + code_byte] = next;
+        }
     }
-    packed
+    fused
 }
 
 // ---------------------------------------------------------------------------
@@ -480,9 +496,13 @@ impl FsstPrefixDfa {
         // Need room for states 0..prefix_len, accept, fail, and an escape sentinel.
         debug_assert!(prefix.len() <= Self::MAX_PREFIX_LEN);
 
-        // prefix.len() ≤ MAX_PREFIX_LEN (13), fits in u8
-        let accept_state = u8::try_from(prefix.len()).unwrap();
-        let fail_state = u8::try_from(prefix.len() + 1).unwrap();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "prefix.len() ≤ MAX_PREFIX_LEN (13)"
+        )]
+        let accept_state = prefix.len() as u8;
+        #[expect(clippy::cast_possible_truncation, reason = "prefix.len() + 1 ≤ 14")]
+        let fail_state = (prefix.len() + 1) as u8;
         let n_states = prefix.len() + 2;
 
         // Prefix matching uses a simpler transition rule than KMP: on mismatch
@@ -527,8 +547,13 @@ impl FsstPrefixDfa {
                         esc_trans[state * 256 + b] = if next >= prefix.len() {
                             accept_state
                         } else {
-                            // next ≤ prefix.len() ≤ 13, fits in u8
-                            u8::try_from(next).unwrap()
+                            #[expect(
+                                clippy::cast_possible_truncation,
+                                reason = "next ≤ prefix.len() ≤ 13"
+                            )]
+                            {
+                                next as u8
+                            }
                         };
                     }
                 }
@@ -560,8 +585,13 @@ impl FsstPrefixDfa {
                 let next_state = if state + 1 >= prefix.len() {
                     u16::from(accept_state)
                 } else {
-                    // state + 1 ≤ prefix.len() ≤ 13, fits in u16
-                    u16::try_from(state + 1).unwrap()
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "state + 1 ≤ prefix.len() ≤ 13"
+                    )]
+                    {
+                        (state + 1) as u16
+                    }
                 };
                 table[state * 256 + usize::from(next_byte)] = next_state;
             }
@@ -605,34 +635,6 @@ impl FsstPrefixDfa {
 // ---------------------------------------------------------------------------
 // DFA for contains matching (LIKE '%needle%')
 // ---------------------------------------------------------------------------
-
-/// Contains DFA dispatch for long needles (>14 bytes). Short needles (len <= 7)
-/// are handled by `BranchlessShiftDfa`, medium needles (8-14) by
-/// `FlatBranchlessDfa`, and longer supported needles (15-254) by `FusedDfa`.
-enum FsstContainsDfa {
-    /// Retained internal alternative; not currently selected by `FsstMatcher`.
-    Shift(Box<ShiftDfa>),
-    /// Fused u8 table DFA for long needles (15-254 bytes).
-    Fused(FusedDfa),
-}
-
-impl FsstContainsDfa {
-    pub(crate) fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
-        if needle.len() <= ShiftDfa::MAX_NEEDLE_LEN {
-            FsstContainsDfa::Shift(Box::new(ShiftDfa::new(symbols, symbol_lengths, needle)))
-        } else {
-            FsstContainsDfa::Fused(FusedDfa::new(symbols, symbol_lengths, needle))
-        }
-    }
-
-    #[inline]
-    pub(crate) fn matches(&self, codes: &[u8]) -> bool {
-        match self {
-            FsstContainsDfa::Shift(dfa) => dfa.matches(codes),
-            FsstContainsDfa::Fused(dfa) => dfa.matches(codes),
-        }
-    }
-}
 
 /// Branchless escape-folded DFA for short needles (len <= 7).
 ///
@@ -689,13 +691,13 @@ impl BranchlessShiftDfa {
         let n = needle.len();
         debug_assert!(n <= Self::MAX_NEEDLE_LEN);
 
-        // n ≤ MAX_NEEDLE_LEN (7), fits in u8
-        let accept_state = u8::try_from(n).unwrap();
+        #[expect(clippy::cast_possible_truncation, reason = "n ≤ MAX_NEEDLE_LEN (7)")]
+        let accept_state = n as u8;
         let total_states = 2 * n + 1;
         debug_assert!(total_states <= (1 << Self::BITS));
 
-        let transitions_1b =
-            Self::build_escape_folded_transitions(symbols, symbol_lengths, needle, total_states);
+        let fused = build_escape_folded_table(symbols, symbol_lengths, needle);
+        let transitions_1b = pack_shift_table(&fused, total_states, Self::BITS);
 
         // Build equivalence classes: group bytes with identical transition u64.
         let mut eq_class = [0u8; 256];
@@ -709,8 +711,10 @@ impl BranchlessShiftDfa {
                     class_representatives.push(t);
                     class_representatives.len() - 1
                 });
-            // At most 256 equivalence classes (one per byte value), fits in u8
-            eq_class[byte_val] = u8::try_from(cls).unwrap();
+            #[expect(clippy::cast_possible_truncation, reason = "≤ 256 equivalence classes")]
+            {
+                eq_class[byte_val] = cls as u8;
+            }
         }
         let n_classes = class_representatives.len();
 
@@ -736,53 +740,6 @@ impl BranchlessShiftDfa {
         }
     }
 
-    /// Build the 1-byte packed transition table with escape handling folded
-    /// into the state space (no branch needed in the scanner).
-    fn build_escape_folded_transitions(
-        symbols: &[Symbol],
-        symbol_lengths: &[u8],
-        needle: &[u8],
-        total_states: usize,
-    ) -> [u64; 256] {
-        let n = needle.len();
-        let n_normal_states = n + 1;
-        // n ≤ MAX_NEEDLE_LEN (7), fits in u8
-        let accept_state = u8::try_from(n).unwrap();
-
-        let byte_table = kmp_byte_transitions(needle);
-        let sym_trans = build_symbol_transitions(
-            symbols,
-            symbol_lengths,
-            &byte_table,
-            n_normal_states,
-            accept_state,
-        );
-
-        // Build fused transition table with escape folding.
-        let n_symbols = symbols.len();
-        let mut fused = vec![0u8; total_states * 256];
-        for code_byte in 0..256usize {
-            for s in 0..n {
-                if code_byte == usize::from(ESCAPE_CODE) {
-                    // s + n + 1 ≤ 2*7 = 14, fits in u8
-                    fused[s * 256 + code_byte] = u8::try_from(s + n + 1).unwrap();
-                } else if code_byte < n_symbols {
-                    fused[s * 256 + code_byte] = sym_trans[s * n_symbols + code_byte];
-                }
-            }
-            fused[n * 256 + code_byte] = accept_state;
-            for s in 0..n {
-                let esc_state = s + n + 1;
-                // byte_table values are state ids < n_normal_states ≤ 8
-                let next = u8::try_from(byte_table[s * 256 + code_byte]).unwrap();
-                fused[esc_state * 256 + code_byte] = next;
-            }
-        }
-
-        // Pack into u64 shift table.
-        pack_shift_table(&fused, total_states, Self::BITS)
-    }
-
     /// Build the pair-compose table and 2-byte palette from equivalence
     /// class representatives.
     fn build_pair_compose(
@@ -799,8 +756,17 @@ impl BranchlessShiftDfa {
                 let t1 = class_reps[c1];
                 let mut packed = 0u64;
                 for state in 0..total_states {
-                    let state_shift = u32::try_from(state).unwrap() * Self::BITS;
-                    let mid = shift_extract(t0, u8::try_from(state).unwrap(), Self::BITS);
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "state < total_states ≤ 16"
+                    )]
+                    let state_u8 = state as u8;
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "state < total_states ≤ 16"
+                    )]
+                    let state_shift = state as u32 * Self::BITS;
+                    let mid = shift_extract(t0, state_u8, Self::BITS);
                     let final_s = shift_extract(t1, mid, Self::BITS);
                     packed |= u64::from(final_s) << state_shift;
                 }
@@ -811,8 +777,13 @@ impl BranchlessShiftDfa {
                         palette_2b.push(packed);
                         palette_2b.len() - 1
                     });
-                // Palette size bounded by n_classes^2, in practice ≤ ~36
-                pair_compose[c0 * n_classes + c1] = u8::try_from(idx).unwrap();
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "palette size ≤ n_classes² ≤ 256"
+                )]
+                {
+                    pair_compose[c0 * n_classes + c1] = idx as u8;
+                }
             }
         }
         (pair_compose, palette_2b)
@@ -826,8 +797,17 @@ impl BranchlessShiftDfa {
             for p1 in 0..n {
                 let mut packed = 0u64;
                 for state in 0..total_states {
-                    let state_shift = u32::try_from(state).unwrap() * Self::BITS;
-                    let mid = shift_extract(palette_2b[p0], u8::try_from(state).unwrap(), Self::BITS);
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "state < total_states ≤ 16"
+                    )]
+                    let state_u8 = state as u8;
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "state < total_states ≤ 16"
+                    )]
+                    let state_shift = state as u32 * Self::BITS;
+                    let mid = shift_extract(palette_2b[p0], state_u8, Self::BITS);
                     let final_s = shift_extract(palette_2b[p1], mid, Self::BITS);
                     packed |= u64::from(final_s) << state_shift;
                 }
@@ -908,40 +888,15 @@ impl FlatBranchlessDfa {
     pub(crate) const MAX_NEEDLE_LEN: usize = 14;
 
     pub(crate) fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
-        let n = needle.len();
-        debug_assert!(n <= Self::MAX_NEEDLE_LEN);
+        debug_assert!(needle.len() <= Self::MAX_NEEDLE_LEN);
 
-        // n ≤ MAX_NEEDLE_LEN (14), fits in u8
-        let accept_state = u8::try_from(n).unwrap();
-        let total_states = 2 * n + 1;
-        let n_symbols = symbols.len();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "needle.len() ≤ MAX_NEEDLE_LEN (14)"
+        )]
+        let accept_state = needle.len() as u8;
 
-        let byte_table = kmp_byte_transitions(needle);
-        let sym_trans =
-            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n + 1, accept_state);
-
-        // Build fused transition table with escape folding.
-        let mut transitions = vec![0u8; total_states * 256];
-        for code_byte in 0..256usize {
-            // Normal states 0..n
-            for s in 0..n {
-                if code_byte == usize::from(ESCAPE_CODE) {
-                    // s + n + 1 ≤ 2*14 = 28, fits in u8
-                    transitions[s * 256 + code_byte] = u8::try_from(s + n + 1).unwrap();
-                } else if code_byte < n_symbols {
-                    transitions[s * 256 + code_byte] = sym_trans[s * n_symbols + code_byte];
-                }
-            }
-            // Accept state (sticky)
-            transitions[n * 256 + code_byte] = accept_state;
-            // Escape states n+1..2n
-            for s in 0..n {
-                let esc_state = s + n + 1;
-                // byte_table values are state ids < n+1 ≤ 15
-                let next = u8::try_from(byte_table[s * 256 + code_byte]).unwrap();
-                transitions[esc_state * 256 + code_byte] = next;
-            }
-        }
+        let transitions = build_escape_folded_table(symbols, symbol_lengths, needle);
 
         Self {
             transitions,
@@ -954,78 +909,6 @@ impl FlatBranchlessDfa {
         let mut state = 0u8;
         for &byte in codes {
             state = self.transitions[usize::from(state) * 256 + usize::from(byte)];
-        }
-        state == self.accept_state
-    }
-}
-
-/// Shift-based DFA: packs all state transitions into a `u64` per input byte.
-///
-/// For a DFA with S states (S <= 16, using 4 bits each), we store transitions
-/// for ALL states in one `u64`. Transition: `next = (table[code] >> (state * 4)) & 0xF`.
-///
-/// Supports needles up to 14 characters (needle.len() + 2 <= 16 to fit escape
-/// sentinel). This covers virtually all practical LIKE patterns.
-pub(crate) struct ShiftDfa {
-    /// For each code byte (0..255): a `u64` packing all state transitions.
-    /// Bits `[state*4 .. state*4+4)` encode the next state for that input.
-    transitions: [u64; 256],
-    /// Same layout for escape byte transitions.
-    escape_transitions: [u64; 256],
-    accept_state: u8,
-    escape_sentinel: u8,
-}
-
-impl ShiftDfa {
-    const BITS: u32 = 4;
-    /// Maximum needle length: 2^BITS - 2 (need room for accept + sentinel).
-    const MAX_NEEDLE_LEN: usize = (1 << Self::BITS) - 2;
-
-    fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Self {
-        debug_assert!(needle.len() <= Self::MAX_NEEDLE_LEN);
-
-        let n_states = needle.len() + 1;
-        // needle.len() ≤ MAX_NEEDLE_LEN (14), fits in u8
-        let accept_state = u8::try_from(needle.len()).unwrap();
-        let escape_sentinel = u8::try_from(needle.len() + 1).unwrap();
-
-        let byte_table = kmp_byte_transitions(needle);
-        let sym_trans =
-            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
-
-        let fused = build_fused_table(&sym_trans, symbols.len(), n_states, |_| escape_sentinel, 0);
-
-        let transitions = pack_shift_table(&fused, n_states, Self::BITS);
-        let escape_transitions = pack_escape_shift_table(&byte_table, n_states, Self::BITS);
-
-        Self {
-            transitions,
-            escape_transitions,
-            accept_state,
-            escape_sentinel,
-        }
-    }
-
-    /// Match with iterator-based traversal.
-    ///
-    /// Using `iter.next()` instead of manual index + bounds check helps the
-    /// compiler eliminate redundant bounds checks.
-    #[inline]
-    fn matches(&self, codes: &[u8]) -> bool {
-        let mut state = 0u8;
-        let mut iter = codes.iter();
-        while let Some(&code) = iter.next() {
-            let packed = self.transitions[usize::from(code)];
-            let next = shift_extract(packed, state, Self::BITS);
-            if next == self.escape_sentinel {
-                let Some(&b) = iter.next() else {
-                    return false;
-                };
-                let esc_packed = self.escape_transitions[usize::from(b)];
-                state = shift_extract(esc_packed, state, Self::BITS);
-            } else {
-                state = next;
-            }
         }
         state == self.accept_state
     }
@@ -1050,10 +933,10 @@ impl FusedDfa {
         debug_assert!(needle.len() <= Self::MAX_NEEDLE_LEN);
 
         let n_states = needle.len() + 1;
-        // needle.len() ≤ 254, fits in u8
-        let accept_state = u8::try_from(needle.len()).unwrap();
-        // needle.len() + 1 ≤ 255, fits in u8
-        let escape_sentinel = u8::try_from(needle.len() + 1).unwrap();
+        #[expect(clippy::cast_possible_truncation, reason = "needle.len() ≤ 254")]
+        let accept_state = needle.len() as u8;
+        #[expect(clippy::cast_possible_truncation, reason = "needle.len() + 1 ≤ 255")]
+        let escape_sentinel = (needle.len() + 1) as u8;
 
         let byte_table = kmp_byte_transitions(needle);
         let sym_trans =
@@ -1065,7 +948,15 @@ impl FusedDfa {
         // byte_table values are state ids < n_states ≤ 255
         let escape_transitions: Vec<u8> = byte_table
             .iter()
-            .map(|&v| u8::try_from(v).unwrap())
+            .map(|&v| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "state ids < n_states ≤ 255"
+                )]
+                {
+                    v as u8
+                }
+            })
             .collect();
 
         Self {
@@ -1108,8 +999,8 @@ impl FusedDfa {
 
 fn kmp_byte_transitions(needle: &[u8]) -> Vec<u16> {
     let n_states = needle.len() + 1;
-    // needle.len() ≤ 254, fits in u16
-    let accept = u16::try_from(needle.len()).unwrap();
+    #[expect(clippy::cast_possible_truncation, reason = "needle.len() ≤ 254")]
+    let accept = needle.len() as u16;
     let failure = kmp_failure_table(needle);
 
     let mut table = vec![0u16; n_states * 256];
@@ -1131,8 +1022,10 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u16> {
                 }
                 s = failure[s - 1];
             }
-            // s ≤ needle.len() ≤ 254, fits in u16
-            table[state * 256 + usize::from(byte)] = u16::try_from(s).unwrap();
+            #[expect(clippy::cast_possible_truncation, reason = "s ≤ needle.len() ≤ 254")]
+            {
+                table[state * 256 + usize::from(byte)] = s as u16;
+            }
         }
     }
     table
