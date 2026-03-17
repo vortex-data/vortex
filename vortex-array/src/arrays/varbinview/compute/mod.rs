@@ -8,7 +8,7 @@ mod mask;
 mod min_max;
 pub(crate) mod rules;
 mod slice;
-mod take;
+pub(crate) mod take;
 mod zip;
 
 #[cfg(test)]

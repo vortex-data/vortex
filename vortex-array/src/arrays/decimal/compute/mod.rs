@@ -10,7 +10,7 @@ mod mask;
 mod min_max;
 pub mod rules;
 mod sum;
-mod take;
+pub(crate) mod take;
 
 #[cfg(test)]
 mod tests {

@@ -12,7 +12,7 @@ mod nan_count;
 pub(crate) mod rules;
 mod slice;
 mod sum;
-mod take;
+pub(crate) mod take;
 
 pub use is_constant::*;
 
