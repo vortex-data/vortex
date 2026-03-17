@@ -36,6 +36,7 @@ pub mod benchmark;
 pub mod clickbench;
 pub mod compress;
 pub mod conversions;
+pub mod datagen;
 pub mod datasets;
 pub mod display;
 pub mod downloadable_dataset;
