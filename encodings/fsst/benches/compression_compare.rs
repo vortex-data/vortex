@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Comprehensive benchmarks comparing FSST, FSST-12, Zstd, and Snappy
-//! across 10 diverse string datasets.
+//! across diverse string datasets.
 //!
-//! Measures compression ratio, compression throughput, and decompression throughput.
+//! Includes datasets with 10k+ rows and long shared substrings to test where
+//! FSST-12 (with its larger symbol table) outperforms FSST-8.
 
 #![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 
@@ -24,14 +25,15 @@ use vortex_fsst::test_utils;
 
 fn main() {
     warm_up_vtables();
-    // Print compression ratios for all datasets before running benchmarks
     print_compression_summary();
     divan::main();
 }
 
 // ---------------------------------------------------------------------------
-// 10 Diverse datasets
+// Dataset generators
 // ---------------------------------------------------------------------------
+
+const NUM_STRINGS: usize = 50_000;
 
 /// 1. Short emails (~25 bytes avg)
 fn gen_emails(n: usize) -> Vec<String> {
@@ -151,7 +153,7 @@ fn gen_english_text(n: usize) -> Vec<String> {
         .collect()
 }
 
-/// 10. Base64-encoded data - high entropy, challenging for pattern matchers
+/// 10. Base64-encoded data - high entropy
 fn gen_base64(n: usize) -> Vec<String> {
     let charset = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut rng = StdRng::seed_from_u64(1010);
@@ -166,11 +168,238 @@ fn gen_base64(n: usize) -> Vec<String> {
         .collect()
 }
 
+/// 11. Rich JSON with many distinct field names and nested structure. FSST-12's larger symbol table helps here.
+fn gen_rich_json(n: usize) -> Vec<String> {
+    let field_names = [
+        "user_id",
+        "username",
+        "display_name",
+        "email_address",
+        "phone_number",
+        "street_address",
+        "city_name",
+        "state_code",
+        "zip_code",
+        "country",
+        "created_at",
+        "updated_at",
+        "last_login",
+        "is_verified",
+        "is_active",
+        "subscription_type",
+        "payment_method",
+        "billing_address",
+        "shipping_address",
+        "order_count",
+        "total_spent",
+        "loyalty_points",
+        "referral_code",
+        "preferences",
+        "notification_settings",
+        "privacy_level",
+        "two_factor_enabled",
+        "profile_image_url",
+        "cover_image_url",
+        "bio_text",
+        "website_url",
+        "company_name",
+        "job_title",
+        "department",
+        "team_name",
+        "manager_id",
+    ];
+    let values = [
+        "\"premium_enterprise\"",
+        "\"standard_basic\"",
+        "\"trial_30day\"",
+        "\"free_tier\"",
+        "true",
+        "false",
+        "null",
+        "12345",
+        "67890",
+        "\"2024-03-15T10:30:00Z\"",
+        "\"2024-01-01T00:00:00Z\"",
+        "\"active\"",
+        "\"suspended\"",
+        "\"pending_review\"",
+        "\"credit_card\"",
+        "\"paypal\"",
+        "\"bank_transfer\"",
+    ];
+    let mut rng = StdRng::seed_from_u64(1111);
+    (0..n)
+        .map(|_| {
+            let num_fields = rng.random_range(8..20);
+            let mut fields = Vec::with_capacity(num_fields);
+            for _ in 0..num_fields {
+                let name = field_names[rng.random_range(0..field_names.len())];
+                let val = values[rng.random_range(0..values.len())];
+                fields.push(format!("\"{name}\":{val}"));
+            }
+            format!("{{{}}}", fields.join(","))
+        })
+        .collect()
+}
+
+/// 12. XML-like data with many distinct tags and attributes. Verbose repeated patterns ideal for symbol table compression.
+fn gen_xml_records(n: usize) -> Vec<String> {
+    let tags = [
+        "record", "entry", "item", "row", "element", "node", "data", "field",
+    ];
+    let attrs = [
+        "id",
+        "type",
+        "class",
+        "name",
+        "value",
+        "status",
+        "priority",
+        "category",
+        "timestamp",
+        "version",
+        "source",
+        "target",
+        "format",
+        "encoding",
+        "locale",
+    ];
+    let attr_values = [
+        "primary",
+        "secondary",
+        "active",
+        "inactive",
+        "pending",
+        "archived",
+        "high",
+        "medium",
+        "low",
+        "critical",
+        "normal",
+        "debug",
+        "utf-8",
+        "ascii",
+        "en-US",
+        "de-DE",
+        "ja-JP",
+        "2024-03-15",
+    ];
+    let mut rng = StdRng::seed_from_u64(1212);
+    (0..n)
+        .map(|_| {
+            let tag = tags[rng.random_range(0..tags.len())];
+            let num_attrs = rng.random_range(3..8);
+            let attr_str: String = (0..num_attrs)
+                .map(|_| {
+                    let attr_name = attrs[rng.random_range(0..attrs.len())];
+                    let attr_val = attr_values[rng.random_range(0..attr_values.len())];
+                    format!(" {attr_name}=\"{attr_val}\"")
+                })
+                .collect();
+            let inner_tags = rng.random_range(1..4);
+            let inner: String = (0..inner_tags)
+                .map(|_| {
+                    let itag = tags[rng.random_range(0..tags.len())];
+                    let val = attr_values[rng.random_range(0..attr_values.len())];
+                    format!("<{itag}>{val}</{itag}>")
+                })
+                .collect();
+            format!("<{tag}{attr_str}>{inner}</{tag}>")
+        })
+        .collect()
+}
+
+/// 13. Long URLs with many distinct query parameter patterns (>100 chars each) and long shared substrings.
+fn gen_long_query_urls(n: usize) -> Vec<String> {
+    let domains = [
+        "analytics.example.com",
+        "tracking.adnetwork.io",
+        "api.platform.dev",
+        "cdn.content-delivery.net",
+        "events.telemetry.cloud",
+    ];
+    let param_names = [
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_content",
+        "utm_term",
+        "session_id",
+        "user_id",
+        "device_id",
+        "app_version",
+        "os_version",
+        "screen_width",
+        "screen_height",
+        "language",
+        "country",
+        "region",
+        "event_type",
+        "event_name",
+        "event_category",
+        "event_label",
+        "event_value",
+        "timestamp",
+        "request_id",
+        "correlation_id",
+        "trace_id",
+        "span_id",
+        "ab_test_group",
+        "feature_flag",
+        "experiment_id",
+        "variant_id",
+    ];
+    let param_values = [
+        "google",
+        "facebook",
+        "twitter",
+        "email",
+        "organic",
+        "direct",
+        "referral",
+        "spring_sale_2024",
+        "summer_promo",
+        "holiday_special",
+        "black_friday",
+        "banner_v2",
+        "sidebar_v1",
+        "popup_v3",
+        "interstitial",
+        "click",
+        "view",
+        "purchase",
+        "signup",
+        "login",
+        "search",
+        "filter",
+        "en-US",
+        "de-DE",
+        "fr-FR",
+        "ja-JP",
+        "ko-KR",
+        "zh-CN",
+    ];
+    let mut rng = StdRng::seed_from_u64(1313);
+    (0..n)
+        .map(|_| {
+            let domain = domains[rng.random_range(0..domains.len())];
+            let num_params = rng.random_range(8..20);
+            let params: String = (0..num_params)
+                .map(|i| {
+                    let name = param_names[rng.random_range(0..param_names.len())];
+                    let val = param_values[rng.random_range(0..param_values.len())];
+                    let sep = if i == 0 { "?" } else { "&" };
+                    format!("{sep}{name}={val}")
+                })
+                .collect();
+            format!("https://{domain}/collect{params}")
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Dataset wrapper
 // ---------------------------------------------------------------------------
-
-const NUM_STRINGS: usize = 50_000;
 
 struct Dataset {
     name: &'static str,
@@ -215,24 +444,29 @@ static DATASETS: LazyLock<Vec<Dataset>> = LazyLock::new(|| {
         Dataset::new("status_strings", gen_status_strings(NUM_STRINGS)),
         Dataset::new("english_text", gen_english_text(NUM_STRINGS)),
         Dataset::new("base64", gen_base64(NUM_STRINGS)),
+        // New datasets with long shared substrings
+        Dataset::new("rich_json", gen_rich_json(NUM_STRINGS)),
+        Dataset::new("xml_records", gen_xml_records(NUM_STRINGS)),
+        Dataset::new("long_query_urls", gen_long_query_urls(NUM_STRINGS)),
     ]
 });
 
 // ---------------------------------------------------------------------------
-// Compression summary (printed before benchmarks)
+// Compression summary
 // ---------------------------------------------------------------------------
 
 fn print_compression_summary() {
-    println!("\n{}", "=".repeat(80));
+    println!("\n{}", "=".repeat(90));
     println!("COMPRESSION RATIO SUMMARY (compressed/original, lower is better)");
     println!(
-        "{:>20} {:>10} {:>10} {:>10} {:>10} {:>10}",
-        "Dataset", "RawSize", "FSST", "FSST-12", "Zstd", "Snappy"
+        "{:>20} {:>10} {:>8} {:>10} {:>10} {:>10} {:>10}",
+        "Dataset", "RawSize", "Rows", "FSST", "FSST-12", "Zstd", "Snappy"
     );
-    println!("{}", "-".repeat(80));
+    println!("{}", "-".repeat(90));
 
     for ds in DATASETS.iter() {
         let raw_size = ds.total_raw_size;
+        let num_rows = ds.raw_bytes.len();
 
         // FSST
         let varbin = ds.to_varbin();
@@ -241,7 +475,6 @@ fn print_compression_summary() {
         for bytes in &ds.raw_bytes {
             fsst_size += compressor.compress(bytes).len();
         }
-        // Add symbol table overhead
         fsst_size += compressor.symbol_table().len() * 8 + compressor.symbol_lengths().len();
 
         // FSST-12
@@ -251,8 +484,7 @@ fn print_compression_summary() {
         for bytes in &ds.raw_bytes {
             fsst12_size += compressor12.compress(bytes).len();
         }
-        // Add symbol table overhead
-        fsst12_size += compressor12.symbols().len() * 9; // 8 bytes value + 1 byte len
+        fsst12_size += compressor12.symbols().len() * 9;
 
         // Zstd (level 3)
         let all_data: Vec<u8> = ds
@@ -275,16 +507,17 @@ fn print_compression_summary() {
         let snappy_size = snappy_compressed.len();
 
         println!(
-            "{:>20} {:>9} {:>9.3} {:>9.3} {:>9.3} {:>9.3}",
+            "{:>20} {:>9} {:>8} {:>9.3} {:>9.3} {:>9.3} {:>9.3}",
             ds.name,
             format_size(raw_size),
+            num_rows,
             fsst_size as f64 / raw_size as f64,
             fsst12_size as f64 / raw_size as f64,
             zstd_size as f64 / raw_size as f64,
             snappy_size as f64 / raw_size as f64,
         );
     }
-    println!("{}", "=".repeat(80));
+    println!("{}", "=".repeat(90));
     println!();
 }
 
@@ -302,21 +535,7 @@ fn format_size(bytes: usize) -> String {
 // Dataset index for divan parametrization
 // ---------------------------------------------------------------------------
 
-const DATASET_INDICES: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-/// Dataset names for reference (indices correspond to DATASET_INDICES).
-#[allow(dead_code)]
-const DATASET_NAMES: &[&str] = &[
-    "emails",
-    "urls",
-    "logs",
-    "json",
-    "paths",
-    "clickbench_urls",
-    "uuids",
-    "status_strings",
-    "english_text",
-    "base64",
-];
+const DATASET_INDICES: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 // ---------------------------------------------------------------------------
 // FSST benchmarks
@@ -425,7 +644,6 @@ fn fsst12_decompress(bencher: Bencher, idx: usize) {
 #[divan::bench(args = DATASET_INDICES)]
 fn zstd_compress(bencher: Bencher, idx: usize) {
     let ds = &DATASETS[idx];
-    // Serialize all strings with length prefix for fair comparison
     let all_data: Vec<u8> = ds
         .raw_bytes
         .iter()
@@ -521,7 +739,7 @@ fn snappy_decompress(bencher: Bencher, idx: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// FSST-12 training benchmarks
+// Training benchmarks
 // ---------------------------------------------------------------------------
 
 #[divan::bench(args = DATASET_INDICES)]

@@ -1,23 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! FSST-12: An extended FSST variant using 12-bit codes (up to 4095 symbols).
+//! FSST-12: An FSST variant using 12-bit codes (up to 4096 symbols).
 //!
 //! Standard FSST uses 8-bit codes (255 symbols + 1 escape code = 256 codes total),
-//! where symbols are up to 8 bytes. FSST-12 uses 12-bit codes stored as u16 values,
-//! with codes 0-255 reserved for single-byte literals and codes 256-4094 available
-//! for multi-byte symbols (up to 3839 symbols).
+//! where symbols are up to 8 bytes. FSST-12 uses 12-bit codes packed at 1.5 bytes
+//! per code, with codes 0-255 reserved for single-byte literals and codes 256-4095
+//! available for multi-byte symbols (up to 3840 symbols).
 //!
-//! Key design decisions:
+//! Key design decisions (per the reference cwida/fsst implementation):
 //! - **No escapes needed**: Codes 0-255 directly represent each possible byte value,
 //!   so every input byte always matches at least a 1-byte code.
-//! - **More multi-byte symbols**: 3839 slots for multi-byte patterns vs FSST's ~255 total.
-//! - **Trade-off**: Each code costs 2 bytes of output vs 1 byte for FSST, so symbols
-//!   must average >2 bytes to achieve better compression than FSST. FSST-12 works best
-//!   on data with many distinct long patterns that exhaust FSST's 255-symbol limit.
+//! - **12-bit packing**: Two codes are packed into 3 bytes (24 bits), not 2 bytes each.
+//!   A trailing odd code uses 2 bytes. This gives 1.5 bytes/code average.
+//! - **More multi-byte symbols**: 3840 slots for multi-byte patterns vs FSST's ~255.
+//! - **Trade-off**: Each code costs 1.5 bytes vs 1 byte for FSST-8 (but FSST-8 escapes
+//!   cost 2 bytes). FSST-12 wins when data has many distinct patterns that exhaust
+//!   FSST-8's 255-symbol limit, or when escape rates are high.
 
-// FSST-12 is an experimental compression algorithm that intentionally uses low-level
-// bit operations and pointer casts where truncation is controlled by design.
+// FSST-12 intentionally uses low-level bit operations and pointer casts.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::collapsible_if,
@@ -30,9 +31,9 @@ mod tests;
 /// Multi-byte symbol codes start at 256.
 const SYMBOL_CODE_BASE: u16 = 256;
 
-/// Maximum code value (exclusive). We use 12 bits = 4096 values.
-/// Codes 0-255: raw bytes, codes 256-4094: multi-byte symbols, 4095: unused.
-const MAX_CODE: u16 = 4095;
+/// Maximum code value (12 bits = 4096 values).
+/// Codes 0-255: raw bytes, codes 256-4095: multi-byte symbols.
+const MAX_CODE: u16 = 4096;
 
 /// Maximum number of multi-byte symbols.
 pub const MAX_MULTI_SYMBOLS: usize = (MAX_CODE - SYMBOL_CODE_BASE) as usize;
@@ -83,43 +84,28 @@ impl Symbol12 {
             len: new_len as u8,
         })
     }
-
-    #[inline]
-    fn matches_at(&self, word: u64, available: usize) -> bool {
-        if self.len() > available {
-            return false;
-        }
-        let mask = if self.len() == 8 {
-            u64::MAX
-        } else {
-            (1u64 << (8 * self.len())) - 1
-        };
-        (word & mask) == self.value
-    }
 }
 
 /// FSST-12 Compressor.
 ///
 /// Uses codes 0-255 for single bytes and codes 256+ for multi-byte symbols.
-/// This means no escape codes are ever needed - every byte has a direct encoding.
+/// Codes are packed in 12-bit format: 2 codes per 3 bytes, trailing odd code in 2 bytes.
 #[derive(Clone)]
 pub struct Compressor12 {
     /// Multi-byte symbol table: code N maps to symbols\[N - SYMBOL_CODE_BASE\].
     symbols: Vec<Symbol12>,
 
     /// Symbol lengths for fast lookup during decompression.
-    /// Index is (code - SYMBOL_CODE_BASE).
     symbol_lengths: Vec<u8>,
 
     /// Symbol values for fast lookup during decompression.
-    /// Index is (code - SYMBOL_CODE_BASE).
     symbol_values: Vec<u64>,
 
     /// Inverted index for 2-byte lookups: first_two_bytes -> code.
     /// Returns HASH_EMPTY if no 2-byte symbol exists.
     codes_two_byte: Vec<u16>,
 
-    /// Hash table for 3+ byte symbols.
+    /// Hash table for 3+ byte symbols (open addressing).
     hash_table: Vec<HashEntry>,
 }
 
@@ -143,9 +129,7 @@ impl HashEntry {
 
     #[inline]
     fn code(&self) -> u16 {
-        #[allow(clippy::cast_possible_truncation)]
-        let result = self.len_and_code as u16;
-        result
+        self.len_and_code as u16
     }
 
     #[inline]
@@ -171,7 +155,8 @@ impl Compressor12 {
 
         let mut builder = TableBuilder::new();
 
-        let generations = [8usize, 38, 68, 98, 128];
+        // 4 generations per reference implementation: [14, 52, 90, 128]
+        let generations = [14usize, 52, 90, 128];
         for sample_frac in generations {
             let counts = builder.count_frequencies(&sample_refs, sample_frac);
             builder.optimize(&counts, sample_frac);
@@ -199,7 +184,6 @@ impl Compressor12 {
         let mut symbol_lengths = Vec::with_capacity(symbols.len());
         let mut symbol_values = Vec::with_capacity(symbols.len());
 
-        #[allow(clippy::cast_possible_truncation)]
         for (idx, sym) in symbols.iter().enumerate() {
             let code = SYMBOL_CODE_BASE + idx as u16;
             symbol_lengths.push(sym.len);
@@ -219,7 +203,7 @@ impl Compressor12 {
                         }
                     }
                 }
-                _ => {} // 1-byte symbols are handled by byte codes directly
+                _ => {} // 1-byte symbols handled by byte codes directly
             }
         }
 
@@ -234,14 +218,16 @@ impl Compressor12 {
 
     /// Compress a single byte string.
     ///
-    /// Output format: sequence of u16 codes in little-endian.
-    /// Codes 0-255 represent literal bytes, codes 256+ represent multi-byte symbols.
+    /// Output format: 12-bit packed codes. Two 12-bit codes are packed into 3 bytes
+    /// (little-endian: `code1 | (code2 << 12)` written as 3 bytes). A trailing odd
+    /// code is written as 2 bytes.
     pub fn compress(&self, input: &[u8]) -> Vec<u8> {
         if input.is_empty() {
             return Vec::new();
         }
 
-        let mut output = Vec::with_capacity(input.len());
+        // Phase 1: generate code sequence
+        let mut codes = Vec::with_capacity(input.len());
         let mut pos = 0;
 
         while pos < input.len() {
@@ -251,30 +237,29 @@ impl Compressor12 {
             // Try hash table (3+ bytes) for longest match
             if remaining >= 3 {
                 if let Some((code, len)) = self.lookup_hash(word, remaining) {
-                    output.extend_from_slice(&code.to_le_bytes());
+                    codes.push(code);
                     pos += len;
                     continue;
                 }
             }
 
             // Try 2-byte match
-            #[allow(clippy::cast_possible_truncation)]
             if remaining >= 2 {
                 let code = self.codes_two_byte[word as u16 as usize];
                 if code != HASH_EMPTY {
-                    output.extend_from_slice(&code.to_le_bytes());
+                    codes.push(code);
                     pos += 2;
                     continue;
                 }
             }
 
             // Fallback: emit raw byte as code 0-255
-            let byte_code = input[pos] as u16;
-            output.extend_from_slice(&byte_code.to_le_bytes());
+            codes.push(input[pos] as u16);
             pos += 1;
         }
 
-        output
+        // Phase 2: pack codes into 12-bit format
+        pack_12bit(&codes)
     }
 
     /// Get the multi-byte symbol table.
@@ -320,8 +305,11 @@ impl Compressor12 {
     }
 
     fn make_sample(inputs: &[&[u8]]) -> Vec<Vec<u8>> {
+        // FSST-12 needs more training data than FSST-8 (more symbols to learn).
+        // Use 64KB sample instead of 16KB.
+        let target_size = 65536;
         let total_size: usize = inputs.iter().map(|s| s.len()).sum();
-        if total_size <= 16384 {
+        if total_size <= target_size {
             return inputs.iter().map(|s| s.to_vec()).collect();
         }
 
@@ -329,7 +317,7 @@ impl Compressor12 {
         let mut sample = Vec::new();
         let mut sample_size = 0;
 
-        while sample_size < 16384 {
+        while sample_size < target_size {
             let idx = (rng as usize) % inputs.len();
             rng = hash_rng(rng);
             let line = inputs[idx];
@@ -347,6 +335,61 @@ impl Compressor12 {
     }
 }
 
+/// Pack a sequence of 12-bit codes into bytes.
+/// Two codes are packed into 3 bytes: `code1 | (code2 << 12)` as LE.
+/// Trailing odd code uses 2 bytes.
+fn pack_12bit(codes: &[u16]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(codes.len() * 3 / 2 + 2);
+    let mut idx = 0;
+
+    while idx + 1 < codes.len() {
+        let lo = codes[idx] as u32;
+        let hi = codes[idx + 1] as u32;
+        let packed = lo | (hi << 12);
+        output.push(packed as u8);
+        output.push((packed >> 8) as u8);
+        output.push((packed >> 16) as u8);
+        idx += 2;
+    }
+
+    // Trailing odd code
+    if idx < codes.len() {
+        let code = codes[idx];
+        output.push(code as u8);
+        output.push((code >> 8) as u8);
+    }
+
+    output
+}
+
+/// Unpack 12-bit codes from a byte stream.
+/// Returns the sequence of codes.
+#[cfg(test)]
+fn unpack_12bit(data: &[u8]) -> Vec<u16> {
+    let mut codes = Vec::with_capacity(data.len() * 2 / 3 + 1);
+    let mut pos = 0;
+
+    // Process pairs (3 bytes -> 2 codes)
+    while pos + 2 < data.len() {
+        let b0 = data[pos] as u32;
+        let b1 = data[pos + 1] as u32;
+        let b2 = data[pos + 2] as u32;
+        let packed = b0 | (b1 << 8) | (b2 << 16);
+
+        codes.push((packed & 0xFFF) as u16);
+        codes.push(((packed >> 12) & 0xFFF) as u16);
+        pos += 3;
+    }
+
+    // Trailing odd code (2 bytes)
+    if pos + 1 < data.len() {
+        let code = u16::from_le_bytes([data[pos], data[pos + 1]]) & 0xFFF;
+        codes.push(code);
+    }
+
+    codes
+}
+
 /// FSST-12 Decompressor.
 #[derive(Clone)]
 pub struct Decompressor12 {
@@ -357,25 +400,28 @@ pub struct Decompressor12 {
 impl Decompressor12 {
     /// Decompress a byte stream produced by [`Compressor12::compress`].
     pub fn decompress(&self, compressed: &[u8]) -> Vec<u8> {
-        let mut output = Vec::with_capacity(compressed.len() * 4);
+        let mut output = Vec::with_capacity(compressed.len() * 3);
         let mut pos = 0;
 
-        while pos + 1 < compressed.len() {
-            let code = u16::from_le_bytes([compressed[pos], compressed[pos + 1]]);
-            pos += 2;
+        // Process pairs (3 bytes -> 2 codes)
+        while pos + 2 < compressed.len() {
+            let b0 = compressed[pos] as u32;
+            let b1 = compressed[pos + 1] as u32;
+            let b2 = compressed[pos + 2] as u32;
+            let packed = b0 | (b1 << 8) | (b2 << 16);
 
-            if code < SYMBOL_CODE_BASE {
-                // Raw byte
-                #[allow(clippy::cast_possible_truncation)]
-                output.push(code as u8);
-            } else {
-                // Multi-byte symbol
-                let idx = (code - SYMBOL_CODE_BASE) as usize;
-                let len = self.symbol_lengths[idx] as usize;
-                let val = self.symbol_values[idx];
-                let bytes = val.to_le_bytes();
-                output.extend_from_slice(&bytes[..len]);
-            }
+            let code1 = (packed & 0xFFF) as u16;
+            let code2 = ((packed >> 12) & 0xFFF) as u16;
+
+            self.emit_code(code1, &mut output);
+            self.emit_code(code2, &mut output);
+            pos += 3;
+        }
+
+        // Trailing odd code (2 bytes)
+        if pos + 1 < compressed.len() {
+            let code = u16::from_le_bytes([compressed[pos], compressed[pos + 1]]) & 0xFFF;
+            self.emit_code(code, &mut output);
         }
 
         output
@@ -386,38 +432,63 @@ impl Decompressor12 {
         let mut out_pos = 0;
         let mut pos = 0;
 
-        while pos + 1 < compressed.len() {
-            let code = u16::from_le_bytes([compressed[pos], compressed[pos + 1]]);
-            pos += 2;
+        while pos + 2 < compressed.len() {
+            let b0 = compressed[pos] as u32;
+            let b1 = compressed[pos + 1] as u32;
+            let b2 = compressed[pos + 2] as u32;
+            let packed = b0 | (b1 << 8) | (b2 << 16);
 
-            if code < SYMBOL_CODE_BASE {
-                #[allow(clippy::cast_possible_truncation)]
-                {
-                    output[out_pos] = code as u8;
-                }
-                out_pos += 1;
-            } else {
-                let idx = (code - SYMBOL_CODE_BASE) as usize;
-                let len = self.symbol_lengths[idx] as usize;
-                let val = self.symbol_values[idx];
+            let code1 = (packed & 0xFFF) as u16;
+            let code2 = ((packed >> 12) & 0xFFF) as u16;
 
-                // Write up to 8 bytes at once
-                if out_pos + 8 <= output.len() {
-                    // SAFETY: we check bounds above. Write 8 bytes and only advance by `len`.
-                    unsafe {
-                        let ptr = output.as_mut_ptr().add(out_pos);
-                        (ptr as *mut u64).write_unaligned(val);
-                    }
-                    out_pos += len;
-                } else {
-                    let bytes = val.to_le_bytes();
-                    output[out_pos..out_pos + len].copy_from_slice(&bytes[..len]);
-                    out_pos += len;
-                }
-            }
+            out_pos += self.emit_code_into(code1, output, out_pos);
+            out_pos += self.emit_code_into(code2, output, out_pos);
+            pos += 3;
+        }
+
+        if pos + 1 < compressed.len() {
+            let code = u16::from_le_bytes([compressed[pos], compressed[pos + 1]]) & 0xFFF;
+            out_pos += self.emit_code_into(code, output, out_pos);
         }
 
         out_pos
+    }
+
+    #[inline]
+    fn emit_code(&self, code: u16, output: &mut Vec<u8>) {
+        if code < SYMBOL_CODE_BASE {
+            output.push(code as u8);
+        } else {
+            let idx = (code - SYMBOL_CODE_BASE) as usize;
+            let len = self.symbol_lengths[idx] as usize;
+            let val = self.symbol_values[idx];
+            let bytes = val.to_le_bytes();
+            output.extend_from_slice(&bytes[..len]);
+        }
+    }
+
+    #[inline]
+    fn emit_code_into(&self, code: u16, output: &mut [u8], out_pos: usize) -> usize {
+        if code < SYMBOL_CODE_BASE {
+            output[out_pos] = code as u8;
+            1
+        } else {
+            let idx = (code - SYMBOL_CODE_BASE) as usize;
+            let len = self.symbol_lengths[idx] as usize;
+            let val = self.symbol_values[idx];
+
+            // Write up to 8 bytes at once for speed
+            if out_pos + 8 <= output.len() {
+                unsafe {
+                    let ptr = output.as_mut_ptr().add(out_pos);
+                    (ptr as *mut u64).write_unaligned(val);
+                }
+            } else {
+                let bytes = val.to_le_bytes();
+                output[out_pos..out_pos + len].copy_from_slice(&bytes[..len]);
+            }
+            len
+        }
     }
 }
 
@@ -425,15 +496,13 @@ impl Decompressor12 {
 
 struct TableBuilder {
     symbols: Vec<Symbol12>,
-    // Fast lookup during training
     codes_two_byte: Vec<u16>,
     hash_table: Vec<HashEntry>,
 }
 
-/// For training, we track extended codes: 0-255 = raw byte, 256+ = symbol index.
+/// Track up to 1024 codes during training (256 byte codes + 768 top symbols).
 const TRAIN_CODE_BASE: usize = 256;
-/// Limit the number of distinct codes we track for pairs (keep memory manageable).
-const TRAIN_CODE_RANGE: usize = 512; // 256 bytes + up to 256 top symbols
+const TRAIN_CODE_RANGE: usize = 1024;
 
 struct FrequencyCounts {
     counts1: Vec<usize>,
@@ -483,7 +552,6 @@ impl TableBuilder {
         self.codes_two_byte.fill(HASH_EMPTY);
         self.hash_table.fill(HashEntry::default());
 
-        #[allow(clippy::cast_possible_truncation)]
         for (idx, sym) in self.symbols.iter().enumerate() {
             let code = (TRAIN_CODE_BASE + idx) as u16;
             match sym.len() {
@@ -508,12 +576,9 @@ impl TableBuilder {
     #[inline]
     fn find_longest_match(&self, word: u64, available: usize) -> (usize, usize) {
         // Returns (train_code, consumed_bytes)
-        #[allow(clippy::cast_possible_truncation)]
         let mut best_code = (word as u8) as usize; // raw byte fallback
         let mut best_len = 1usize;
 
-        // Check 2-byte table
-        #[allow(clippy::cast_possible_truncation)]
         if available >= 2 {
             let code = self.codes_two_byte[word as u16 as usize];
             if code != HASH_EMPTY {
@@ -522,7 +587,6 @@ impl TableBuilder {
             }
         }
 
-        // Check hash table for 3+ byte matches
         if available >= 3 {
             let h = hash_symbol(word) as usize & (HASH_TABLE_SIZE - 1);
             for i in 0..8 {
@@ -553,7 +617,6 @@ impl TableBuilder {
         let mut counts = FrequencyCounts::new();
 
         for (i, sample) in samples.iter().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
             if sample_frac < 128 && (hash_rng(i as u64) & 127) as usize > sample_frac {
                 continue;
             }
@@ -571,7 +634,9 @@ impl TableBuilder {
                     counts.record2(prev_code, code);
                 }
 
-                #[allow(clippy::cast_possible_truncation)]
+                // Also count sub-codes: if we matched a multi-byte symbol, record
+                // what the first byte would have been (this helps build symbols
+                // from byte-level patterns).
                 if len > 1 {
                     let first_byte = (word as u8) as usize;
                     counts.record1(first_byte);
@@ -603,7 +668,6 @@ impl TableBuilder {
             }
 
             let (symbol, sym_len) = if code < TRAIN_CODE_BASE {
-                #[allow(clippy::cast_possible_truncation)]
                 let byte = code as u8;
                 (Symbol12::from_bytes(&[byte]), 1)
             } else {
@@ -614,17 +678,15 @@ impl TableBuilder {
                 (self.symbols[idx], self.symbols[idx].len())
             };
 
-            // Gain calculation: multi-byte symbols replace multiple 2-byte codes with one 2-byte code
-            let mut gain = count * sym_len;
+            // Gain = count * symbol_length (per reference FSST implementation).
+            // The iterative training process naturally converges on good symbols.
+            let gain = count * sym_len;
 
-            // Boost single-byte symbols to reduce escape counts
-            if code < TRAIN_CODE_BASE {
-                gain *= 4;
+            if gain > 0 {
+                candidates.push((gain, symbol));
             }
 
-            candidates.push((gain, symbol));
-
-            // Try merging with following symbols (skip on last round or if symbol is max length)
+            // Try merging with following symbols (skip on last round)
             if sample_frac >= 128 || sym_len >= MAX_SYMBOL_LEN {
                 continue;
             }
@@ -636,7 +698,6 @@ impl TableBuilder {
                 }
 
                 let symbol2 = if code2 < TRAIN_CODE_BASE {
-                    #[allow(clippy::cast_possible_truncation)]
                     let byte2 = code2 as u8;
                     Symbol12::from_bytes(&[byte2])
                 } else {
@@ -649,8 +710,8 @@ impl TableBuilder {
 
                 if let Some(merged) = symbol.concat(symbol2) {
                     let pair_count = counts.counts2[idx2];
-                    let pair_gain = pair_count * merged.len();
-                    candidates.push((pair_gain, merged));
+                    let merged_gain = pair_count * merged.len();
+                    candidates.push((merged_gain, merged));
                 }
             }
         }
@@ -658,17 +719,18 @@ impl TableBuilder {
         // Sort by gain descending
         candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0));
 
-        // Pick top multi-byte symbols (skip 1-byte since those are handled by byte codes)
+        // Pick top multi-byte symbols
         self.symbols.clear();
+        let max_symbols = MAX_MULTI_SYMBOLS.min(TRAIN_CODE_RANGE - TRAIN_CODE_BASE);
         let mut seen_values: vortex_utils::aliases::hash_set::HashSet<(u64, u8)> =
             vortex_utils::aliases::hash_set::HashSet::default();
 
         for (_, sym) in candidates {
-            if self.symbols.len() >= MAX_MULTI_SYMBOLS.min(TRAIN_CODE_RANGE - TRAIN_CODE_BASE) {
+            if self.symbols.len() >= max_symbols {
                 break;
             }
             if sym.len() < 2 {
-                continue; // Skip 1-byte symbols - they're handled by byte codes 0-255
+                continue; // 1-byte symbols handled by byte codes 0-255
             }
             let key = (sym.value, sym.len);
             if seen_values.insert(key) {
@@ -687,7 +749,7 @@ impl TableBuilder {
 #[inline]
 fn load_word(data: &[u8]) -> u64 {
     if data.len() >= 8 {
-        // SAFETY: we've checked data.len() >= 8 above
+        // SAFETY: we've checked data.len() >= 8
         let bytes: [u8; 8] = unsafe { *(data.as_ptr() as *const [u8; 8]) };
         u64::from_le_bytes(bytes)
     } else {
@@ -705,4 +767,40 @@ fn hash_symbol(value: u64) -> u64 {
 #[inline]
 fn hash_rng(value: u64) -> u64 {
     value.wrapping_mul(2971215073) ^ value.wrapping_shr(15)
+}
+
+#[cfg(test)]
+mod packing_tests {
+    use super::*;
+
+    #[test]
+    fn test_pack_unpack_roundtrip() {
+        let codes: Vec<u16> = vec![0, 255, 256, 4095, 1000, 2000];
+        let packed = pack_12bit(&codes);
+        let unpacked = unpack_12bit(&packed);
+        assert_eq!(codes, unpacked);
+    }
+
+    #[test]
+    fn test_pack_unpack_odd() {
+        let codes: Vec<u16> = vec![100, 200, 300];
+        let packed = pack_12bit(&codes);
+        // 2 codes = 3 bytes, 1 trailing = 2 bytes, total 5
+        assert_eq!(packed.len(), 5);
+        let unpacked = unpack_12bit(&packed);
+        assert_eq!(codes, unpacked);
+    }
+
+    #[test]
+    fn test_pack_size() {
+        // Even number of codes: N*3/2 bytes
+        let codes: Vec<u16> = vec![0; 10];
+        let packed = pack_12bit(&codes);
+        assert_eq!(packed.len(), 15); // 5 pairs * 3 bytes
+
+        // Odd number: (N-1)*3/2 + 2
+        let codes: Vec<u16> = vec![0; 11];
+        let packed = pack_12bit(&codes);
+        assert_eq!(packed.len(), 17); // 5 pairs * 3 + 2 trailing
+    }
 }

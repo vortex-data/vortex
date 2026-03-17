@@ -55,7 +55,6 @@ fn test_roundtrip_unseen_data() {
     let compressor = Compressor12::train(&corpus);
     let decompressor = compressor.decompressor();
 
-    // Unseen data should still roundtrip via byte codes
     let input = b"xyz123!@#";
     let compressed = compressor.compress(input);
     let decompressed = decompressor.decompress(&compressed);
@@ -64,7 +63,6 @@ fn test_roundtrip_unseen_data() {
 
 #[test]
 fn test_roundtrip_all_byte_values() {
-    // Every possible byte value should roundtrip correctly
     let compressor = Compressor12::train(&[b"test"]);
     let decompressor = compressor.decompressor();
 
@@ -158,37 +156,31 @@ fn test_rebuild_compressor() {
 
 #[test]
 fn test_no_escapes_needed() {
-    // Since codes 0-255 map to byte values, no escapes should be needed.
-    // Every input byte always has a valid code.
     let compressor = Compressor12::train(&[b"abc"]);
     let decompressor = compressor.decompressor();
 
-    // Test with all printable ASCII
     let input: Vec<u8> = (32..127).collect();
     let compressed = compressor.compress(&input);
     let decompressed = decompressor.decompress(&compressed);
     assert_eq!(decompressed, input);
-
-    // Each byte should be encoded as a u16 code (2 bytes per byte)
-    // unless multi-byte symbols match
-    assert_eq!(compressed.len() % 2, 0, "output should be u16-aligned");
 }
 
 #[test]
 fn test_multi_byte_symbols_reduce_size() {
-    // Repetitive data should benefit from multi-byte symbols
+    // Repetitive data should benefit from multi-byte symbols with 12-bit packing
     let line = b"the quick brown fox jumps over the lazy dog ";
     let corpus: Vec<&[u8]> = (0..100).map(|_| line.as_ref()).collect();
     let compressor = Compressor12::train(&corpus);
 
     let compressed = compressor.compress(line);
-    let num_codes = compressed.len() / 2;
-
-    // With good multi-byte symbols, we should use fewer codes than bytes
+    // With 12-bit packing, each code is 1.5 bytes.
+    // Raw bytes would be 1.5 bytes each (worse), but multi-byte symbols
+    // cover multiple bytes per 1.5-byte code, so total should be smaller.
     assert!(
-        num_codes < line.len(),
-        "should use fewer codes ({num_codes}) than input bytes ({})",
-        line.len()
+        compressed.len() < line.len(),
+        "compressed size ({}) should be less than input size ({})",
+        compressed.len(),
+        line.len(),
     );
 }
 
@@ -209,11 +201,67 @@ fn test_large_diverse_corpus() {
         compressor.symbols().len()
     );
 
-    // Verify roundtrip
     let decompressor = compressor.decompressor();
     for input in &refs {
         let compressed = compressor.compress(input);
         let decompressed = decompressor.decompress(&compressed);
         assert_eq!(&decompressed, *input);
     }
+}
+
+#[test]
+fn test_12bit_packing_correctness() {
+    // Verify the 12-bit packing produces correct byte counts
+    let compressor = Compressor12::train(&[b"test"]);
+
+    // Single byte input -> 1 code -> 2 bytes (trailing odd code)
+    let compressed = compressor.compress(b"x");
+    assert_eq!(compressed.len(), 2);
+
+    // Two byte input -> 2 codes -> 3 bytes (one pair)
+    let compressed = compressor.compress(b"xy");
+    assert_eq!(compressed.len(), 3);
+
+    let decompressor = compressor.decompressor();
+    assert_eq!(decompressor.decompress(&compressor.compress(b"x")), b"x");
+    assert_eq!(decompressor.decompress(&compressor.compress(b"xy")), b"xy");
+    assert_eq!(
+        decompressor.decompress(&compressor.compress(b"xyz")),
+        b"xyz"
+    );
+}
+
+#[test]
+fn test_long_shared_substrings() {
+    // Data with long shared substrings - FSST-12's sweet spot
+    let mut corpus: Vec<Vec<u8>> = Vec::new();
+    for i in 0..500 {
+        let s = format!(
+            "https://api.example.com/v2/users/{}/profile?format=json&lang=en&session=abc{}",
+            i % 100,
+            i % 50,
+        );
+        corpus.push(s.into_bytes());
+    }
+    let refs: Vec<&[u8]> = corpus.iter().map(|v| v.as_slice()).collect();
+    let compressor = Compressor12::train(&refs);
+    let decompressor = compressor.decompressor();
+
+    let mut total_raw = 0;
+    let mut total_compressed = 0;
+    for input in &refs {
+        let compressed = compressor.compress(input);
+        let decompressed = decompressor.decompress(&compressed);
+        assert_eq!(&decompressed, *input);
+        total_raw += input.len();
+        total_compressed += compressed.len();
+    }
+
+    // Should achieve meaningful compression
+    assert!(
+        total_compressed < total_raw,
+        "should compress: {} < {}",
+        total_compressed,
+        total_raw
+    );
 }
