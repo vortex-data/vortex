@@ -46,21 +46,6 @@ pub struct Inlined {
 }
 
 impl Inlined {
-    /// Creates a new inlined representation from the provided value of constant size.
-    #[inline]
-    #[allow(clippy::cast_possible_truncation)]
-    fn new<const N: usize>(value: &[u8]) -> Self {
-        debug_assert_eq!(value.len(), N);
-        debug_assert!(N <= BinaryView::MAX_INLINED_SIZE);
-        let mut inlined = Self {
-            // N is a const that is always <= MAX_INLINED_SIZE (12), so it fits in u32.
-            size: N as u32,
-            data: [0u8; BinaryView::MAX_INLINED_SIZE],
-        };
-        inlined.data[..N].copy_from_slice(&value[..N]);
-        inlined
-    }
-
     /// Returns the full inlined value.
     #[inline]
     pub fn value(&self) -> &[u8] {
@@ -105,65 +90,34 @@ impl BinaryView {
     /// Maximum size of an inlined binary value.
     pub const MAX_INLINED_SIZE: usize = 12;
 
-    /// Create a view from a value, block and offset
+    /// Create a view from a value, block and offset.
     ///
     /// Depending on the length of the provided value either a new inlined
     /// or a reference view will be constructed.
-    ///
-    /// Adapted from arrow-rs <https://github.com/apache/arrow-rs/blob/f4fde769ab6e1a9b75f890b7f8b47bc22800830b/arrow-array/src/builder/generic_bytes_view_builder.rs#L524>
-    /// Explicitly enumerating inlined view produces code that avoids calling generic `ptr::copy_non_interleave` that's slower than explicit stores
     #[inline]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
-        match value.len() {
-            0 => Self {
-                inlined: Inlined::new::<0>(value),
-            },
-            1 => Self {
-                inlined: Inlined::new::<1>(value),
-            },
-            2 => Self {
-                inlined: Inlined::new::<2>(value),
-            },
-            3 => Self {
-                inlined: Inlined::new::<3>(value),
-            },
-            4 => Self {
-                inlined: Inlined::new::<4>(value),
-            },
-            5 => Self {
-                inlined: Inlined::new::<5>(value),
-            },
-            6 => Self {
-                inlined: Inlined::new::<6>(value),
-            },
-            7 => Self {
-                inlined: Inlined::new::<7>(value),
-            },
-            8 => Self {
-                inlined: Inlined::new::<8>(value),
-            },
-            9 => Self {
-                inlined: Inlined::new::<9>(value),
-            },
-            10 => Self {
-                inlined: Inlined::new::<10>(value),
-            },
-            11 => Self {
-                inlined: Inlined::new::<11>(value),
-            },
-            12 => Self {
-                inlined: Inlined::new::<12>(value),
-            },
-            _ => Self {
+        let len = value.len();
+        if len <= Self::MAX_INLINED_SIZE {
+            // Inlined: zero-initialize, write size, then copy value bytes.
+            let mut view = Self {
+                le_bytes: [0u8; 16],
+            };
+            unsafe {
+                view.inlined.size = len as u32;
+                std::ptr::copy_nonoverlapping(value.as_ptr(), view.inlined.data.as_mut_ptr(), len);
+            }
+            view
+        } else {
+            Self {
                 _ref: Ref {
-                    size: u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
-                    // SAFETY: the match guarantees value.len() >= 13, so [0..4] is always valid
-                    // and try_into to [u8; 4] cannot fail.
+                    size: u32::try_from(len).vortex_expect("value length must fit in u32"),
+                    // SAFETY: len >= 13, so value[0..4] is always valid.
                     prefix: unsafe { value[0..4].try_into().unwrap_unchecked() },
                     buffer_index: block,
                     offset,
                 },
-            },
+            }
         }
     }
 

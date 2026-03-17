@@ -43,17 +43,23 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
         // and offsets are guaranteed to fit in u32 (max_buffer_len <= i32::MAX < u32::MAX).
         let bytes_ptr = bytes.as_slice().as_ptr();
 
+        // Write views directly via pointer to avoid per-element push_unchecked overhead
+        // (spare-capacity lookup + length bookkeeping on each iteration).
+        let views_dst = views.spare_capacity_mut().as_mut_ptr() as *mut BinaryView;
+
         let mut offset: usize = 0;
-        for &len in lens {
+        for (i, &len) in lens.iter().enumerate() {
             let len: usize = len.as_();
             // SAFETY: the sum of all lengths equals bytes.len() and we process them
             // sequentially, so offset + len <= bytes.len() at every iteration.
             let value = unsafe { std::slice::from_raw_parts(bytes_ptr.add(offset), len) };
             let view = BinaryView::make_view(value, start_buf_index, offset as u32);
-            // SAFETY: we reserved the right capacity beforehand.
-            unsafe { views.push_unchecked(view) };
+            // SAFETY: we reserved capacity for lens.len() views and i < lens.len().
+            unsafe { views_dst.add(i).write(view) };
             offset += len;
         }
+        // SAFETY: we wrote exactly lens.len() views above.
+        unsafe { views.set_len(lens.len()) };
 
         let buffers = if bytes.is_empty() {
             Vec::new()
