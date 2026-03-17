@@ -9,13 +9,14 @@ on low-escape data** and **3-16% speedup on high-escape data** over the fsst-rs 
 
 ## Current Implementation (committed)
 
-**Architecture: N=1 re-entry with SWAR escape detection + runtime BMI1/BMI2 dispatch**
+**Architecture: N=1 re-entry with SWAR escape detection + cold branch hints + runtime BMI1/BMI2 dispatch**
 
 Key design decisions:
 - **Separate symbol/length tables**: `symbols: [u64; 256]` (2KB) + `lengths: [u8; 256]` (256B) = 2.3KB total, fits in L1 cache
 - **Pre-converted u64 symbols**: Avoids per-lookup `Symbol::to_u64()` conversion
 - **3-tier processing**: 32-code escape-free fast path → 8-code blocks with escape handling → scalar tail
 - **N=1 re-entry**: After handling one 8-code escape block, immediately re-enters the 32-code fast path (optimal for low-escape data which is the common case)
+- **Cold branch hints**: `cold()` no-op calls in escape branches tell LLVM to optimize code layout for the hot (escape-free) path
 - **Runtime BMI dispatch**: `is_x86_feature_detected!("bmi1")` dispatches to `#[target_feature(enable = "bmi1,bmi2,popcnt")]` for better `tzcnt` codegen
 - **SWAR escape detection**: `escape_mask()` detects 0xFF bytes in a u64 using bitwise tricks, avoiding per-byte branches
 - **Unrolled escape match**: 8-arm match statement for escape position (0-7) avoids loop overhead
@@ -118,6 +119,21 @@ Key design decisions:
 **Idea**: Prefetch the next block of input data or upcoming symbol table entries.
 **Result**: No measurable improvement. The symbol table (2.3KB) is permanently resident in L1. Input data is accessed sequentially and the hardware prefetcher handles it well.
 
+### 15. Inline 32-code escape handling (REJECTED ❌)
+**Idea**: When the 32-code batch detects an escape, instead of breaking to the outer loop, process each of the 4 sub-blocks inline — emit clean blocks directly (reusing already-loaded data), handle the first dirty block, then `continue 'outer` to re-enter the fast path.
+**Result**: 2-4% better on high-escape data (avoids re-loading clean sub-blocks), but 7-10% worse on low-escape data. The inline escape handling adds code to the 32-code loop body, increasing instruction cache pressure even when the clean path is taken.
+**Impact**: Not worth it since low-escape is the common case. The simple `break` from the 32-code path is better.
+
+### 16. `#[cold]` escape handler function (REJECTED ❌)
+**Idea**: Extract the entire escape match into a separate `#[cold] #[inline(never)]` method, physically moving it to a cold text section.
+**Result**: 3-4% slower than the `cold()` hint approach. The function call overhead (passing 6 arguments, saving/restoring pointers) outweighs the icache benefit.
+**Impact**: The `cold()` no-op hint is the better approach — it influences code layout without adding call overhead.
+
+### 17. `cold()` branch hints on escape paths (SHIPPED ✅)
+**Idea**: Call a `#[cold] #[inline(never)] fn cold() {}` no-op at the top of escape branches. This causes LLVM to treat the entire branch as unlikely, improving code layout for the hot (escape-free) path.
+**Result**: 1-3% improvement on low-escape data (the common case). The biggest win is on the largest workload: (100k,64) 1386µs → 1348µs (-2.7%). High-escape data is tied or marginally better.
+**Impact**: Free performance improvement, zero runtime cost on the hot path.
+
 ## Why the Current Implementation Is Near-Optimal
 
 The fundamental bottleneck is the **serial dependency chain**: each symbol write depends on the previous symbol's length to compute the output offset (`out_ptr += length[code]`). This creates a minimum latency of ~5 cycles per symbol (L1 load + add).
@@ -142,11 +158,7 @@ These were **not explored** and might yield additional improvements:
 
 3. **ARM NEON intrinsics**: The current code is x86-focused. ARM NEON has different performance characteristics (e.g., `vceqq_u8` for escape detection, different OOO capabilities).
 
-4. **Compact loop-based escape handling**: Replace the 8-arm match statement with a compact loop. This reduces instruction cache pressure but may hurt branch prediction. Worth benchmarking on workloads with moderate escape rates.
-
-5. **`#[cold]` escape path**: Move escape handling to a separate `#[cold]` function to improve instruction cache locality for the hot (escape-free) path.
-
-6. **Profile-guided optimization (PGO)**: The compiler doesn't know that `escape_mask == 0` is the hot path. PGO would optimize code layout accordingly.
+4. **Profile-guided optimization (PGO)**: The compiler doesn't know that `escape_mask == 0` is the hot path. PGO would optimize code layout accordingly. (The `cold()` hints partially address this, but PGO could further optimize the 32-code loop body layout.)
 
 7. **Batch decompression with per-string offsets**: Instead of decompressing the entire string heap as one blob and then building views, decompress strings individually into their final positions, eliminating the separate view-building pass.
 

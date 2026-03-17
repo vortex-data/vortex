@@ -18,6 +18,13 @@ use std::mem::MaybeUninit;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 
+/// Hint that the calling branch is cold (unlikely). Placing a `#[cold]`
+/// `#[inline(never)]` call at the top of a branch causes LLVM to treat
+/// the entire branch as unlikely, improving code layout for the hot path.
+#[cold]
+#[inline(never)]
+fn cold() {}
+
 /// Optimized FSST decompressor using separate symbol/length tables.
 ///
 /// The symbol table stores pre-converted `u64` values to avoid per-lookup
@@ -139,75 +146,75 @@ impl OptimizedDecompressor {
             }};
         }
 
-        // Handle a block where the first escape is at byte position `$first_esc`.
-        // Emits symbols before the escape, writes the escaped literal, advances in_ptr.
-        // Uses a jump table (match) rather than a loop for ~4% better throughput.
-        macro_rules! handle_escape_block {
-            ($block:expr, $first_esc:expr) => {
-                match $first_esc {
+        // Emit symbols before the first escape at byte `$esc_pos`, write the
+        // escaped literal, and advance `in_ptr` past the consumed input.
+        // Each arm is a row in a jump table — ~4% faster than a loop.
+        macro_rules! emit_before_escape {
+            ($b:expr, $esc_pos:expr) => {
+                match $esc_pos {
                     7 => {
-                        emit_symbol!(($block) & 0xFF);
-                        emit_symbol!(($block >> 8) & 0xFF);
-                        emit_symbol!(($block >> 16) & 0xFF);
-                        emit_symbol!(($block >> 24) & 0xFF);
-                        emit_symbol!(($block >> 32) & 0xFF);
-                        emit_symbol!(($block >> 40) & 0xFF);
-                        emit_symbol!(($block >> 48) & 0xFF);
+                        emit_symbol!(($b) & 0xFF);
+                        emit_symbol!(($b >> 8) & 0xFF);
+                        emit_symbol!(($b >> 16) & 0xFF);
+                        emit_symbol!(($b >> 24) & 0xFF);
+                        emit_symbol!(($b >> 32) & 0xFF);
+                        emit_symbol!(($b >> 40) & 0xFF);
+                        emit_symbol!(($b >> 48) & 0xFF);
                         in_ptr = in_ptr.add(7);
                     }
                     6 => {
-                        emit_symbol!(($block) & 0xFF);
-                        emit_symbol!(($block >> 8) & 0xFF);
-                        emit_symbol!(($block >> 16) & 0xFF);
-                        emit_symbol!(($block >> 24) & 0xFF);
-                        emit_symbol!(($block >> 32) & 0xFF);
-                        emit_symbol!(($block >> 40) & 0xFF);
-                        out_ptr.write((($block >> 56) & 0xFF) as u8);
+                        emit_symbol!(($b) & 0xFF);
+                        emit_symbol!(($b >> 8) & 0xFF);
+                        emit_symbol!(($b >> 16) & 0xFF);
+                        emit_symbol!(($b >> 24) & 0xFF);
+                        emit_symbol!(($b >> 32) & 0xFF);
+                        emit_symbol!(($b >> 40) & 0xFF);
+                        out_ptr.write((($b >> 56) & 0xFF) as u8);
                         out_ptr = out_ptr.add(1);
                         in_ptr = in_ptr.add(8);
                     }
                     5 => {
-                        emit_symbol!(($block) & 0xFF);
-                        emit_symbol!(($block >> 8) & 0xFF);
-                        emit_symbol!(($block >> 16) & 0xFF);
-                        emit_symbol!(($block >> 24) & 0xFF);
-                        emit_symbol!(($block >> 32) & 0xFF);
-                        out_ptr.write((($block >> 48) & 0xFF) as u8);
+                        emit_symbol!(($b) & 0xFF);
+                        emit_symbol!(($b >> 8) & 0xFF);
+                        emit_symbol!(($b >> 16) & 0xFF);
+                        emit_symbol!(($b >> 24) & 0xFF);
+                        emit_symbol!(($b >> 32) & 0xFF);
+                        out_ptr.write((($b >> 48) & 0xFF) as u8);
                         out_ptr = out_ptr.add(1);
                         in_ptr = in_ptr.add(7);
                     }
                     4 => {
-                        emit_symbol!(($block) & 0xFF);
-                        emit_symbol!(($block >> 8) & 0xFF);
-                        emit_symbol!(($block >> 16) & 0xFF);
-                        emit_symbol!(($block >> 24) & 0xFF);
-                        out_ptr.write((($block >> 40) & 0xFF) as u8);
+                        emit_symbol!(($b) & 0xFF);
+                        emit_symbol!(($b >> 8) & 0xFF);
+                        emit_symbol!(($b >> 16) & 0xFF);
+                        emit_symbol!(($b >> 24) & 0xFF);
+                        out_ptr.write((($b >> 40) & 0xFF) as u8);
                         out_ptr = out_ptr.add(1);
                         in_ptr = in_ptr.add(6);
                     }
                     3 => {
-                        emit_symbol!(($block) & 0xFF);
-                        emit_symbol!(($block >> 8) & 0xFF);
-                        emit_symbol!(($block >> 16) & 0xFF);
-                        out_ptr.write((($block >> 32) & 0xFF) as u8);
+                        emit_symbol!(($b) & 0xFF);
+                        emit_symbol!(($b >> 8) & 0xFF);
+                        emit_symbol!(($b >> 16) & 0xFF);
+                        out_ptr.write((($b >> 32) & 0xFF) as u8);
                         out_ptr = out_ptr.add(1);
                         in_ptr = in_ptr.add(5);
                     }
                     2 => {
-                        emit_symbol!(($block) & 0xFF);
-                        emit_symbol!(($block >> 8) & 0xFF);
-                        out_ptr.write((($block >> 24) & 0xFF) as u8);
+                        emit_symbol!(($b) & 0xFF);
+                        emit_symbol!(($b >> 8) & 0xFF);
+                        out_ptr.write((($b >> 24) & 0xFF) as u8);
                         out_ptr = out_ptr.add(1);
                         in_ptr = in_ptr.add(4);
                     }
                     1 => {
-                        emit_symbol!(($block) & 0xFF);
-                        out_ptr.write((($block >> 16) & 0xFF) as u8);
+                        emit_symbol!(($b) & 0xFF);
+                        out_ptr.write((($b >> 16) & 0xFF) as u8);
                         out_ptr = out_ptr.add(1);
                         in_ptr = in_ptr.add(3);
                     }
                     0 => {
-                        out_ptr.write((($block >> 8) & 0xFF) as u8);
+                        out_ptr.write((($b >> 8) & 0xFF) as u8);
                         out_ptr = out_ptr.add(1);
                         in_ptr = in_ptr.add(2);
                     }
@@ -237,6 +244,7 @@ impl OptimizedDecompressor {
                     | Self::escape_mask(b3)
                     != 0
                 {
+                    cold();
                     break;
                 }
 
@@ -258,8 +266,9 @@ impl OptimizedDecompressor {
                 emit_block!(block);
                 in_ptr = in_ptr.add(8);
             } else {
+                cold();
                 let first_esc = (esc.trailing_zeros() >> 3) as usize;
-                handle_escape_block!(block, first_esc);
+                emit_before_escape!(block, first_esc);
             }
         }
 
