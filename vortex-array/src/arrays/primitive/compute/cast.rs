@@ -4,6 +4,7 @@
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -60,9 +61,12 @@ impl CastKernel for Primitive {
             && array.ptype().byte_width() == new_ptype.byte_width()
         {
             if !values_fit_in(array, new_ptype) {
-                return Ok(None);
+                vortex_bail!(
+                    Compute: "Cannot cast {} to {} — values exceed target range",
+                    array.ptype(),
+                    new_ptype,
+                );
             }
-
             // SAFETY: both types are integers with the same size and alignment, and
             // min/max confirm all valid values are representable in the target type.
             return Ok(Some(unsafe {
@@ -210,7 +214,7 @@ mod test {
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
             .unwrap_err();
         assert!(matches!(error, VortexError::Compute(..)));
-        assert!(error.to_string().contains("Failed to cast -1 to U32"));
+        assert!(error.to_string().contains("values exceed target range"));
     }
 
     #[test]
