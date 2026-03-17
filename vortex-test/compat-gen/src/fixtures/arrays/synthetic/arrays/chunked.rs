@@ -37,7 +37,7 @@ impl FlatLayoutFixture for ChunkedFixture {
         let chunks = chunk_sizes
             .iter()
             .map(|&size| {
-                let ids: Vec<u32> = (offset..offset + size).collect();
+                let ids: PrimitiveArray = (offset..offset + size).collect();
                 let nullable_vals = PrimitiveArray::from_option_iter(
                     (offset..offset + size)
                         .map(|i| if i % 7 == 0 { None } else { Some(i as i64 * 3) }),
@@ -45,14 +45,7 @@ impl FlatLayoutFixture for ChunkedFixture {
                 offset += size;
                 Ok(StructArray::try_new(
                     FieldNames::from(["id", "nullable_val"]),
-                    vec![
-                        PrimitiveArray::new(
-                            vortex_buffer::Buffer::from(ids),
-                            Validity::NonNullable,
-                        )
-                        .into_array(),
-                        nullable_vals.into_array(),
-                    ],
+                    vec![ids.into_array(), nullable_vals.into_array()],
                     size as usize,
                     Validity::NonNullable,
                 )?
