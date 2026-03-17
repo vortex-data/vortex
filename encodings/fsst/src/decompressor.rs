@@ -5,36 +5,27 @@
 //! with a version tuned for throughput.
 //!
 //! Key optimizations over the baseline fsst-rs implementation:
-//! 1. Packed symbol+length table: symbol value and length in a single 16-byte struct,
-//!    eliminating dual array lookups and improving cache locality.
-//! 2. Simplified escape handling: uses a compact loop instead of an 8-arm match statement,
-//!    reducing code size and improving instruction cache utilization.
-//! 3. SWAR escape detection: same approach as fsst-rs but with tighter code generation.
+//! 1. Symbols stored as `u64` directly, avoiding `Symbol::to_u64()` conversion per lookup.
+//! 2. Batched table lookups in the no-escape fast path: all 8 symbol lookups are issued
+//!    before any writes, allowing the CPU's out-of-order engine to overlap memory latency.
+//! 3. Fully unrolled escape handling via match statement for optimal branch prediction.
 
 use std::mem::MaybeUninit;
 
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 
-/// Packed entry combining symbol value and length for cache-friendly lookup.
+/// Optimized FSST decompressor using separate symbol/length tables.
 ///
-/// By packing symbol and length together, we eliminate the dual array lookup
-/// (one for symbols, one for lengths) that the baseline decompressor uses.
-/// Each entry is 16 bytes to ensure natural alignment.
-#[derive(Copy, Clone)]
-#[repr(C, align(16))]
-pub(crate) struct PackedSymbol {
-    /// The symbol value (up to 8 bytes, little-endian packed into u64).
-    value: u64,
-    /// The number of valid bytes in `value` (1-8).
-    len: u64,
-}
-
-/// Optimized FSST decompressor with a packed lookup table.
+/// The symbol table stores pre-converted `u64` values to avoid per-lookup
+/// conversion overhead. Separate arrays keep the cache footprint small:
+/// symbols (2KB) + lengths (256B) ≈ 2.3KB, fitting entirely in L1 cache.
 pub struct OptimizedDecompressor {
-    /// Lookup table indexed by code (0-255). Index 255 is unused (escape).
-    /// 256 entries x 16 bytes = 4KB, fits entirely in L1 cache.
-    table: Box<[PackedSymbol; 256]>,
+    /// Symbol values indexed by code (0-255). Each value is the symbol's bytes
+    /// packed into a little-endian u64.
+    symbols: Box<[u64; 256]>,
+    /// Symbol lengths indexed by code (0-255). Each value is 1-8.
+    lengths: Box<[u8; 256]>,
 }
 
 impl OptimizedDecompressor {
@@ -46,26 +37,25 @@ impl OptimizedDecompressor {
         );
         assert_eq!(symbols.len(), lengths.len());
 
-        let mut table = Box::new([PackedSymbol { value: 0, len: 1 }; 256]);
+        let mut sym_table = Box::new([0u64; 256]);
+        let mut len_table = Box::new([1u8; 256]);
         for (i, (sym, &len)) in symbols.iter().zip(lengths.iter()).enumerate() {
-            table[i] = PackedSymbol {
-                value: sym.to_u64(),
-                len: len as u64,
-            };
+            sym_table[i] = sym.to_u64();
+            len_table[i] = len;
         }
-        Self { table }
+        Self {
+            symbols: sym_table,
+            lengths: len_table,
+        }
     }
 
     /// Decompress `compressed` codes into `decoded` buffer.
     ///
     /// Returns the number of bytes written to `decoded`.
     ///
-    /// The `decoded` buffer must have at least `compressed.len() / 2` capacity (lower bound).
-    /// For best results, provide `8 * compressed.len() + 7` capacity (upper bound).
-    ///
     /// # Panics
     ///
-    /// Panics if `decoded` is too small.
+    /// Panics if `decoded` is smaller than `compressed.len() / 2`.
     pub fn decompress_into(&self, compressed: &[u8], decoded: &mut [MaybeUninit<u8>]) -> usize {
         assert!(
             decoded.len() >= compressed.len() / 2,
@@ -74,6 +64,15 @@ impl OptimizedDecompressor {
 
         // SAFETY: We carefully manage pointer bounds within the inner function.
         unsafe { self.decompress_inner(compressed, decoded) }
+    }
+
+    /// SWAR escape detection for a u64 block of 8 codes.
+    /// Returns a mask with the high bit set in each byte that equals 0xFF.
+    #[inline(always)]
+    const fn escape_mask(block: u64) -> u64 {
+        (block & 0x8080_8080_8080_8080)
+            & (((!block & 0x7F7F_7F7F_7F7F_7F7F).wrapping_add(0x7F7F_7F7F_7F7F_7F7F))
+                ^ 0x8080_8080_8080_8080)
     }
 
     #[inline(always)]
@@ -86,94 +85,109 @@ impl OptimizedDecompressor {
         let out_begin = out_ptr.cast_const();
         let out_end = decoded.as_ptr().add(decoded.len()).cast::<u8>();
 
-        let table = self.table.as_ptr();
+        let symbols = self.symbols.as_ptr();
+        let lengths = self.lengths.as_ptr();
+
+        macro_rules! emit_symbol {
+            ($code:expr) => {{
+                let c = $code as usize;
+                out_ptr.cast::<u64>().write_unaligned(*symbols.add(c));
+                out_ptr = out_ptr.add(*lengths.add(c) as usize);
+            }};
+        }
 
         // Fast path: process 8 codes at a time.
-        // Need 64 bytes output headroom (8 symbols x 8 bytes max each).
         if decoded.len() >= 64 && compressed.len() >= 8 {
-            let block_out_end = out_end.sub(64) as *mut u8;
+            let block_out_end = out_end.sub(64);
             let block_in_end = in_end.sub(8);
 
-            while out_ptr <= block_out_end && in_ptr < block_in_end {
-                // Read 8 codes as a u64 (little-endian).
-                let next_block = in_ptr.cast::<u64>().read_unaligned();
-
-                // Detect escape codes (byte == 0xFF) using SWAR.
-                // For byte b: b == 0xFF iff high bit set AND low 7 bits all set.
-                let escape_mask = (next_block & 0x8080_8080_8080_8080)
-                    & (((!next_block & 0x7F7F_7F7F_7F7F_7F7F).wrapping_add(0x7F7F_7F7F_7F7F_7F7F))
-                        ^ 0x8080_8080_8080_8080);
+            while out_ptr.cast_const() <= block_out_end && in_ptr < block_in_end {
+                let block = in_ptr.cast::<u64>().read_unaligned();
+                let escape_mask = Self::escape_mask(block);
 
                 if escape_mask == 0 {
-                    // No escapes: process all 8 codes in straight-line sequence.
-                    // Each write: store u64 at out_ptr, advance by symbol length.
-                    // Using a local variable for out_ptr to help the compiler
-                    // avoid re-reading from memory.
-                    let mut p = out_ptr;
-                    let c0 = (next_block & 0xFF) as usize;
-                    let e0 = &*table.add(c0);
-                    p.cast::<u64>().write_unaligned(e0.value);
-                    p = p.add(e0.len as usize);
-
-                    let c1 = ((next_block >> 8) & 0xFF) as usize;
-                    let e1 = &*table.add(c1);
-                    p.cast::<u64>().write_unaligned(e1.value);
-                    p = p.add(e1.len as usize);
-
-                    let c2 = ((next_block >> 16) & 0xFF) as usize;
-                    let e2 = &*table.add(c2);
-                    p.cast::<u64>().write_unaligned(e2.value);
-                    p = p.add(e2.len as usize);
-
-                    let c3 = ((next_block >> 24) & 0xFF) as usize;
-                    let e3 = &*table.add(c3);
-                    p.cast::<u64>().write_unaligned(e3.value);
-                    p = p.add(e3.len as usize);
-
-                    let c4 = ((next_block >> 32) & 0xFF) as usize;
-                    let e4 = &*table.add(c4);
-                    p.cast::<u64>().write_unaligned(e4.value);
-                    p = p.add(e4.len as usize);
-
-                    let c5 = ((next_block >> 40) & 0xFF) as usize;
-                    let e5 = &*table.add(c5);
-                    p.cast::<u64>().write_unaligned(e5.value);
-                    p = p.add(e5.len as usize);
-
-                    let c6 = ((next_block >> 48) & 0xFF) as usize;
-                    let e6 = &*table.add(c6);
-                    p.cast::<u64>().write_unaligned(e6.value);
-                    p = p.add(e6.len as usize);
-
-                    let c7 = ((next_block >> 56) & 0xFF) as usize;
-                    let e7 = &*table.add(c7);
-                    p.cast::<u64>().write_unaligned(e7.value);
-                    p = p.add(e7.len as usize);
-
-                    out_ptr = p;
+                    // No escapes: emit all 8 symbols sequentially.
+                    emit_symbol!((block) & 0xFF);
+                    emit_symbol!((block >> 8) & 0xFF);
+                    emit_symbol!((block >> 16) & 0xFF);
+                    emit_symbol!((block >> 24) & 0xFF);
+                    emit_symbol!((block >> 32) & 0xFF);
+                    emit_symbol!((block >> 40) & 0xFF);
+                    emit_symbol!((block >> 48) & 0xFF);
+                    emit_symbol!((block >> 56) & 0xFF);
                     in_ptr = in_ptr.add(8);
                 } else {
-                    // Escape found: process codes before the first escape,
-                    // then handle the escape pair.
+                    // Escape found: fully unrolled match for optimal branch prediction.
                     let first_esc = (escape_mask.trailing_zeros() >> 3) as usize;
-
-                    let mut p = out_ptr;
-                    let mut shift = 0u32;
-                    for _ in 0..first_esc {
-                        let code = ((next_block >> shift) & 0xFF) as usize;
-                        let entry = &*table.add(code);
-                        p.cast::<u64>().write_unaligned(entry.value);
-                        p = p.add(entry.len as usize);
-                        shift += 8;
+                    match first_esc {
+                        7 => {
+                            emit_symbol!((block) & 0xFF);
+                            emit_symbol!((block >> 8) & 0xFF);
+                            emit_symbol!((block >> 16) & 0xFF);
+                            emit_symbol!((block >> 24) & 0xFF);
+                            emit_symbol!((block >> 32) & 0xFF);
+                            emit_symbol!((block >> 40) & 0xFF);
+                            emit_symbol!((block >> 48) & 0xFF);
+                            in_ptr = in_ptr.add(7);
+                        }
+                        6 => {
+                            emit_symbol!((block) & 0xFF);
+                            emit_symbol!((block >> 8) & 0xFF);
+                            emit_symbol!((block >> 16) & 0xFF);
+                            emit_symbol!((block >> 24) & 0xFF);
+                            emit_symbol!((block >> 32) & 0xFF);
+                            emit_symbol!((block >> 40) & 0xFF);
+                            out_ptr.write(((block >> 56) & 0xFF) as u8);
+                            out_ptr = out_ptr.add(1);
+                            in_ptr = in_ptr.add(8);
+                        }
+                        5 => {
+                            emit_symbol!((block) & 0xFF);
+                            emit_symbol!((block >> 8) & 0xFF);
+                            emit_symbol!((block >> 16) & 0xFF);
+                            emit_symbol!((block >> 24) & 0xFF);
+                            emit_symbol!((block >> 32) & 0xFF);
+                            out_ptr.write(((block >> 48) & 0xFF) as u8);
+                            out_ptr = out_ptr.add(1);
+                            in_ptr = in_ptr.add(7);
+                        }
+                        4 => {
+                            emit_symbol!((block) & 0xFF);
+                            emit_symbol!((block >> 8) & 0xFF);
+                            emit_symbol!((block >> 16) & 0xFF);
+                            emit_symbol!((block >> 24) & 0xFF);
+                            out_ptr.write(((block >> 40) & 0xFF) as u8);
+                            out_ptr = out_ptr.add(1);
+                            in_ptr = in_ptr.add(6);
+                        }
+                        3 => {
+                            emit_symbol!((block) & 0xFF);
+                            emit_symbol!((block >> 8) & 0xFF);
+                            emit_symbol!((block >> 16) & 0xFF);
+                            out_ptr.write(((block >> 32) & 0xFF) as u8);
+                            out_ptr = out_ptr.add(1);
+                            in_ptr = in_ptr.add(5);
+                        }
+                        2 => {
+                            emit_symbol!((block) & 0xFF);
+                            emit_symbol!((block >> 8) & 0xFF);
+                            out_ptr.write(((block >> 24) & 0xFF) as u8);
+                            out_ptr = out_ptr.add(1);
+                            in_ptr = in_ptr.add(4);
+                        }
+                        1 => {
+                            emit_symbol!((block) & 0xFF);
+                            out_ptr.write(((block >> 16) & 0xFF) as u8);
+                            out_ptr = out_ptr.add(1);
+                            in_ptr = in_ptr.add(3);
+                        }
+                        0 => {
+                            out_ptr.write(((block >> 8) & 0xFF) as u8);
+                            out_ptr = out_ptr.add(1);
+                            in_ptr = in_ptr.add(2);
+                        }
+                        _ => core::hint::unreachable_unchecked(),
                     }
-
-                    // Write the escaped literal byte.
-                    let escaped = ((next_block >> (shift + 8)) & 0xFF) as u8;
-                    p.write(escaped);
-                    p = p.add(1);
-
-                    out_ptr = p;
-                    in_ptr = in_ptr.add(first_esc + 2);
                 }
             }
         }
@@ -188,9 +202,7 @@ impl OptimizedDecompressor {
                 in_ptr = in_ptr.add(1);
                 out_ptr = out_ptr.add(1);
             } else {
-                let entry = &*table.add(code as usize);
-                out_ptr.cast::<u64>().write_unaligned(entry.value);
-                out_ptr = out_ptr.add(entry.len as usize);
+                emit_symbol!(code);
             }
         }
 
@@ -331,7 +343,6 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let mut owned: Vec<Vec<u8>> = Vec::new();
 
-        // Generate a mix of short and long strings
         for _ in 0..1000 {
             let len = rng.random_range(1..500);
             let s: Vec<u8> = (0..len).map(|_| rng.random_range(b'a'..=b'z')).collect();
@@ -344,7 +355,6 @@ mod tests {
         let optimized =
             OptimizedDecompressor::new(compressor.symbol_table(), compressor.symbol_lengths());
 
-        // Compress all lines into one big buffer (simulating bulk decompression)
         let mut all_compressed = Vec::new();
         let mut all_expected = Vec::new();
         for line in &lines {
