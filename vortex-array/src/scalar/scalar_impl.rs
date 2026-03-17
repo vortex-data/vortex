@@ -263,6 +263,10 @@ impl Scalar {
 
 /// We implement `PartialEq` manually because we want to ignore nullability when comparing scalars.
 /// Two scalars with the same value but different nullability should be considered equal.
+///
+/// Note that this has **different** behavior than the [`PartialOrd`] implementation since the
+/// [`PartialOrd`] returns `None` if the types are different, whereas this `PartialEq`
+/// implementation simply returns `false`.
 impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
         self.dtype.eq_ignore_nullability(&other.dtype) && self.value == other.value
