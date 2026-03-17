@@ -22,10 +22,16 @@ use vortex_array::dtype::Nullability;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_fsst::test_utils::generate_clickbench_urls;
+use vortex_fsst::test_utils::generate_csv_rows;
 use vortex_fsst::test_utils::generate_emails;
 use vortex_fsst::test_utils::generate_file_paths;
 use vortex_fsst::test_utils::generate_json_strings;
+use vortex_fsst::test_utils::generate_key_value_config;
 use vortex_fsst::test_utils::generate_log_lines;
+use vortex_fsst::test_utils::generate_repeated_binary;
+use vortex_fsst::test_utils::generate_sql_queries;
+use vortex_fsst::test_utils::generate_timestamps_with_prefix;
+use vortex_fsst::test_utils::generate_xml_fragments;
 
 fn main() {
     // Print size report first, then run throughput benchmarks.
@@ -109,22 +115,34 @@ fn make_structured_binary_dataset() -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// CSV-like rows: comma-separated values with repeating column patterns.
+/// CSV rows with repeated values.
 fn make_csv_dataset() -> Vec<String> {
-    let mut rng = StdRng::seed_from_u64(0xCAFE);
-    let cities = [
-        "New York", "London", "Tokyo", "Paris", "Sydney", "Berlin", "Toronto", "Mumbai",
-    ];
-    let statuses = ["active", "inactive", "pending", "suspended"];
-    (0..N)
-        .map(|i| {
-            let city = cities[rng.random_range(0..cities.len())];
-            let status = statuses[rng.random_range(0..statuses.len())];
-            let age: u8 = rng.random_range(18..85);
-            let score: f32 = rng.random_range(0.0..100.0);
-            format!("{i},{city},{status},{age},{score:.2},user_{i}@example.com")
-        })
-        .collect()
+    generate_csv_rows(N)
+}
+
+/// SQL queries with highly repeated keywords.
+fn make_sql_dataset() -> Vec<String> {
+    generate_sql_queries(N)
+}
+
+/// XML fragments with nested tags and namespaces.
+fn make_xml_dataset() -> Vec<String> {
+    generate_xml_fragments(N)
+}
+
+/// Binary data with high pattern repetition (zstd/snappy-friendly).
+fn make_repeated_binary_dataset() -> Vec<Vec<u8>> {
+    generate_repeated_binary(N)
+}
+
+/// Config key=value lines with shared prefixes.
+fn make_config_dataset() -> Vec<String> {
+    generate_key_value_config(N)
+}
+
+/// Timestamped log lines with highly repetitive prefixes.
+fn make_timestamp_log_dataset() -> Vec<String> {
+    generate_timestamps_with_prefix(N)
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +157,11 @@ static JSON_STRINGS: LazyLock<Vec<String>> = LazyLock::new(make_json_dataset);
 static EMAIL_STRINGS: LazyLock<Vec<String>> = LazyLock::new(make_email_dataset);
 static FILE_PATHS: LazyLock<Vec<String>> = LazyLock::new(make_file_paths_dataset);
 static CSV_ROWS: LazyLock<Vec<String>> = LazyLock::new(make_csv_dataset);
+static SQL_QUERIES: LazyLock<Vec<String>> = LazyLock::new(make_sql_dataset);
+static XML_FRAGMENTS: LazyLock<Vec<String>> = LazyLock::new(make_xml_dataset);
+static REPEATED_BINARY: LazyLock<Vec<Vec<u8>>> = LazyLock::new(make_repeated_binary_dataset);
+static CONFIG_LINES: LazyLock<Vec<String>> = LazyLock::new(make_config_dataset);
+static TIMESTAMP_LOGS: LazyLock<Vec<String>> = LazyLock::new(make_timestamp_log_dataset);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -252,6 +275,11 @@ fn print_size_report() {
     let email_bytes = concat_strings(&EMAIL_STRINGS);
     let path_bytes = concat_strings(&FILE_PATHS);
     let csv_bytes = concat_strings(&CSV_ROWS);
+    let sql_bytes = concat_strings(&SQL_QUERIES);
+    let xml_bytes = concat_strings(&XML_FRAGMENTS);
+    let repeated_bin_bytes = concat_bytes(&REPEATED_BINARY);
+    let config_bytes = concat_strings(&CONFIG_LINES);
+    let ts_log_bytes = concat_strings(&TIMESTAMP_LOGS);
 
     let random_varbin = bytes_to_varbin(&RANDOM_BINARY);
     let struct_bin_varbin = bytes_to_varbin(&STRUCTURED_BINARY);
@@ -261,16 +289,26 @@ fn print_size_report() {
     let email_varbin = strings_to_varbin(&EMAIL_STRINGS);
     let path_varbin = strings_to_varbin(&FILE_PATHS);
     let csv_varbin = strings_to_varbin(&CSV_ROWS);
+    let sql_varbin = strings_to_varbin(&SQL_QUERIES);
+    let xml_varbin = strings_to_varbin(&XML_FRAGMENTS);
+    let repeated_bin_varbin = bytes_to_varbin(&REPEATED_BINARY);
+    let config_varbin = strings_to_varbin(&CONFIG_LINES);
+    let ts_log_varbin = strings_to_varbin(&TIMESTAMP_LOGS);
 
     let datasets: Vec<(&str, &[u8], &VarBinArray)> = vec![
         ("random_binary", &random_bytes, &random_varbin),
         ("struct_binary", &struct_bin_bytes, &struct_bin_varbin),
+        ("repeat_binary", &repeated_bin_bytes, &repeated_bin_varbin),
         ("urls", &url_bytes, &url_varbin),
         ("log_lines", &log_bytes, &log_varbin),
         ("json", &json_bytes, &json_varbin),
         ("emails", &email_bytes, &email_varbin),
         ("file_paths", &path_bytes, &path_varbin),
         ("csv_rows", &csv_bytes, &csv_varbin),
+        ("sql_queries", &sql_bytes, &sql_varbin),
+        ("xml", &xml_bytes, &xml_varbin),
+        ("config_kv", &config_bytes, &config_varbin),
+        ("ts_logs", &ts_log_bytes, &ts_log_varbin),
     ];
 
     println!(

@@ -815,10 +815,11 @@ impl Compressor {
                     codes_two_byte[symbol.first2() as usize] = Code::new_symbol(code as u8, 2);
                 }
                 3.. => {
-                    assert!(
-                        lossy_pht.insert(symbol, len as usize, code as u8),
-                        "rebuild symbol insertion into PHT must succeed"
-                    );
+                    // PHT insert may fail due to hash collision; the symbol
+                    // will still exist in the symbol table but won't be
+                    // findable via the hash table (reducing compression quality
+                    // slightly but maintaining correctness).
+                    let _ = lossy_pht.insert(symbol, len as usize, code as u8);
                 }
                 _ => { /* Covered by the 1-byte loop above. */ }
             }

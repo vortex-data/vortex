@@ -12,6 +12,7 @@ use super::builder::fsst_hash;
 /// NOTE: this differs from the paper, which recommends a 64KB total
 /// table size. The paper does not account for the fact that most
 /// vendors split the L1 cache into 32KB of instruction and 32KB of data.
+///
 pub const HASH_TABLE_SIZE: usize = 1 << 11;
 
 /// A single entry in the [Lossy Perfect Hash Table][`LossyPHT`].

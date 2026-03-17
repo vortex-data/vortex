@@ -526,8 +526,13 @@ impl CompressorBuilder {
 /// explore more candidates before committing.
 ///
 /// [FSST paper]: https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf
+/// Training generations: sample_frac values for progressive refinement.
+///
+/// Values < 128 use a fraction of the sample for faster early exploration.
+/// Value 128 uses the full sample. Value 129 is a special "stabilization" pass
+/// that uses the full sample but skips merges to let the table settle.
 #[cfg(not(miri))]
-const GENERATIONS: [usize; 7] = [4usize, 12, 28, 48, 68, 98, 128];
+const GENERATIONS: [usize; 9] = [4usize, 12, 28, 48, 68, 98, 128, 128, 129];
 #[cfg(miri)]
 const GENERATIONS: [usize; 3] = [8usize, 38, 128];
 
@@ -624,12 +629,17 @@ impl Compressor {
 
         let sample = make_sample(&mut sample_memory, values);
         for sample_frac in GENERATIONS {
+            // Record first-byte counts only in early generations to help
+            // discover useful single-byte symbols. In later rounds, skip
+            // to avoid biasing the symbol table toward short symbols.
+            let record_first_byte = sample_frac <= 28;
+
             for (i, line) in sample.iter().enumerate() {
                 if sample_frac < 128 && ((fsst_hash(i as u64) & 127) as usize) > sample_frac {
                     continue;
                 }
 
-                builder.compress_count(line, &mut counters);
+                builder.compress_count(line, &mut counters, record_first_byte);
             }
 
             // Clear the heap before we use it again
@@ -667,9 +677,18 @@ impl CompressorBuilder {
     /// Compress the text using the current symbol table. Count the code occurrences
     /// and code-pair occurrences, calculating total gain using the current compressor.
     ///
+    /// When `record_first_byte` is true, multi-byte symbols also record their first
+    /// byte as a separate count, helping the algorithm discover single-byte alternatives.
+    /// This is useful in early generations but can bias toward short symbols later.
+    ///
     /// NOTE: this is largely an unfortunate amount of copy-paste from `compress`, just to make sure
     /// we can do all the counting in a single pass.
-    fn compress_count(&self, sample: &[u8], counter: &mut Counter) -> usize {
+    fn compress_count(
+        &self,
+        sample: &[u8],
+        counter: &mut Counter,
+        record_first_byte: bool,
+    ) -> usize {
         let mut gain = 0;
         if sample.is_empty() {
             return gain;
@@ -698,8 +717,10 @@ impl CompressorBuilder {
             counter.record_count2(prev_code, code_u16);
 
             // Also record the count for just extending by a single byte, but only if
-            // the symbol is not itself a single byte.
-            if code.len() > 1 {
+            // the symbol is not itself a single byte. This helps discover useful single-byte
+            // symbols in early generations but is skipped in later ones to avoid biasing
+            // toward short symbols.
+            if record_first_byte && code.len() > 1 {
                 let code_first_byte = self.symbols[code_u16 as usize].first_byte() as u16;
                 counter.record_count1(code_first_byte);
                 counter.record_count2(prev_code, code_first_byte);
@@ -746,7 +767,7 @@ impl CompressorBuilder {
 
             // Also record the count for just extending by a single byte, but only if
             // the symbol is not itself a single byte.
-            if code.len() > 1 {
+            if record_first_byte && code.len() > 1 {
                 let code_first_byte = self.symbols[code_u16 as usize].first_byte() as u16;
                 counter.record_count1(code_first_byte);
                 counter.record_count2(prev_code, code_first_byte);
@@ -823,7 +844,8 @@ impl CompressorBuilder {
                 count * single_byte_boost
             } else {
                 // Multi-byte symbol: saves (len - 1) bytes per occurrence.
-                // Add a length bonus to prefer longer symbols per slot.
+                // Superlinear bonus: len²/4 rewards longer symbols.
+                // len=2: bonus=1; len=4: bonus=4; len=8: bonus=16
                 let len_bonus = (symbol1_len * symbol1_len) / 4;
                 count * (symbol1_len + len_bonus)
             };
@@ -833,8 +855,8 @@ impl CompressorBuilder {
                 gain,
             });
 
-            // Skip merges when symbol cannot be extended.
-            if symbol1_len == 8 {
+            // Skip merges on stabilization pass (129) or when symbol is max length.
+            if sample_frac > 128 || symbol1_len == 8 {
                 continue;
             }
 

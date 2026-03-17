@@ -584,3 +584,387 @@ pub fn make_fsst_rare_match(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     fsst_compress(varbin, &compressor)
 }
+
+// ---------------------------------------------------------------------------
+// SQL queries generator (high keyword repetition)
+// ---------------------------------------------------------------------------
+
+const SQL_TABLES: &[&str] = &[
+    "users",
+    "orders",
+    "products",
+    "customers",
+    "invoices",
+    "payments",
+    "sessions",
+    "events",
+    "accounts",
+    "transactions",
+];
+const SQL_COLUMNS: &[&str] = &[
+    "id",
+    "name",
+    "email",
+    "created_at",
+    "updated_at",
+    "status",
+    "amount",
+    "quantity",
+    "price",
+    "description",
+    "category",
+    "region",
+];
+const SQL_STATUSES: &[&str] = &[
+    "'active'",
+    "'inactive'",
+    "'pending'",
+    "'completed'",
+    "'cancelled'",
+];
+const SQL_OPERATORS: &[&str] = &["=", ">", "<", ">=", "<=", "!=", "LIKE", "IN"];
+
+pub fn generate_sql_queries(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(1001);
+    (0..n)
+        .map(|_| {
+            let kind = rng.random_range(0..3u32);
+            let table = SQL_TABLES[rng.random_range(0..SQL_TABLES.len())];
+            match kind {
+                0 => {
+                    // SELECT
+                    let ncols = rng.random_range(2..6usize);
+                    let cols: Vec<&str> = (0..ncols)
+                        .map(|_| SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())])
+                        .collect();
+                    let nconds = rng.random_range(1..4usize);
+                    let mut where_parts = Vec::with_capacity(nconds);
+                    for _ in 0..nconds {
+                        let col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
+                        let op = SQL_OPERATORS[rng.random_range(0..SQL_OPERATORS.len())];
+                        let val = if op == "LIKE" {
+                            format!("'%pattern_{}'", rng.random_range(0..100u32))
+                        } else if op == "IN" {
+                            format!(
+                                "({}, {}, {})",
+                                rng.random_range(1..1000u32),
+                                rng.random_range(1..1000u32),
+                                rng.random_range(1..1000u32)
+                            )
+                        } else {
+                            let status = SQL_STATUSES[rng.random_range(0..SQL_STATUSES.len())];
+                            status.to_string()
+                        };
+                        where_parts.push(format!("{col} {op} {val}"));
+                    }
+                    let order_col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
+                    let dir = if rng.random_bool(0.5) { "ASC" } else { "DESC" };
+                    let limit = rng.random_range(10..1000u32);
+                    format!(
+                        "SELECT {} FROM {} WHERE {} ORDER BY {} {} LIMIT {}",
+                        cols.join(", "),
+                        table,
+                        where_parts.join(" AND "),
+                        order_col,
+                        dir,
+                        limit,
+                    )
+                }
+                1 => {
+                    // INSERT
+                    let ncols = rng.random_range(3..7usize);
+                    let cols: Vec<&str> = (0..ncols)
+                        .map(|_| SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())])
+                        .collect();
+                    let vals: Vec<String> = (0..ncols)
+                        .map(|_| {
+                            if rng.random_bool(0.5) {
+                                format!(
+                                    "'{}'",
+                                    SQL_STATUSES[rng.random_range(0..SQL_STATUSES.len())]
+                                )
+                            } else {
+                                rng.random_range(1..100000u32).to_string()
+                            }
+                        })
+                        .collect();
+                    format!(
+                        "INSERT INTO {} ({}) VALUES ({})",
+                        table,
+                        cols.join(", "),
+                        vals.join(", "),
+                    )
+                }
+                _ => {
+                    // UPDATE
+                    let nsets = rng.random_range(1..4usize);
+                    let set_parts: Vec<String> = (0..nsets)
+                        .map(|_| {
+                            let col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
+                            let val = SQL_STATUSES[rng.random_range(0..SQL_STATUSES.len())];
+                            format!("{col} = {val}")
+                        })
+                        .collect();
+                    let cond_col = SQL_COLUMNS[rng.random_range(0..SQL_COLUMNS.len())];
+                    let cond_val = rng.random_range(1..100000u32);
+                    format!(
+                        "UPDATE {} SET {} WHERE {} = {}",
+                        table,
+                        set_parts.join(", "),
+                        cond_col,
+                        cond_val,
+                    )
+                }
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// XML fragments generator (nested tags, attributes, namespaces)
+// ---------------------------------------------------------------------------
+
+const XML_TAGS: &[&str] = &[
+    "record", "entry", "item", "element", "node", "data", "field", "row", "value", "property",
+];
+const XML_NAMESPACES: &[&str] = &["ns1", "ns2", "xsi", "xsd", "soap", "app"];
+const XML_ATTRS: &[&str] = &[
+    "id", "type", "name", "class", "version", "status", "priority", "lang", "encoding", "format",
+];
+const XML_ATTR_VALUES: &[&str] = &[
+    "primary",
+    "secondary",
+    "active",
+    "deprecated",
+    "1.0",
+    "2.0",
+    "utf-8",
+    "json",
+    "xml",
+    "default",
+];
+
+pub fn generate_xml_fragments(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(1002);
+    (0..n)
+        .map(|_| {
+            let mut xml = String::with_capacity(256);
+            let depth = rng.random_range(2..5usize);
+            let mut tags_stack = Vec::with_capacity(depth);
+            for _ in 0..depth {
+                let ns = XML_NAMESPACES[rng.random_range(0..XML_NAMESPACES.len())];
+                let tag = XML_TAGS[rng.random_range(0..XML_TAGS.len())];
+                let nattrs = rng.random_range(1..4usize);
+                xml.push('<');
+                xml.push_str(ns);
+                xml.push(':');
+                xml.push_str(tag);
+                for _ in 0..nattrs {
+                    let attr = XML_ATTRS[rng.random_range(0..XML_ATTRS.len())];
+                    let val = XML_ATTR_VALUES[rng.random_range(0..XML_ATTR_VALUES.len())];
+                    xml.push(' ');
+                    xml.push_str(attr);
+                    xml.push_str("=\"");
+                    xml.push_str(val);
+                    xml.push('"');
+                }
+                xml.push('>');
+                tags_stack.push(format!("{ns}:{tag}"));
+            }
+            // inner text content
+            let inner_id = rng.random_range(1000..99999u32);
+            xml.push_str(&format!("value_{inner_id}"));
+            // close tags in reverse
+            for qualified in tags_stack.iter().rev() {
+                xml.push_str("</");
+                xml.push_str(qualified);
+                xml.push('>');
+            }
+            xml
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Repeated binary patterns generator
+// ---------------------------------------------------------------------------
+
+pub fn generate_repeated_binary(n: usize) -> Vec<Vec<u8>> {
+    let mut rng = StdRng::seed_from_u64(1003);
+    // Pre-generate a pool of patterns
+    let num_patterns = rng.random_range(4..7usize);
+    let patterns: Vec<Vec<u8>> = (0..num_patterns)
+        .map(|_| {
+            let len = rng.random_range(8..33usize);
+            (0..len).map(|_| rng.random::<u8>()).collect()
+        })
+        .collect();
+
+    (0..n)
+        .map(|_| {
+            let num_segments = rng.random_range(3..9usize);
+            let mut record = Vec::with_capacity(256);
+            for _ in 0..num_segments {
+                let pattern = &patterns[rng.random_range(0..patterns.len())];
+                record.extend_from_slice(pattern);
+                // small random separator (1-4 bytes)
+                let sep_len = rng.random_range(1..5usize);
+                for _ in 0..sep_len {
+                    record.push(rng.random::<u8>());
+                }
+            }
+            record
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// CSV rows generator (fixed schema with repeated categorical values)
+// ---------------------------------------------------------------------------
+
+const CSV_NAMES: &[&str] = &[
+    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Hank", "Ivy", "Jack", "Karen",
+    "Leo", "Mia", "Nathan", "Olivia",
+];
+const CSV_CITIES: &[&str] = &[
+    "New York",
+    "Los Angeles",
+    "Chicago",
+    "Houston",
+    "Phoenix",
+    "Philadelphia",
+    "San Antonio",
+    "San Diego",
+];
+const CSV_STATUSES: &[&str] = &["active", "inactive", "pending", "suspended", "trial"];
+
+pub fn generate_csv_rows(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(1004);
+    (0..n)
+        .map(|_| {
+            let name = CSV_NAMES[rng.random_range(0..CSV_NAMES.len())];
+            let age = rng.random_range(18..75u32);
+            let city = CSV_CITIES[rng.random_range(0..CSV_CITIES.len())];
+            let status = CSV_STATUSES[rng.random_range(0..CSV_STATUSES.len())];
+            let score = rng.random_range(0..1000u32);
+            format!("{name},{age},{city},{status},{score}")
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Key-value config lines generator (shared prefixes)
+// ---------------------------------------------------------------------------
+
+const CONFIG_SECTIONS: &[&str] = &[
+    "database",
+    "server",
+    "logging",
+    "cache",
+    "security",
+    "messaging",
+    "monitoring",
+];
+const CONFIG_SUBSECTIONS: &[&str] = &[
+    "connection",
+    "pool",
+    "timeout",
+    "retry",
+    "buffer",
+    "auth",
+    "tls",
+    "metrics",
+];
+const CONFIG_KEYS: &[&str] = &[
+    "max_size",
+    "min_size",
+    "idle_timeout",
+    "connect_timeout",
+    "read_timeout",
+    "write_timeout",
+    "enabled",
+    "level",
+    "host",
+    "port",
+    "interval",
+    "threshold",
+];
+const CONFIG_VALUES: &[&str] = &[
+    "true",
+    "false",
+    "10",
+    "50",
+    "100",
+    "256",
+    "1024",
+    "5000",
+    "30000",
+    "localhost",
+    "0.0.0.0",
+    "/var/log/app.log",
+    "INFO",
+    "DEBUG",
+    "WARN",
+];
+
+pub fn generate_key_value_config(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(1005);
+    (0..n)
+        .map(|_| {
+            let section = CONFIG_SECTIONS[rng.random_range(0..CONFIG_SECTIONS.len())];
+            let subsection = CONFIG_SUBSECTIONS[rng.random_range(0..CONFIG_SUBSECTIONS.len())];
+            let key = CONFIG_KEYS[rng.random_range(0..CONFIG_KEYS.len())];
+            let value = CONFIG_VALUES[rng.random_range(0..CONFIG_VALUES.len())];
+            format!("{section}.{subsection}.{key} = {value}")
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Timestamps with prefix generator (highly repetitive prefix pattern)
+// ---------------------------------------------------------------------------
+
+const TS_LEVELS: &[&str] = &["INFO", "DEBUG", "WARN", "ERROR", "TRACE"];
+const TS_SERVICES: &[&str] = &[
+    "api-gateway",
+    "user-service",
+    "order-service",
+    "payment-service",
+    "auth-service",
+    "notification-service",
+];
+const TS_MESSAGES: &[&str] = &[
+    "Request processed successfully",
+    "Connection established to upstream",
+    "Cache miss for key lookup",
+    "Retrying failed operation attempt",
+    "Rate limit threshold exceeded",
+    "Health check passed",
+    "Configuration reloaded from disk",
+    "Session token refreshed",
+    "Background job completed",
+    "Metric batch flushed to sink",
+    "Circuit breaker state changed",
+    "Graceful shutdown initiated",
+];
+
+pub fn generate_timestamps_with_prefix(n: usize) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(1006);
+    (0..n)
+        .map(|_| {
+            let month = rng.random_range(1..13u32);
+            let day = rng.random_range(1..29u32);
+            let hour = rng.random_range(0..24u32);
+            let minute = rng.random_range(0..60u32);
+            let second = rng.random_range(0..60u32);
+            let millis = rng.random_range(0..1000u32);
+            let level = TS_LEVELS[rng.random_range(0..TS_LEVELS.len())];
+            let service = TS_SERVICES[rng.random_range(0..TS_SERVICES.len())];
+            let message = TS_MESSAGES[rng.random_range(0..TS_MESSAGES.len())];
+            let req_id = rng.random_range(10000..99999u32);
+            format!(
+                "2024-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z {level} [{service}] {message} req_id={req_id}"
+            )
+        })
+        .collect()
+}
