@@ -380,71 +380,190 @@ fn alp_rd_apply_patches<F: ALPRDFloat>(
     })
 }
 
+/// Threshold below which we use the HashMap-based path (avoids the cost of
+/// zeroing a 256KB flat array for very small samples).
+const FLAT_ARRAY_THRESHOLD: usize = 2048;
+
 /// Find the best "cut point" for a set of floating point values such that we can
 /// cast them all to the relevant value instead.
+///
+/// Extracts the top 16 bits (left parts at p=16) from each sample value once, then
+/// iterates from p=16 down to p=1. For large samples, frequency counts are stored in
+/// a flat array indexed by bit pattern and folded between iterations (single scan).
+/// For small samples, a HashMap is used per iteration to avoid the 256KB allocation.
 fn find_best_dictionary<T: ALPRDFloat>(samples: &[T]) -> ALPRDDictionary {
+    let max_p = CUT_LIMIT;
+    let min_right_bw = T::BITS - max_p;
+
+    // Extract the top CUT_LIMIT bits from each sample value once. All subsequent
+    // iterations derive their left parts by right-shifting these u16 values.
+    let left_parts: Vec<u16> = samples
+        .iter()
+        .map(|&v| <T as ALPRDFloat>::to_u16(T::to_bits(v).shr(min_right_bw as _)))
+        .collect();
+
+    if samples.len() >= FLAT_ARRAY_THRESHOLD {
+        find_best_dictionary_flat(&left_parts, samples.len(), T::BITS)
+    } else {
+        find_best_dictionary_small(&left_parts, samples.len(), T::BITS)
+    }
+}
+
+/// Large-sample path: uses a flat `[u32; 65536]` array for O(1) frequency counting.
+/// Counts for smaller p values are derived by folding adjacent pairs, so the sample
+/// is only scanned once.
+fn find_best_dictionary_flat(
+    left_parts: &[u16],
+    sample_len: usize,
+    type_bits: usize,
+) -> ALPRDDictionary {
+    let max_p = CUT_LIMIT;
+    let max_domain = 1usize << max_p;
+
+    let mut counts = vec![0u32; max_domain];
+    for &left in left_parts {
+        counts[left as usize] += 1;
+    }
+
     let mut best_est_size = f64::MAX;
     let mut best_dict = ALPRDDictionary::default();
+    let mut bit_counts_buf: Vec<(u16, u32)> = Vec::with_capacity(sample_len.min(max_domain));
 
-    for p in 1..=16 {
-        let candidate_right_bw = (T::BITS - p) as u8;
-        let (dictionary, exception_count) =
-            build_left_parts_dictionary::<T>(samples, candidate_right_bw, MAX_DICT_SIZE);
+    for p in (1..=max_p).rev() {
+        let domain = 1usize << p;
+        let right_bw = (type_bits - p) as u8;
+
+        let (dictionary, exception_count) = build_left_parts_dictionary_from_counts(
+            &counts[..domain],
+            right_bw,
+            MAX_DICT_SIZE,
+            &mut bit_counts_buf,
+        );
         let estimated_size = estimate_compression_size(
             dictionary.right_bit_width,
             dictionary.left_bit_width,
             exception_count,
-            samples.len(),
+            sample_len,
         );
         if estimated_size < best_est_size {
             best_est_size = estimated_size;
             best_dict = dictionary;
+        }
+
+        if p > 1 {
+            let half = domain / 2;
+            for i in 0..half {
+                counts[i] = counts[2 * i] + counts[2 * i + 1];
+            }
         }
     }
 
     best_dict
 }
 
-/// Build dictionary of the leftmost bits.
-fn build_left_parts_dictionary<T: ALPRDFloat>(
-    samples: &[T],
+/// Small-sample path: uses a HashMap for frequency counting to avoid the cost of
+/// allocating and zeroing a 256KB flat array.
+fn find_best_dictionary_small(
+    left_parts: &[u16],
+    sample_len: usize,
+    type_bits: usize,
+) -> ALPRDDictionary {
+    let max_p = CUT_LIMIT;
+    let dict_size = MAX_DICT_SIZE as usize;
+
+    let mut best_est_size = f64::MAX;
+    let mut best_dict = ALPRDDictionary::default();
+    let mut counts: HashMap<u16, u32, FxBuildHasher> =
+        HashMap::with_capacity_and_hasher(sample_len, FxBuildHasher);
+    let mut bit_counts: Vec<(u16, u32)> = Vec::with_capacity(sample_len);
+
+    for p in 1..=max_p {
+        let right_bw = (type_bits - p) as u8;
+        let shift = (max_p - p) as u32;
+
+        counts.clear();
+        for &left in left_parts {
+            *counts.entry(left >> shift).or_default() += 1;
+        }
+
+        bit_counts.clear();
+        bit_counts.extend(counts.iter().map(|(&bits, &c)| (bits, c)));
+
+        if bit_counts.len() > dict_size {
+            bit_counts.select_nth_unstable_by_key(dict_size.saturating_sub(1), |(_, count)| {
+                count.wrapping_neg()
+            });
+        }
+
+        let mut dictionary =
+            HashMap::with_capacity_and_hasher(MAX_DICT_SIZE as _, FxBuildHasher);
+        let mut exception_count = 0usize;
+        for (i, &(bits, count)) in bit_counts.iter().enumerate() {
+            if i < dict_size {
+                dictionary.insert(bits, i as u16);
+            } else {
+                exception_count += count as usize;
+            }
+        }
+
+        let max_code = dictionary.len().saturating_sub(1);
+        let left_bw = bit_width!(max_code) as u8;
+
+        let estimated_size =
+            estimate_compression_size(right_bw, left_bw, exception_count, sample_len);
+        if estimated_size < best_est_size {
+            best_est_size = estimated_size;
+            best_dict = ALPRDDictionary {
+                dictionary,
+                right_bit_width: right_bw,
+                left_bit_width: left_bw,
+            };
+        }
+    }
+
+    best_dict
+}
+
+/// Build a dictionary from pre-computed frequency counts in a flat array.
+///
+/// `counts` is indexed by left-part bit pattern; `counts[i]` is the frequency of pattern `i`.
+/// `bit_counts_buf` is a reusable scratch buffer to avoid per-call allocation.
+fn build_left_parts_dictionary_from_counts(
+    counts: &[u32],
     right_bw: u8,
     max_dict_size: u8,
+    bit_counts_buf: &mut Vec<(u16, u32)>,
 ) -> (ALPRDDictionary, usize) {
-    assert!(
-        right_bw >= (T::BITS - CUT_LIMIT) as _,
-        "left-parts must be <= 16 bits"
+    let dict_size = max_dict_size as usize;
+
+    // Collect only non-zero entries into the reusable buffer.
+    bit_counts_buf.clear();
+    bit_counts_buf.extend(
+        counts
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| **c > 0)
+            .map(|(bits, &c)| (bits as u16, c)),
     );
 
-    // Count the number of occurrences of each left bit pattern.
-    let mut counts = HashMap::new();
-    samples
-        .iter()
-        .copied()
-        .map(|v| <T as ALPRDFloat>::to_u16(T::to_bits(v).shr(right_bw as _)))
-        .for_each(|item| *counts.entry(item).or_default() += 1);
-
     // Partial sort: only need the top `dict_size` elements by frequency.
-    let dict_size = max_dict_size as usize;
-    let mut bit_counts: Vec<(u16, usize)> = counts.into_iter().collect();
-    if bit_counts.len() > dict_size {
-        bit_counts.select_nth_unstable_by_key(dict_size.saturating_sub(1), |(_, count)| {
+    if bit_counts_buf.len() > dict_size {
+        bit_counts_buf.select_nth_unstable_by_key(dict_size.saturating_sub(1), |(_, count)| {
             count.wrapping_neg()
         });
     }
 
-    // Build dictionary and count exceptions in a single pass over the partitioned vector.
+    // Build dictionary and count exceptions.
     let mut dictionary = HashMap::with_capacity_and_hasher(max_dict_size as _, FxBuildHasher);
     let mut exception_count = 0usize;
-    for (i, &(bits, count)) in bit_counts.iter().enumerate() {
+    for (i, &(bits, count)) in bit_counts_buf.iter().enumerate() {
         if i < dict_size {
             dictionary.insert(bits, i as u16);
         } else {
-            exception_count += count;
+            exception_count += count as usize;
         }
     }
 
-    // Left bit-width is determined based on the actual dictionary size.
     let max_code = dictionary.len().saturating_sub(1);
     let left_bw = bit_width!(max_code) as u8;
 
