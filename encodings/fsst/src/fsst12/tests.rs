@@ -143,6 +143,18 @@ fn test_symbol_concat_too_long() {
 }
 
 #[test]
+fn test_symbol_as_bytes() {
+    let sym = Symbol12::from_bytes(b"hello");
+    assert_eq!(sym.as_bytes(), b"hello");
+
+    let sym = Symbol12::from_bytes(b"x");
+    assert_eq!(sym.as_bytes(), b"x");
+
+    let sym = Symbol12::from_bytes(b"12345678");
+    assert_eq!(sym.as_bytes(), b"12345678");
+}
+
+#[test]
 fn test_rebuild_compressor() {
     let symbols = vec![Symbol12::from_bytes(b"he"), Symbol12::from_bytes(b"ll")];
     let compressor = Compressor12::rebuild(&symbols);
@@ -167,15 +179,11 @@ fn test_no_escapes_needed() {
 
 #[test]
 fn test_multi_byte_symbols_reduce_size() {
-    // Repetitive data should benefit from multi-byte symbols with 12-bit packing
     let line = b"the quick brown fox jumps over the lazy dog ";
     let corpus: Vec<&[u8]> = (0..100).map(|_| line.as_ref()).collect();
     let compressor = Compressor12::train(&corpus);
 
     let compressed = compressor.compress(line);
-    // With 12-bit packing, each code is 1.5 bytes.
-    // Raw bytes would be 1.5 bytes each (worse), but multi-byte symbols
-    // cover multiple bytes per 1.5-byte code, so total should be smaller.
     assert!(
         compressed.len() < line.len(),
         "compressed size ({}) should be less than input size ({})",
@@ -196,9 +204,9 @@ fn test_large_diverse_corpus() {
     let compressor = Compressor12::train(&refs);
 
     assert!(
-        compressor.symbols().len() > 5,
+        compressor.num_symbols() > 5,
         "should learn multi-byte symbols, got {}",
-        compressor.symbols().len()
+        compressor.num_symbols()
     );
 
     let decompressor = compressor.decompressor();
@@ -211,7 +219,6 @@ fn test_large_diverse_corpus() {
 
 #[test]
 fn test_12bit_packing_correctness() {
-    // Verify the 12-bit packing produces correct byte counts
     let compressor = Compressor12::train(&[b"test"]);
 
     // Single byte input -> 1 code -> 2 bytes (trailing odd code)
@@ -233,7 +240,6 @@ fn test_12bit_packing_correctness() {
 
 #[test]
 fn test_long_shared_substrings() {
-    // Data with long shared substrings - FSST-12's sweet spot
     let mut corpus: Vec<Vec<u8>> = Vec::new();
     for i in 0..500 {
         let s = format!(
@@ -257,11 +263,97 @@ fn test_long_shared_substrings() {
         total_compressed += compressed.len();
     }
 
-    // Should achieve meaningful compression
     assert!(
         total_compressed < total_raw,
         "should compress: {} < {}",
         total_compressed,
         total_raw
     );
+}
+
+#[test]
+fn test_serialize_deserialize_roundtrip() {
+    let corpus: Vec<&[u8]> = vec![
+        b"hello world",
+        b"hello there",
+        b"hello world again",
+        b"world hello",
+        b"hello world!",
+    ];
+    let compressor = Compressor12::train(&corpus);
+
+    let serialized = compressor.serialize_table();
+    let restored = Compressor12::deserialize_table(&serialized).unwrap();
+
+    assert_eq!(compressor.symbols().len(), restored.symbols().len());
+    for (orig, rest) in compressor.symbols().iter().zip(restored.symbols().iter()) {
+        assert_eq!(orig, rest);
+    }
+
+    // Verify the restored compressor produces identical output
+    let decompressor = restored.decompressor();
+    for input in &corpus {
+        let compressed = restored.compress(input);
+        let decompressed = decompressor.decompress(&compressed);
+        assert_eq!(&decompressed, *input);
+    }
+}
+
+#[test]
+fn test_deserialize_empty() {
+    let compressor = Compressor12::train(&[]);
+    let serialized = compressor.serialize_table();
+    let restored = Compressor12::deserialize_table(&serialized).unwrap();
+    assert_eq!(restored.num_symbols(), 0);
+}
+
+#[test]
+fn test_deserialize_malformed() {
+    assert!(Compressor12::deserialize_table(&[]).is_none());
+    assert!(Compressor12::deserialize_table(&[0]).is_none());
+    // Claims 1 symbol but no data follows
+    assert!(Compressor12::deserialize_table(&[1, 0]).is_none());
+}
+
+#[test]
+fn test_num_symbols() {
+    let compressor = Compressor12::train(&[]);
+    assert_eq!(compressor.num_symbols(), 0);
+
+    let corpus: Vec<&[u8]> = (0..100).map(|_| b"abcabc".as_ref()).collect();
+    let compressor = Compressor12::train(&corpus);
+    assert!(compressor.num_symbols() > 0);
+}
+
+#[test]
+fn test_empty_strings_in_corpus() {
+    let corpus: Vec<&[u8]> = vec![b"", b"hello", b"", b"world", b""];
+    let compressor = Compressor12::train(&corpus);
+    let decompressor = compressor.decompressor();
+
+    let empty = compressor.compress(b"");
+    assert!(empty.is_empty());
+    assert!(decompressor.decompress(&empty).is_empty());
+
+    let hello = compressor.compress(b"hello");
+    assert_eq!(decompressor.decompress(&hello), b"hello");
+}
+
+#[test]
+fn test_binary_data() {
+    let mut corpus: Vec<Vec<u8>> = Vec::new();
+    for i in 0u8..50 {
+        let mut v = vec![0xFF, 0x00, i, 0xDE, 0xAD, 0xBE, 0xEF];
+        v.extend_from_slice(&[0xFF, 0x00, i]);
+        corpus.push(v);
+    }
+    let refs: Vec<&[u8]> = corpus.iter().map(|v| v.as_slice()).collect();
+    let compressor = Compressor12::train(&refs);
+    let decompressor = compressor.decompressor();
+
+    for input in &refs {
+        let compressed = compressor.compress(input);
+        let decompressed = decompressor.decompress(&compressed);
+        assert_eq!(&decompressed, *input);
+    }
 }

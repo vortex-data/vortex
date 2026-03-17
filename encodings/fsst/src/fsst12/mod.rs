@@ -41,6 +41,12 @@ pub const MAX_MULTI_SYMBOLS: usize = (MAX_CODE - SYMBOL_CODE_BASE) as usize;
 /// Maximum symbol length in bytes.
 const MAX_SYMBOL_LEN: usize = 8;
 
+/// Hash prime from reference cwida/fsst implementation.
+const FSST_HASH_PRIME: u64 = 2971215073;
+
+/// Hash shift from reference cwida/fsst implementation.
+const FSST_HASH_SHIFT: u32 = 15;
+
 /// A symbol in the FSST-12 table: up to 8 bytes stored as a u64.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Symbol12 {
@@ -62,14 +68,22 @@ impl Symbol12 {
         }
     }
 
+    /// Returns the byte-length of the symbol (1-8).
     #[inline]
     pub fn len(&self) -> usize {
         self.len as usize
     }
 
+    /// Returns the symbol value as a little-endian u64.
     #[inline]
     pub fn value(&self) -> u64 {
         self.value
+    }
+
+    /// Returns the symbol bytes as a slice.
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let bytes = self.value.to_le_bytes();
+        bytes[..self.len as usize].to_vec()
     }
 
     /// Concatenate two symbols if the result fits within 8 bytes.
@@ -92,7 +106,7 @@ impl Symbol12 {
 /// Codes are packed in 12-bit format: 2 codes per 3 bytes, trailing odd code in 2 bytes.
 #[derive(Clone)]
 pub struct Compressor12 {
-    /// Multi-byte symbol table: code N maps to symbols\[N - SYMBOL_CODE_BASE\].
+    /// Multi-byte symbol table: code N maps to `symbols[N - SYMBOL_CODE_BASE]`.
     symbols: Vec<Symbol12>,
 
     /// Symbol lengths for fast lookup during decompression.
@@ -101,16 +115,19 @@ pub struct Compressor12 {
     /// Symbol values for fast lookup during decompression.
     symbol_values: Vec<u64>,
 
-    /// Inverted index for 2-byte lookups: first_two_bytes -> code.
-    /// Returns HASH_EMPTY if no 2-byte symbol exists.
+    /// Direct lookup for 2-byte patterns: `first_two_bytes -> code`.
+    /// Returns `HASH_EMPTY` if no 2-byte symbol exists.
     codes_two_byte: Vec<u16>,
 
-    /// Hash table for 3+ byte symbols (open addressing).
+    /// Hash table for 3+ byte symbols (open addressing, linear probing).
     hash_table: Vec<HashEntry>,
 }
 
-const HASH_TABLE_SIZE: usize = 16384;
+const HASH_TABLE_SIZE: usize = 1 << 14; // 16384, must be power of 2
 const HASH_EMPTY: u16 = 0;
+
+/// Maximum number of linear probe steps during hash lookup.
+const MAX_PROBE_STEPS: usize = 16;
 
 #[derive(Copy, Clone, Default)]
 struct HashEntry {
@@ -145,6 +162,12 @@ impl HashEntry {
 
 impl Compressor12 {
     /// Train a compressor from a corpus of byte strings.
+    ///
+    /// Uses 5 training generations with progressively larger sample fractions
+    /// (`sampleFrac = 8, 38, 68, 98, 128`) matching the reference cwida/fsst
+    /// implementation. Each generation compresses the sample, counts symbol and
+    /// bigram frequencies, then rebuilds the symbol table by concatenating
+    /// high-gain adjacent symbols.
     pub fn train(samples: &[&[u8]]) -> Self {
         if samples.is_empty() {
             return Self::empty();
@@ -155,11 +178,16 @@ impl Compressor12 {
 
         let mut builder = TableBuilder::new();
 
-        // 4 generations per reference implementation: [14, 52, 90, 128]
-        let generations = [14usize, 52, 90, 128];
-        for sample_frac in generations {
+        // 5 generations matching reference: sampleFrac starts at 8 and increments by 30.
+        // The last generation (128) is the final round where no new concatenations are made.
+        let mut sample_frac = 8usize;
+        loop {
             let counts = builder.count_frequencies(&sample_refs, sample_frac);
             builder.optimize(&counts, sample_frac);
+            if sample_frac >= 128 {
+                break;
+            }
+            sample_frac += 30;
         }
 
         builder.build()
@@ -176,6 +204,9 @@ impl Compressor12 {
     }
 
     /// Rebuild a compressor from an existing multi-byte symbol table.
+    ///
+    /// This is used for deserialization: given a previously-trained set of symbols,
+    /// reconstruct the lookup structures needed for compression.
     pub fn rebuild(symbols: &[Symbol12]) -> Self {
         assert!(symbols.len() <= MAX_MULTI_SYMBOLS);
 
@@ -194,14 +225,7 @@ impl Compressor12 {
                     codes_two_byte[sym.value as u16 as usize] = code;
                 }
                 3..=8 => {
-                    let h = hash_symbol(sym.value) as usize & (HASH_TABLE_SIZE - 1);
-                    for i in 0..HASH_TABLE_SIZE {
-                        let slot = (h + i) & (HASH_TABLE_SIZE - 1);
-                        if hash_table[slot].is_empty() {
-                            hash_table[slot] = HashEntry::new(sym.value, sym.len, code);
-                            break;
-                        }
-                    }
+                    insert_hash(&mut hash_table, sym.value, sym.len, code);
                 }
                 _ => {} // 1-byte symbols handled by byte codes directly
             }
@@ -226,7 +250,7 @@ impl Compressor12 {
             return Vec::new();
         }
 
-        // Phase 1: generate code sequence
+        // Phase 1: generate code sequence via greedy longest-match
         let mut codes = Vec::with_capacity(input.len());
         let mut pos = 0;
 
@@ -234,7 +258,7 @@ impl Compressor12 {
             let remaining = input.len() - pos;
             let word = load_word(&input[pos..]);
 
-            // Try hash table (3+ bytes) for longest match
+            // Try hash table (3+ bytes) for longest match first
             if remaining >= 3 {
                 if let Some((code, len)) = self.lookup_hash(word, remaining) {
                     codes.push(code);
@@ -267,6 +291,11 @@ impl Compressor12 {
         &self.symbols
     }
 
+    /// Returns the number of multi-byte symbols in the table.
+    pub fn num_symbols(&self) -> usize {
+        self.symbols.len()
+    }
+
     /// Create a decompressor from this compressor's symbol table.
     pub fn decompressor(&self) -> Decompressor12 {
         Decompressor12 {
@@ -275,12 +304,50 @@ impl Compressor12 {
         }
     }
 
+    /// Serialize the symbol table to bytes for storage.
+    ///
+    /// Format: `[num_symbols: u16][for each symbol: value: u64, len: u8]`
+    pub fn serialize_table(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(2 + self.symbols.len() * 9);
+        out.extend_from_slice(&(self.symbols.len() as u16).to_le_bytes());
+        for sym in &self.symbols {
+            out.extend_from_slice(&sym.value.to_le_bytes());
+            out.push(sym.len);
+        }
+        out
+    }
+
+    /// Deserialize a symbol table from bytes and rebuild the compressor.
+    ///
+    /// Returns `None` if the data is malformed.
+    pub fn deserialize_table(data: &[u8]) -> Option<Self> {
+        if data.len() < 2 {
+            return None;
+        }
+        let num_symbols = u16::from_le_bytes([data[0], data[1]]) as usize;
+        if data.len() < 2 + num_symbols * 9 {
+            return None;
+        }
+        let mut symbols = Vec::with_capacity(num_symbols);
+        let mut offset = 2;
+        for _ in 0..num_symbols {
+            let value = u64::from_le_bytes(data[offset..offset + 8].try_into().ok()?);
+            let len = data[offset + 8];
+            if len == 0 || len > MAX_SYMBOL_LEN as u8 {
+                return None;
+            }
+            symbols.push(Symbol12 { value, len });
+            offset += 9;
+        }
+        Some(Self::rebuild(&symbols))
+    }
+
     #[inline]
     fn lookup_hash(&self, word: u64, available: usize) -> Option<(u16, usize)> {
         let h = hash_symbol(word) as usize & (HASH_TABLE_SIZE - 1);
         let mut best: Option<(u16, usize)> = None;
 
-        for i in 0..8 {
+        for i in 0..MAX_PROBE_STEPS {
             let idx = (h + i) & (HASH_TABLE_SIZE - 1);
             let entry = &self.hash_table[idx];
             if entry.is_empty() {
@@ -305,9 +372,9 @@ impl Compressor12 {
     }
 
     fn make_sample(inputs: &[&[u8]]) -> Vec<Vec<u8>> {
-        // FSST-12 needs more training data than FSST-8 (more symbols to learn).
-        // Use 64KB sample instead of 16KB.
-        let target_size = 65536;
+        // FSST-12 has 16x more symbol slots than FSST-8, so we use a larger
+        // sample to give the training algorithm enough data.
+        let target_size = 1 << 16; // 64KB
         let total_size: usize = inputs.iter().map(|s| s.len()).sum();
         if total_size <= target_size {
             return inputs.iter().map(|s| s.to_vec()).collect();
@@ -336,6 +403,7 @@ impl Compressor12 {
 }
 
 /// Pack a sequence of 12-bit codes into bytes.
+///
 /// Two codes are packed into 3 bytes: `code1 | (code2 << 12)` as LE.
 /// Trailing odd code uses 2 bytes.
 fn pack_12bit(codes: &[u16]) -> Vec<u8> {
@@ -363,7 +431,6 @@ fn pack_12bit(codes: &[u16]) -> Vec<u8> {
 }
 
 /// Unpack 12-bit codes from a byte stream.
-/// Returns the sequence of codes.
 #[cfg(test)]
 fn unpack_12bit(data: &[u8]) -> Vec<u16> {
     let mut codes = Vec::with_capacity(data.len() * 2 / 3 + 1);
@@ -476,17 +543,8 @@ impl Decompressor12 {
             let idx = (code - SYMBOL_CODE_BASE) as usize;
             let len = self.symbol_lengths[idx] as usize;
             let val = self.symbol_values[idx];
-
-            // Write up to 8 bytes at once for speed
-            if out_pos + 8 <= output.len() {
-                unsafe {
-                    let ptr = output.as_mut_ptr().add(out_pos);
-                    (ptr as *mut u64).write_unaligned(val);
-                }
-            } else {
-                let bytes = val.to_le_bytes();
-                output[out_pos..out_pos + len].copy_from_slice(&bytes[..len]);
-            }
+            let bytes = val.to_le_bytes();
+            output[out_pos..out_pos + len].copy_from_slice(&bytes[..len]);
             len
         }
     }
@@ -559,14 +617,7 @@ impl TableBuilder {
                     self.codes_two_byte[sym.value as u16 as usize] = code;
                 }
                 3..=8 => {
-                    let h = hash_symbol(sym.value) as usize & (HASH_TABLE_SIZE - 1);
-                    for i in 0..HASH_TABLE_SIZE {
-                        let slot = (h + i) & (HASH_TABLE_SIZE - 1);
-                        if self.hash_table[slot].is_empty() {
-                            self.hash_table[slot] = HashEntry::new(sym.value, sym.len, code);
-                            break;
-                        }
-                    }
+                    insert_hash(&mut self.hash_table, sym.value, sym.len, code);
                 }
                 _ => {}
             }
@@ -575,7 +626,8 @@ impl TableBuilder {
 
     #[inline]
     fn find_longest_match(&self, word: u64, available: usize) -> (usize, usize) {
-        // Returns (train_code, consumed_bytes)
+        // Returns (train_code, consumed_bytes).
+        // Lookup order: hash table (3+ bytes) -> shortCodes (2 bytes) -> byte fallback.
         let mut best_code = (word as u8) as usize; // raw byte fallback
         let mut best_len = 1usize;
 
@@ -589,7 +641,7 @@ impl TableBuilder {
 
         if available >= 3 {
             let h = hash_symbol(word) as usize & (HASH_TABLE_SIZE - 1);
-            for i in 0..8 {
+            for i in 0..MAX_PROBE_STEPS {
                 let idx = (h + i) & (HASH_TABLE_SIZE - 1);
                 let entry = &self.hash_table[idx];
                 if entry.is_empty() {
@@ -617,12 +669,13 @@ impl TableBuilder {
         let mut counts = FrequencyCounts::new();
 
         for (i, sample) in samples.iter().enumerate() {
+            // Sub-sample: skip some lines in early generations for speed.
             if sample_frac < 128 && (hash_rng(i as u64) & 127) as usize > sample_frac {
                 continue;
             }
 
             let mut pos = 0;
-            let mut prev_code = TRAIN_CODE_RANGE; // sentinel
+            let mut prev_code = TRAIN_CODE_RANGE; // sentinel (no previous)
 
             while pos < sample.len() {
                 let remaining = sample.len() - pos;
@@ -634,9 +687,9 @@ impl TableBuilder {
                     counts.record2(prev_code, code);
                 }
 
-                // Also count sub-codes: if we matched a multi-byte symbol, record
-                // what the first byte would have been (this helps build symbols
-                // from byte-level patterns).
+                // Also record the first-byte sub-code when a multi-byte symbol
+                // matched. This helps bootstrap byte-level patterns in early
+                // generations when the table is still sparse.
                 if len > 1 {
                     let first_byte = (word as u8) as usize;
                     counts.record1(first_byte);
@@ -662,6 +715,7 @@ impl TableBuilder {
             }
 
             let count = counts.counts1[code];
+            // Minimum frequency threshold per the reference implementation.
             let threshold = 5 * sample_frac / 128;
             if count < threshold {
                 continue;
@@ -679,14 +733,14 @@ impl TableBuilder {
             };
 
             // Gain = count * symbol_length (per reference FSST implementation).
-            // The iterative training process naturally converges on good symbols.
             let gain = count * sym_len;
-
             if gain > 0 {
                 candidates.push((gain, symbol));
             }
 
-            // Try merging with following symbols (skip on last round)
+            // Concatenate with following symbols to form longer candidates.
+            // Skip on the final generation (sample_frac >= 128) since those
+            // candidates can't be evaluated in another round.
             if sample_frac >= 128 || sym_len >= MAX_SYMBOL_LEN {
                 continue;
             }
@@ -719,7 +773,7 @@ impl TableBuilder {
         // Sort by gain descending
         candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0));
 
-        // Pick top multi-byte symbols
+        // Pick top multi-byte symbols, deduplicating by (value, len).
         self.symbols.clear();
         let max_symbols = MAX_MULTI_SYMBOLS.min(TRAIN_CODE_RANGE - TRAIN_CODE_BASE);
         let mut seen_values: vortex_utils::aliases::hash_set::HashSet<(u64, u8)> =
@@ -746,27 +800,45 @@ impl TableBuilder {
     }
 }
 
-#[inline]
-fn load_word(data: &[u8]) -> u64 {
-    if data.len() >= 8 {
-        // SAFETY: we've checked data.len() >= 8
-        let bytes: [u8; 8] = unsafe { *(data.as_ptr() as *const [u8; 8]) };
-        u64::from_le_bytes(bytes)
-    } else {
-        let mut buf = [0u8; 8];
-        buf[..data.len()].copy_from_slice(data);
-        u64::from_le_bytes(buf)
+/// Insert a symbol into the hash table with linear probing.
+fn insert_hash(hash_table: &mut [HashEntry], value: u64, len: u8, code: u16) {
+    let h = hash_symbol(value) as usize & (HASH_TABLE_SIZE - 1);
+    for i in 0..HASH_TABLE_SIZE {
+        let slot = (h + i) & (HASH_TABLE_SIZE - 1);
+        if hash_table[slot].is_empty() {
+            hash_table[slot] = HashEntry::new(value, len, code);
+            return;
+        }
     }
 }
 
+/// Load up to 8 bytes from `data` as a little-endian u64, zero-padding if shorter.
 #[inline]
-fn hash_symbol(value: u64) -> u64 {
-    value.wrapping_mul(2971215073) ^ value.wrapping_shr(15)
+fn load_word(data: &[u8]) -> u64 {
+    let mut buf = [0u8; 8];
+    let n = data.len().min(8);
+    buf[..n].copy_from_slice(&data[..n]);
+    u64::from_le_bytes(buf)
 }
 
+/// Hash function matching the reference cwida/fsst implementation.
+///
+/// Uses the first 3 bytes (24 bits) of the symbol value, consistent with
+/// `FSST_HASH(w) = (w * FSST_HASH_PRIME) ^ ((w * FSST_HASH_PRIME) >> FSST_SHIFT)`.
+#[inline]
+fn hash_symbol(value: u64) -> u64 {
+    let w = value & 0xFFFFFF; // first 3 bytes
+    let h = w.wrapping_mul(FSST_HASH_PRIME);
+    h ^ h.wrapping_shr(FSST_HASH_SHIFT)
+}
+
+/// Simple deterministic PRNG for sampling.
 #[inline]
 fn hash_rng(value: u64) -> u64 {
-    value.wrapping_mul(2971215073) ^ value.wrapping_shr(15)
+    value
+        .wrapping_mul(FSST_HASH_PRIME)
+        .wrapping_add(1)
+        .rotate_right(FSST_HASH_SHIFT)
 }
 
 #[cfg(test)]
