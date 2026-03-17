@@ -57,10 +57,7 @@ macro_rules! typed_encode_hashmap {
 /// Encode values into dictionary codes using FxHashMap for fast lookups.
 #[allow(clippy::cast_possible_truncation)]
 #[inline]
-fn encode_hashmap<T: Copy + Eq + Hash, I>(
-    sorted_distinct: &[T],
-    values: &[T],
-) -> Buffer<I>
+fn encode_hashmap<T: Copy + Eq + Hash, I>(sorted_distinct: &[T], values: &[T]) -> Buffer<I>
 where
     I: Copy + Default + TryFrom<usize>,
     <I as TryFrom<usize>>::Error: std::fmt::Debug,
@@ -179,21 +176,120 @@ macro_rules! typed_encode_i8_direct {
     }};
 }
 
+// ── u16 direct lookup table (65536 entries, ~128KB, fits L2 cache) ────────
+
+/// Specialized encoding for u16 values using a 65536-entry direct lookup table.
+/// O(1) per value with no hashing overhead.
+#[allow(clippy::cast_possible_truncation)]
+fn encode_u16_direct<I: Copy + Default + TryFrom<usize>>(
+    sorted_distinct: &[u16],
+    values: &[u16],
+) -> Buffer<I>
+where
+    <I as TryFrom<usize>>::Error: std::fmt::Debug,
+{
+    let mut table: Box<[I; 65536]> = Box::new([I::default(); 65536]);
+    for (code, &value) in sorted_distinct.iter().enumerate() {
+        table[value as usize] = I::try_from(code).unwrap_or_default();
+    }
+
+    let mut output = BufferMut::with_capacity(values.len());
+    for &value in values {
+        // SAFETY: we have exactly sized output to be as large as values.
+        unsafe { output.push_unchecked(table[value as usize]) };
+    }
+    output.freeze()
+}
+
+macro_rules! typed_encode_u16_direct {
+    ($stats:ident, $typed:ident, $validity:ident) => {{
+        let mut values: Vec<u16> = $typed.distinct_values.keys().map(|x| x.0).collect();
+        values.sort_unstable();
+        let values_buf: Buffer<u16> = values.into();
+
+        let max_code = values_buf.len();
+        let codes = if max_code <= u8::MAX as usize {
+            let buf = encode_u16_direct::<u8>(values_buf.as_slice(), $stats.src.as_slice::<u16>());
+            PrimitiveArray::new(buf, $validity.clone()).into_array()
+        } else {
+            let buf = encode_u16_direct::<u16>(values_buf.as_slice(), $stats.src.as_slice::<u16>());
+            PrimitiveArray::new(buf, $validity.clone()).into_array()
+        };
+
+        let values_validity = match $validity {
+            Validity::NonNullable => Validity::NonNullable,
+            _ => Validity::AllValid,
+        };
+
+        let values = PrimitiveArray::new(values_buf, values_validity).into_array();
+        unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) }
+    }};
+}
+
+// ── i16 direct lookup table ──────────────────────────────────────────────────
+
+/// Specialized encoding for i16 values using a 65536-entry direct lookup table.
+#[allow(clippy::cast_possible_truncation)]
+fn encode_i16_direct<I: Copy + Default + TryFrom<usize>>(
+    sorted_distinct: &[i16],
+    values: &[i16],
+) -> Buffer<I>
+where
+    <I as TryFrom<usize>>::Error: std::fmt::Debug,
+{
+    let mut table: Box<[I; 65536]> = Box::new([I::default(); 65536]);
+    for (code, &value) in sorted_distinct.iter().enumerate() {
+        table[value as u16 as usize] = I::try_from(code).unwrap_or_default();
+    }
+
+    let mut output = BufferMut::with_capacity(values.len());
+    for &value in values {
+        // SAFETY: we have exactly sized output to be as large as values.
+        unsafe { output.push_unchecked(table[value as u16 as usize]) };
+    }
+    output.freeze()
+}
+
+macro_rules! typed_encode_i16_direct {
+    ($stats:ident, $typed:ident, $validity:ident) => {{
+        let mut values: Vec<i16> = $typed.distinct_values.keys().map(|x| x.0).collect();
+        values.sort_unstable();
+        let values_buf: Buffer<i16> = values.into();
+
+        let max_code = values_buf.len();
+        let codes = if max_code <= u8::MAX as usize {
+            let buf = encode_i16_direct::<u8>(values_buf.as_slice(), $stats.src.as_slice::<i16>());
+            PrimitiveArray::new(buf, $validity.clone()).into_array()
+        } else {
+            let buf = encode_i16_direct::<u16>(values_buf.as_slice(), $stats.src.as_slice::<i16>());
+            PrimitiveArray::new(buf, $validity.clone()).into_array()
+        };
+
+        let values_validity = match $validity {
+            Validity::NonNullable => Validity::NonNullable,
+            _ => Validity::AllValid,
+        };
+
+        let values = PrimitiveArray::new(values_buf, values_validity).into_array();
+        unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) }
+    }};
+}
+
 /// Compresses an integer array into a dictionary array according to attached stats.
 ///
-/// Uses direct lookup tables for u8/i8 (O(1) per value, no hashing) and
-/// FxHashMap for larger integer types. Values are sorted for better
-/// downstream compression.
+/// Uses direct lookup tables for u8/i8 (256 entries) and u16/i16 (65536 entries)
+/// for O(1) encoding with no hashing. FxHashMap for u32+ types.
+/// Values are sorted for better downstream compression.
 pub fn dictionary_encode(stats: &IntegerStats) -> DictArray {
     let src_validity = stats.src.validity();
 
     match &stats.typed {
         ErasedStats::U8(typed) => typed_encode_u8_direct!(stats, typed, src_validity),
         ErasedStats::I8(typed) => typed_encode_i8_direct!(stats, typed, src_validity),
-        ErasedStats::U16(typed) => typed_encode_hashmap!(stats, typed, src_validity, u16),
+        ErasedStats::U16(typed) => typed_encode_u16_direct!(stats, typed, src_validity),
+        ErasedStats::I16(typed) => typed_encode_i16_direct!(stats, typed, src_validity),
         ErasedStats::U32(typed) => typed_encode_hashmap!(stats, typed, src_validity, u32),
         ErasedStats::U64(typed) => typed_encode_hashmap!(stats, typed, src_validity, u64),
-        ErasedStats::I16(typed) => typed_encode_hashmap!(stats, typed, src_validity, i16),
         ErasedStats::I32(typed) => typed_encode_hashmap!(stats, typed, src_validity, i32),
         ErasedStats::I64(typed) => typed_encode_hashmap!(stats, typed, src_validity, i64),
     }
