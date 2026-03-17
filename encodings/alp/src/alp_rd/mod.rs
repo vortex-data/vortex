@@ -20,7 +20,6 @@ mod slice;
 use std::ops::Shl;
 use std::ops::Shr;
 
-use itertools::Itertools;
 use num_traits::Float;
 use num_traits::One;
 use num_traits::PrimInt;
@@ -53,7 +52,7 @@ macro_rules! bit_width {
 /// Max number of bits to cut from the MSB section of each float.
 const CUT_LIMIT: usize = 16;
 
-const MAX_DICT_SIZE: u8 = 8;
+const MAX_DICT_SIZE: u8 = 16;
 
 mod private {
     pub trait Sealed {}
@@ -418,7 +417,7 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
         "left-parts must be <= 16 bits"
     );
 
-    // Count the number of occurrences of each left bit pattern
+    // Count the number of occurrences of each left bit pattern.
     let mut counts = HashMap::new();
     samples
         .iter()
@@ -428,7 +427,7 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
 
     // Partial sort: only need the top `dict_size` elements by frequency.
     let dict_size = max_dict_size as usize;
-    let mut bit_counts: Vec<(u16, usize)> = counts.into_iter().collect_vec();
+    let mut bit_counts: Vec<(u16, usize)> = counts.into_iter().collect();
     if bit_counts.len() > dict_size {
         bit_counts.select_nth_unstable_by_key(dict_size.saturating_sub(1), |(_, count)| {
             count.wrapping_neg()
@@ -447,7 +446,7 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
     }
 
     // Left bit-width is determined based on the actual dictionary size.
-    let max_code = dictionary.len() - 1;
+    let max_code = dictionary.len().saturating_sub(1);
     let left_bw = bit_width!(max_code) as u8;
 
     (

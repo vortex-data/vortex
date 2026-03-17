@@ -103,6 +103,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     fn find_best_exponents(values: &[Self]) -> Exponents {
         let mut best_exp = Exponents { e: 0, f: 0 };
         let mut best_nbytes: usize = usize::MAX;
+        let mut best_patch_count: usize = usize::MAX;
 
         let sample = (values.len() > SAMPLE_SIZE).then(|| {
             values
@@ -116,25 +117,21 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         for e in (0..Self::MAX_EXPONENT).rev() {
             for f in 0..e {
                 let exp = Exponents { e, f };
-                let size = Self::estimate_for_exponents(sample_values, exp);
+                let (size, patches) = Self::estimate_for_exponents(sample_values, exp);
                 if size < best_nbytes {
                     best_nbytes = size;
                     best_exp = exp;
+                    best_patch_count = patches;
                 } else if size == best_nbytes && e - f < best_exp.e - best_exp.f {
                     best_exp = exp;
+                    best_patch_count = patches;
                 }
             }
 
             // If the best exponents so far produced zero patches on the sample,
             // that is likely optimal -- no need to search lower e values.
-            if best_nbytes > 0 && best_exp.e == e {
-                let patch_free = sample_values.iter().all(|&v| {
-                    let encoded = Self::encode_single_unchecked(v, best_exp);
-                    Self::decode_single(encoded, best_exp).is_eq(v)
-                });
-                if patch_free {
-                    break;
-                }
+            if best_nbytes > 0 && best_exp.e == e && best_patch_count == 0 {
+                break;
             }
         }
 
@@ -147,8 +144,10 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     /// chunk offsets, gathering patch values, and computing fill values. It only
     /// counts mismatches (patches) and tracks the encoded value range to estimate
     /// bitwidth.
+    ///
+    /// Returns `(estimated_bytes, patch_count)`.
     #[inline]
-    fn estimate_for_exponents(sample: &[Self], exponents: Exponents) -> usize {
+    fn estimate_for_exponents(sample: &[Self], exponents: Exponents) -> (usize, usize) {
         let mut patch_count: usize = 0;
         let mut enc_min: Option<Self::ALPInt> = None;
         let mut enc_max: Option<Self::ALPInt> = None;
@@ -185,7 +184,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         let encoded_bytes = (sample.len() * bits_per_encoded).div_ceil(8);
         let patch_bytes = patch_count * (size_of::<Self>() + size_of::<u16>());
 
-        encoded_bytes + patch_bytes
+        (encoded_bytes + patch_bytes, patch_count)
     }
 
     #[inline]
