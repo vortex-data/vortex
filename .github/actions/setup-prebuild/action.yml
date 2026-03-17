@@ -1,5 +1,5 @@
 name: "Setup Prebuild"
-description: "Fast CI setup — uses pre-installed tools on prebuild AMIs, falls back to full setup-rust otherwise"
+description: "Prebuild AMIs — uses pre-installed tools, falls back to full setup-rust for forks"
 
 inputs:
   repo-token:
@@ -24,7 +24,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # --- Prebuild path: tools already installed, just configure sccache ---
+    # Prebuild path: tools already installed, just configure sccache
     - name: Configure sccache timeout
       if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
       shell: bash
@@ -37,7 +37,7 @@ runs:
       shell: bash
       run: sccache --start-server &
 
-    # --- Fallback path: full setup for forks ---
+    # Fallback path: full setup for forks
     - name: Full Rust setup
       if: github.repository != 'vortex-data/vortex'
       uses: ./.github/actions/setup-rust
