@@ -21,15 +21,28 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
+// New diverse datasets
+use vortex_fsst::test_utils::generate_arrow_ipc_binary;
 use vortex_fsst::test_utils::generate_clickbench_urls;
+use vortex_fsst::test_utils::generate_css_rules;
 use vortex_fsst::test_utils::generate_csv_rows;
+use vortex_fsst::test_utils::generate_dns_wire_binary;
 use vortex_fsst::test_utils::generate_emails;
 use vortex_fsst::test_utils::generate_file_paths;
+use vortex_fsst::test_utils::generate_http_headers;
+use vortex_fsst::test_utils::generate_ipv4_cidr_rules;
+use vortex_fsst::test_utils::generate_json_lines;
 use vortex_fsst::test_utils::generate_json_strings;
 use vortex_fsst::test_utils::generate_key_value_config;
 use vortex_fsst::test_utils::generate_log_lines;
+use vortex_fsst::test_utils::generate_markdown_fragments;
+use vortex_fsst::test_utils::generate_parquet_footer_binary;
+use vortex_fsst::test_utils::generate_prometheus_metrics;
 use vortex_fsst::test_utils::generate_repeated_binary;
+use vortex_fsst::test_utils::generate_shell_commands;
+use vortex_fsst::test_utils::generate_spark_plan_strings;
 use vortex_fsst::test_utils::generate_sql_queries;
+use vortex_fsst::test_utils::generate_stack_traces;
 use vortex_fsst::test_utils::generate_timestamps_with_prefix;
 use vortex_fsst::test_utils::generate_xml_fragments;
 
@@ -145,6 +158,54 @@ fn make_timestamp_log_dataset() -> Vec<String> {
     generate_timestamps_with_prefix(N)
 }
 
+fn make_http_headers_dataset() -> Vec<String> {
+    generate_http_headers(N)
+}
+
+fn make_ipv4_cidr_dataset() -> Vec<String> {
+    generate_ipv4_cidr_rules(N)
+}
+
+fn make_prometheus_dataset() -> Vec<String> {
+    generate_prometheus_metrics(N)
+}
+
+fn make_dns_binary_dataset() -> Vec<Vec<u8>> {
+    generate_dns_wire_binary(N)
+}
+
+fn make_parquet_footer_dataset() -> Vec<Vec<u8>> {
+    generate_parquet_footer_binary(N)
+}
+
+fn make_spark_plan_dataset() -> Vec<String> {
+    generate_spark_plan_strings(N)
+}
+
+fn make_arrow_ipc_dataset() -> Vec<Vec<u8>> {
+    generate_arrow_ipc_binary(N)
+}
+
+fn make_json_lines_dataset() -> Vec<String> {
+    generate_json_lines(N)
+}
+
+fn make_markdown_dataset() -> Vec<String> {
+    generate_markdown_fragments(N)
+}
+
+fn make_stack_traces_dataset() -> Vec<String> {
+    generate_stack_traces(N)
+}
+
+fn make_css_rules_dataset() -> Vec<String> {
+    generate_css_rules(N)
+}
+
+fn make_shell_commands_dataset() -> Vec<String> {
+    generate_shell_commands(N)
+}
+
 // ---------------------------------------------------------------------------
 // Lazy static datasets
 // ---------------------------------------------------------------------------
@@ -162,6 +223,18 @@ static XML_FRAGMENTS: LazyLock<Vec<String>> = LazyLock::new(make_xml_dataset);
 static REPEATED_BINARY: LazyLock<Vec<Vec<u8>>> = LazyLock::new(make_repeated_binary_dataset);
 static CONFIG_LINES: LazyLock<Vec<String>> = LazyLock::new(make_config_dataset);
 static TIMESTAMP_LOGS: LazyLock<Vec<String>> = LazyLock::new(make_timestamp_log_dataset);
+static HTTP_HEADERS: LazyLock<Vec<String>> = LazyLock::new(make_http_headers_dataset);
+static IPV4_CIDR: LazyLock<Vec<String>> = LazyLock::new(make_ipv4_cidr_dataset);
+static PROMETHEUS: LazyLock<Vec<String>> = LazyLock::new(make_prometheus_dataset);
+static DNS_BINARY: LazyLock<Vec<Vec<u8>>> = LazyLock::new(make_dns_binary_dataset);
+static PARQUET_FOOTER: LazyLock<Vec<Vec<u8>>> = LazyLock::new(make_parquet_footer_dataset);
+static SPARK_PLANS: LazyLock<Vec<String>> = LazyLock::new(make_spark_plan_dataset);
+static ARROW_IPC: LazyLock<Vec<Vec<u8>>> = LazyLock::new(make_arrow_ipc_dataset);
+static JSON_LINES: LazyLock<Vec<String>> = LazyLock::new(make_json_lines_dataset);
+static MARKDOWN: LazyLock<Vec<String>> = LazyLock::new(make_markdown_dataset);
+static STACK_TRACES: LazyLock<Vec<String>> = LazyLock::new(make_stack_traces_dataset);
+static CSS_RULES: LazyLock<Vec<String>> = LazyLock::new(make_css_rules_dataset);
+static SHELL_COMMANDS: LazyLock<Vec<String>> = LazyLock::new(make_shell_commands_dataset);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -280,6 +353,18 @@ fn print_size_report() {
     let repeated_bin_bytes = concat_bytes(&REPEATED_BINARY);
     let config_bytes = concat_strings(&CONFIG_LINES);
     let ts_log_bytes = concat_strings(&TIMESTAMP_LOGS);
+    let http_bytes = concat_strings(&HTTP_HEADERS);
+    let ipv4_bytes = concat_strings(&IPV4_CIDR);
+    let prometheus_bytes = concat_strings(&PROMETHEUS);
+    let dns_bytes = concat_bytes(&DNS_BINARY);
+    let parquet_bytes = concat_bytes(&PARQUET_FOOTER);
+    let spark_bytes = concat_strings(&SPARK_PLANS);
+    let arrow_bytes = concat_bytes(&ARROW_IPC);
+    let jsonl_bytes = concat_strings(&JSON_LINES);
+    let md_bytes = concat_strings(&MARKDOWN);
+    let stack_bytes = concat_strings(&STACK_TRACES);
+    let css_bytes = concat_strings(&CSS_RULES);
+    let shell_bytes = concat_strings(&SHELL_COMMANDS);
 
     let random_varbin = bytes_to_varbin(&RANDOM_BINARY);
     let struct_bin_varbin = bytes_to_varbin(&STRUCTURED_BINARY);
@@ -294,6 +379,18 @@ fn print_size_report() {
     let repeated_bin_varbin = bytes_to_varbin(&REPEATED_BINARY);
     let config_varbin = strings_to_varbin(&CONFIG_LINES);
     let ts_log_varbin = strings_to_varbin(&TIMESTAMP_LOGS);
+    let http_varbin = strings_to_varbin(&HTTP_HEADERS);
+    let ipv4_varbin = strings_to_varbin(&IPV4_CIDR);
+    let prometheus_varbin = strings_to_varbin(&PROMETHEUS);
+    let dns_varbin = bytes_to_varbin(&DNS_BINARY);
+    let parquet_varbin = bytes_to_varbin(&PARQUET_FOOTER);
+    let spark_varbin = strings_to_varbin(&SPARK_PLANS);
+    let arrow_varbin = bytes_to_varbin(&ARROW_IPC);
+    let jsonl_varbin = strings_to_varbin(&JSON_LINES);
+    let md_varbin = strings_to_varbin(&MARKDOWN);
+    let stack_varbin = strings_to_varbin(&STACK_TRACES);
+    let css_varbin = strings_to_varbin(&CSS_RULES);
+    let shell_varbin = strings_to_varbin(&SHELL_COMMANDS);
 
     let datasets: Vec<(&str, &[u8], &VarBinArray)> = vec![
         ("random_binary", &random_bytes, &random_varbin),
@@ -309,6 +406,18 @@ fn print_size_report() {
         ("xml", &xml_bytes, &xml_varbin),
         ("config_kv", &config_bytes, &config_varbin),
         ("ts_logs", &ts_log_bytes, &ts_log_varbin),
+        ("http_headers", &http_bytes, &http_varbin),
+        ("ipv4_cidr", &ipv4_bytes, &ipv4_varbin),
+        ("prometheus", &prometheus_bytes, &prometheus_varbin),
+        ("dns_binary", &dns_bytes, &dns_varbin),
+        ("parquet_ftr", &parquet_bytes, &parquet_varbin),
+        ("spark_plans", &spark_bytes, &spark_varbin),
+        ("arrow_ipc", &arrow_bytes, &arrow_varbin),
+        ("json_lines", &jsonl_bytes, &jsonl_varbin),
+        ("markdown", &md_bytes, &md_varbin),
+        ("stack_traces", &stack_bytes, &stack_varbin),
+        ("css_rules", &css_bytes, &css_varbin),
+        ("shell_cmds", &shell_bytes, &shell_varbin),
     ];
 
     println!(
