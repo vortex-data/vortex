@@ -147,9 +147,14 @@ impl ALPRDFloat for f32 {
 pub struct RDEncoder {
     right_bit_width: u8,
     codes: Vec<u16>,
-    /// Reverse lookup from left_bits value to dictionary code.
-    reverse_lookup: HashMap<u16, u16, FxBuildHasher>,
+    /// Flat lookup table: index by left_bits u16 value, value is (code + 1) or 0 for not-in-dict.
+    /// Using a sentinel of 0 avoids Option overhead and branch mispredictions in the hot loop.
+    /// Max left_bits is 16 bits = 65536 entries, at 2 bytes each = 128KB.
+    reverse_flat: Vec<u16>,
 }
+
+/// Sentinel value indicating a left_bits value is not in the dictionary.
+const NOT_IN_DICT: u16 = 0;
 
 impl RDEncoder {
     /// Build a new encoder from a sample of doubles.
@@ -171,16 +176,21 @@ impl RDEncoder {
 
     /// Build a new encoder from known parameters.
     pub fn from_parts(right_bit_width: u8, codes: Vec<u16>) -> Self {
-        let reverse_lookup = codes
-            .iter()
-            .enumerate()
-            .map(|(code, &bits)| (bits, code as u16))
-            .collect::<HashMap<u16, u16, FxBuildHasher>>();
+        // Build a flat lookup table for O(1) reverse lookup during encoding.
+        // Left parts are at most CUT_LIMIT (16) bits wide, so the table is at most 64K entries.
+        let table_size = 1usize << CUT_LIMIT;
+        let mut reverse_flat = vec![NOT_IN_DICT; table_size];
+        for (code, &bits) in codes.iter().enumerate() {
+            if (bits as usize) < table_size {
+                // Store code + 1 so that 0 remains the sentinel for "not in dict".
+                reverse_flat[bits as usize] = (code as u16) + 1;
+            }
+        }
 
         Self {
             right_bit_width,
             codes,
-            reverse_lookup,
+            reverse_flat,
         }
     }
 
@@ -215,13 +225,16 @@ impl RDEncoder {
         let left_bit_width = bit_width!(max_code);
 
         // Split each value into left/right parts and dict-encode in a single pass.
+        // Uses a flat lookup table instead of HashMap for O(1) branchless dictionary lookup.
+        let reverse_flat = &self.reverse_flat;
         for (idx, v) in doubles.iter().copied().enumerate() {
             let bits = T::to_bits(v);
             right_parts.push(bits & right_mask);
             let left = <T as ALPRDFloat>::to_u16(bits.shr(self.right_bit_width as _));
 
-            if let Some(&code) = self.reverse_lookup.get(&left) {
-                left_parts.push(code);
+            let lookup = reverse_flat[left as usize];
+            if lookup != NOT_IN_DICT {
+                left_parts.push(lookup - 1);
             } else {
                 exceptions.push(left);
                 exceptions_pos.push(idx as _);
@@ -295,7 +308,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts: Buffer<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    right_parts: BufferMut<T::UINT>,
+    mut right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<&Patches>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
@@ -313,17 +326,19 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         .map(|&v| <T as ALPRDFloat>::from_u16(v) << shift)
         .collect();
 
-    // Decode the left-parts using the pre-shifted dictionary, producing T::UINT
-    // values that are already in their final shifted position.
-    let mut shifted_values =
-        BufferMut::<T::UINT>::from_iter(left_parts.iter().map(|code| dict_shifted[*code as usize]));
+    // Single-pass: dictionary-lookup the left code, shift, and OR into right_parts
+    // in place. This avoids allocating a separate shifted_values buffer.
+    let right_slice = right_parts.as_mut_slice();
+    for (right, &code) in right_slice.iter_mut().zip(left_parts.iter()) {
+        *right = dict_shifted[code as usize] | *right;
+    }
 
     // Apply any patches (patch values are raw u16, so we widen and shift them).
     if let Some(patches) = left_parts_patches {
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        alp_rd_apply_patches_shifted::<T>(
-            &mut shifted_values,
+        alp_rd_apply_patches::<T>(
+            right_parts.as_mut_slice(),
             &indices,
             &patch_values,
             patches.offset(),
@@ -331,21 +346,26 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         );
     }
 
-    // OR shifted left-parts with right-parts and reinterpret as floats.
-    Ok(alp_rd_decode_core_shifted::<T>(right_parts, shifted_values))
+    // Reinterpret bits as floats.
+    Ok(right_parts
+        .map_each_in_place(|bits| T::from_bits(bits))
+        .freeze())
 }
 
-/// Apply patches to pre-shifted left-parts values.
+/// Apply patches directly to the combined (left|right) buffer.
 ///
-/// Patch values are raw u16 left-parts that need to be widened and shifted
-/// before being written into the shifted values buffer.
-fn alp_rd_apply_patches_shifted<F: ALPRDFloat>(
-    shifted_values: &mut BufferMut<F::UINT>,
+/// Patch values are raw u16 left-parts that need to be widened and shifted,
+/// then OR'd with the existing right-part bits already in the buffer.
+fn alp_rd_apply_patches<F: ALPRDFloat>(
+    combined: &mut [F::UINT],
     indices: &PrimitiveArray,
     patch_values: &PrimitiveArray,
     offset: usize,
     shift: usize,
 ) {
+    // The right_mask extracts the right-part bits that are already in the combined buffer.
+    let right_mask = F::UINT::one().shl(shift) - F::UINT::one();
+
     match_each_integer_ptype!(indices.ptype(), |T| {
         indices
             .as_slice::<T>()
@@ -354,27 +374,12 @@ fn alp_rd_apply_patches_shifted<F: ALPRDFloat>(
             .map(|idx| idx - offset as T)
             .zip(patch_values.as_slice::<u16>().iter())
             .for_each(|(idx, v)| {
-                shifted_values[idx as usize] = <F as ALPRDFloat>::from_u16(*v) << shift;
+                let i = idx as usize;
+                // Overwrite the left-part bits while preserving the right-part bits.
+                combined[i] =
+                    (<F as ALPRDFloat>::from_u16(*v) << shift) | (combined[i] & right_mask);
             });
     })
-}
-
-/// Core decode logic that combines pre-shifted left parts with right parts.
-///
-/// The shifted left parts already contain `(left_value << right_bit_width)` as `T::UINT`,
-/// so this function only needs to OR them with the right parts and reinterpret as floats.
-fn alp_rd_decode_core_shifted<T: ALPRDFloat>(
-    mut right_parts: BufferMut<T::UINT>,
-    shifted_values: BufferMut<T::UINT>,
-) -> Buffer<T> {
-    let shifted_slice = shifted_values.as_ref();
-    let right_slice = right_parts.as_mut_slice();
-    for (right, &left) in right_slice.iter_mut().zip(shifted_slice.iter()) {
-        *right = left | *right;
-    }
-    right_parts
-        .map_each_in_place(|bits| T::from_bits(bits))
-        .freeze()
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

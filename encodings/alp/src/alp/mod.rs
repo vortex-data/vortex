@@ -353,7 +353,8 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     let factor_f = T::F10[exp.f as usize];
     let factor_ie = T::IF10[exp.e as usize];
 
-    // Encode all values in a single pass with pre-computed factors.
+    // Encode all values in a single vectorizable pass with pre-computed factors.
+    // Using extend_trusted with an iterator allows the compiler to auto-vectorize.
     encoded_output.extend_trusted(
         chunk
             .iter()
@@ -362,8 +363,6 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     assert_eq!(encoded_output.len(), num_prev_encoded + chunk.len());
 
     // Find patches by checking decode equality, collecting indices and values directly.
-    // This eliminates the previous two-pass approach that first counted patches and then
-    // re-decoded every value to gather them.
     let encoded_slice = &encoded_output[num_prev_encoded..];
     for (i, (&original, &encoded)) in chunk.iter().zip(encoded_slice.iter()).enumerate() {
         let decoded = T::from_int(encoded) * factor_f * factor_ie;
