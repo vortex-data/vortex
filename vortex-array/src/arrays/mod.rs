@@ -66,6 +66,10 @@ pub mod null;
 pub use null::Null;
 pub use null::NullArray;
 
+pub mod patched;
+pub use patched::Patched;
+pub use patched::PatchedArray;
+
 pub mod primitive;
 pub use primitive::Primitive;
 pub use primitive::PrimitiveArray;
