@@ -11,7 +11,6 @@ use vortex::array::builders::dict::dict_encode;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
-use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -37,8 +36,7 @@ impl FlatLayoutFixture for DictFixture {
         let str_values: Vec<&str> = (0..N).map(|i| categories[i % categories.len()]).collect();
         let str_col = VarBinArray::from(str_values);
 
-        let int_values: Vec<i32> = (0..N as i32).map(|i| (i % 10) * 100).collect();
-        let int_col = PrimitiveArray::new(Buffer::from(int_values), Validity::NonNullable);
+        let int_col: PrimitiveArray = (0..N as i32).map(|i| (i % 10) * 100).collect();
 
         let nullable_values: Vec<Option<&str>> = (0..N)
             .map(|i| (i % 7 != 0).then_some(categories[i % categories.len()]))

@@ -13,6 +13,7 @@ use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::adapter;
 use crate::manifest::FixtureEntry;
 
 /// Top-level trait that the runner (compat-gen / compat-validate) interacts with.
@@ -84,7 +85,7 @@ impl Fixture for FlatLayoutAdapter {
         let array = self.0.build()?;
         check_expected_encodings(&array, self.0.as_ref())?;
         let path = dir.join(self.name());
-        crate::adapter::write_file(&path, array)?;
+        adapter::write_file(&path, array)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
@@ -135,10 +136,10 @@ impl Fixture for DatasetFixtureAdapter {
             let strategy = WriteStrategyBuilder::default()
                 .with_compact_encodings()
                 .build();
-            crate::adapter::write_compressed(&path, array, strategy)?;
+            adapter::write_compressed(&path, array, strategy)?;
         } else {
             let strategy = WriteStrategyBuilder::default().build();
-            crate::adapter::write_compressed(&path, array, strategy)?;
+            adapter::write_compressed(&path, array, strategy)?;
         }
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),

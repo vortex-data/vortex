@@ -9,7 +9,6 @@ use vortex::array::dtype::DecimalDType;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
-use vortex::buffer::Buffer;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsArray;
 use vortex::error::VortexResult;
@@ -34,22 +33,20 @@ impl FlatLayoutFixture for DecimalBytePartsFixture {
 
     fn build(&self) -> VortexResult<ArrayRef> {
         let decimal_dtype = DecimalDType::new(10, 2);
-        let values: Vec<i64> = (0..N as i64).map(|i| i * 100 + (i % 100)).collect();
-        let msp_arr = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
+        let values: PrimitiveArray = (0..N as i64).map(|i| i * 100 + (i % 100)).collect();
+        let msp_arr = values.into_array();
         let decimal_arr = DecimalBytePartsArray::try_new(msp_arr, decimal_dtype)?;
 
         let hi_prec_dtype = DecimalDType::new(18, 6);
-        let hi_prec_values: Vec<i64> = (0..N as i64)
+        let hi_prec_values: PrimitiveArray = (0..N as i64)
             .map(|i| i * 1_000_000 + (i * 7 % 999_999))
             .collect();
-        let hi_prec_msp =
-            PrimitiveArray::new(Buffer::from(hi_prec_values), Validity::NonNullable).into_array();
+        let hi_prec_msp = hi_prec_values.into_array();
         let hi_prec_arr = DecimalBytePartsArray::try_new(hi_prec_msp, hi_prec_dtype)?;
 
         let neg_dtype = DecimalDType::new(10, 2);
-        let neg_values: Vec<i64> = (0..N as i64).map(|i| -5000 + (i * 3 % 10000)).collect();
-        let neg_msp =
-            PrimitiveArray::new(Buffer::from(neg_values), Validity::NonNullable).into_array();
+        let neg_values: PrimitiveArray = (0..N as i64).map(|i| -5000 + (i * 3 % 10000)).collect();
+        let neg_msp = neg_values.into_array();
         let neg_arr = DecimalBytePartsArray::try_new(neg_msp, neg_dtype)?;
         let nullable_dtype = DecimalDType::new(12, 4);
         let nullable_values = PrimitiveArray::from_option_iter((0..N as i64).map(|i| {
@@ -63,30 +60,25 @@ impl FlatLayoutFixture for DecimalBytePartsFixture {
         let nullable_arr = DecimalBytePartsArray::try_new(nullable_values, nullable_dtype)?;
         let zero_dtype = DecimalDType::new(10, 2);
         let zero_arr = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(Buffer::from(vec![0i64; N]), Validity::NonNullable).into_array(),
+            std::iter::repeat_n(0i64, N)
+                .collect::<PrimitiveArray>()
+                .into_array(),
             zero_dtype,
         )?;
         let crossing_dtype = DecimalDType::new(12, 3);
-        let crossing_values: Vec<i64> = (0..N as i64).map(|i| (i % 200) - 100).collect();
-        let crossing_arr = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(Buffer::from(crossing_values), Validity::NonNullable).into_array(),
-            crossing_dtype,
-        )?;
+        let crossing_values: PrimitiveArray = (0..N as i64).map(|i| (i % 200) - 100).collect();
+        let crossing_arr =
+            DecimalBytePartsArray::try_new(crossing_values.into_array(), crossing_dtype)?;
         let trailing_zero_dtype = DecimalDType::new(18, 4);
-        let trailing_zero_values: Vec<i64> = (0..N as i64).map(|i| (i % 1000) * 10_000).collect();
-        let trailing_zero_arr = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(Buffer::from(trailing_zero_values), Validity::NonNullable)
-                .into_array(),
-            trailing_zero_dtype,
-        )?;
+        let trailing_zero_values: PrimitiveArray =
+            (0..N as i64).map(|i| (i % 1000) * 10_000).collect();
+        let trailing_zero_arr =
+            DecimalBytePartsArray::try_new(trailing_zero_values.into_array(), trailing_zero_dtype)?;
         let near_limit_dtype = DecimalDType::new(18, 0);
-        let near_limit_values: Vec<i64> =
+        let near_limit_values: PrimitiveArray =
             (0..N as i64).map(|i| 900_000_000_000_000_000 - i).collect();
-        let near_limit_arr = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(Buffer::from(near_limit_values), Validity::NonNullable)
-                .into_array(),
-            near_limit_dtype,
-        )?;
+        let near_limit_arr =
+            DecimalBytePartsArray::try_new(near_limit_values.into_array(), near_limit_dtype)?;
 
         let arr = StructArray::try_new(
             FieldNames::from([

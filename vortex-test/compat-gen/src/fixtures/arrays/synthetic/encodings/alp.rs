@@ -8,7 +8,6 @@ use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
-use vortex::buffer::Buffer;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::alp_encode;
 use vortex::error::VortexResult;
@@ -60,16 +59,16 @@ impl FlatLayoutFixture for AlpFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
-        let f64_prices: Vec<f64> = (0..N).map(|i| 100.0 + (i as f64) * 0.25).collect();
-        let f32_near_int: Vec<f32> = (0..N).map(|i| i as f32).collect();
-        let f64_negative_near_int: Vec<f64> = (0..N)
+        let f64_prices: PrimitiveArray = (0..N).map(|i| 100.0 + (i as f64) * 0.25).collect();
+        let f32_near_int: PrimitiveArray = (0..N).map(|i| i as f32).collect();
+        let f64_negative_near_int: PrimitiveArray = (0..N)
             .map(|i| -(i as f64) - ((i % 7) as f64) * 0.000_1)
             .collect();
-        let f64_currency: Vec<f64> = (0..N).map(|i| ((i % 10000) as f64) / 100.0).collect();
+        let f64_currency: PrimitiveArray = (0..N).map(|i| ((i % 10000) as f64) / 100.0).collect();
         let f64_nullable = PrimitiveArray::from_option_iter(
             (0..N as i64).map(|i| (i % 10 != 0).then_some(50.0 + (i as f64) * 0.125)),
         );
-        let f64_patched: Vec<f64> = (0..N)
+        let f64_patched: PrimitiveArray = (0..N)
             .map(|i| {
                 if i % 100 == 0 {
                     std::f64::consts::PI * (i as f64 + 1.0)
@@ -78,7 +77,7 @@ impl FlatLayoutFixture for AlpFixture {
                 }
             })
             .collect();
-        let f64_patch_heavy: Vec<f64> = (0..N)
+        let f64_patch_heavy: PrimitiveArray = (0..N)
             .map(|i| {
                 if i % 7 == 0 || i % 11 == 0 {
                     10_000.0 + (i as f64).powi(2)
@@ -87,9 +86,9 @@ impl FlatLayoutFixture for AlpFixture {
                 }
             })
             .collect();
-        let f64_special_values: Vec<f64> = (0..N).map(special_f64).collect();
-        let f32_special_values: Vec<f32> = (0..N).map(special_f32).collect();
-        let f64_extremes: Vec<f64> = (0..N)
+        let f64_special_values: PrimitiveArray = (0..N).map(special_f64).collect();
+        let f32_special_values: PrimitiveArray = (0..N).map(special_f32).collect();
+        let f64_extremes: PrimitiveArray = (0..N)
             .map(|i| match i % 10 {
                 0 => f64::MAX,
                 1 => f64::MIN,
@@ -103,7 +102,7 @@ impl FlatLayoutFixture for AlpFixture {
                 _ => -f64::from_bits(2),
             })
             .collect();
-        let f64_boundary_specials: Vec<f64> = (0..N)
+        let f64_boundary_specials: PrimitiveArray = (0..N)
             .map(|i| match i {
                 0 => f64::from_bits(0x7ff8_0000_0000_0001),
                 1 => -0.0,
@@ -130,63 +129,17 @@ impl FlatLayoutFixture for AlpFixture {
                 "f64_boundary_specials",
             ]),
             vec![
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f64_prices), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f32_near_int), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(
-                        Buffer::from(f64_negative_near_int),
-                        Validity::NonNullable,
-                    ),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f64_currency), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
+                alp_encode(&f64_prices, None)?.into_array(),
+                alp_encode(&f32_near_int, None)?.into_array(),
+                alp_encode(&f64_negative_near_int, None)?.into_array(),
+                alp_encode(&f64_currency, None)?.into_array(),
                 alp_encode(&f64_nullable, None)?.into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f64_patched), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f64_patch_heavy), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f64_special_values), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f32_special_values), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(Buffer::from(f64_extremes), Validity::NonNullable),
-                    None,
-                )?
-                .into_array(),
-                alp_encode(
-                    &PrimitiveArray::new(
-                        Buffer::from(f64_boundary_specials),
-                        Validity::NonNullable,
-                    ),
-                    None,
-                )?
-                .into_array(),
+                alp_encode(&f64_patched, None)?.into_array(),
+                alp_encode(&f64_patch_heavy, None)?.into_array(),
+                alp_encode(&f64_special_values, None)?.into_array(),
+                alp_encode(&f32_special_values, None)?.into_array(),
+                alp_encode(&f64_extremes, None)?.into_array(),
+                alp_encode(&f64_boundary_specials, None)?.into_array(),
             ],
             N,
             Validity::NonNullable,

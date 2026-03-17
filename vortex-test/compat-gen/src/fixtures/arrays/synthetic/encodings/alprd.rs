@@ -8,7 +8,6 @@ use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
-use vortex::buffer::Buffer;
 use vortex::encodings::alp::ALPRD;
 use vortex::encodings::alp::RDEncoder;
 use vortex::error::VortexResult;
@@ -46,27 +45,27 @@ impl FlatLayoutFixture for AlprdFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
-        let sensor: Vec<f64> = (0..N)
+        let sensor: PrimitiveArray = (0..N)
             .map(|i| {
                 let noise = ((i * 7 + 13) % 100) as f64 / 1000.0;
                 98.6 + noise
             })
             .collect();
 
-        let drift: Vec<f64> = (0..N)
+        let drift: PrimitiveArray = (0..N)
             .map(|i| 1000.0 + (i as f64) * 0.001 + ((i * 3) % 7) as f64 * 0.0001)
             .collect();
-        let constant_series = vec![12.125; N];
-        let decreasing: Vec<f64> = (0..N)
+        let constant_series: PrimitiveArray = std::iter::repeat_n(12.125f64, N).collect();
+        let decreasing: PrimitiveArray = (0..N)
             .map(|i| 512.0 - (i as f64) * 0.000_5 - ((i * 5 % 13) as f64) * 0.000_01)
             .collect();
-        let oscillating: Vec<f64> = (0..N)
+        let oscillating: PrimitiveArray = (0..N)
             .map(|i| {
                 let phase = ((i % 9) as i32 - 4) as f64;
                 -0.25 + phase * 0.000_1 + (i as f64) * 0.000_001
             })
             .collect();
-        let periodic_resets: Vec<f64> = (0..N)
+        let periodic_resets: PrimitiveArray = (0..N)
             .map(|i| {
                 let block = i / 64;
                 let offset = i % 64;
@@ -88,7 +87,7 @@ impl FlatLayoutFixture for AlprdFixture {
                 Some(37.0 + noise)
             }
         }));
-        let special_values: Vec<f64> = (0..N)
+        let special_values: PrimitiveArray = (0..N)
             .map(|i| {
                 if i % 16 == 0 {
                     special_f64(i)
@@ -97,7 +96,7 @@ impl FlatLayoutFixture for AlprdFixture {
                 }
             })
             .collect();
-        let boundary_specials: Vec<f64> = (0..N)
+        let boundary_specials: PrimitiveArray = (0..N)
             .map(|i| match i {
                 0 => f64::from_bits(0x7ff8_0000_0000_0001),
                 1 => -0.0,
@@ -125,28 +124,15 @@ impl FlatLayoutFixture for AlprdFixture {
             }
         }));
 
-        let sensor_prim = PrimitiveArray::new(Buffer::from(sensor), Validity::NonNullable);
-        let drift_prim = PrimitiveArray::new(Buffer::from(drift), Validity::NonNullable);
-        let constant_prim =
-            PrimitiveArray::new(Buffer::from(constant_series), Validity::NonNullable);
-        let decreasing_prim = PrimitiveArray::new(Buffer::from(decreasing), Validity::NonNullable);
-        let oscillating_prim =
-            PrimitiveArray::new(Buffer::from(oscillating), Validity::NonNullable);
-        let periodic_resets_prim =
-            PrimitiveArray::new(Buffer::from(periodic_resets), Validity::NonNullable);
-        let special_prim = PrimitiveArray::new(Buffer::from(special_values), Validity::NonNullable);
-        let boundary_prim =
-            PrimitiveArray::new(Buffer::from(boundary_specials), Validity::NonNullable);
-
-        let sensor_enc = RDEncoder::new::<f64>(sensor_prim.as_slice::<f64>());
-        let drift_enc = RDEncoder::new::<f64>(drift_prim.as_slice::<f64>());
-        let constant_enc = RDEncoder::new::<f64>(constant_prim.as_slice::<f64>());
-        let decreasing_enc = RDEncoder::new::<f64>(decreasing_prim.as_slice::<f64>());
-        let oscillating_enc = RDEncoder::new::<f64>(oscillating_prim.as_slice::<f64>());
-        let periodic_resets_enc = RDEncoder::new::<f64>(periodic_resets_prim.as_slice::<f64>());
+        let sensor_enc = RDEncoder::new::<f64>(sensor.as_slice::<f64>());
+        let drift_enc = RDEncoder::new::<f64>(drift.as_slice::<f64>());
+        let constant_enc = RDEncoder::new::<f64>(constant_series.as_slice::<f64>());
+        let decreasing_enc = RDEncoder::new::<f64>(decreasing.as_slice::<f64>());
+        let oscillating_enc = RDEncoder::new::<f64>(oscillating.as_slice::<f64>());
+        let periodic_resets_enc = RDEncoder::new::<f64>(periodic_resets.as_slice::<f64>());
         let nullable_enc = RDEncoder::new::<f64>(&sensor_nullable_vals);
-        let special_enc = RDEncoder::new::<f64>(special_prim.as_slice::<f64>());
-        let boundary_enc = RDEncoder::new::<f64>(boundary_prim.as_slice::<f64>());
+        let special_enc = RDEncoder::new::<f64>(special_values.as_slice::<f64>());
+        let boundary_enc = RDEncoder::new::<f64>(boundary_specials.as_slice::<f64>());
         let nullable_special_enc = RDEncoder::new::<f64>(&nullable_special_vals);
 
         let arr = StructArray::try_new(
@@ -163,17 +149,15 @@ impl FlatLayoutFixture for AlprdFixture {
                 "nullable_specials",
             ]),
             vec![
-                sensor_enc.encode(&sensor_prim).into_array(),
-                drift_enc.encode(&drift_prim).into_array(),
-                constant_enc.encode(&constant_prim).into_array(),
-                decreasing_enc.encode(&decreasing_prim).into_array(),
-                oscillating_enc.encode(&oscillating_prim).into_array(),
-                periodic_resets_enc
-                    .encode(&periodic_resets_prim)
-                    .into_array(),
+                sensor_enc.encode(&sensor).into_array(),
+                drift_enc.encode(&drift).into_array(),
+                constant_enc.encode(&constant_series).into_array(),
+                decreasing_enc.encode(&decreasing).into_array(),
+                oscillating_enc.encode(&oscillating).into_array(),
+                periodic_resets_enc.encode(&periodic_resets).into_array(),
                 nullable_enc.encode(&sensor_nullable).into_array(),
-                special_enc.encode(&special_prim).into_array(),
-                boundary_enc.encode(&boundary_prim).into_array(),
+                special_enc.encode(&special_values).into_array(),
+                boundary_enc.encode(&boundary_specials).into_array(),
                 nullable_special_enc.encode(&nullable_specials).into_array(),
             ],
             N,

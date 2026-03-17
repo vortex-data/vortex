@@ -8,7 +8,6 @@ use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
-use vortex::buffer::Buffer;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
 use vortex::error::VortexResult;
@@ -32,26 +31,27 @@ impl FlatLayoutFixture for BitPackedFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
-        let u32_8bit: Vec<u32> = (0..N as u32).map(|i| i % 256).collect();
-        let u64_12bit: Vec<u64> = (0..N as u64).map(|i| i % 4096).collect();
-        let u16_4bit: Vec<u16> = (0..N as u16).map(|i| i % 16).collect();
-        let u16_1bit: Vec<u16> = (0..N as u16).map(|i| i % 2).collect();
+        let u32_8bit: PrimitiveArray = (0..N as u32).map(|i| i % 256).collect();
+        let u64_12bit: PrimitiveArray = (0..N as u64).map(|i| i % 4096).collect();
+        let u16_4bit: PrimitiveArray = (0..N as u16).map(|i| i % 16).collect();
+        let u16_1bit: PrimitiveArray = (0..N as u16).map(|i| i % 2).collect();
         let u32_nullable = PrimitiveArray::from_option_iter(
             (0..N as u32).map(|i| (i % 8 != 0).then_some(i % 128)),
         );
-        let u32_all_zero: Vec<u32> = vec![0; N];
-        let u16_all_equal: Vec<u16> = vec![7; N];
-        let u16_15bit: Vec<u16> = (0..N as u16).map(|i| i.wrapping_mul(97) & 0x7fff).collect();
-        let u32_31bit: Vec<u32> = (0..N as u32)
+        let u32_all_zero: PrimitiveArray = std::iter::repeat_n(0u32, N).collect();
+        let u16_all_equal: PrimitiveArray = std::iter::repeat_n(7u16, N).collect();
+        let u16_15bit: PrimitiveArray =
+            (0..N as u16).map(|i| i.wrapping_mul(97) & 0x7fff).collect();
+        let u32_31bit: PrimitiveArray = (0..N as u32)
             .map(|i| i.wrapping_mul(65_537) & 0x7fff_ffff)
             .collect();
-        let u64_63bit: Vec<u64> = (0..N as u64)
+        let u64_63bit: PrimitiveArray = (0..N as u64)
             .map(|i| i.wrapping_mul(1_099_511_627_791) & 0x7fff_ffff_ffff_ffff)
             .collect();
-        let u8_3bit: Vec<u8> = (0..N).map(|i| (i % 8) as u8).collect();
-        let u8_5bit: Vec<u8> = (0..N).map(|i| (i % 32) as u8).collect();
-        let u16_9bit: Vec<u16> = (0..N as u16).map(|i| i % 512).collect();
-        let u32_17bit: Vec<u32> = (0..N as u32).map(|i| i % 131_072).collect();
+        let u8_3bit: PrimitiveArray = (0..N).map(|i| (i % 8) as u8).collect();
+        let u8_5bit: PrimitiveArray = (0..N).map(|i| (i % 32) as u8).collect();
+        let u16_9bit: PrimitiveArray = (0..N as u16).map(|i| i % 512).collect();
+        let u32_17bit: PrimitiveArray = (0..N as u32).map(|i| i % 131_072).collect();
         let u16_head_tail_nulls = PrimitiveArray::from_option_iter((0..N as u16).map(|i| {
             if i < 8 || i >= N as u16 - 8 {
                 None
@@ -79,85 +79,20 @@ impl FlatLayoutFixture for BitPackedFixture {
                 "u16_head_tail_nulls",
             ]),
             vec![
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u32_8bit), Validity::NonNullable),
-                    8,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u64_12bit), Validity::NonNullable),
-                    12,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u16_4bit), Validity::NonNullable),
-                    4,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u16_1bit), Validity::NonNullable),
-                    1,
-                    None,
-                )?
-                .into_array(),
+                bitpack_encode(&u32_8bit, 8, None)?.into_array(),
+                bitpack_encode(&u64_12bit, 12, None)?.into_array(),
+                bitpack_encode(&u16_4bit, 4, None)?.into_array(),
+                bitpack_encode(&u16_1bit, 1, None)?.into_array(),
                 bitpack_encode(&u32_nullable, 7, None)?.into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u32_all_zero), Validity::NonNullable),
-                    1,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u16_all_equal), Validity::NonNullable),
-                    3,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u16_15bit), Validity::NonNullable),
-                    15,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u32_31bit), Validity::NonNullable),
-                    31,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u64_63bit), Validity::NonNullable),
-                    63,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u8_3bit), Validity::NonNullable),
-                    3,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u8_5bit), Validity::NonNullable),
-                    5,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u16_9bit), Validity::NonNullable),
-                    9,
-                    None,
-                )?
-                .into_array(),
-                bitpack_encode(
-                    &PrimitiveArray::new(Buffer::from(u32_17bit), Validity::NonNullable),
-                    17,
-                    None,
-                )?
-                .into_array(),
+                bitpack_encode(&u32_all_zero, 1, None)?.into_array(),
+                bitpack_encode(&u16_all_equal, 3, None)?.into_array(),
+                bitpack_encode(&u16_15bit, 15, None)?.into_array(),
+                bitpack_encode(&u32_31bit, 31, None)?.into_array(),
+                bitpack_encode(&u64_63bit, 63, None)?.into_array(),
+                bitpack_encode(&u8_3bit, 3, None)?.into_array(),
+                bitpack_encode(&u8_5bit, 5, None)?.into_array(),
+                bitpack_encode(&u16_9bit, 9, None)?.into_array(),
+                bitpack_encode(&u32_17bit, 17, None)?.into_array(),
                 bitpack_encode(&u16_head_tail_nulls, 5, None)?.into_array(),
             ],
             N,

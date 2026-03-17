@@ -18,7 +18,6 @@ use vortex::array::scalar::DecimalValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
-use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -72,11 +71,7 @@ impl FlatLayoutFixture for ConstantFixture {
             N,
         );
         let timestamp_scalar = TemporalArray::new_timestamp(
-            PrimitiveArray::new(
-                Buffer::from(vec![1_704_067_200_000i64]),
-                Validity::NonNullable,
-            )
-            .into_array(),
+            PrimitiveArray::from_iter([1_704_067_200_000i64]).into_array(),
             TimeUnit::Milliseconds,
             Some("UTC".into()),
         )

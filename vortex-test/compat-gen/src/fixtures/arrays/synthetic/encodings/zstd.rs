@@ -9,7 +9,6 @@ use vortex::array::arrays::VarBinViewArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
-use vortex::buffer::Buffer;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
 use vortex::error::VortexResult;
@@ -33,8 +32,8 @@ impl FlatLayoutFixture for ZstdFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
-        let ints: Vec<i32> = (0..N as i32).map(|i| i / 8).collect();
-        let floats: Vec<f64> = (0..N)
+        let ints: PrimitiveArray = (0..N as i32).map(|i| i / 8).collect();
+        let floats: PrimitiveArray = (0..N)
             .map(|i| {
                 if i % 257 == 0 {
                     100_000.0 + i as f64
@@ -69,11 +68,12 @@ impl FlatLayoutFixture for ZstdFixture {
             }
         }));
         // Highly compressible: all zeros
-        let all_zeros: Vec<i64> = vec![0; N];
+        let all_zeros: PrimitiveArray = std::iter::repeat_n(0i64, N).collect();
         // All-null column
         let all_null_i32 = PrimitiveArray::from_option_iter((0..N).map(|_| None::<i32>));
         // Pseudo-random data (low compressibility)
-        let pseudo_random: Vec<u32> = (0..N as u32).map(|i| i.wrapping_mul(2654435761)).collect();
+        let pseudo_random: PrimitiveArray =
+            (0..N as u32).map(|i| i.wrapping_mul(2654435761)).collect();
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -87,34 +87,14 @@ impl FlatLayoutFixture for ZstdFixture {
                 "pseudo_random",
             ]),
             vec![
-                ZstdArray::from_primitive(
-                    &PrimitiveArray::new(Buffer::from(ints), Validity::NonNullable),
-                    3,
-                    128,
-                )?
-                .into_array(),
-                ZstdArray::from_primitive(
-                    &PrimitiveArray::new(Buffer::from(floats), Validity::NonNullable),
-                    3,
-                    128,
-                )?
-                .into_array(),
+                ZstdArray::from_primitive(&ints, 3, 128)?.into_array(),
+                ZstdArray::from_primitive(&floats, 3, 128)?.into_array(),
                 ZstdArray::from_primitive(&nullable_i64, 3, 128)?.into_array(),
                 ZstdArray::from_var_bin_view(&utf8, 3, 128)?.into_array(),
                 ZstdArray::from_var_bin_view(&nullable_utf8, 3, 128)?.into_array(),
-                ZstdArray::from_primitive(
-                    &PrimitiveArray::new(Buffer::from(all_zeros), Validity::NonNullable),
-                    3,
-                    128,
-                )?
-                .into_array(),
+                ZstdArray::from_primitive(&all_zeros, 3, 128)?.into_array(),
                 ZstdArray::from_primitive(&all_null_i32, 3, 128)?.into_array(),
-                ZstdArray::from_primitive(
-                    &PrimitiveArray::new(Buffer::from(pseudo_random), Validity::NonNullable),
-                    3,
-                    128,
-                )?
-                .into_array(),
+                ZstdArray::from_primitive(&pseudo_random, 3, 128)?.into_array(),
             ],
             N,
             Validity::NonNullable,
