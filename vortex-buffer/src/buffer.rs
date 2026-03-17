@@ -523,6 +523,34 @@ impl<T> Buffer<T> {
     }
 }
 
+impl ByteBuffer {
+    /// Reinterpret the byte buffer as a slice of values of type `V`.
+    ///
+    /// # Panics
+    ///
+    /// This method will only work if the buffer has the proper size and alignment to be viewed
+    /// as a buffer of `V` values.
+    pub fn reinterpret<V: Sized>(&self) -> &[V] {
+        assert!(
+            self.is_aligned(Alignment::of::<V>()),
+            "ByteBuffer not properly aligned to {}",
+            type_name::<V>()
+        );
+
+        assert_eq!(
+            self.length % size_of::<V>(),
+            0,
+            "ByteBuffer length not a multiple of the value length"
+        );
+
+        let v_len = self.length / size_of::<V>();
+        let v_ptr = self.bytes.as_ptr().cast::<V>();
+
+        // SAFETY: we checked that alignment and length are suitable to treat this as a &[V].
+        unsafe { std::slice::from_raw_parts(v_ptr, v_len) }
+    }
+}
+
 /// An iterator over Buffer elements.
 ///
 /// This is an analog to the `std::slice::Iter` type.
