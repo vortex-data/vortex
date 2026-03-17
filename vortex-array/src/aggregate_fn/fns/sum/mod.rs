@@ -13,7 +13,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use self::bool::accumulate_bool;
-use self::constant::accumulate_constant;
+use self::constant::multiply_constant;
 use self::decimal::accumulate_decimal;
 use self::primitive::accumulate_primitive;
 use crate::ArrayRef;
@@ -212,6 +212,16 @@ impl AggregateFnVTable for Sum {
         batch: &Columnar,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // Constants compute scalar * len and combine via combine_partials.
+        if let Columnar::Constant(c) = batch {
+            if let Some(product) =
+                multiply_constant(c.scalar(), c.len(), &partial.return_dtype)?
+            {
+                self.combine_partials(partial, product)?;
+            }
+            return Ok(());
+        }
+
         let mut inner = match partial.current.take() {
             Some(inner) => inner,
             None => return Ok(()),
@@ -224,7 +234,7 @@ impl AggregateFnVTable for Sum {
                 Canonical::Decimal(d) => accumulate_decimal(&mut inner, d),
                 _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
             },
-            Columnar::Constant(c) => accumulate_constant(&mut inner, c),
+            Columnar::Constant(_) => unreachable!(),
         };
 
         match result {
