@@ -90,7 +90,7 @@ pub(crate) fn fsst_decode_views(
 /// - Uses raw pointer writes to construct views directly
 /// - Generic over the length type to avoid an intermediate `Vec<usize>` allocation
 #[allow(clippy::cast_possible_truncation)]
-fn build_views_fast<P: NativePType + AsPrimitive<usize>>(
+pub fn build_views_fast<P: NativePType + AsPrimitive<usize>>(
     buf_index: u32,
     bytes: ByteBufferMut,
     lens: &[P],

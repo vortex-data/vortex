@@ -12,7 +12,10 @@
 //! [fsst]: https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf
 
 mod array;
+#[cfg(not(feature = "_test-harness"))]
 mod canonical;
+#[cfg(feature = "_test-harness")]
+pub mod canonical;
 mod compress;
 mod compute;
 pub mod decompressor;
