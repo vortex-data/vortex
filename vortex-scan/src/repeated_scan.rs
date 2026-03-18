@@ -562,24 +562,24 @@ impl<A: 'static + Send> StagedSplitStream<A> {
 
         // Phase 1: Collect a window of ready splits
         let mut window: Vec<(usize, FilteredSplit)> = Vec::new();
+        let mut window_bytes: usize = 0;
         while self.available_projection_slots() > window.len()
             && self.should_start_projection()
         {
             let Some((idx, filtered)) = self.filter.take_ready() else {
                 break;
             };
-            if !window.is_empty()
-                && self.projection.in_flight_projection_bytes > 0
-                && self
-                    .projection
-                    .in_flight_projection_bytes
-                    .saturating_add(filtered.estimated_projection_bytes)
-                    > DEFERRED_IN_FLIGHT_BUDGET_BYTES
-            {
+            let candidate_total = self
+                .projection
+                .in_flight_projection_bytes
+                .saturating_add(window_bytes)
+                .saturating_add(filtered.estimated_projection_bytes);
+            if !window.is_empty() && candidate_total > DEFERRED_IN_FLIGHT_BUDGET_BYTES {
                 self.filter.push_ready(idx, filtered);
                 break;
             }
 
+            window_bytes = window_bytes.saturating_add(filtered.estimated_projection_bytes);
             window.push((idx, filtered));
         }
 

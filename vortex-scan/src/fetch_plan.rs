@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::ops::Range;
 
 use itertools::Itertools;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
@@ -52,6 +54,7 @@ impl MaterializationPlan {
         dtype: &DType,
         filter_present: bool,
         projection_field_mask: &[FieldMask],
+        filter_field_names: &BTreeSet<FieldName>,
     ) -> Self {
         let projected_row_bytes = estimate_field_mask_row_bytes(dtype, projection_field_mask);
         if !filter_present {
@@ -103,6 +106,14 @@ impl MaterializationPlan {
             };
 
             let carry_cost_bytes_per_row = estimate_dtype_row_bytes(&field_dtype);
+            // Fields shared with the filter are already fetched during filter evaluation,
+            // so keep them immediate to avoid double IO.
+            if filter_field_names.contains(name) {
+                immediate_carry_cost =
+                    immediate_carry_cost.saturating_add(carry_cost_bytes_per_row);
+                immediate.push(name.clone());
+                continue;
+            }
             if should_defer_field(&field_dtype, carry_cost_bytes_per_row) {
                 deferred_carry_cost = deferred_carry_cost.saturating_add(carry_cost_bytes_per_row);
                 deferred_groups.push(DeferredFieldGroup {
@@ -283,6 +294,8 @@ fn estimate_dtype_row_bytes(dtype: &DType) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Field;
     use vortex_array::dtype::FieldMask;
@@ -323,7 +336,7 @@ mod tests {
     fn deferred_plan_activates_for_narrow_filtered_projection() {
         let projection = select(["id", "payload"], root());
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), true, &mask);
+        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), true, &mask, &BTreeSet::new());
         let deferred = plan.deferred().expect("deferred plan");
         assert_eq!(
             deferred.final_fields(),
@@ -337,14 +350,14 @@ mod tests {
     fn deferred_plan_stays_off_for_unfiltered_projection() {
         let projection = select(["id", "payload"], root());
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), false, &mask);
+        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), false, &mask, &BTreeSet::new());
         assert!(plan.deferred().is_none());
     }
 
     #[test]
     fn deferred_plan_stays_off_for_root_projection() {
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&root(), &scan_dtype(), true, &mask);
+        let plan = MaterializationPlan::from_projection(&root(), &scan_dtype(), true, &mask, &BTreeSet::new());
         assert!(plan.deferred().is_none());
     }
 
@@ -352,7 +365,7 @@ mod tests {
     fn deferred_plan_stays_off_for_wide_projection() {
         let projection = select(["id", "score", "payload", "nested"], root());
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), true, &mask);
+        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), true, &mask, &BTreeSet::new());
         assert!(plan.deferred().is_none());
     }
 

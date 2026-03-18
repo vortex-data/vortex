@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -281,11 +282,24 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // producing work before we've traversed every touched layout.
         let (filter_mask, projection_mask, projection_only_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
+        let filter_field_names: BTreeSet<FieldName> = filter_mask
+            .iter()
+            .filter_map(|m| match m {
+                FieldMask::Prefix(path) | FieldMask::Exact(path) => {
+                    path.parts().first().and_then(|f| match f {
+                        Field::Name(n) => Some(n.clone()),
+                        _ => None,
+                    })
+                }
+                FieldMask::All => None,
+            })
+            .collect();
         let materialization_plan = MaterializationPlan::from_projection(
             &projection,
             &dtype,
             filter.is_some(),
             &projection_mask,
+            &filter_field_names,
         );
         let scan_metrics = self
             .metrics_registry
