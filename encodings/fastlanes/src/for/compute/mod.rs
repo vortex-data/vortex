@@ -4,7 +4,7 @@
 mod cast;
 mod compare;
 pub(crate) mod is_constant;
-mod is_sorted;
+pub(crate) mod is_sorted;
 
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;

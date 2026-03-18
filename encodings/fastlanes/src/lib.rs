@@ -18,8 +18,10 @@ pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
+use r#for::compute::is_sorted::FoRIsSortedKernel;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -41,6 +43,11 @@ pub fn initialize(session: &mut VortexSession) {
         FoR::ID,
         Some(IsConstant.id()),
         &FoRIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        FoR::ID,
+        Some(IsSorted.id()),
+        &FoRIsSortedKernel,
     );
 }
 

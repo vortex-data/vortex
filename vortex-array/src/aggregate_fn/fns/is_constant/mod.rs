@@ -315,9 +315,9 @@ impl AggregateFnVTable for IsConstant {
         Ok(())
     }
 
-    fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar> {
+    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         let dtype = make_is_constant_partial_dtype(&partial.element_dtype);
-        let result = match &partial.first_value {
+        Ok(match &partial.first_value {
             None => {
                 // Empty accumulator — return null struct.
                 Scalar::null(dtype)
@@ -331,13 +331,12 @@ impl AggregateFnVTable for IsConstant {
                         .cast(&partial.element_dtype.as_nullable())?,
                 ],
             ),
-        };
+        })
+    }
 
-        // Reset state.
+    fn reset(&self, partial: &mut Self::Partial) {
         partial.is_constant = true;
         partial.first_value = None;
-
-        Ok(result)
     }
 
     #[inline]
@@ -414,17 +413,12 @@ impl AggregateFnVTable for IsConstant {
         partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
     }
 
-    fn finalize_scalar(&self, partial: Scalar) -> VortexResult<Scalar> {
-        if partial.is_null() {
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        if partial.first_value.is_none() {
             // Empty accumulator → return false.
             return Ok(Scalar::bool(false, Nullability::NonNullable));
         }
-        let is_constant_val = partial
-            .as_struct()
-            .field_by_idx(0)
-            .map(|s| s.as_bool().value().unwrap_or(false))
-            .unwrap_or(false);
-        Ok(Scalar::bool(is_constant_val, Nullability::NonNullable))
+        Ok(Scalar::bool(partial.is_constant, Nullability::NonNullable))
     }
 }
 

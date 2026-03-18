@@ -56,8 +56,7 @@ pub struct ComputeFn {
 ///
 /// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
 pub fn warm_up_vtables() {
-    warm_up_vtable();
-    // min_max, nan_count, and is_constant have been migrated to aggregate_fn
+    // min_max, nan_count, is_constant, and is_sorted have been migrated to aggregate_fn
 }
 
 impl ComputeFn {

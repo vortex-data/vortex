@@ -18,13 +18,13 @@ use crate::DynArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
+use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
 use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::builders::builder_with_capacity;
-use crate::compute::is_sorted;
-use crate::compute::is_strict_sorted;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -173,8 +173,8 @@ impl StatsSetRef<'_> {
                     Some(is_constant(&array_ref, &mut ctx)?.into())
                 }
             }
-            Stat::IsSorted => is_sorted(&array_ref)?.map(|v| v.into()),
-            Stat::IsStrictSorted => is_strict_sorted(&array_ref)?.map(|v| v.into()),
+            Stat::IsSorted => Some(is_sorted(&array_ref, &mut ctx)?.into()),
+            Stat::IsStrictSorted => Some(is_strict_sorted(&array_ref, &mut ctx)?.into()),
             Stat::UncompressedSizeInBytes => {
                 let mut builder =
                     builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());

@@ -210,13 +210,17 @@ impl AggregateFnVTable for MinMax {
         Ok(())
     }
 
-    fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar> {
+    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         let dtype = make_minmax_dtype(&partial.element_dtype);
-        let result = match (partial.min.take(), partial.max.take()) {
-            (Some(min), Some(max)) => Scalar::struct_(dtype, vec![min, max]),
+        Ok(match (&partial.min, &partial.max) {
+            (Some(min), Some(max)) => Scalar::struct_(dtype, vec![min.clone(), max.clone()]),
             _ => Scalar::null(dtype),
-        };
-        Ok(result)
+        })
+    }
+
+    fn reset(&self, partial: &mut Self::Partial) {
+        partial.min = None;
+        partial.max = None;
     }
 
     #[inline]
@@ -266,8 +270,8 @@ impl AggregateFnVTable for MinMax {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: Scalar) -> VortexResult<Scalar> {
-        Ok(partial)
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        self.to_scalar(partial)
     }
 }
 
@@ -450,7 +454,7 @@ mod tests {
         let scalar2 = Scalar::struct_(struct_dtype, vec![Scalar::from(2i32), Scalar::from(10i32)]);
         MinMax.combine_partials(&mut state, scalar2)?;
 
-        let result = MinMaxResult::from_scalar(MinMax.flush(&mut state)?)?
+        let result = MinMaxResult::from_scalar(MinMax.to_scalar(&state)?)?
             .vortex_expect("should have result");
         assert_eq!(result.min, Scalar::from(2i32));
         assert_eq!(result.max, Scalar::from(15i32));

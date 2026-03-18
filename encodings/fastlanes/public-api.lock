@@ -420,12 +420,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_fastlanes::FoR
 
 pub fn vortex_fastlanes::FoR::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::compute::is_sorted::IsSortedKernel for vortex_fastlanes::FoR
-
-pub fn vortex_fastlanes::FoR::is_sorted(&self, array: &vortex_fastlanes::FoRArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_fastlanes::FoR::is_strict_sorted(&self, array: &vortex_fastlanes::FoRArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_fastlanes::FoR
 
 pub fn vortex_fastlanes::FoR::compare(lhs: &vortex_fastlanes::FoRArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

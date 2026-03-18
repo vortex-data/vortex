@@ -5,7 +5,6 @@ pub(crate) mod aggregate;
 mod cast;
 mod fill_null;
 mod filter;
-mod is_sorted;
 pub(crate) mod kernel;
 mod mask;
 pub(crate) mod rules;

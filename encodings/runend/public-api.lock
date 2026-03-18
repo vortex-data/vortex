@@ -34,12 +34,6 @@ impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_runend::RunEn
 
 pub fn vortex_runend::RunEnd::filter(array: &vortex_runend::RunEndArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::compute::is_sorted::IsSortedKernel for vortex_runend::RunEnd
-
-pub fn vortex_runend::RunEnd::is_sorted(&self, array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_runend::RunEnd::is_strict_sorted(&self, array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_runend::RunEnd
 
 pub fn vortex_runend::RunEnd::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

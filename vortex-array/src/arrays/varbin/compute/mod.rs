@@ -7,7 +7,6 @@ mod slice;
 mod cast;
 mod compare;
 mod filter;
-mod is_sorted;
 mod mask;
 mod take;
 

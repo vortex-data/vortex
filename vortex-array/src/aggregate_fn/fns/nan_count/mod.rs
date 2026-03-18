@@ -115,10 +115,12 @@ impl AggregateFnVTable for NanCount {
         Ok(())
     }
 
-    fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar> {
-        let result = Scalar::primitive(*partial, NonNullable);
+    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        Ok(Scalar::primitive(*partial, NonNullable))
+    }
+
+    fn reset(&self, partial: &mut Self::Partial) {
         *partial = 0;
-        Ok(result)
     }
 
     #[inline]
@@ -157,8 +159,8 @@ impl AggregateFnVTable for NanCount {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: Scalar) -> VortexResult<Scalar> {
-        Ok(partial)
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        self.to_scalar(partial)
     }
 }
 
@@ -236,7 +238,8 @@ mod tests {
         let scalar2 = Scalar::primitive(3u64, Nullability::NonNullable);
         NanCount.combine_partials(&mut state, scalar2)?;
 
-        let result = NanCount.flush(&mut state)?;
+        let result = NanCount.to_scalar(&state)?;
+        NanCount.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }
