@@ -6,6 +6,7 @@ use std::hash::Hash;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -19,6 +20,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
@@ -210,6 +212,46 @@ impl VTable for Chunked {
     }
 
     fn with_slots(array: &mut ChunkedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(!slots.is_empty(), "Chunked array needs at least one slot");
+
+        let chunk_offsets = slots[0]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("Chunked array chunk_offsets slot must be present"))?;
+        let chunk_offsets_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+        vortex_ensure!(
+            chunk_offsets.dtype() == &chunk_offsets_dtype,
+            MismatchedTypes: &chunk_offsets_dtype,
+            chunk_offsets.dtype()
+        );
+
+        #[cfg(debug_assertions)]
+        {
+            let chunk_offsets = chunk_offsets.as_opt::<Primitive>().unwrap_or_else(|| {
+                vortex_panic!("Chunked array chunk_offsets slot must be primitive")
+            });
+            debug_assert_eq!(
+                chunk_offsets.len(),
+                slots.len(),
+                "Expected {} chunk offsets, found {}",
+                slots.len(),
+                chunk_offsets.len(),
+            );
+        }
+
+        #[cfg(debug_assertions)]
+        for (idx, chunk_slot) in slots[1..].iter().enumerate() {
+            let chunk = chunk_slot
+                .as_ref()
+                .unwrap_or_else(|| vortex_panic!("Chunked array chunk slot {idx} must be present"));
+            debug_assert!(
+                chunk.dtype() == array.dtype(),
+                "Chunked array chunk slot {} has dtype {:?}, expected {:?}",
+                idx,
+                chunk.dtype(),
+                array.dtype(),
+            );
+        }
+
         array.slots = slots;
         Ok(())
     }
