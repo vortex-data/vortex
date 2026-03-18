@@ -83,7 +83,6 @@ impl JNIDefault for jobject {
     clippy::expect_used,
     reason = "JNI operations must succeed for proper error handling"
 )]
-#[inline]
 pub fn try_or_throw<'a, F, T>(env: &mut JNIEnv<'a>, function: F) -> T
 where
     F: FnOnce(&mut JNIEnv<'a>) -> Result<T, JNIError>,

@@ -49,7 +49,6 @@ pub fn has_vbmi() -> bool {
 #[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn transpose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper to gather 8 bytes at stride 16 into a u64
-    #[inline]
     fn gather(input: &[u8; 128], base: usize) -> u64 {
         (input[base] as u64)
             | ((input[base + 16] as u64) << 8)
@@ -238,7 +237,6 @@ pub unsafe fn transpose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
 #[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn untranspose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper: scatter a u64 to 8 output bytes at stride 16
-    #[inline]
     fn scatter(output: &mut [u8; 128], base: usize, val: u64) {
         output[base] = val as u8;
         output[base + 16] = (val >> 8) as u8;

@@ -134,7 +134,6 @@ impl LazyBitBufferBuilder {
         }
     }
 
-    #[inline]
     fn materialize_if_needed(&mut self) {
         if self.inner.is_none() {
             self.materialize()
