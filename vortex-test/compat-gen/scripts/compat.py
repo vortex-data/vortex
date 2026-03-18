@@ -580,17 +580,14 @@ def cmd_check(args: argparse.Namespace) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
 
-            for entry in manifest["fixtures"]:
-                name = entry["name"]
-                data = store.read(f"{prefix}/{name}")
-                if data is None:
-                    _info(f"  v{version}: {name} not found at {prefix}/{name}")
-                    all_failures.append((version, name, "fixture file not found in store"))
-                    total_failed += 1
-                    continue
-                (tmppath / name).write_bytes(data)
-                _info(f"  downloaded {name} ({len(data)} bytes)")
+            _info(f"  downloading {len(manifest['fixtures'])} fixtures...")
+            download_failures = _parallel_download(store, manifest["fixtures"], prefix, tmppath)
+            for name, error in download_failures:
+                _info(f"  v{version}: {name} {error}")
+                all_failures.append((version, name, error))
+                total_failed += 1
 
+            _info(f"  checking v{version}...")
             result = _run_rust_check(tmppath, mode="subset")
 
             passed = len(result.get("passed", []))
@@ -749,18 +746,76 @@ def _parallel_upload(store: Store, items: list[tuple[str, Path]], max_workers: i
             future.result()
 
 
+def _parallel_download(
+    store: Store,
+    fixtures: list[dict],
+    prefix: str,
+    dest: Path,
+    max_workers: int = 8,
+) -> list[tuple[str, str]]:
+    """Download fixture files from the store in parallel.
+
+    Returns a list of (name, error) for any failures.
+    """
+    failures: list[tuple[str, str]] = []
+    total_bytes = 0
+
+    def _download_one(entry: dict) -> tuple[str, bytes | None]:
+        name = entry["name"]
+        data = store.read(f"{prefix}/{name}")
+        return name, data
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_download_one, entry): entry["name"] for entry in fixtures}
+        for future in as_completed(futures):
+            name, data = future.result()
+            if data is None:
+                failures.append((name, f"not found at {prefix}/{name}"))
+            else:
+                (dest / name).write_bytes(data)
+                total_bytes += len(data)
+
+    _info(f"  downloaded {len(fixtures) - len(failures)} fixtures ({total_bytes} bytes)")
+    return failures
+
+
+def _build_compat_bin() -> str:
+    """Build vortex-compat and return the path to the binary.
+
+    If VORTEX_COMPAT_BIN is set, skips the build and returns that path.
+    Otherwise runs `cargo build` with visible output, then locates the binary.
+    """
+    bin_path = os.environ.get("VORTEX_COMPAT_BIN")
+    if bin_path:
+        return bin_path
+
+    _info("building vortex-compat (release)...")
+    _run_cmd(["cargo", "build", "-p", CARGO_BIN, "--release"], check=True)
+
+    # Ask cargo where the binary is.
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version=1", "--no-deps"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    target_dir = json.loads(result.stdout)["target_directory"]
+    bin_path = str(Path(target_dir) / "release" / CARGO_BIN)
+    return bin_path
+
+
 def _run_rust_generate(output: Path) -> None:
     """Run `vortex-compat generate --output <dir>`."""
-    cmd = _cargo_run_cmd() + ["generate", "--output", str(output)]
-    _run_cmd(cmd, check=True)
+    bin_path = _build_compat_bin()
+    _run_cmd([bin_path, "generate", "--output", str(output)], check=True)
 
 
 def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
     """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
-    cmd = _cargo_run_cmd() + ["check", "--dir", str(dir), "--mode", mode]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
+    bin_path = _build_compat_bin()
+    cmd = [bin_path, "check", "--dir", str(dir), "--mode", mode]
+    _info(f"  $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
 
     if result.stdout.strip():
         return json.loads(result.stdout)
@@ -772,14 +827,6 @@ def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
             "skipped": [],
         }
     return {"passed": [], "failed": [], "skipped": []}
-
-
-def _cargo_run_cmd() -> list[str]:
-    """Build the command to invoke vortex-compat (pre-built binary or cargo run)."""
-    bin_path = os.environ.get("VORTEX_COMPAT_BIN")
-    if bin_path:
-        return [bin_path]
-    return ["cargo", "run", "-p", CARGO_BIN, "--release", "--"]
 
 
 def _run_cmd(cmd: list[str], check: bool = False, cwd: Path | None = None) -> subprocess.CompletedProcess:
