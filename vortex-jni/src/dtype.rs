@@ -98,6 +98,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getVariant(
             unimplemented!("TODO(connor)[FixedSizeList]")
         }
         DType::Extension(_) => DTYPE_EXTENSION,
+        DType::Variant(_) => unimplemented!("Variant DType is not supported in JNI yet"),
     }
 }
 

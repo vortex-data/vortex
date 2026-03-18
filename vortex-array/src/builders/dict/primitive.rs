@@ -79,7 +79,6 @@ where
         }
     }
 
-    #[inline]
     fn encode_value(&mut self, v: Option<T>) -> Option<Code> {
         match self.lookup.entry(v.map(NativeValue)) {
             Entry::Occupied(o) => Some(*o.get()),

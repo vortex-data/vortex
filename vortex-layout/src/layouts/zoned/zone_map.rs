@@ -80,6 +80,15 @@ impl ZoneMap {
                     .iter()
                     .filter_map(|stat| {
                         stat.dtype(column_dtype)
+                            .or_else(|| {
+                                // Backward compat: older files may have stored stats (e.g. Sum)
+                                // for extension types by resolving through the storage dtype.
+                                if let DType::Extension(ext) = column_dtype {
+                                    stat.dtype(ext.storage_dtype())
+                                } else {
+                                    None
+                                }
+                            })
                             .map(|dtype| (stat, dtype.as_nullable()))
                     })
                     .flat_map(|(s, dt)| match s {

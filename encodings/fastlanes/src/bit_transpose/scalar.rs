@@ -15,7 +15,6 @@ use crate::bit_transpose::TRANSPOSE_8X8;
 #[allow(dead_code)]
 pub fn transpose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper to perform 8x8 bit transpose on a u64 (each byte becomes a row)
-    #[inline]
     fn transpose_8x8(mut x: u64) -> u64 {
         // Step 1: Transpose 2x2 bit blocks
         let t = (x ^ (x >> 7)) & TRANSPOSE_2X2;
@@ -29,7 +28,6 @@ pub fn transpose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
     }
 
     // Helper to gather 8 bytes at stride 16 into a u64
-    #[inline]
     fn gather(input: &[u8; 128], base: usize) -> u64 {
         u64::from(input[base])
             | (u64::from(input[base + 16]) << 8)
@@ -89,7 +87,6 @@ pub fn transpose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
 #[inline(never)]
 #[allow(dead_code)]
 pub fn untranspose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
-    #[inline]
     fn transpose_8x8(mut x: u64) -> u64 {
         let t = (x ^ (x >> 7)) & TRANSPOSE_2X2;
         x = x ^ t ^ (t << 7);
@@ -99,7 +96,6 @@ pub fn untranspose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
         x ^ t ^ (t << 28)
     }
 
-    #[inline]
     fn gather_transposed(input: &[u8; 128], base_group: usize, offset: usize) -> u64 {
         let mut result: u64 = 0;
         for bit_pos in 0..8 {
@@ -108,7 +104,6 @@ pub fn untranspose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
         result
     }
 
-    #[inline]
     fn scatter(output: &mut [u8; 128], base: usize, val: u64) {
         output[base] = val as u8;
         output[base + 16] = (val >> 8) as u8;

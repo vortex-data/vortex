@@ -161,7 +161,6 @@ impl DeltaArray {
         &self.deltas
     }
 
-    #[inline]
     pub(crate) fn lanes(&self) -> usize {
         let ptype =
             PType::try_from(self.dtype()).vortex_expect("DeltaArray DType must be primitive");
@@ -189,17 +188,14 @@ impl DeltaArray {
         self.offset
     }
 
-    #[inline]
     pub(crate) fn bases_len(&self) -> usize {
         self.bases.len()
     }
 
-    #[inline]
     pub(crate) fn deltas_len(&self) -> usize {
         self.deltas.len()
     }
 
-    #[inline]
     pub(crate) fn stats_set(&self) -> &ArrayStats {
         &self.stats_set
     }

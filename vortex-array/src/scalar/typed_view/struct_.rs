@@ -114,7 +114,6 @@ impl Hash for StructScalar<'_> {
 
 impl<'a> StructScalar<'a> {
     /// Creates a new [`StructScalar`] from a [`DType`] and optional [`ScalarValue`].
-    #[inline]
     pub(crate) fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Struct(..)) {
             vortex_bail!("Expected struct scalar, found {}", dtype)

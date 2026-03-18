@@ -103,6 +103,7 @@ impl Display for DTypePythonRepr<'_> {
                 }
                 write!(f, ")")
             }
+            DType::Variant(_) => write!(f, "variant()"),
         }
     }
 }
