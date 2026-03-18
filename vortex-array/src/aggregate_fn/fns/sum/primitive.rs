@@ -54,7 +54,9 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexR
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
                 for &v in p.as_slice::<T>() {
-                    *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                    if !v.is_nan() {
+                        *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                    }
                 }
                 Ok(false)
             }
@@ -98,7 +100,7 @@ fn accumulate_primitive_valid(
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
                 for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid {
+                    if valid && !v.is_nan() {
                         *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
                     }
                 }
@@ -209,6 +211,45 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
         let result = acc.finish()?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_f64_with_nan() -> VortexResult<()> {
+        let arr = PrimitiveArray::new(
+            buffer![1.0f64, f64::NAN, 2.0, f64::NAN, 3.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(6.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_f32_with_nan() -> VortexResult<()> {
+        let arr =
+            PrimitiveArray::new(buffer![1.0f32, f32::NAN, 4.0], Validity::NonNullable).into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(5.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_f64_with_nan_and_nulls() -> VortexResult<()> {
+        let arr = PrimitiveArray::from_option_iter([Some(1.0f64), None, Some(f64::NAN), Some(3.0)])
+            .into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(4.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_all_nan() -> VortexResult<()> {
+        let arr =
+            PrimitiveArray::new(buffer![f64::NAN, f64::NAN], Validity::NonNullable).into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
         Ok(())
     }
