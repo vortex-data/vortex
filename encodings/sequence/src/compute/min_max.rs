@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::make_struct_dtype;
+use vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -39,7 +39,7 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
             return Ok(None);
         };
 
-        let struct_dtype = make_struct_dtype(batch.dtype());
+        let struct_dtype = make_minmax_dtype(batch.dtype());
 
         // Empty sequences shouldn't exist (try_new validates length), but handle gracefully.
         if seq.is_empty() {

@@ -102,7 +102,7 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::fmt(&self, f: &mu
 
 impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
-pub fn vortex_array::aggregate_fn::fns::min_max::make_struct_dtype(element_dtype: &vortex_array::dtype::DType) -> vortex_array::dtype::DType
+pub fn vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype(element_dtype: &vortex_array::dtype::DType) -> vortex_array::dtype::DType
 
 pub fn vortex_array::aggregate_fn::fns::min_max::min_max(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::aggregate_fn::fns::min_max::MinMaxResult>>
 

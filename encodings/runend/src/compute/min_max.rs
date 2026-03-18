@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::make_struct_dtype;
+use vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::scalar::Scalar;
@@ -35,7 +35,7 @@ impl DynAggregateKernel for RunEndMinMaxKernel {
             return Ok(None);
         };
 
-        let struct_dtype = make_struct_dtype(batch.dtype());
+        let struct_dtype = make_minmax_dtype(batch.dtype());
         match min_max(run_end.values(), ctx)? {
             Some(result) => Ok(Some(Scalar::struct_(
                 struct_dtype,

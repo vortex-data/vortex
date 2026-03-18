@@ -69,7 +69,7 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
 
     // Short-circuit for unsupported dtypes.
     if MinMax.return_dtype(&EmptyOptions, array.dtype()).is_none() {
-        vortex_bail!("min_max not supported for dtype {}", array.dtype());
+        return Ok(None);
     }
 
     // Compute using Accumulator<MinMax>.
@@ -155,7 +155,7 @@ impl MinMaxPartial {
 }
 
 /// Creates the struct dtype `{min: T, max: T}` (nullable) used for min/max aggregate results.
-pub fn make_struct_dtype(element_dtype: &DType) -> DType {
+pub fn make_minmax_dtype(element_dtype: &DType) -> DType {
     DType::Struct(
         StructFields::new(
             NAMES.clone(),
@@ -178,8 +178,13 @@ impl AggregateFnVTable for MinMax {
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null => None,
-            _ => Some(make_struct_dtype(input_dtype)),
+            DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(..)
+            | DType::Binary(..)
+            | DType::Extension(..) => Some(make_minmax_dtype(input_dtype)),
+            _ => None,
         }
     }
 
@@ -206,7 +211,7 @@ impl AggregateFnVTable for MinMax {
     }
 
     fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar> {
-        let dtype = make_struct_dtype(&partial.element_dtype);
+        let dtype = make_minmax_dtype(&partial.element_dtype);
         let result = match (partial.min.take(), partial.max.take()) {
             (Some(min), Some(max)) => Scalar::struct_(dtype, vec![min, max]),
             _ => Scalar::null(dtype),
@@ -435,7 +440,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut state = MinMax.empty_partial(&EmptyOptions, &dtype)?;
 
-        let struct_dtype = crate::aggregate_fn::fns::min_max::make_struct_dtype(&dtype);
+        let struct_dtype = crate::aggregate_fn::fns::min_max::make_minmax_dtype(&dtype);
         let scalar1 = Scalar::struct_(
             struct_dtype.clone(),
             vec![Scalar::from(5i32), Scalar::from(15i32)],
@@ -552,6 +557,30 @@ mod tests {
         );
 
         let result = min_max(
+            &BoolArray::from_iter(vec![None, Some(true), Some(true)]).into_array(),
+            &mut ctx,
+        )?;
+        assert_eq!(
+            result,
+            Some(MinMaxResult {
+                min: Scalar::bool(true, Nullability::NonNullable),
+                max: Scalar::bool(true, Nullability::NonNullable),
+            })
+        );
+
+        let result = min_max(
+            &BoolArray::from_iter(vec![None, Some(true), Some(true), None]).into_array(),
+            &mut ctx,
+        )?;
+        assert_eq!(
+            result,
+            Some(MinMaxResult {
+                min: Scalar::bool(true, Nullability::NonNullable),
+                max: Scalar::bool(true, Nullability::NonNullable),
+            })
+        );
+
+        let result = min_max(
             &BoolArray::from_iter(vec![Some(false), Some(false), None, None]).into_array(),
             &mut ctx,
         )?;
@@ -562,6 +591,17 @@ mod tests {
                 max: Scalar::bool(false, Nullability::NonNullable),
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_varbin_all_nulls() -> VortexResult<()> {
+        let array = VarBinArray::from_iter(
+            vec![Option::<&str>::None, None, None],
+            DType::Utf8(Nullability::Nullable),
+        );
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(min_max(&array.into_array(), &mut ctx)?, None);
         Ok(())
     }
 }
