@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -21,6 +20,7 @@ use crate::scalar::DecimalValue;
 
 /// Accumulate a decimal array into the sum state.
 /// Returns Ok(true) if saturated (overflow), Ok(false) if not.
+#[allow(clippy::cognitive_complexity)]
 pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> VortexResult<bool> {
     let SumState::Decimal { value, dtype } = inner else {
         vortex_panic!("expected decimal sum state for decimal input");
@@ -48,7 +48,7 @@ pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> Vort
             };
 
             let decimal_sum = sum
-                .map(|v| DecimalValue::from(v))
+                .map(DecimalValue::from)
                 // We have to make sure that the decimal value fits the precision of the decimal dtype.
                 .filter(|v| v.fits_in_precision(*dtype));
 
