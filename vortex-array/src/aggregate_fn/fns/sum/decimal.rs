@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::dtype::DecimalType;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
@@ -15,17 +14,15 @@ use vortex_mask::Mask;
 
 use super::SumState;
 use crate::arrays::DecimalArray;
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
+use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 
 /// Accumulate a decimal array into the sum state.
 /// Returns Ok(true) if saturated (overflow), Ok(false) if not.
-#[expect(clippy::cognitive_complexity)]
 pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> VortexResult<bool> {
-    let SumState::Decimal { value, dtype } = inner else {
-        vortex_panic!("expected decimal sum state for decimal input");
-    };
-
     let mask = d.validity_mask()?;
     let validity = match &mask {
         Mask::AllTrue(_) => None,
@@ -35,30 +32,45 @@ pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> Vort
         }
     };
 
+    let SumState::Decimal { value, dtype } = inner else {
+        vortex_panic!("expected decimal sum state for decimal input");
+    };
+
     let values_type = DecimalType::smallest_decimal_value_type(dtype);
-    match_each_decimal_value_type!(d.values_type(), |I| {
-        match_each_decimal_value_type!(values_type, |O| {
-            let initial: O = value
+    match_each_decimal_value_type!(d.values_type(), |T| {
+        match_each_decimal_value_type!(values_type, |I| {
+            let initial: I = value
                 .cast()
                 .vortex_expect("cannot fail to cast initial value");
-
-            let sum = match validity {
-                Some(v) => sum_decimal_with_validity(d.buffer::<I>(), v, initial),
-                None => sum_decimal(d.buffer::<I>(), initial),
-            };
-
-            let decimal_sum = sum
-                .map(DecimalValue::from)
-                // We have to make sure that the decimal value fits the precision of the decimal dtype.
-                .filter(|v| v.fits_in_precision(*dtype));
-
-            match decimal_sum {
+            match sum_decimal_value(initial, d.buffer::<T>(), validity, *dtype) {
                 Some(v) => *value = v,
                 None => return Ok(true),
             }
             Ok(false)
         })
     })
+}
+
+fn sum_decimal_value<T, I>(
+    initial: I,
+    values: Buffer<T>,
+    validity: Option<&BitBuffer>,
+    output_dtype: DecimalDType,
+) -> Option<DecimalValue>
+where
+    T: AsPrimitive<I>,
+    I: NumOps + CheckedAdd + Copy + NativeDecimalType + 'static,
+    bool: AsPrimitive<I>,
+    DecimalValue: From<I>,
+{
+    let sum = match validity {
+        Some(v) => sum_decimal_with_validity(values, v, initial),
+        None => sum_decimal(values, initial),
+    };
+
+    sum.map(DecimalValue::from)
+        // We have to make sure that the decimal value fits the precision of the decimal dtype.
+        .filter(|v| v.fits_in_precision(output_dtype))
 }
 
 fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
