@@ -35,7 +35,7 @@ pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> Vort
         }
     };
 
-    let values_type = DecimalType::smallest_decimal_value_type(&dtype);
+    let values_type = DecimalType::smallest_decimal_value_type(dtype);
     match_each_decimal_value_type!(d.values_type(), |I| {
         match_each_decimal_value_type!(values_type, |O| {
             let initial_val: O = value
