@@ -141,7 +141,7 @@ impl VTable for Variant {
             &DType::Variant(crate::dtype::Nullability::NonNullable),
             len,
         )?;
-        Ok(VariantArray::new_nullable(child, dtype.nullability()))
+        Ok(VariantArray::new(child, dtype.nullability()))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

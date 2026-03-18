@@ -234,7 +234,7 @@ impl ParquetVariantArray {
         };
         let pv =
             ParquetVariantArray::try_new_with_validity(validity, metadata, value, typed_value)?;
-        Ok(VariantArray::new_nullable(pv.into_array(), nullability).into_array())
+        Ok(VariantArray::new(pv.into_array(), nullability).into_array())
     }
 
     fn nchildren(&self) -> usize {
@@ -752,7 +752,7 @@ mod tests {
         let pv_array = ParquetVariantArray::try_new(metadata, None, Some(typed_value))?;
 
         // Wrap it in a VariantArray
-        let variant_array = VariantArray::new(pv_array.into_array());
+        let variant_array = VariantArray::new(pv_array.into_array(), Nullability::NonNullable);
 
         // Apply variant_get
         let target_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
@@ -776,7 +776,7 @@ mod tests {
         let pv_array = ParquetVariantArray::try_new(metadata, Some(value), None)?;
 
         // Wrap it in a VariantArray
-        let variant_array = VariantArray::new(pv_array.into_array());
+        let variant_array = VariantArray::new(pv_array.into_array(), Nullability::NonNullable);
 
         // Apply variant_get - the rule returns None since there's no typed_value,
         // so the optimizer creates a lazy ScalarFnArray that will error on execute.
@@ -867,7 +867,8 @@ mod tests {
         let inner_value = VarBinViewArray::from_iter_bin([b"\x02", b"\x03", b"\x04"]).into_array();
         let inner_pv =
             ParquetVariantArray::try_new(inner_metadata, Some(inner_value), None).unwrap();
-        let typed_value = VariantArray::new(inner_pv.into_array()).into_array();
+        let typed_value =
+            VariantArray::new(inner_pv.into_array(), Nullability::NonNullable).into_array();
 
         let outer_pv =
             ParquetVariantArray::try_new(outer_metadata, None, Some(typed_value)).unwrap();
