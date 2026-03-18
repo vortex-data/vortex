@@ -258,7 +258,8 @@ pub fn hash_file(path: impl AsRef<Path>) -> Result<(String, u64)> {
     Ok((hash, size))
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
+/// Encode bytes as lowercase hex string.
+pub fn hex_encode(bytes: &[u8]) -> String {
     use std::fmt::Write;
     bytes.iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");

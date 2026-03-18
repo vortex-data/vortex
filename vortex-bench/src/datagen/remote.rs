@@ -13,6 +13,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
+use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::PutMode;
 use object_store::PutOptions;
@@ -30,6 +31,7 @@ use super::manifest::FileIndex;
 use super::manifest::Manifest;
 use super::manifest::file_matches_hash;
 use super::manifest::hash_file;
+use super::manifest::hex_encode;
 
 /// Resolve a URL or local path to an ObjectStore + base path.
 pub fn resolve_store(url: &str) -> Result<(Arc<dyn ObjectStore>, ObjPath)> {
@@ -85,22 +87,17 @@ pub async fn write_catalog(
     let path = catalog_path(base);
     let bytes = catalog.to_json()?;
     let payload = PutPayload::from_bytes(bytes.into());
-
-    // Try conditional put (CAS) first — falls back to unconditional if not supported.
-    match store
+    store
         .put_opts(
             &path,
-            payload.clone(),
+            payload,
             PutOptions {
                 mode: PutMode::Overwrite,
                 ..Default::default()
             },
         )
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e.into()),
-    }
+        .await?;
+    Ok(())
 }
 
 /// Read a manifest from remote.
@@ -232,8 +229,11 @@ pub async fn push(
         );
     }
 
+    // Read catalog once — used for both existence check and push_inner.
+    let catalog = read_catalog(store, base).await?;
+
     // Check for existing dataset if not forced.
-    if let (false, Some(existing)) = (force, check_existing(store, base, &descriptor.name).await?) {
+    if let (false, Some(existing)) = (force, catalog.find(&descriptor.name)) {
         bail!(
             "dataset '{}' already exists at '{}'. Use --force to overwrite.",
             descriptor.name,
@@ -250,7 +250,7 @@ pub async fn push(
     let lock_path = acquire_upload_lock(store, base, &descriptor.name).await?;
 
     // From here on, ensure we release the lock even on error.
-    let result = push_inner(store, base, &descriptor, &data_dir).await;
+    let result = push_inner(store, base, &descriptor, &data_dir, &catalog).await;
 
     // Always release the lock.
     release_upload_lock(store, &lock_path).await;
@@ -264,6 +264,7 @@ async fn push_inner(
     base: &ObjPath,
     descriptor: &DatasetDescriptor,
     data_dir: &Path,
+    catalog: &Catalog,
 ) -> Result<()> {
     // Build manifest by scanning data/.
     let manifest = build_manifest_from_dir(&descriptor.name, data_dir)?;
@@ -275,7 +276,6 @@ async fn push_inner(
     );
 
     // Read the old remote manifest (if any) to skip unchanged files.
-    let catalog = read_catalog(store, base).await?;
     let old_index = if let Some(existing) = catalog.find(&descriptor.name) {
         match read_manifest(store, base, &existing.path).await {
             Ok(old_manifest) => {
@@ -330,7 +330,7 @@ async fn push_inner(
 
     // Upload manifest.json.
     let manifest_bytes = manifest.to_json()?;
-    let manifest_hash = sha256_hex(&manifest_bytes);
+    let manifest_hash = sha256_bytes_hex(&manifest_bytes);
     store
         .put(
             &obj_path(base, &format!("{dataset_path}manifest.json")),
@@ -338,8 +338,8 @@ async fn push_inner(
         )
         .await?;
 
-    // Update catalog.
-    let mut catalog = read_catalog(store, base).await?;
+    // Update catalog. Clone from the pre-fetched version to avoid a redundant read.
+    let mut catalog = catalog.clone();
     let old = catalog.upsert(DatasetEntry {
         name: descriptor.name.clone(),
         path: dataset_path.clone(),
@@ -375,19 +375,17 @@ async fn upload_data_files(
         if let Some((ref old_idx, ref old_path)) = *old_index
             && !old_idx.needs_transfer(&file.path, &file.sha256)
         {
-            // Copy from old location instead of re-uploading from local.
+            // Server-side copy from old location (zero egress).
             let src = obj_path(base, &format!("{old_path}{}", file.path));
             let dst = obj_path(base, &format!("{dataset_path}{}", file.path));
-            match store.get(&src).await {
-                Ok(result) => {
-                    let bytes = result.bytes().await?;
-                    store.put(&dst, PutPayload::from_bytes(bytes)).await?;
+            match store.copy(&src, &dst).await {
+                Ok(()) => {
                     skipped += 1;
-                    info!(path = %file.path, "copied from previous upload (hash match)");
+                    info!(path = %file.path, "server-side copy (hash match)");
                     continue;
                 }
                 Err(e) => {
-                    warn!(path = %file.path, error = %e, "copy failed, uploading from local");
+                    warn!(path = %file.path, error = %e, "server-side copy failed, uploading from local");
                 }
             }
         }
@@ -428,7 +426,7 @@ pub async fn pull(store: &dyn ObjectStore, base: &ObjPath, local_root: &Path) ->
         let manifest_path = dataset_dir.join("manifest.json");
         if manifest_path.exists() {
             let existing_bytes = std::fs::read(&manifest_path)?;
-            let existing_hash = sha256_hex(&existing_bytes);
+            let existing_hash = sha256_bytes_hex(&existing_bytes);
             if existing_hash == entry.manifest_hash {
                 info!(name = entry.name, "manifest up to date, skipping");
                 continue;
@@ -525,7 +523,7 @@ pub async fn checkout(
         let bytes = result.bytes().await?;
 
         // Verify hash.
-        let actual_hash = sha256_hex(&bytes);
+        let actual_hash = sha256_bytes_hex(&bytes);
         if actual_hash != file.sha256 {
             bail!(
                 "hash mismatch for {}: expected {}, got {}",
@@ -542,7 +540,12 @@ pub async fn checkout(
     Ok(())
 }
 
-/// Delete a dataset from the catalog. Optionally removes S3 files.
+/// Delete a dataset from the catalog. Optionally removes remote files.
+///
+/// Writes the updated catalog *before* purging files. This way, if purge
+/// fails midway, the leftover files are just orphans that `gc` will clean
+/// up. The alternative (purge first, then write catalog) would leave the
+/// catalog pointing at deleted files — a worse failure mode.
 pub async fn delete(
     store: &dyn ObjectStore,
     base: &ObjPath,
@@ -554,19 +557,21 @@ pub async fn delete(
         .remove(dataset_name)
         .ok_or_else(|| anyhow::anyhow!("dataset '{}' not found in catalog", dataset_name))?;
 
+    // Write catalog first so a partial purge failure leaves only orphans.
+    write_catalog(store, base, &catalog).await?;
+    info!(name = dataset_name, "removed from catalog");
+
     if delete_files {
-        info!(path = entry.path, "deleting remote files");
+        info!(path = entry.path, "purging remote files");
         let prefix = obj_path(base, &entry.path);
         let mut list = store.list(Some(&prefix));
-        use futures::StreamExt;
         while let Some(meta) = list.next().await {
             let meta = meta?;
             store.delete(&meta.location).await?;
         }
+        info!(path = entry.path, "purge complete");
     }
 
-    write_catalog(store, base, &catalog).await?;
-    info!(name = dataset_name, "deleted from catalog");
     Ok(())
 }
 
@@ -658,7 +663,6 @@ pub(crate) async fn gc_with_threshold(
 
             info!(path = %prefix, "garbage collecting orphaned directory");
             let mut list = store.list(Some(prefix));
-            use futures::StreamExt;
             while let Some(meta) = list.next().await {
                 let meta = meta?;
                 store.delete(&meta.location).await?;
@@ -705,7 +709,7 @@ pub async fn verify(
     // Check manifest hash.
     let manifest_path = obj_path(base, &format!("{}manifest.json", entry.path));
     let manifest_bytes = store.get(&manifest_path).await?.bytes().await?;
-    let actual_manifest_hash = sha256_hex(&manifest_bytes);
+    let actual_manifest_hash = sha256_bytes_hex(&manifest_bytes);
     if actual_manifest_hash != entry.manifest_hash {
         problems.push(format!(
             "manifest hash mismatch: catalog says {}, actual is {}",
@@ -721,7 +725,7 @@ pub async fn verify(
         match store.get(&remote_path).await {
             Ok(result) => {
                 let bytes = result.bytes().await?;
-                let actual_hash = sha256_hex(&bytes);
+                let actual_hash = sha256_bytes_hex(&bytes);
                 if actual_hash != file.sha256 {
                     problems.push(format!(
                         "{}: hash mismatch (expected {}, got {})",
@@ -829,11 +833,6 @@ fn obj_path(base: &ObjPath, suffix: &str) -> ObjPath {
     }
 }
 
-fn sha256_hex(data: &[u8]) -> String {
-    let hash = Sha256::digest(data);
-    hash.iter().fold(String::new(), |mut s, b| {
-        use std::fmt::Write;
-        let _ = write!(s, "{b:02x}");
-        s
-    })
+fn sha256_bytes_hex(data: &[u8]) -> String {
+    hex_encode(&Sha256::digest(data))
 }
