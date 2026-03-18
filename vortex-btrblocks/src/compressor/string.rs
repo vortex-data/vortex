@@ -57,20 +57,29 @@ pub struct StringStats {
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
+///
+/// Uses view prefixes (length + first 4 bytes) as an approximate fingerprint.
+/// Short-circuits once more than 50% of values appear distinct, since Dict
+/// encoding is not attempted above that threshold.
 fn estimate_distinct_count(strings: &VarBinViewArray) -> VortexResult<u32> {
     let views = strings.views();
-    // Iterate the views. Two strings which are equal must have the same first 8-bytes.
-    // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
-    // share a 4-byte prefix and have the same length.
-    let mut distinct = HashSet::with_capacity(views.len() / 2);
-    views.iter().for_each(|&view| {
+    // Dict encoding is skipped when distinct > value_count / 2, so once we
+    // exceed that threshold we can stop counting.
+    let threshold = views.len() / 2;
+    // Cap initial capacity to avoid huge allocations for high-cardinality columns.
+    let initial_cap = threshold.min(1024 * 64);
+    let mut distinct = HashSet::with_capacity(initial_cap);
+    for &view in views.iter() {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "approximate uniqueness with view prefix"
         )]
         let len_and_prefix = view.as_u128() as u64;
         distinct.insert(len_and_prefix);
-    });
+        if distinct.len() > threshold {
+            break;
+        }
+    }
 
     Ok(u32::try_from(distinct.len())?)
 }
