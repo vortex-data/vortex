@@ -175,14 +175,8 @@ impl Stat {
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
             Self::NaNCount => {
-                // Only floating points support NaN counts.
-                if let DType::Primitive(ptype, ..) = data_type
-                    && ptype.is_float()
-                {
-                    DType::Primitive(PType::U64, NonNullable)
-                } else {
-                    return None;
-                }
+                return aggregate_fn::fns::nan_count::NanCount
+                    .return_dtype(&EmptyOptions, data_type);
             }
             Self::Sum => {
                 return aggregate_fn::fns::sum::Sum.return_dtype(&EmptyOptions, data_type);

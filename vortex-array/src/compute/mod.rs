@@ -60,7 +60,7 @@ pub fn warm_up_vtables() {
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
     min_max::warm_up_vtable();
-    nan_count::warm_up_vtable();
+    // nan_count has been migrated to aggregate_fn
 }
 
 impl ComputeFn {

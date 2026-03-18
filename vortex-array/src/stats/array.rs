@@ -17,6 +17,7 @@ use super::TypedStatsSetRef;
 use crate::DynArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::builders::builder_with_capacity;
 use crate::compute::MinMaxResult;
@@ -24,7 +25,6 @@ use crate::compute::is_constant;
 use crate::compute::is_sorted;
 use crate::compute::is_strict_sorted;
 use crate::compute::min_max;
-use crate::compute::nan_count;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -191,7 +191,7 @@ impl StatsSetRef<'_> {
                     .is_some()
                     .then(|| {
                         // NaNCount is supported for this dtype.
-                        nan_count(&array_ref)
+                        nan_count(&array_ref, &mut ctx)
                     })
                     .transpose()?
                     .map(|s| s.into())

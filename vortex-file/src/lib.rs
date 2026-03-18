@@ -109,8 +109,6 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::ALP;
-use vortex_alp::ALPRD;
 use vortex_array::arrays::Dict;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
@@ -167,8 +165,6 @@ mod forever_constant {
 pub fn register_default_encodings(session: &mut VortexSession) {
     {
         let arrays = session.arrays();
-        arrays.register(ALP::ID, ALP);
-        arrays.register(ALPRD::ID, ALPRD);
         arrays.register(BitPacked::ID, BitPacked);
         arrays.register(ByteBool::ID, ByteBool);
         arrays.register(DateTimeParts::ID, DateTimeParts);
@@ -190,5 +186,6 @@ pub fn register_default_encodings(session: &mut VortexSession) {
 
     // Eventually all encodings crates should expose an initialize function. For now it's only
     // a few of them.
+    vortex_alp::initialize(session);
     vortex_runend::initialize(session)
 }
