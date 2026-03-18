@@ -26,7 +26,9 @@ use tracing::warn;
 use super::catalog::Catalog;
 use super::catalog::DatasetEntry;
 use super::dataset::DatasetDescriptor;
+use super::manifest::FileIndex;
 use super::manifest::Manifest;
+use super::manifest::file_matches_hash;
 use super::manifest::hash_file;
 
 /// Resolve a URL or local path to an ObjectStore + base path.
@@ -272,23 +274,49 @@ async fn push_inner(
         "built manifest"
     );
 
-    // Generate unique path for this upload.
-    let rand_suffix = &uuid::Uuid::new_v4().to_string()[..6];
-    let dataset_path = format!("{}-{}/", descriptor.name, rand_suffix);
+    // Read the old remote manifest (if any) to skip unchanged files.
+    let catalog = read_catalog(store, base).await?;
+    let old_index = if let Some(existing) = catalog.find(&descriptor.name) {
+        match read_manifest(store, base, &existing.path).await {
+            Ok(old_manifest) => {
+                let index = FileIndex::from_manifest(&old_manifest);
+                info!(files = index.len(), "loaded existing manifest for diff");
+                Some((index, existing.path.clone()))
+            }
+            Err(e) => {
+                warn!(error = %e, "could not read old manifest, uploading all files");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
-    // Upload data files.
-    for (_format, _table, file) in manifest.iter_files() {
-        let local_path = data_dir.join(&file.path);
-        let remote_path = obj_path(base, &format!("{}{}", dataset_path, file.path));
+    // Generate unique path for this upload. If all data files are unchanged
+    // we can reuse the old path to avoid orphaning directories.
+    let (dataset_path, reusing_path) = if let Some((ref old_idx, ref old_path)) = old_index {
+        let any_changed = manifest
+            .iter_files()
+            .any(|(_, _, f)| old_idx.needs_transfer(&f.path, &f.sha256));
+        if !any_changed && manifest.total_files() == old_idx.len() {
+            // All files identical — reuse old path.
+            (old_path.clone(), true)
+        } else {
+            let rand_suffix = &uuid::Uuid::new_v4().to_string()[..6];
+            (format!("{}-{}/", descriptor.name, rand_suffix), false)
+        }
+    } else {
+        let rand_suffix = &uuid::Uuid::new_v4().to_string()[..6];
+        (format!("{}-{}/", descriptor.name, rand_suffix), false)
+    };
 
-        info!(path = %file.path, size = file.size_bytes, "uploading");
-        let bytes = tokio::fs::read(&local_path)
-            .await
-            .with_context(|| format!("reading {}", local_path.display()))?;
-        store
-            .put(&remote_path, PutPayload::from_bytes(bytes.into()))
-            .await
-            .with_context(|| format!("uploading {}", file.path))?;
+    // Upload data files, skipping unchanged ones.
+    if reusing_path {
+        info!("all data files unchanged, reusing remote path");
+    } else {
+        let (uploaded, skipped) =
+            upload_data_files(store, base, &manifest, data_dir, &dataset_path, &old_index).await?;
+        info!(uploaded, skipped, "data file upload complete");
     }
 
     // Upload dataset.yaml.
@@ -328,6 +356,57 @@ async fn push_inner(
 
     info!(name = descriptor.name, path = dataset_path, "push complete");
     Ok(())
+}
+
+/// Upload data files to remote, copying unchanged files from the old location
+/// when possible. Returns (uploaded_count, skipped_count).
+async fn upload_data_files(
+    store: &dyn ObjectStore,
+    base: &ObjPath,
+    manifest: &Manifest,
+    data_dir: &Path,
+    dataset_path: &str,
+    old_index: &Option<(FileIndex, String)>,
+) -> Result<(u64, u64)> {
+    let mut uploaded = 0u64;
+    let mut skipped = 0u64;
+
+    for (_format, _table, file) in manifest.iter_files() {
+        if let Some((ref old_idx, ref old_path)) = *old_index
+            && !old_idx.needs_transfer(&file.path, &file.sha256)
+        {
+            // Copy from old location instead of re-uploading from local.
+            let src = obj_path(base, &format!("{old_path}{}", file.path));
+            let dst = obj_path(base, &format!("{dataset_path}{}", file.path));
+            match store.get(&src).await {
+                Ok(result) => {
+                    let bytes = result.bytes().await?;
+                    store.put(&dst, PutPayload::from_bytes(bytes)).await?;
+                    skipped += 1;
+                    info!(path = %file.path, "copied from previous upload (hash match)");
+                    continue;
+                }
+                Err(e) => {
+                    warn!(path = %file.path, error = %e, "copy failed, uploading from local");
+                }
+            }
+        }
+
+        let local_path = data_dir.join(&file.path);
+        let remote_path = obj_path(base, &format!("{dataset_path}{}", file.path));
+
+        info!(path = %file.path, size = file.size_bytes, "uploading");
+        let bytes = tokio::fs::read(&local_path)
+            .await
+            .with_context(|| format!("reading {}", local_path.display()))?;
+        store
+            .put(&remote_path, PutPayload::from_bytes(bytes.into()))
+            .await
+            .with_context(|| format!("uploading {}", file.path))?;
+        uploaded += 1;
+    }
+
+    Ok((uploaded, skipped))
 }
 
 /// Pull catalog + all manifests + dataset descriptors from remote to local mirror.
@@ -424,12 +503,9 @@ pub async fn checkout(
         }
 
         // Skip if already exists with correct hash.
-        if local_path.exists() {
-            let (existing_hash, _) = hash_file(&local_path)?;
-            if existing_hash == file.sha256 {
-                info!(path = %file.path, "already cached, skipping");
-                continue;
-            }
+        if file_matches_hash(&local_path, &file.sha256)? {
+            info!(path = %file.path, "already cached, skipping");
+            continue;
         }
 
         let remote_path = obj_path(base, &format!("{}{}", entry.path, file.path));
@@ -674,9 +750,12 @@ pub async fn verify(
 }
 
 /// Build a manifest by scanning a `data/` directory.
+///
 /// Expects layout: `data/{format}/{table}/{files}`.
+/// Captures a head sample from the first file encountered.
 pub fn build_manifest_from_dir(name: &str, data_dir: &Path) -> Result<Manifest> {
     let mut manifest = Manifest::new(name);
+    let mut first_file_path: Option<String> = None;
 
     for format_entry in std::fs::read_dir(data_dir)? {
         let format_entry = format_entry?;
@@ -707,6 +786,10 @@ pub fn build_manifest_from_dir(name: &str, data_dir: &Path) -> Result<Manifest> 
 
                 let (sha256, size_bytes) = hash_file(file_entry.path())?;
 
+                if first_file_path.is_none() {
+                    first_file_path = Some(rel_path.clone());
+                }
+
                 manifest.add_file(
                     &format_name,
                     &table_name,
@@ -718,6 +801,11 @@ pub fn build_manifest_from_dir(name: &str, data_dir: &Path) -> Result<Manifest> 
                 );
             }
         }
+    }
+
+    // Capture head sample from the first file.
+    if let Some(ref path) = first_file_path {
+        manifest.set_head_sample(data_dir, path)?;
     }
 
     Ok(manifest)

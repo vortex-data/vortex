@@ -13,7 +13,9 @@ use super::catalog::DatasetEntry;
 use super::dataset::DatasetDescriptor;
 use super::dataset::Source;
 use super::local;
+use super::manifest::FileIndex;
 use super::manifest::Manifest;
+use super::manifest::file_matches_hash;
 use super::manifest::hash_file;
 use super::remote;
 
@@ -890,6 +892,215 @@ async fn test_check_existing() -> anyhow::Result<()> {
     let existing = remote::check_existing(store.as_ref(), &base, "exists-test").await?;
     assert!(existing.is_some());
     assert_eq!(existing.unwrap().name, "exists-test");
+
+    Ok(())
+}
+
+// -- FileIndex tests --
+
+#[test]
+fn test_file_index_from_manifest() -> anyhow::Result<()> {
+    let mut manifest = Manifest::new("test");
+    manifest.add_file(
+        "parquet",
+        "t1",
+        super::manifest::FileEntry {
+            path: "parquet/t1/a.parquet".to_string(),
+            sha256: "abc".to_string(),
+            size_bytes: 100,
+        },
+    );
+    manifest.add_file(
+        "parquet",
+        "t1",
+        super::manifest::FileEntry {
+            path: "parquet/t1/b.parquet".to_string(),
+            sha256: "def".to_string(),
+            size_bytes: 200,
+        },
+    );
+
+    let index = FileIndex::from_manifest(&manifest);
+    assert_eq!(index.len(), 2);
+    assert!(!index.needs_transfer("parquet/t1/a.parquet", "abc"));
+    assert!(index.needs_transfer("parquet/t1/a.parquet", "changed"));
+    assert!(index.needs_transfer("nonexistent.parquet", "abc"));
+    Ok(())
+}
+
+#[test]
+fn test_file_index_from_local_dir() -> anyhow::Result<()> {
+    let dir = TempDir::new()?;
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(data_dir.join("parquet/t1"))?;
+    std::fs::write(data_dir.join("parquet/t1/a.parquet"), b"hello")?;
+
+    let index = FileIndex::from_local_dir(&data_dir)?;
+    assert_eq!(index.len(), 1);
+
+    // The hash of "hello" should match.
+    let (expected_hash, _) = hash_file(data_dir.join("parquet/t1/a.parquet"))?;
+    assert!(!index.needs_transfer("parquet/t1/a.parquet", &expected_hash));
+    assert!(index.needs_transfer("parquet/t1/a.parquet", "wrong_hash"));
+    Ok(())
+}
+
+#[test]
+fn test_file_matches_hash_fn() -> anyhow::Result<()> {
+    let dir = TempDir::new()?;
+    let path = dir.path().join("test.bin");
+    std::fs::write(&path, b"content")?;
+
+    let (correct_hash, _) = hash_file(&path)?;
+    assert!(file_matches_hash(&path, &correct_hash)?);
+    assert!(!file_matches_hash(&path, "wrong_hash")?);
+    assert!(!file_matches_hash(
+        &dir.path().join("nonexistent"),
+        &correct_hash
+    )?);
+    Ok(())
+}
+
+// -- Head sample tests --
+
+#[test]
+fn test_manifest_head_sample() -> anyhow::Result<()> {
+    let dir = TempDir::new()?;
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(data_dir.join("parquet/t1"))?;
+    std::fs::write(
+        data_dir.join("parquet/t1/a.parquet"),
+        b"PAR1 fake parquet content here",
+    )?;
+
+    let manifest = remote::build_manifest_from_dir("test-ds", &data_dir)?;
+
+    // Should have a head sample from the first file.
+    assert!(manifest.head_sample.is_some());
+    assert!(manifest.head_sample_path.is_some());
+
+    // Decode should round-trip.
+    let decoded = manifest.decode_head_sample().unwrap();
+    assert_eq!(&decoded, b"PAR1 fake parquet content here");
+    Ok(())
+}
+
+#[test]
+fn test_manifest_head_sample_truncates_large_files() -> anyhow::Result<()> {
+    let dir = TempDir::new()?;
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(data_dir.join("parquet/t1"))?;
+
+    // Write a file larger than the 8KiB sample limit.
+    let big_content = vec![0xABu8; 16384];
+    std::fs::write(data_dir.join("parquet/t1/big.parquet"), &big_content)?;
+
+    let manifest = remote::build_manifest_from_dir("test-ds", &data_dir)?;
+    let decoded = manifest.decode_head_sample().unwrap();
+    assert_eq!(decoded.len(), 8192);
+    assert!(decoded.iter().all(|b| *b == 0xAB));
+    Ok(())
+}
+
+#[test]
+fn test_manifest_head_sample_json_roundtrip() -> anyhow::Result<()> {
+    let dir = TempDir::new()?;
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(data_dir.join("csv/t1"))?;
+    std::fs::write(
+        data_dir.join("csv/t1/data.csv"),
+        b"id,name\n1,alice\n2,bob\n",
+    )?;
+
+    let manifest = remote::build_manifest_from_dir("test-ds", &data_dir)?;
+    let json = manifest.to_json()?;
+    let parsed = Manifest::from_json(&json)?;
+
+    assert_eq!(parsed.head_sample, manifest.head_sample);
+    assert_eq!(parsed.head_sample_path, manifest.head_sample_path);
+    let decoded = parsed.decode_head_sample().unwrap();
+    assert_eq!(&decoded, b"id,name\n1,alice\n2,bob\n");
+    Ok(())
+}
+
+#[test]
+fn test_old_manifest_without_head_sample_deserializes() -> anyhow::Result<()> {
+    // Manifests created before head_sample was added should still deserialize.
+    let json = r#"{
+        "version": 1,
+        "name": "old-dataset",
+        "formats": {}
+    }"#;
+    let manifest = Manifest::from_json(json.as_bytes())?;
+    assert!(manifest.head_sample.is_none());
+    assert!(manifest.head_sample_path.is_none());
+    assert!(manifest.decode_head_sample().is_none());
+    Ok(())
+}
+
+// -- Push skip unchanged files tests --
+
+#[tokio::test]
+async fn test_push_skips_unchanged_files() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    // Push initial version with 2 files.
+    let ds = create_test_dataset(
+        work.path(),
+        "skip-test",
+        &[
+            ("parquet/t1/unchanged.parquet", b"same content"),
+            ("parquet/t1/changing.parquet", b"version 1"),
+        ],
+    );
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    let catalog1 = remote::read_catalog(store.as_ref(), &base).await?;
+    let path1 = catalog1.datasets[0].path.clone();
+
+    // Change only one file and re-push.
+    std::fs::write(ds.join("data/parquet/t1/changing.parquet"), b"version 2")?;
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    let catalog2 = remote::read_catalog(store.as_ref(), &base).await?;
+    let path2 = catalog2.datasets[0].path.clone();
+
+    // Path should change (new upload dir) since one file changed.
+    assert_ne!(path1, path2);
+
+    // Verify both files are present and correct in the new location.
+    let manifest = remote::read_manifest(store.as_ref(), &base, &path2).await?;
+    assert_eq!(manifest.total_files(), 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_push_reuses_path_when_all_unchanged() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    let ds = create_test_dataset(
+        work.path(),
+        "reuse-test",
+        &[("parquet/t1/data.parquet", b"stable content")],
+    );
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    let catalog1 = remote::read_catalog(store.as_ref(), &base).await?;
+    let path1 = catalog1.datasets[0].path.clone();
+
+    // Push again with same content.
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    let catalog2 = remote::read_catalog(store.as_ref(), &base).await?;
+    let path2 = catalog2.datasets[0].path.clone();
+
+    // Path should be reused since no files changed.
+    assert_eq!(path1, path2);
 
     Ok(())
 }

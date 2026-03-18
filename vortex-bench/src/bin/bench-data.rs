@@ -12,6 +12,7 @@
 //! bench-data checkout tpch-sf100 --remote <url>   # download data files
 //! bench-data list --local <dir>                   # list datasets
 //! bench-data describe tpch-sf100 --local <dir>    # show dataset details
+//! bench-data head tpch-sf100 --local <dir>        # sample first file (no download)
 //! bench-data delete tpch-sf100 --remote <url>     # remove dataset
 //! bench-data gc --remote <url>                    # clean orphaned data
 //! bench-data verify tpch-sf100 --remote <url>     # check integrity
@@ -106,6 +107,17 @@ enum Command {
         /// Local mirror directory.
         #[arg(short, long, default_value = "~/.cache/vortex-bench-data")]
         local: PathBuf,
+    },
+    /// Show a sample of the first data file (from the manifest, no download needed).
+    Head {
+        /// Dataset name.
+        name: String,
+        /// Local mirror directory.
+        #[arg(short, long, default_value = "~/.cache/vortex-bench-data")]
+        local: PathBuf,
+        /// Maximum bytes to display (default: all of sample, up to 8 KiB).
+        #[arg(short, long)]
+        bytes: Option<usize>,
     },
     /// Remove a dataset from the catalog.
     Delete {
@@ -321,6 +333,83 @@ async fn main() -> anyhow::Result<()> {
                             );
                         }
                     }
+                }
+            }
+        }
+
+        Command::Head {
+            name,
+            local: local_dir,
+            bytes: max_bytes,
+        } => {
+            let local_dir = expand_tilde(&local_dir);
+            let catalog_path = local_dir.join("catalog.json");
+            let catalog_bytes = std::fs::read(&catalog_path)?;
+            let catalog = Catalog::from_json(&catalog_bytes)?;
+
+            let entry = catalog
+                .find(&name)
+                .ok_or_else(|| anyhow::anyhow!("dataset '{}' not found", name))?;
+
+            let dataset_dir = local_dir.join(&entry.path);
+            let manifest_path = dataset_dir.join("manifest.json");
+            if !manifest_path.exists() {
+                anyhow::bail!(
+                    "no local manifest for '{}' — run `bench-data pull` first",
+                    name
+                );
+            }
+            let manifest_bytes = std::fs::read(&manifest_path)?;
+            let manifest = Manifest::from_json(&manifest_bytes)?;
+
+            match manifest.decode_head_sample() {
+                Some(mut sample) => {
+                    let source_path = manifest.head_sample_path.as_deref().unwrap_or("(unknown)");
+                    if let Some(limit) = max_bytes {
+                        sample.truncate(limit);
+                    }
+                    println!("Sample from: {source_path} ({} bytes)", sample.len());
+                    println!();
+
+                    // Try to display as UTF-8 text, fall back to hex dump.
+                    if let Ok(text) = std::str::from_utf8(&sample) {
+                        print!("{text}");
+                        if !text.ends_with('\n') {
+                            println!();
+                        }
+                    } else {
+                        // Hex dump with ASCII sidebar.
+                        for (i, chunk) in sample.chunks(16).enumerate() {
+                            print!("{:08x}  ", i * 16);
+                            for (j, b) in chunk.iter().enumerate() {
+                                print!("{b:02x} ");
+                                if j == 7 {
+                                    print!(" ");
+                                }
+                            }
+                            // Pad if last chunk is short.
+                            for j in chunk.len()..16 {
+                                print!("   ");
+                                if j == 7 {
+                                    print!(" ");
+                                }
+                            }
+                            print!(" |");
+                            for b in chunk {
+                                let c = if b.is_ascii_graphic() || *b == b' ' {
+                                    *b as char
+                                } else {
+                                    '.'
+                                };
+                                print!("{c}");
+                            }
+                            println!("|");
+                        }
+                    }
+                }
+                None => {
+                    println!("No head sample available for '{name}'.");
+                    println!("Re-generate the manifest and re-push to include a sample.");
                 }
             }
         }

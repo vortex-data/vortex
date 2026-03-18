@@ -19,6 +19,9 @@ use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
 
+/// Maximum sample size for `head_sample` (8 KiB).
+const HEAD_SAMPLE_MAX_BYTES: usize = 8192;
+
 /// Auto-generated manifest describing all files in a dataset.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -28,6 +31,15 @@ pub struct Manifest {
     pub name: String,
     /// Formats available, keyed by format name (e.g. "parquet", "vortex").
     pub formats: BTreeMap<String, FormatEntry>,
+    /// Hex-encoded sample of the first file (up to 8 KiB).
+    ///
+    /// Lets consumers peek at data without downloading the full dataset.
+    /// The `head_sample_path` field records which file was sampled.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub head_sample: Option<String>,
+    /// Relative path of the file that `head_sample` was taken from.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub head_sample_path: Option<String>,
 }
 
 /// All tables available in a given format.
@@ -62,6 +74,8 @@ impl Manifest {
             version: 1,
             name: name.into(),
             formats: BTreeMap::new(),
+            head_sample: None,
+            head_sample_path: None,
         }
     }
 
@@ -77,6 +91,25 @@ impl Manifest {
             .or_insert_with(|| TableEntry { files: Vec::new() })
             .files
             .push(file);
+    }
+
+    /// Set the head sample by reading the first [`HEAD_SAMPLE_MAX_BYTES`] of a file.
+    pub fn set_head_sample(&mut self, data_dir: &Path, rel_path: &str) -> Result<()> {
+        use std::io::Read;
+        let full_path = data_dir.join(rel_path);
+        let mut file = std::fs::File::open(&full_path)
+            .with_context(|| format!("reading head sample from {}", full_path.display()))?;
+        let mut buf = vec![0u8; HEAD_SAMPLE_MAX_BYTES];
+        let n = file.read(&mut buf)?;
+        buf.truncate(n);
+        self.head_sample = Some(hex_encode(&buf));
+        self.head_sample_path = Some(rel_path.to_string());
+        Ok(())
+    }
+
+    /// Decode the head sample from hex to raw bytes.
+    pub fn decode_head_sample(&self) -> Option<Vec<u8>> {
+        self.head_sample.as_ref().and_then(|hex| hex_decode(hex))
     }
 
     /// Total size across all formats, tables, and files.
@@ -127,6 +160,92 @@ impl Manifest {
     }
 }
 
+/// Index of file hashes for comparing two sets of files.
+///
+/// Core abstraction used by both push (compare against old remote manifest to
+/// skip unchanged files) and checkout (compare against local files to skip
+/// cached files).
+#[derive(Debug, Default)]
+pub struct FileIndex {
+    files: vortex::utils::aliases::hash_map::HashMap<String, (String, u64)>,
+}
+
+impl FileIndex {
+    /// Build an index from a manifest.
+    pub fn from_manifest(manifest: &Manifest) -> Self {
+        let mut files = vortex::utils::aliases::hash_map::HashMap::new();
+        for (_fmt, _tbl, entry) in manifest.iter_files() {
+            files.insert(entry.path.clone(), (entry.sha256.clone(), entry.size_bytes));
+        }
+        Self { files }
+    }
+
+    /// Build an index by scanning a local directory and hashing each file.
+    ///
+    /// Files are keyed by their path relative to `data_dir`.
+    pub fn from_local_dir(data_dir: &Path) -> Result<Self> {
+        let mut files = vortex::utils::aliases::hash_map::HashMap::new();
+        scan_dir_recursive(data_dir, data_dir, &mut files)?;
+        Ok(Self { files })
+    }
+
+    /// Check whether a file with the given path and hash needs to be transferred.
+    ///
+    /// Returns `true` if the file is missing from the index or has a different hash.
+    pub fn needs_transfer(&self, path: &str, sha256: &str) -> bool {
+        match self.files.get(path) {
+            Some((existing_hash, _)) => existing_hash != sha256,
+            None => true,
+        }
+    }
+
+    /// Number of files in the index.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    /// Whether the index is empty.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+}
+
+/// Recursively scan a directory, hashing each file.
+fn scan_dir_recursive(
+    root: &Path,
+    dir: &Path,
+    out: &mut vortex::utils::aliases::hash_map::HashMap<String, (String, u64)>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        if ft.is_file() {
+            let (sha256, size) = hash_file(entry.path())?;
+            let rel = entry
+                .path()
+                .strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            out.insert(rel, (sha256, size));
+        } else if ft.is_dir() {
+            scan_dir_recursive(root, &entry.path(), out)?;
+        }
+    }
+    Ok(())
+}
+
+/// Check if a single local file matches the expected hash.
+///
+/// Returns `false` if the file doesn't exist or has a different hash.
+pub fn file_matches_hash(path: &Path, expected_sha256: &str) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let (hash, _) = hash_file(path)?;
+    Ok(hash == expected_sha256)
+}
+
 /// Compute SHA-256 hash of a file on disk, streaming to avoid loading into memory.
 pub fn hash_file(path: impl AsRef<Path>) -> Result<(String, u64)> {
     let path = path.as_ref();
@@ -145,4 +264,14 @@ fn hex_encode(bytes: &[u8]) -> String {
         let _ = write!(s, "{b:02x}");
         s
     })
+}
+
+fn hex_decode(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
 }
