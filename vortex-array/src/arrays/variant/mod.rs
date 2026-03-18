@@ -19,8 +19,13 @@ pub struct VariantArray {
 }
 
 impl VariantArray {
+    /// Creates a new non-nullable VariantArray wrapping the given child.
+    pub fn new(child: ArrayRef) -> Self {
+        Self::new_nullable(child, Nullability::NonNullable)
+    }
+
     /// Creates a new VariantArray with the given nullability.
-    pub fn new(child: ArrayRef, nullability: Nullability) -> Self {
+    pub fn new_nullable(child: ArrayRef, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Variant(nullability),
             child,

@@ -14,7 +14,7 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayVisitor;
-use crate::arrays::VariantVTable;
+use crate::arrays::Variant;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 
@@ -25,7 +25,7 @@ pub(super) fn to_arrow_variant(
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
     let nulls = to_arrow_null_buffer(array.validity()?, len, ctx)?;
-    let inner = match array.try_into::<VariantVTable>() {
+    let inner = match array.try_into::<Variant>() {
         Ok(variant) => variant.child().clone(),
         Err(array) => array,
     };

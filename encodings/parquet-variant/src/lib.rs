@@ -20,7 +20,7 @@
 use std::hash::Hasher;
 
 use arrow_array::Array as ArrowArray;
-use parquet_variant::Variant as ParquetVariant;
+use parquet_variant::Variant as PqVariant;
 use prost::Message;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -40,8 +40,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar::VariantValue;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -67,9 +65,9 @@ use vortex_session::VortexSession;
 vtable!(ParquetVariant);
 
 #[derive(Debug)]
-pub struct ParquetVariantVTable;
+pub struct ParquetVariant;
 
-impl ParquetVariantVTable {
+impl ParquetVariant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.parquet.variant");
 }
 
@@ -109,14 +107,13 @@ struct ParquetVariantMetadataProto {
 /// where nested struct/list elements themselves contain value/typed_value children.
 #[derive(Clone, Debug)]
 pub struct ParquetVariantArray {
+    dtype: DType,
     validity: Validity,
     metadata: ArrayRef,
     value: Option<ArrayRef>,
     typed_value: Option<ArrayRef>,
     stats_set: ArrayStats,
 }
-
-const VARIANT_DTYPE: DType = DType::Variant;
 
 impl ParquetVariantArray {
     /// Creates a new ParquetVariantArray.
@@ -155,7 +152,12 @@ impl ParquetVariantArray {
                 "typed_value length must match metadata length"
             );
         }
+        let nullability = match &validity {
+            Validity::NonNullable | Validity::AllValid => Nullability::NonNullable,
+            _ => Nullability::Nullable,
+        };
         Ok(Self {
+            dtype: DType::Variant(nullability),
             validity,
             metadata,
             value,
@@ -225,9 +227,14 @@ impl ParquetVariantArray {
             .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
 
+        let nullability = if matches!(validity, Validity::NonNullable | Validity::AllValid) {
+            Nullability::NonNullable
+        } else {
+            Nullability::Nullable
+        };
         let pv =
             ParquetVariantArray::try_new_with_validity(validity, metadata, value, typed_value)?;
-        Ok(VariantArray::new(pv.into_array()).into_array())
+        Ok(VariantArray::new_nullable(pv.into_array(), nullability).into_array())
     }
 
     fn nchildren(&self) -> usize {
@@ -238,7 +245,7 @@ impl ParquetVariantArray {
     }
 }
 
-impl VTable for ParquetVariantVTable {
+impl VTable for ParquetVariant {
     type Array = ParquetVariantArray;
     type Metadata = ParquetVariantMetadata;
     type OperationsVTable = Self;
@@ -252,8 +259,8 @@ impl VTable for ParquetVariantVTable {
         array.metadata.len()
     }
 
-    fn dtype(_array: &ParquetVariantArray) -> &DType {
-        &VARIANT_DTYPE
+    fn dtype(array: &ParquetVariantArray) -> &DType {
+        &array.dtype
     }
 
     fn stats(array: &ParquetVariantArray) -> StatsSetRef<'_> {
@@ -399,7 +406,7 @@ impl VTable for ParquetVariantVTable {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ParquetVariantArray> {
-        vortex_ensure!(matches!(dtype, DType::Variant), "Expected Variant DType");
+        vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         let has_typed_value = metadata.typed_value_dtype.is_some();
         vortex_ensure!(
             metadata.has_value || has_typed_value,
@@ -492,121 +499,83 @@ impl VTable for ParquetVariantVTable {
     }
 }
 
-fn scalar_to_variant_value(scalar: Scalar) -> VortexResult<VariantValue> {
-    if scalar.is_null() {
-        return Ok(VariantValue::Null);
-    }
+fn parquet_variant_to_scalar(variant: PqVariant<'_, '_>) -> VortexResult<Scalar> {
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::scalar::ScalarValue;
 
-    Ok(match scalar.dtype() {
-        DType::Null => VariantValue::Null,
-        DType::Bool(_) => VariantValue::Bool(scalar.as_bool().value().unwrap_or(false)),
-        DType::Primitive(..) => VariantValue::Primitive(
-            *scalar
-                .value()
-                .vortex_expect("non-null primitive scalar must have a value")
-                .as_primitive(),
-        ),
-        DType::Decimal(..) => VariantValue::Decimal(
-            *scalar
-                .value()
-                .vortex_expect("non-null decimal scalar must have a value")
-                .as_decimal(),
-        ),
-        DType::Utf8(_) => VariantValue::Utf8(
-            scalar
-                .value()
-                .vortex_expect("non-null utf8 scalar must have a value")
-                .as_utf8()
-                .clone(),
-        ),
-        DType::Binary(_) => VariantValue::Binary(
-            scalar
-                .value()
-                .vortex_expect("non-null binary scalar must have a value")
-                .as_binary()
-                .clone(),
-        ),
-        DType::List(..) | DType::FixedSizeList(..) => VariantValue::List(
-            scalar
-                .as_list()
-                .elements()
-                .unwrap_or_default()
-                .into_iter()
-                .map(scalar_to_variant_value)
-                .collect::<VortexResult<Vec<_>>>()?,
-        ),
-        DType::Struct(fields, _) => VariantValue::Object(
-            fields
-                .names()
-                .iter()
-                .cloned()
-                .zip(
-                    scalar
-                        .as_struct()
-                        .fields_iter()
-                        .vortex_expect("non-null struct scalar must have field values"),
-                )
-                .map(|(name, field)| Ok((name.as_ref().into(), scalar_to_variant_value(field)?)))
-                .collect::<VortexResult<Vec<_>>>()?,
-        ),
-        DType::Extension(_) => VariantValue::Utf8(scalar.to_string().into()),
-        DType::Variant => scalar
-            .value()
-            .vortex_expect("non-null variant scalar must have a value")
-            .as_variant()
-            .clone(),
-    })
-}
+    let nn = Nullability::NonNullable;
 
-fn parquet_variant_to_variant_value(variant: ParquetVariant<'_, '_>) -> VortexResult<VariantValue> {
     Ok(match variant {
-        ParquetVariant::Null => VariantValue::Null,
-        ParquetVariant::Int8(v) => VariantValue::Primitive(v.into()),
-        ParquetVariant::Int16(v) => VariantValue::Primitive(v.into()),
-        ParquetVariant::Int32(v) => VariantValue::Primitive(v.into()),
-        ParquetVariant::Int64(v) => VariantValue::Primitive(v.into()),
-        ParquetVariant::Float(v) => VariantValue::Primitive(v.into()),
-        ParquetVariant::Double(v) => VariantValue::Primitive(v.into()),
-        ParquetVariant::BooleanTrue => VariantValue::Bool(true),
-        ParquetVariant::BooleanFalse => VariantValue::Bool(false),
-        ParquetVariant::Decimal4(v) => VariantValue::Decimal(v.integer().into()),
-        ParquetVariant::Decimal8(v) => VariantValue::Decimal(v.integer().into()),
-        ParquetVariant::Decimal16(v) => VariantValue::Decimal(v.integer().into()),
-        ParquetVariant::Binary(v) => VariantValue::Binary(v.to_vec().into()),
-        ParquetVariant::String(v) => VariantValue::Utf8(v.into()),
-        ParquetVariant::ShortString(v) => VariantValue::Utf8(v.as_str().into()),
-        ParquetVariant::Date(v) => VariantValue::Utf8(v.to_string().into()),
-        ParquetVariant::TimestampMicros(v) => VariantValue::Utf8(v.to_rfc3339().into()),
-        ParquetVariant::TimestampNtzMicros(v) => VariantValue::Utf8(v.to_string().into()),
-        ParquetVariant::TimestampNanos(v) => VariantValue::Utf8(v.to_rfc3339().into()),
-        ParquetVariant::TimestampNtzNanos(v) => VariantValue::Utf8(v.to_string().into()),
-        ParquetVariant::Time(v) => VariantValue::Utf8(v.to_string().into()),
-        ParquetVariant::Uuid(v) => VariantValue::Utf8(v.to_string().into()),
-        ParquetVariant::List(values) => VariantValue::List(
-            values
-                .iter()
-                .map(parquet_variant_to_variant_value)
-                .collect::<VortexResult<Vec<_>>>()?,
+        PqVariant::Null => Scalar::null(DType::Null),
+        PqVariant::Int8(v) => Scalar::primitive(v, nn),
+        PqVariant::Int16(v) => Scalar::primitive(v, nn),
+        PqVariant::Int32(v) => Scalar::primitive(v, nn),
+        PqVariant::Int64(v) => Scalar::primitive(v, nn),
+        PqVariant::Float(v) => Scalar::primitive(v, nn),
+        PqVariant::Double(v) => Scalar::primitive(v, nn),
+        PqVariant::BooleanTrue => Scalar::bool(true, nn),
+        PqVariant::BooleanFalse => Scalar::bool(false, nn),
+        PqVariant::Decimal4(v) => Scalar::decimal(
+            v.integer().into(),
+            DecimalDType::new(9, v.scale() as i8),
+            nn,
         ),
-        ParquetVariant::Object(values) => VariantValue::Object(
-            values
-                .iter()
-                .map(|(name, value)| Ok((name.into(), parquet_variant_to_variant_value(value)?)))
-                .collect::<VortexResult<Vec<_>>>()?,
+        PqVariant::Decimal8(v) => Scalar::decimal(
+            v.integer().into(),
+            DecimalDType::new(18, v.scale() as i8),
+            nn,
         ),
+        PqVariant::Decimal16(v) => Scalar::decimal(
+            v.integer().into(),
+            DecimalDType::new(38, v.scale() as i8),
+            nn,
+        ),
+        PqVariant::Binary(v) => Scalar::binary(v.to_vec(), nn),
+        PqVariant::String(v) => Scalar::utf8(v, nn),
+        PqVariant::ShortString(v) => Scalar::utf8(v.as_str(), nn),
+        PqVariant::Date(v) => Scalar::utf8(v.to_string(), nn),
+        PqVariant::TimestampMicros(v) => Scalar::utf8(v.to_rfc3339(), nn),
+        PqVariant::TimestampNtzMicros(v) => Scalar::utf8(v.to_string(), nn),
+        PqVariant::TimestampNanos(v) => Scalar::utf8(v.to_rfc3339(), nn),
+        PqVariant::TimestampNtzNanos(v) => Scalar::utf8(v.to_string(), nn),
+        PqVariant::Time(v) => Scalar::utf8(v.to_string(), nn),
+        PqVariant::Uuid(v) => Scalar::utf8(v.to_string(), nn),
+        PqVariant::List(values) => {
+            let children = values
+                .iter()
+                .map(|v| parquet_variant_to_scalar(v).map(Scalar::variant))
+                .collect::<VortexResult<Vec<_>>>()?;
+            Scalar::list(DType::Variant(nn), children, nn)
+        }
+        PqVariant::Object(values) => {
+            let mut names = Vec::new();
+            let mut dtypes = Vec::new();
+            let mut field_values = Vec::new();
+            for (name, value) in values.iter() {
+                names.push(vortex_array::dtype::FieldName::from(name));
+                dtypes.push(DType::Variant(nn));
+                field_values.push(Some(ScalarValue::Variant(Box::new(
+                    parquet_variant_to_scalar(value)?,
+                ))));
+            }
+            let fields = StructFields::new(FieldNames::from(names), dtypes);
+            Scalar::try_new(DType::Struct(fields, nn), Some(ScalarValue::List(field_values)))?
+        }
     })
 }
 
-impl OperationsVTable<ParquetVariantVTable> for ParquetVariantVTable {
+impl OperationsVTable<ParquetVariant> for ParquetVariant {
     fn scalar_at(array: &ParquetVariantArray, index: usize) -> VortexResult<Scalar> {
         if array.validity.is_null(index)? {
-            return Ok(Scalar::null(DType::Variant));
+            return Ok(Scalar::null(DType::Variant(Nullability::Nullable)));
         }
 
-        let value = if let Some(typed_value) = array.typed_value_array()
+        let inner = if let Some(typed_value) = array.typed_value_array()
             && typed_value.is_valid(index)?
         {
-            scalar_to_variant_value(typed_value.scalar_at(index)?)?
+            typed_value.scalar_at(index)?
         } else if let Some(value) = array.value_array()
             && value.is_valid(index)?
         {
@@ -623,26 +592,26 @@ impl OperationsVTable<ParquetVariantVTable> for ParquetVariantVTable {
                 .value()
                 .cloned()
                 .vortex_expect("non-null value row must have binary value");
-            parquet_variant_to_variant_value(ParquetVariant::try_new(
+            parquet_variant_to_scalar(PqVariant::try_new(
                 metadata.as_ref(),
                 value.as_ref(),
             )?)?
         } else {
-            VariantValue::Null
+            Scalar::null(DType::Null)
         };
 
-        Scalar::try_new(DType::Variant, Some(ScalarValue::Variant(value)))
+        Ok(Scalar::variant(inner))
     }
 }
 
-const PARENT_RULES: ParentRuleSet<ParquetVariantVTable> =
+const PARENT_RULES: ParentRuleSet<ParquetVariant> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&ParquetVariantGetRule)]);
 
 /// Rule to handle VariantGet on a ParquetVariantArray by returning the typed_value child.
 #[derive(Debug)]
 struct ParquetVariantGetRule;
 
-impl ArrayParentReduceRule<ParquetVariantVTable> for ParquetVariantGetRule {
+impl ArrayParentReduceRule<ParquetVariant> for ParquetVariantGetRule {
     type Parent = ExactScalarFn<VariantGet>;
 
     fn reduce_parent(
@@ -672,7 +641,7 @@ impl ArrayParentReduceRule<ParquetVariantVTable> for ParquetVariantGetRule {
     }
 }
 
-impl ValidityVTable<ParquetVariantVTable> for ParquetVariantVTable {
+impl ValidityVTable<ParquetVariant> for ParquetVariant {
     fn validity(array: &ParquetVariantArray) -> VortexResult<Validity> {
         Ok(array.validity.clone())
     }
@@ -692,7 +661,7 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Fields;
-    use parquet_variant::Variant;
+    use parquet_variant::Variant as PqVariant;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::ArrayContext;
@@ -701,7 +670,7 @@ mod tests {
     use vortex_array::Precision;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::VariantVTable;
+    use vortex_array::arrays::Variant;
     use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
@@ -720,15 +689,15 @@ mod tests {
     #[test]
     fn test_from_arrow_variant_basic() -> VortexResult<()> {
         let mut builder = VariantArrayBuilder::new(3);
-        builder.append_variant(Variant::from(42i32));
-        builder.append_variant(Variant::from("hello"));
-        builder.append_variant(Variant::from(true));
+        builder.append_variant(PqVariant::from(42i32));
+        builder.append_variant(PqVariant::from("hello"));
+        builder.append_variant(PqVariant::from(true));
         let arrow_variant = builder.build();
 
         let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.len(), 3);
-        assert_eq!(vortex_arr.dtype(), &DType::Variant);
+        assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::NonNullable));
 
         Ok(())
     }
@@ -759,13 +728,13 @@ mod tests {
 
         let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
         assert_eq!(vortex_arr.len(), 3);
-        assert_eq!(vortex_arr.dtype(), &DType::Variant);
+        assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::NonNullable));
 
         // Verify typed_value is present by downcasting through the layers
-        let variant_arr = vortex_arr.as_opt::<VariantVTable>().unwrap();
+        let variant_arr = vortex_arr.as_opt::<Variant>().unwrap();
         let inner = variant_arr
             .child()
-            .as_opt::<ParquetVariantVTable>()
+            .as_opt::<ParquetVariant>()
             .unwrap();
         assert!(inner.typed_value_array().is_some());
 
@@ -834,8 +803,8 @@ mod tests {
         let session = VortexSession::empty().with::<vortex_array::session::ArraySession>();
         session
             .arrays()
-            .register(ParquetVariantVTable::ID, ParquetVariantVTable);
-        session.arrays().register(VariantVTable::ID, VariantVTable);
+            .register(ParquetVariant::ID, ParquetVariant);
+        session.arrays().register(Variant::ID, Variant);
 
         let parts = ArrayParts::try_from(concat).unwrap();
         parts
@@ -903,9 +872,9 @@ mod tests {
         let decoded = roundtrip(array.clone());
 
         assert!(array.array_eq(&decoded, Precision::Value));
-        let decoded_pv = decoded.as_opt::<ParquetVariantVTable>().unwrap();
+        let decoded_pv = decoded.as_opt::<ParquetVariant>().unwrap();
         let typed = decoded_pv.typed_value_array().unwrap();
-        assert_eq!(typed.dtype(), &DType::Variant);
+        assert_eq!(typed.dtype(), &DType::Variant(Nullability::NonNullable));
     }
 
     #[test]
@@ -920,7 +889,7 @@ mod tests {
         let decoded = roundtrip(array.clone());
 
         assert!(array.array_eq(&decoded, Precision::Value));
-        let decoded_pv = decoded.as_opt::<ParquetVariantVTable>().unwrap();
+        let decoded_pv = decoded.as_opt::<ParquetVariant>().unwrap();
         let typed = decoded_pv.typed_value_array().unwrap();
         assert_eq!(
             typed.dtype(),
@@ -967,9 +936,9 @@ mod tests {
     #[test]
     fn test_arrow_variant_roundtrip_unshredded_storage() -> VortexResult<()> {
         let mut builder = VariantArrayBuilder::new(3);
-        builder.append_variant(Variant::from(42i32));
-        builder.append_variant(Variant::from("hello"));
-        builder.append_variant(Variant::from(true));
+        builder.append_variant(PqVariant::from(42i32));
+        builder.append_variant(PqVariant::from("hello"));
+        builder.append_variant(PqVariant::from(true));
 
         assert_arrow_variant_storage_roundtrip(builder.build().into_inner())
     }

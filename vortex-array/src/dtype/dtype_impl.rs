@@ -54,7 +54,7 @@ impl DType {
     #[inline]
     pub fn is_nullable(&self) -> bool {
         match self {
-            Null | Variant => true,
+            Null => true,
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
             Bool(null)
             | Primitive(_, null)
