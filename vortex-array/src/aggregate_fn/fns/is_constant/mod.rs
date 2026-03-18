@@ -3,14 +3,23 @@
 
 mod bool;
 mod decimal;
+mod extension;
+mod fixed_size_list;
+mod list;
 pub mod primitive;
+mod struct_;
 mod varbin;
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use self::bool::check_bool_constant;
 use self::decimal::check_decimal_constant;
+use self::extension::check_extension_constant;
+use self::fixed_size_list::check_fixed_size_list_constant;
+use self::list::check_listview_constant;
 use self::primitive::check_primitive_constant;
+use self::struct_::check_struct_constant;
 use self::varbin::check_varbinview_constant;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -18,13 +27,16 @@ use crate::Columnar;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::ToCanonical;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::Null;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -34,6 +46,37 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::operators::Operator;
+
+/// Check if two arrays of the same length have equal values at every position (null-safe).
+///
+/// Two positions are considered equal if they are both null, or both non-null with the same value.
+fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+    debug_assert_eq!(a.len(), b.len());
+    if a.is_empty() {
+        return Ok(true);
+    }
+
+    // Check validity masks match (null positions must be identical).
+    let a_mask = a.validity_mask()?;
+    let b_mask = b.validity_mask()?;
+    if a_mask != b_mask {
+        return Ok(false);
+    }
+
+    let valid_count = a_mask.true_count();
+    if valid_count == 0 {
+        // Both all-null → equal.
+        return Ok(true);
+    }
+
+    // Compare values element-wise. Result is null where both inputs are null,
+    // true/false where both are valid.
+    let eq_result = a.binary(b.clone(), Operator::Eq)?;
+    let eq_result = eq_result.execute::<Mask>(ctx)?;
+
+    Ok(eq_result.true_count() == valid_count)
+}
 
 /// Compute whether an array has constant values.
 ///
@@ -275,7 +318,7 @@ impl AggregateFnVTable for IsConstant {
         &self,
         partial: &mut Self::Partial,
         batch: &Columnar,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         if !partial.is_constant {
             return Ok(());
@@ -318,57 +361,10 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::Bool(b) => check_bool_constant(b),
                     Canonical::VarBinView(v) => check_varbinview_constant(v),
                     Canonical::Decimal(d) => check_decimal_constant(d),
-                    Canonical::Struct(s) => {
-                        let children = s.children();
-                        if children.is_empty() {
-                            true
-                        } else {
-                            // For struct, check each child recursively.
-                            let first_scalar = s.scalar_at(0)?;
-                            let mut is_const = true;
-                            for i in 1..s.len() {
-                                if s.scalar_at(i)? != first_scalar {
-                                    is_const = false;
-                                    break;
-                                }
-                            }
-                            is_const
-                        }
-                    }
-                    Canonical::Extension(e) => {
-                        // Extension arrays delegate to their storage.
-                        let first_scalar = e.scalar_at(0)?;
-                        let mut is_const = true;
-                        for i in 1..e.len() {
-                            if e.scalar_at(i)? != first_scalar {
-                                is_const = false;
-                                break;
-                            }
-                        }
-                        is_const
-                    }
-                    Canonical::List(l) => {
-                        let first_scalar = l.scalar_at(0)?;
-                        let mut is_const = true;
-                        for i in 1..l.len() {
-                            if l.scalar_at(i)? != first_scalar {
-                                is_const = false;
-                                break;
-                            }
-                        }
-                        is_const
-                    }
-                    Canonical::FixedSizeList(f) => {
-                        let first_scalar = f.scalar_at(0)?;
-                        let mut is_const = true;
-                        for i in 1..f.len() {
-                            if f.scalar_at(i)? != first_scalar {
-                                is_const = false;
-                                break;
-                            }
-                        }
-                        is_const
-                    }
+                    Canonical::Struct(s) => check_struct_constant(s, ctx)?,
+                    Canonical::Extension(e) => check_extension_constant(e, ctx)?,
+                    Canonical::List(l) => check_listview_constant(l, ctx)?,
+                    Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
                     Canonical::Null(_) => true,
                 };
 
