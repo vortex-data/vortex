@@ -1204,4 +1204,60 @@ mod tests {
         );
         Ok(())
     }
+
+    // ==================== Coalesce-pattern Tests ====================
+    //
+    // These reproduce the pattern used by spiral-keyed's coalesce():
+    //   Pack arrays into a StructArray("f0","f1",...), then evaluate
+    //   CASE WHEN NOT IS_NULL(f0) THEN f0 WHEN NOT IS_NULL(f1) THEN f1 ... END
+    //
+    // We use `not(is_null(col))` as the condition, which is equivalent to IS NOT NULL.
+
+    use crate::expr::is_null;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::not::Not;
+
+    fn not(child: Expression) -> Expression {
+        Not.new_expr(EmptyOptions, vec![child])
+    }
+
+    /// Build the coalesce expression pattern over N struct fields named "f0", "f1", ...
+    fn coalesce_expr(n: usize) -> Expression {
+        let pairs: Vec<(Expression, Expression)> = (0..n)
+            .map(|i| {
+                let field = col(format!("f{i}"));
+                (not(is_null(field.clone())), field)
+            })
+            .collect();
+        nested_case_when(pairs, None)
+    }
+
+
+    #[test]
+    fn test_coalesce_all_null_first_sliced_bool_validity_second() {
+        // Reproduces the pattern from spiral-keyed where:
+        // - f0 is all-null (constant validity)
+        // - f1 is all-valid but with BoolArray validity (from a slice)
+        // The coalesce should return f1's values.
+        let f0 = PrimitiveArray::from_option_iter(vec![None::<u64>; 146]).into_array();
+
+        // Build with an extra None to force BoolArray validity, then slice it off.
+        let f1 = PrimitiveArray::from_option_iter(
+            std::iter::repeat_n(None, 8)
+                .chain((146u64..=291).map(Some))
+                .collect::<Vec<_>>(),
+        )
+            .into_array()
+            .slice(8..154)
+            .unwrap();
+
+        let struct_array = StructArray::from_fields(&[("f0", f0), ("f1", f1.clone())])
+            .unwrap()
+            .into_array();
+
+        let expr = coalesce_expr(2);
+        let result = evaluate_expr(&expr, &struct_array);
+        assert_arrays_eq!(result, f1);
+    }
 }
