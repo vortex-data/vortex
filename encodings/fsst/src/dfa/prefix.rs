@@ -20,34 +20,6 @@ use vortex_error::vortex_bail;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 
-/// Build a byte-level transition table for prefix matching (no KMP fallback).
-///
-/// For each state, only the correct next byte advances; everything else goes
-/// to the fail state.
-fn build_prefix_byte_table(prefix: &[u8], accept_state: u8, fail_state: u8) -> Vec<u8> {
-    let n_states = fail_state + 1;
-    let mut table = vec![fail_state; usize::from(n_states) * 256];
-
-    for state in 0..n_states {
-        let s = usize::from(state);
-        if state == accept_state {
-            for byte in 0..256 {
-                table[s * 256 + byte] = accept_state;
-            }
-        } else if state != fail_state {
-            // Only the correct next byte advances; everything else fails.
-            let next_byte = prefix[s];
-            let next_state = if s + 1 >= prefix.len() {
-                accept_state
-            } else {
-                state + 1
-            };
-            table[s * 256 + usize::from(next_byte)] = next_state;
-        }
-    }
-    table
-}
-
 /// Flat `u8` transition table DFA for prefix matching on FSST codes.
 ///
 /// States 0..prefix_len track match progress, plus ACCEPT, FAIL, and an
@@ -80,7 +52,7 @@ pub(crate) struct FlatPrefixDfa {
 }
 
 impl FlatPrefixDfa {
-    pub(crate) const MAX_PREFIX_LEN: usize = 253;
+    pub(crate) const MAX_PREFIX_LEN: usize = (u8::MAX - 2) as usize;
 
     pub(crate) fn new(
         symbols: &[Symbol],
@@ -152,4 +124,32 @@ impl FlatPrefixDfa {
         }
         state == self.accept_state
     }
+}
+
+/// Build a byte-level transition table for prefix matching (no KMP fallback).
+///
+/// For each state, only the correct next byte advances; everything else goes
+/// to the fail state.
+fn build_prefix_byte_table(prefix: &[u8], accept_state: u8, fail_state: u8) -> Vec<u8> {
+    let n_states = fail_state + 1;
+    let mut table = vec![fail_state; usize::from(n_states) * 256];
+
+    for state in 0..n_states {
+        let s = usize::from(state);
+        if state == accept_state {
+            for byte in 0..256 {
+                table[s * 256 + byte] = accept_state;
+            }
+        } else if state != fail_state {
+            // Only the correct next byte advances; everything else fails.
+            let next_byte = prefix[s];
+            let next_state = if s + 1 >= prefix.len() {
+                accept_state
+            } else {
+                state + 1
+            };
+            table[s * 256 + usize::from(next_byte)] = next_state;
+        }
+    }
+    table
 }

@@ -35,7 +35,7 @@
 //! A single symbol can expand to 1–8 bytes. Matching on compressed codes requires
 //! the DFA to handle multi-byte symbol expansions and the escape mechanism.
 //!
-//! ## The Algorithm: KMP → Byte Table → Symbol Table → Packed DFA
+//! ## The Algorithm: KMP → Byte Table → Symbol Table → Flat DFA
 //!
 //! Construction proceeds through four stages:
 //!
@@ -94,17 +94,17 @@
 //! symbol transition; for code byte 255 (ESCAPE_CODE), transition to a
 //! special sentinel that tells the scanner to read the next literal byte.
 //!
-//! ### Stage 4: Packing into the Final Representation
+//! ### Stage 4: Flat `u8` Table
 //!
-//! The fused table can be stored in different layouts depending on the number
-//! of states:
+//! The fused table is stored as a flat `Vec<u8>` indexed as
+//! `transitions[state * 256 + byte]`. Both the prefix and contains DFAs use
+//! escape-sentinel handling: when the scanner sees the sentinel value, it reads
+//! the next byte from a separate byte-level escape table.
 //!
-//! - **Shift-packed `u64`** (≤16 states): Each state needs 4 bits. All state
-//!   transitions for one input byte fit in a single `u64`. Lookup:
-//!   `next = (table[byte] >> (state * 4)) & 0xF`. One cache line per lookup.
-//!
-//! - **Flat `u8` table** (≤255 states): `transitions[state * 256 + byte]`.
-//!   Larger, but still bounded by the `u8` state representation.
+//! TODO(joe): for short contains needles (≤7 bytes), a branchless escape-folded
+//! DFA with hierarchical 4-byte composition is ~2x faster. For needles ≤127
+//! bytes, an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
+//! See commit 7faf9f36f for those implementations.
 //!
 //! ## State-Space Limits
 //!
@@ -114,67 +114,24 @@
 //! - `prefix%` pushdown is limited to **253 bytes**. The flat prefix DFA uses
 //!   `u8` state ids and needs room for progress states, an accept state, a
 //!   fail state, and one escape sentinel (N+3 ≤ 256).
-//! - `%needle%` pushdown is limited to **254 bytes**. The long-needle DFA stores
+//! - `%needle%` pushdown is limited to **254 bytes**. The contains DFA stores
 //!   states in `u8`, so it needs room for every match-progress state plus both
 //!   the accept state and the escape sentinel.
 //!
 //! Patterns beyond those limits are still valid LIKE patterns; they simply do
 //! not use FSST pushdown and must be evaluated through the fallback path.
-//!
-//! ## DFA Variants and When Each Is Used
-//!
-//! ```text
-//! ┌───────────────┬──────────────────────────────────────────────────────┐
-//! │ Pattern       │ Needle length → DFA variant                        │
-//! ├───────────────┼──────────────────────────────────────────────────────┤
-//! │ prefix%       │ 0–253 → FlatPrefixDfa (flat u8, esc-sentinel)      │
-//! ├───────────────┼──────────────────────────────────────────────────────┤
-//! │ %needle%      │ 1–7     → BranchlessShiftDfa (hierarchical 4-byte) │
-//! │               │ 8–127   → FlatContainsDfa (flat u8, esc-folded)   │
-//! │               │ 128–254 → FlatContainsDfa (flat u8, esc-sentinel) │
-//! └───────────────┴──────────────────────────────────────────────────────┘
-//! ```
-//!
-//! ## Escape Handling Strategies
-//!
-//! There are two ways to handle the FSST escape code in the DFA:
-//!
-//! **Escape sentinel** (used by `FlatContainsDfa` for long needles, `FlatPrefixDfa`):
-//! The escape code maps to a sentinel state. The scanner checks for it and
-//! reads the next byte from a separate escape transition table.
-//!
-//! ```text
-//! loop:
-//!   state = transitions[byte]       // might be sentinel
-//!   if state == SENTINEL:
-//!     state = escape_transitions[next_byte]  // branch
-//! ```
-//!
-//! **Escape folding** (used by `BranchlessShiftDfa`, `FlatContainsDfa` for short needles):
-//! Escape states are folded into the state space. State `s+N+1` means "was in
-//! state `s`, just consumed ESCAPE_CODE". The next byte's transition from an
-//! escape state uses the byte-level table. No branch needed in the scanner.
-//!
-//! ```text
-//! States: [0..N-1: normal] [N: accept] [N+1..2N: escape shadows]
-//! Total: 2N+1 states. With 4-bit packing, max N=7.
-//!
-//! loop:
-//!   state = transitions[state][byte]   // branchless!
-//! ```
 
-mod branchless_shift;
 mod flat_contains;
 mod prefix;
 #[cfg(test)]
 mod tests;
 
-use branchless_shift::BranchlessShiftDfa;
 use flat_contains::FlatContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use prefix::FlatPrefixDfa;
 use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 // ---------------------------------------------------------------------------
@@ -194,8 +151,7 @@ pub(crate) struct FsstMatcher {
 enum MatcherInner {
     MatchAll,
     Prefix(FlatPrefixDfa),
-    ContainsBranchless(Box<BranchlessShiftDfa>),
-    ContainsFlat(FlatContainsDfa),
+    Contains(FlatContainsDfa),
 }
 
 impl FsstMatcher {
@@ -227,19 +183,7 @@ impl FsstMatcher {
                 if needle.len() > FlatContainsDfa::MAX_NEEDLE_LEN {
                     return Ok(None);
                 }
-                if needle.len() <= BranchlessShiftDfa::MAX_NEEDLE_LEN {
-                    MatcherInner::ContainsBranchless(Box::new(BranchlessShiftDfa::new(
-                        symbols,
-                        symbol_lengths,
-                        needle,
-                    )?))
-                } else {
-                    MatcherInner::ContainsFlat(FlatContainsDfa::new(
-                        symbols,
-                        symbol_lengths,
-                        needle,
-                    )?)
-                }
+                MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
             }
         };
 
@@ -252,8 +196,7 @@ impl FsstMatcher {
         match &self.inner {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
-            MatcherInner::ContainsBranchless(dfa) => dfa.matches(codes),
-            MatcherInner::ContainsFlat(dfa) => dfa.matches(codes),
+            MatcherInner::Contains(dfa) => dfa.matches(codes),
         }
     }
 }
@@ -312,36 +255,6 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Shared helpers — used by multiple DFA implementations
-// ---------------------------------------------------------------------------
-
-/// Extract a state id from a shift-packed `u64` word.
-///
-/// Each state occupies `bits` bits. The mask `(1 << bits) - 1` guarantees the
-/// result is at most 15 (for `bits = 4`), which always fits in `u8`.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "masked to `bits` bits (≤4), result ≤ 15"
-)]
-#[inline(always)]
-fn shift_extract(packed: u64, state: u8, bits: u32) -> u8 {
-    let mask = (1u64 << bits) - 1;
-    ((packed >> (u32::from(state) * bits)) & mask) as u8
-}
-
-/// Compose two shift-packed transition `u64`s: for each state, apply `first`
-/// then `second`, packing the result back into a single `u64`.
-fn compose_packed(first: u64, second: u64, total_states: u8, bits: u32) -> u64 {
-    let mut packed = 0u64;
-    for state in 0..total_states {
-        let mid = shift_extract(first, state, bits);
-        let final_s = shift_extract(second, mid, bits);
-        packed |= u64::from(final_s) << (u32::from(state) * bits);
-    }
-    packed
-}
-
-// ---------------------------------------------------------------------------
 // DFA construction helpers
 // ---------------------------------------------------------------------------
 
@@ -358,29 +271,24 @@ fn build_symbol_transitions(
     n_states: u8,
     accept_state: u8,
 ) -> Vec<u8> {
-    let n_states = usize::from(n_states);
     let n_symbols = symbols.len();
-    let mut sym_trans = vec![0u8; n_states * n_symbols];
+    let mut sym_trans = vec![0u8; n_states as usize * n_symbols];
     for state in 0..n_states {
         for code in 0..n_symbols {
-            if state == usize::from(accept_state) {
-                sym_trans[state * n_symbols + code] = accept_state;
+            if state == accept_state {
+                sym_trans[state as usize * n_symbols + code] = accept_state;
                 continue;
             }
             let sym = symbols[code].to_u64().to_le_bytes();
             let sym_len = usize::from(symbol_lengths[code]);
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "state < n_states ≤ 256"
-            )]
-            let mut s = state as u8;
+            let mut s = state;
             for &b in &sym[..sym_len] {
                 if s == accept_state {
                     break;
                 }
-                s = byte_table[usize::from(s) * 256 + usize::from(b)];
+                s = byte_table[s as usize * 256 + b as usize];
             }
-            sym_trans[state * n_symbols + code] = s;
+            sym_trans[state as usize * n_symbols + code] = s;
         }
     }
     sym_trans
@@ -412,95 +320,24 @@ fn build_fused_table(
     fused
 }
 
-/// Packs a fused table into shift-encoded `u64` arrays.
-///
-/// Each `u64` encodes transitions for ALL states for one input byte.
-/// Lookup: `next = (table[byte] >> (state * BITS)) & MASK`.
-fn pack_shift_table(fused: &[u8], n_states: u8, bits: u32) -> [u64; 256] {
-    let mut packed = [0u64; 256];
-    for code_byte in 0..256usize {
-        let mut val = 0u64;
-        for state in 0..n_states {
-            val |=
-                u64::from(fused[usize::from(state) * 256 + code_byte]) << (u32::from(state) * bits);
-        }
-        packed[code_byte] = val;
-    }
-    packed
-}
-
-/// Builds an escape-folded fused transition table for contains matching.
-///
-/// State layout: `[0..n-1]` match progress, `[n]` accept (sticky), `[n+1..2n]` escape shadows.
-/// Total states: `2 * needle.len() + 1`.
-///
-/// For normal states, the escape code maps to the corresponding escape shadow state.
-/// Escape shadow states use byte-level KMP transitions so the next literal byte
-/// resumes matching correctly — no branch needed in the scanner.
-fn build_escape_folded_table(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Vec<u8> {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "needle.len() ≤ FlatContainsDfa::MAX_FOLDED_LEN (127)"
-    )]
-    let n = needle.len() as u8;
-    let accept_state = n;
-    let total_states = usize::from(2 * n + 1);
-
-    let byte_table = kmp_byte_transitions(needle);
-    let sym_trans =
-        build_symbol_transitions(symbols, symbol_lengths, &byte_table, n + 1, accept_state);
-
-    let n_symbols = symbols.len();
-    let n_usize = usize::from(n);
-    let mut fused = vec![0u8; total_states * 256];
-    for code_byte in 0..256usize {
-        // Normal states 0..n
-        for s in 0..n_usize {
-            if code_byte == usize::from(ESCAPE_CODE) {
-                #[expect(clippy::cast_possible_truncation, reason = "s + n + 1 ≤ 2*127+1 = 255")]
-                {
-                    fused[s * 256 + code_byte] = (s + n_usize + 1) as u8;
-                }
-            } else if code_byte < n_symbols {
-                fused[s * 256 + code_byte] = sym_trans[s * n_symbols + code_byte];
-            }
-        }
-        // Accept state (sticky)
-        fused[n_usize * 256 + code_byte] = accept_state;
-        // Escape shadow states n+1..2n
-        for s in 0..n_usize {
-            let esc_state = s + n_usize + 1;
-            fused[esc_state * 256 + code_byte] = byte_table[s * 256 + code_byte];
-        }
-    }
-    fused
-}
-
 // ---------------------------------------------------------------------------
 // KMP helpers
 // ---------------------------------------------------------------------------
 
 fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
-    let n_states = needle.len() + 1;
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "needle.len() ≤ 254, accept state fits in u8"
-    )]
-    let accept = needle.len() as u8;
+    let n_states = u8::try_from(needle.len() + 1)
+        .vortex_expect("kmp_byte_transitions: must have needle.len() ≤ 255");
+    let accept = n_states - 1;
     let failure = kmp_failure_table(needle);
 
-    let mut table = vec![0u8; n_states * 256];
+    let mut table = vec![0u8; n_states as usize * 256];
     for state in 0..n_states {
         for byte in 0..256usize {
-            if state == needle.len() {
-                table[state * 256 + byte] = accept;
+            if state == accept {
+                table[state as usize * 256 + byte] = accept;
                 continue;
             }
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "state < needle.len() ≤ 254"
-            )]
-            let mut s = state as u8;
+            let mut s = state;
             loop {
                 if byte == usize::from(needle[usize::from(s)]) {
                     s += 1;
@@ -511,7 +348,7 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
                 }
                 s = failure[usize::from(s) - 1];
             }
-            table[state * 256 + byte] = s;
+            table[state as usize * 256 + byte] = s;
         }
     }
     table
