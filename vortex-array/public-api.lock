@@ -80,7 +80,11 @@ pub mod vortex_array::aggregate_fn::fns::sum
 
 pub enum vortex_array::aggregate_fn::fns::sum::SumState
 
-pub vortex_array::aggregate_fn::fns::sum::SumState::Decimal(vortex_array::scalar::DecimalValue)
+pub vortex_array::aggregate_fn::fns::sum::SumState::Decimal
+
+pub vortex_array::aggregate_fn::fns::sum::SumState::Decimal::dtype: vortex_array::dtype::DecimalDType
+
+pub vortex_array::aggregate_fn::fns::sum::SumState::Decimal::value: vortex_array::scalar::DecimalValue
 
 pub vortex_array::aggregate_fn::fns::sum::SumState::Float(f64)
 
