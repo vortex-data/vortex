@@ -180,6 +180,35 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 #[derive(Clone, Debug)]
 pub struct IsConstant;
 
+impl IsConstant {
+    /// Build a partial scalar from a kernel's `is_constant` result.
+    ///
+    /// Kernels that compute `is_constant` by delegating to child arrays can call this
+    /// to package the boolean result into the partial struct format expected by the
+    /// accumulator, avoiding duplicated boilerplate.
+    pub fn make_partial(batch: &ArrayRef, is_constant: bool) -> VortexResult<Scalar> {
+        let partial_dtype = make_is_constant_partial_dtype(batch.dtype());
+        if is_constant {
+            if batch.is_empty() {
+                return Ok(Scalar::null(partial_dtype));
+            }
+            let first_value = batch.scalar_at(0)?.into_nullable();
+            Ok(Scalar::struct_(
+                partial_dtype,
+                vec![Scalar::bool(true, Nullability::NonNullable), first_value],
+            ))
+        } else {
+            Ok(Scalar::struct_(
+                partial_dtype,
+                vec![
+                    Scalar::bool(false, Nullability::NonNullable),
+                    Scalar::null(batch.dtype().as_nullable()),
+                ],
+            ))
+        }
+    }
+}
+
 /// Partial accumulator state for is_constant.
 pub struct IsConstantPartial {
     is_constant: bool,

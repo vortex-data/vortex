@@ -6,18 +6,15 @@ use std::ops::Range;
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::is_constant::make_is_constant_partial_dtype;
 use vortex_array::aggregate_fn::fns::is_constant::primitive::IS_CONST_LANE_WIDTH;
 use vortex_array::aggregate_fn::fns::is_constant::primitive::compute_is_constant;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -50,27 +47,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
             bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)?
         });
 
-        let partial_dtype = make_is_constant_partial_dtype(batch.dtype());
-
-        if result {
-            let first_value = if batch.is_empty() {
-                return Ok(Some(Scalar::null(partial_dtype)));
-            } else {
-                batch.scalar_at(0)?.into_nullable()
-            };
-            Ok(Some(Scalar::struct_(
-                partial_dtype,
-                vec![Scalar::bool(true, Nullability::NonNullable), first_value],
-            )))
-        } else {
-            Ok(Some(Scalar::struct_(
-                partial_dtype,
-                vec![
-                    Scalar::bool(false, Nullability::NonNullable),
-                    Scalar::null(batch.dtype().as_nullable()),
-                ],
-            )))
-        }
+        Ok(Some(IsConstant::make_partial(batch, result)?))
     }
 }
 

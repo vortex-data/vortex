@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
@@ -16,7 +16,8 @@ use crate::scalar::Scalar;
 /// Dict-specific is_constant kernel.
 ///
 /// If codes are constant, the whole array is constant.
-/// Otherwise, check the values array.
+/// When all dictionary values are referenced, is_constant can be computed directly on the values
+/// array. Otherwise, unreferenced values are filtered out first.
 #[derive(Debug)]
 pub(crate) struct DictIsConstantKernel;
 
@@ -35,37 +36,21 @@ impl DynAggregateKernel for DictIsConstantKernel {
             return Ok(None);
         };
 
-        let result = if is_constant(dict.codes(), ctx)? {
-            true
-        } else {
+        // If codes are constant, only one dictionary value is referenced → constant.
+        if is_constant(dict.codes(), ctx)? {
+            return Ok(Some(IsConstant::make_partial(batch, true)?));
+        }
+
+        // Otherwise, check the values array. Filter to only referenced values if needed.
+        let result = if dict.has_all_values_referenced() {
             is_constant(dict.values(), ctx)?
+        } else {
+            let referenced_mask = dict.compute_referenced_values_mask(true)?;
+            let mask = Mask::from(referenced_mask);
+            let filtered_values = dict.values().filter(mask)?;
+            is_constant(&filtered_values, ctx)?
         };
 
-        // Return in the partial dtype format: struct {is_constant, value}
-        // We use the first scalar as the representative value.
-        let partial_dtype =
-            crate::aggregate_fn::fns::is_constant::make_is_constant_partial_dtype(batch.dtype());
-        if result {
-            let first_value = if batch.is_empty() {
-                return Ok(Some(Scalar::null(partial_dtype)));
-            } else {
-                batch.scalar_at(0)?.into_nullable()
-            };
-            Ok(Some(Scalar::struct_(
-                partial_dtype,
-                vec![
-                    Scalar::bool(true, crate::dtype::Nullability::NonNullable),
-                    first_value,
-                ],
-            )))
-        } else {
-            Ok(Some(Scalar::struct_(
-                partial_dtype,
-                vec![
-                    Scalar::bool(false, crate::dtype::Nullability::NonNullable),
-                    Scalar::null(batch.dtype().as_nullable()),
-                ],
-            )))
-        }
+        Ok(Some(IsConstant::make_partial(batch, result)?))
     }
 }
