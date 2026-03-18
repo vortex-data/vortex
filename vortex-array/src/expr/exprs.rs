@@ -45,6 +45,9 @@ use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::variant_get::VariantGet;
+use crate::scalar_fn::fns::variant_get::VariantGetOptions;
+use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::zip::Zip;
 
 // ---- Root ----
@@ -661,6 +664,13 @@ pub fn dynamic(
         },
         [lhs],
     )
+}
+
+// ---- VariantGet ----
+
+/// Creates an expression that extracts data by path and dtype from a variant expression.
+pub fn variant_get(path: Option<VariantPath>, dtype: DType, child: Expression) -> Expression {
+    VariantGet.new_expr(VariantGetOptions::new(path, dtype), vec![child])
 }
 
 // ---- ListContains ----

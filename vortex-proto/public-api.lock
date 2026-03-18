@@ -1152,6 +1152,34 @@ pub fn vortex_proto::expr::SelectOpts::clear(&mut self)
 
 pub fn vortex_proto::expr::SelectOpts::encoded_len(&self) -> usize
 
+pub struct vortex_proto::expr::VariantGetOpts
+
+pub vortex_proto::expr::VariantGetOpts::dtype: core::option::Option<vortex_proto::dtype::DType>
+
+impl core::clone::Clone for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::clone(&self) -> vortex_proto::expr::VariantGetOpts
+
+impl core::cmp::PartialEq for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::eq(&self, other: &vortex_proto::expr::VariantGetOpts) -> bool
+
+impl core::default::Default for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::VariantGetOpts
+
+impl prost::message::Message for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::clear(&mut self)
+
+pub fn vortex_proto::expr::VariantGetOpts::encoded_len(&self) -> usize
+
 pub mod vortex_proto::scalar
 
 pub mod vortex_proto::scalar::scalar_value
