@@ -492,6 +492,24 @@ Removes a dataset from the catalog, optionally purging files.
                └───┬───┘
                    │
                    ▼
+          ┌─────────────────┐
+          │ --force?        │
+          └──┬──────────┬───┘
+        yes  │          │ no
+             │          ▼
+             │  ┌─────────────────┐
+             │  │ show warning    │
+             │  │ (varies by      │
+             │  │  --purge)       │
+             │  │ "Continue? [y/N]│
+             │  └──┬──────────┬───┘
+             │     │ y        │ N
+             │     │          ▼
+             │     │    ┌──────────┐
+             │     │    │ ABORTED  │
+             │◄────┘    └──────────┘
+             │
+             ▼
           ┌─────────────────┐   no    ┌───────────────┐
           │ dataset in      ├────────►│ ERR: not found│
           │ catalog?        │         └───────────────┘
@@ -531,9 +549,10 @@ Removes a dataset from the catalog, optionally purging files.
          └────────┘
 ```
 
-**Inputs:** dataset name, remote URL, `--purge` flag
+**Inputs:** dataset name, remote URL, `--purge` flag, `--force` flag
 **Outputs:** catalog updated, optionally files deleted
 **Errors:**
+- User says N at confirmation → abort (exit 0)
 - Dataset not found → error
 - File deletion fails midway → error before catalog write (catalog unchanged, partial files deleted)
 - Catalog write fails after purge → impossible (purge happens first)
@@ -542,7 +561,8 @@ Removes a dataset from the catalog, optionally purging files.
 
 ### `gc`
 
-Removes orphaned directories not referenced by the catalog.
+Removes orphaned directories not referenced by the catalog, and cleans
+up stale upload locks.
 
 ```
                ┌───────┐
@@ -559,17 +579,41 @@ Removes orphaned directories not referenced by the catalog.
                    ▼
           ┌─────────────────┐
           │ list top-level  │
-          │ directories in  │
-          │ remote          │
+          │ objects + dirs  │
+          │ in remote       │
           └────────┬────────┘
                    │
                    ▼
           ┌─────────────────┐
-          │ for each dir    │◄───────────────┐
-          │ not in catalog  │                │
+          │ PHASE 1: scan   │
+          │ .uploading files│◄───────────────┐
           └────────┬────────┘                │
                    │                         │
                    ▼                         │
+          ┌─────────────────┐                │
+          │ parse timestamp │                │
+          │ from lock body  │                │
+          └──┬──────────┬───┘                │
+       stale │          │ active             │
+             ▼          ▼                    │
+    ┌────────────┐  ┌──────────────┐         │
+    │ delete     │  │ record name  │         │
+    │ lock file  │  │ as locked    │─────────┘
+    └────────────┘  └──────────────┘
+             │ (all locks processed)
+             ▼
+          ┌─────────────────┐
+          │ PHASE 2: scan   │
+          │ orphaned dirs   │◄───────────────┐
+          └────────┬────────┘                │
+                   │                         │
+                   ▼                         │
+          ┌─────────────────┐  yes           │
+          │ dir name matches├──────► skip ───┘
+          │ a locked name?  │
+          └────────┬────────┘
+                   │ no
+                   ▼
           ┌─────────────────┐                │
           │ delete all files│                │
           │ in orphaned dir │────────────────┘
@@ -578,7 +622,7 @@ Removes orphaned directories not referenced by the catalog.
                    ▼
           ┌─────────────────┐
           │ return list of  │
-          │ removed dirs    │
+          │ removed items   │
           └────────┬────────┘
                    │
                    ▼
@@ -588,8 +632,11 @@ Removes orphaned directories not referenced by the catalog.
 ```
 
 **Inputs:** remote URL
-**Outputs:** list of removed directories
+**Outputs:** list of removed directories and stale lock files
 **Errors:** remote unreachable, file deletion errors
+
+**Lock timestamp format:** `locked at 2024-01-01T00:00:00Z` (RFC 3339).
+Default stale threshold: 1 hour.
 
 ---
 
@@ -764,8 +811,9 @@ $ bench-data push tpch-sf100/ --remote s3://vortex-bench-data --force
 Push complete
 ```
 
-**Flow check:** Lock prevents the race. But see issue #3 below about
-stale locks.
+**Flow check:** Lock prevents the race. If Alice's upload crashes and
+the lock becomes stale, `bench-data gc` will clean it up automatically
+(locks older than 1 hour are treated as stale).
 
 ---
 
@@ -777,20 +825,19 @@ stale locks.
 $ bench-data push tpch-sf100/ --remote s3://vortex-bench-data --force
 Error: another upload is in progress for 'tpch-sf100'
 
-# Alice knows her previous push crashed — she manually removes the lock.
-# (Currently there's no CLI command for this.)
-# She would need to use aws s3 rm or similar.
+# gc cleans up stale locks (>1 hour old) AND orphaned partial uploads:
+$ bench-data gc --remote s3://vortex-bench-data
+Removed: tpch-sf100.uploading
+Removed: tpch-sf100-a3b4c5/
 
-# Then retry:
+# Now retry:
 $ bench-data push tpch-sf100/ --remote s3://vortex-bench-data --force
 Push complete
-
-# Clean up the orphaned partial upload from the crash:
-$ bench-data gc --remote s3://vortex-bench-data
-Removed: tpch-sf100-a3b4c5/
 ```
 
-**Flow check:** Works but requires manual lock deletion. See issue #3.
+**Flow check:** gc handles both stale locks and orphaned upload directories.
+For recent locks (<1 hour), gc skips them and their directories to avoid
+interfering with a real in-progress upload.
 
 ---
 
@@ -808,7 +855,9 @@ $ bench-data checkout tpch-sf100 --remote s3://vortex-bench-data
 
 # But if Alice already ran gc, the old files are gone:
 $ bench-data checkout tpch-sf100 --remote s3://vortex-bench-data
-# ERROR: file not found in remote
+# ERROR: file not found in remote: parquet/lineitem/lineitem_000.parquet.
+#        If the dataset was recently updated, run `bench-data pull` to refresh
+#        your local catalog, then retry checkout.
 
 # Fix: re-pull first
 $ bench-data pull --remote s3://vortex-bench-data
@@ -816,10 +865,8 @@ $ bench-data checkout tpch-sf100 --remote s3://vortex-bench-data
 Checkout complete
 ```
 
-**Flow check:** This is by design (pull is cheap, checkout is expensive),
-but the error message when files are missing is confusing. It says
-"NotFound" for individual files rather than "your catalog is stale,
-re-pull". See issue #5.
+**Flow check:** This is by design (pull is cheap, checkout is expensive).
+The error message now tells the user to re-pull when files are not found.
 
 ---
 
@@ -830,15 +877,25 @@ re-pull". See issue #5.
 ```bash
 # Just remove from catalog (files remain for gc later):
 $ bench-data delete clickbench --remote s3://vortex-bench-data
+This will remove 'clickbench' from the catalog. Data files will remain
+in remote storage until `gc`.
+Continue? [y/N] y
 Deleted 'clickbench' from catalog
 
 # Remove from catalog AND delete all files:
 $ bench-data delete clickbench --remote s3://vortex-bench-data --purge
+This will permanently delete 'clickbench' from the catalog AND remove
+all data files from remote storage.
+Continue? [y/N] y
+Deleted 'clickbench' from catalog
+
+# Non-interactive (CI):
+$ bench-data delete clickbench --remote s3://vortex-bench-data --purge --force
 Deleted 'clickbench' from catalog
 ```
 
-**Flow check:** No confirmation prompt for delete, even with `--purge`.
-See issue #4.
+**Flow check:** Confirmation prompt now protects against accidental deletion.
+`--force` skips the prompt for scripted use.
 
 ---
 
@@ -896,7 +953,7 @@ just orphaned, not lost).
 
 ---
 
-### Issue 2: `gc` can delete in-progress uploads (high)
+### Issue 2: `gc` can delete in-progress uploads (high) — FIXED
 
 If user A is mid-push (files uploaded, catalog not yet updated) and
 user B runs `gc`, user B sees the new directory as orphaned and deletes
@@ -904,44 +961,47 @@ it. User A's push then fails or produces a corrupt dataset.
 
 **Impact:** Data loss during concurrent push + gc.
 
-**Fix:** `gc` should check for `{name}.uploading` lock files and skip
-any directory whose dataset name has an active lock. E.g., if
-`tpch-sf100.uploading` exists, skip all `tpch-sf100-*/` directories.
+**Fix (implemented):** `gc` now has two phases:
+1. Scan for `.uploading` lock files. Parse their timestamps. If the
+   lock is older than the stale threshold (default: 1 hour), delete it.
+   Otherwise, record the dataset name as "locked".
+2. When removing orphaned directories, skip any whose name prefix
+   matches a locked dataset.
+
+This also resolves issue #3: stale locks are automatically cleaned up
+by `gc` based on timestamp age, no separate `unlock` command needed.
 
 ---
 
-### Issue 3: No CLI command to break a stale lock (medium)
+### ~~Issue 3: No CLI command to break a stale lock (medium)~~ — RESOLVED BY #2
 
-If a push crashes, the `.uploading` lock file remains forever. The
-error message tells users to "delete the lock file manually", but
-there's no `bench-data` command to do this — they need `aws s3 rm`
-or similar.
-
-**Fix:** Add `bench-data unlock <name> --remote <url>` command or
-a `--break-lock` flag on `push`.
+Stale locks are now cleaned up automatically by `gc`. The lock file
+contains a timestamp (`locked at 2024-01-01T00:00:00Z`), and `gc`
+treats locks older than 1 hour as stale.
 
 ---
 
-### Issue 4: `delete --purge` has no confirmation (medium)
+### Issue 4: `delete --purge` has no confirmation (medium) — FIXED
 
 `delete --purge` permanently removes all data files from remote
 storage with no confirmation prompt and no `--force` flag. This is
 the most destructive operation in the tool.
 
-**Fix:** Add the same confirmation pattern as push: prompt unless
-`--force` is passed.
+**Fix (implemented):** `delete` now prompts for confirmation with a
+message that varies based on `--purge`. Use `--force` to skip the
+prompt (for CI/scripts).
 
 ---
 
-### Issue 5: Stale checkout gives confusing errors (low)
+### Issue 5: Stale checkout gives confusing errors (low) — FIXED
 
 When `checkout` uses a stale local catalog and the remote files have
 been gc'd, the error is a raw "NotFound" per file. The user has to
 figure out that they need to re-pull.
 
-**Fix:** If any file returns NotFound during checkout, add a hint:
-"If the dataset was recently updated, run `bench-data pull` to refresh
-your catalog."
+**Fix (implemented):** Checkout now catches NotFound and provides a
+helpful error: "If the dataset was recently updated, run `bench-data
+pull` to refresh your local catalog, then retry checkout."
 
 ---
 
@@ -956,17 +1016,17 @@ backends that support it, with `--full` flag for hash verification.
 
 ---
 
-### Issue 7: `write_catalog` comment says CAS but uses Overwrite (low)
+### Issue 7: `write_catalog` comment says CAS but uses Overwrite (low) — FIXED
 
-The doc comment on `write_catalog` says "Uses conditional put when
+The doc comment on `write_catalog` said "Uses conditional put when
 possible (CAS)" but the code uses `PutMode::Overwrite`. Two concurrent
 `delete` commands or a `push` + `delete` could race on the catalog.
 
 The upload lock prevents push-vs-push races, but push-vs-delete and
 delete-vs-delete are unprotected.
 
-**Fix:** Either implement actual CAS (read-modify-write with etag) or
-update the comment to be accurate.
+**Fix (implemented):** Updated the doc comment to accurately describe
+the behavior and document the race window.
 
 ---
 
@@ -1016,7 +1076,7 @@ s3://bucket/prefix/
 | push X | push X | Yes | `.uploading` lock |
 | push X | push Y | Yes | Different lock files |
 | push X | delete X | **No** | No protection (see issue #7) |
-| push X | gc | **No** | gc may delete in-progress upload (see issue #2) |
+| push X | gc | Yes | gc skips dirs with active `.uploading` lock |
 | push X | pull | Yes | Pull reads catalog atomically |
 | push X | checkout X | Mostly | Checkout uses local catalog, unaffected by remote push |
 | delete X | delete X | **No** | Both modify catalog without CAS |

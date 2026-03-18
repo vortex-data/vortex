@@ -117,6 +117,9 @@ enum Command {
         /// Also delete data files from remote.
         #[arg(long, default_value = "false")]
         purge: bool,
+        /// Skip confirmation prompt (required for non-interactive use).
+        #[arg(long, default_value = "false")]
+        force: bool,
     },
     /// Clean orphaned data directories not referenced by the catalog.
     Gc {
@@ -326,8 +329,31 @@ async fn main() -> anyhow::Result<()> {
             name,
             remote: remote_url,
             purge,
+            force,
         } => {
             let (store, base) = remote::resolve_store(&remote_url)?;
+
+            if !force {
+                if purge {
+                    eprintln!(
+                        "This will permanently delete '{name}' from the catalog \
+                         AND remove all data files from remote storage."
+                    );
+                } else {
+                    eprintln!(
+                        "This will remove '{name}' from the catalog. \
+                         Data files will remain in remote storage until `gc`."
+                    );
+                }
+                eprint!("Continue? [y/N] ");
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !answer.trim().eq_ignore_ascii_case("y") {
+                    println!("Aborted.");
+                    return Ok(());
+                }
+            }
+
             remote::delete(store.as_ref(), &base, &name, purge).await?;
             println!("Deleted '{name}' from catalog");
         }

@@ -69,7 +69,12 @@ pub async fn read_catalog(store: &dyn ObjectStore, base: &ObjPath) -> Result<Cat
     }
 }
 
-/// Write catalog.json to remote. Uses conditional put when possible (CAS).
+/// Write catalog.json to remote (unconditional overwrite).
+///
+/// NOTE: This is *not* CAS — concurrent writes can race. The upload lock
+/// prevents push-vs-push races, but push-vs-delete or delete-vs-delete are
+/// unprotected. For the current use case (small team, infrequent writes)
+/// this is acceptable.
 pub async fn write_catalog(
     store: &dyn ObjectStore,
     base: &ObjPath,
@@ -429,7 +434,18 @@ pub async fn checkout(
 
         let remote_path = obj_path(base, &format!("{}{}", entry.path, file.path));
         info!(path = %file.path, size = file.size_bytes, "downloading");
-        let result = store.get(&remote_path).await?;
+        let result = match store.get(&remote_path).await {
+            Ok(r) => r,
+            Err(object_store::Error::NotFound { .. }) => {
+                bail!(
+                    "file not found in remote: {}. \
+                     If the dataset was recently updated, run `bench-data pull` to refresh \
+                     your local catalog, then retry checkout.",
+                    file.path,
+                );
+            }
+            Err(e) => return Err(e.into()),
+        };
         let bytes = result.bytes().await?;
 
         // Verify hash.
@@ -478,16 +494,72 @@ pub async fn delete(
     Ok(())
 }
 
-/// Garbage collect: remove S3 directories not referenced by the catalog.
+/// Garbage collect: remove S3 directories not referenced by the catalog,
+/// and clean up stale upload lock files.
+///
+/// Lock files (`.uploading`) are considered stale after `stale_lock_threshold`.
+/// Directories whose dataset name has an *active* (non-stale) lock are skipped
+/// to avoid deleting in-progress uploads.
 pub async fn gc(store: &dyn ObjectStore, base: &ObjPath) -> Result<Vec<String>> {
+    gc_with_threshold(store, base, DEFAULT_STALE_LOCK_THRESHOLD).await
+}
+
+/// Default threshold for considering an upload lock stale (1 hour).
+const DEFAULT_STALE_LOCK_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Inner gc implementation with configurable stale-lock threshold (for testing).
+pub(crate) async fn gc_with_threshold(
+    store: &dyn ObjectStore,
+    base: &ObjPath,
+    stale_lock_threshold: std::time::Duration,
+) -> Result<Vec<String>> {
     let catalog = read_catalog(store, base).await?;
     let referenced: vortex::utils::aliases::hash_set::HashSet<&str> =
         catalog.datasets.iter().map(|d| d.path.as_str()).collect();
 
-    // List all top-level "directories" in the store.
+    // List all top-level objects and directories in the store.
     let list_result = store.list_with_delimiter(Some(base)).await?;
     let mut removed = Vec::new();
 
+    // Phase 1: Find active lock files and clean up stale ones.
+    let mut locked_names: vortex::utils::aliases::hash_set::HashSet<String> =
+        vortex::utils::aliases::hash_set::HashSet::new();
+
+    let now = chrono::Utc::now();
+    for obj in &list_result.objects {
+        let name = obj.location.as_ref();
+        if let Some(dataset_name) = name.strip_suffix(".uploading") {
+            // Parse the lock file timestamp to check staleness.
+            let lock_age = match store.get(&obj.location).await {
+                Ok(result) => {
+                    let bytes = result.bytes().await?;
+                    parse_lock_timestamp(&bytes)
+                        .map(|ts| (now - ts).to_std().unwrap_or_default())
+                        .unwrap_or_default()
+                }
+                Err(_) => std::time::Duration::ZERO,
+            };
+
+            if lock_age > stale_lock_threshold {
+                info!(
+                    lock = %obj.location,
+                    age_secs = lock_age.as_secs(),
+                    "removing stale upload lock"
+                );
+                store.delete(&obj.location).await?;
+                removed.push(name.to_string());
+            } else {
+                info!(
+                    lock = %obj.location,
+                    age_secs = lock_age.as_secs(),
+                    "active upload lock, skipping dataset directories"
+                );
+                locked_names.insert(dataset_name.to_string());
+            }
+        }
+    }
+
+    // Phase 2: Remove orphaned directories, but skip those with active locks.
     for prefix in &list_result.common_prefixes {
         let dir_name = prefix.as_ref().trim_end_matches('/');
         let dir_with_slash = format!("{}/", dir_name);
@@ -498,6 +570,16 @@ pub async fn gc(store: &dyn ObjectStore, base: &ObjPath) -> Result<Vec<String>> 
         }
 
         if !referenced.contains(dir_with_slash.as_str()) {
+            // Check if any active lock protects this directory.
+            // Dataset dirs look like "{name}-{rand}/", so extract the name prefix.
+            let is_locked = locked_names
+                .iter()
+                .any(|locked| dir_name.starts_with(locked));
+            if is_locked {
+                info!(path = %prefix, "skipping orphan (active upload lock exists)");
+                continue;
+            }
+
             info!(path = %prefix, "garbage collecting orphaned directory");
             let mut list = store.list(Some(prefix));
             use futures::StreamExt;
@@ -512,7 +594,26 @@ pub async fn gc(store: &dyn ObjectStore, base: &ObjPath) -> Result<Vec<String>> 
     Ok(removed)
 }
 
+/// Parse the timestamp from a lock file body ("locked at 2024-01-01T00:00:00Z").
+fn parse_lock_timestamp(body: &[u8]) -> Option<chrono::DateTime<chrono::Utc>> {
+    let text = std::str::from_utf8(body).ok()?;
+    let ts_str = text.strip_prefix("locked at ")?;
+    ts_str.parse::<chrono::DateTime<chrono::Utc>>().ok()
+}
+
 /// Verify a dataset: check manifest hash in catalog, check file hashes.
+///
+/// TODO(perf): This downloads every file to compute SHA-256 hashes, which can
+/// be extremely slow and expensive for large datasets (100+ GB). Consider:
+///   1. A `--quick` mode that only checks manifest hash + file existence/size
+///      via HEAD requests (no content download).
+///   2. Using ETag/Content-MD5 headers where the backend supports them to avoid
+///      full downloads.
+///   3. A `--parallel N` flag to download and hash files concurrently.
+///   4. Progress reporting (file X/Y, bytes downloaded) so users know it's working.
+///
+/// For now, this is fine for small-to-medium datasets but users should be aware
+/// of the egress cost implications on cloud storage.
 pub async fn verify(
     store: &dyn ObjectStore,
     base: &ObjPath,

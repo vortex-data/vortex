@@ -554,6 +554,148 @@ async fn test_gc_removes_orphans() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_gc_skips_directories_with_active_upload_lock() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    // Simulate an in-progress upload: create a lock file with a recent timestamp
+    // and an orphaned directory that matches the locked name.
+    let lock_path = ObjPath::from("uploading-ds.uploading");
+    let lock_body = format!(
+        "locked at {}",
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    );
+    store
+        .put(
+            &lock_path,
+            object_store::PutPayload::from_bytes(lock_body.into()),
+        )
+        .await?;
+
+    // Create the "in-progress" directory (not in catalog, would normally be gc'd).
+    let orphan_file = ObjPath::from("uploading-ds-abc123/data.parquet");
+    store
+        .put(
+            &orphan_file,
+            object_store::PutPayload::from_bytes(b"in progress data"[..].into()),
+        )
+        .await?;
+
+    // Also create a truly orphaned directory (no lock).
+    let real_orphan = ObjPath::from("real-orphan-xyz/manifest.json");
+    store
+        .put(
+            &real_orphan,
+            object_store::PutPayload::from_bytes(b"orphan"[..].into()),
+        )
+        .await?;
+
+    // gc should skip the locked directory but remove the real orphan.
+    let removed = remote::gc(store.as_ref(), &base).await?;
+
+    assert!(
+        removed.iter().any(|p| p.contains("real-orphan")),
+        "expected real orphan to be removed, got: {removed:?}"
+    );
+    assert!(
+        !removed.iter().any(|p| p.contains("uploading-ds")),
+        "expected locked directory to be skipped, got: {removed:?}"
+    );
+
+    // The in-progress file should still exist.
+    assert!(store.get(&orphan_file).await.is_ok());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_gc_removes_stale_upload_locks() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    // Create a lock file with a timestamp far in the past.
+    let lock_path = ObjPath::from("stale-ds.uploading");
+    store
+        .put(
+            &lock_path,
+            object_store::PutPayload::from_bytes(b"locked at 2020-01-01T00:00:00Z"[..].into()),
+        )
+        .await?;
+
+    // Create the orphaned directory for the stale lock.
+    let orphan_file = ObjPath::from("stale-ds-abc123/data.parquet");
+    store
+        .put(
+            &orphan_file,
+            object_store::PutPayload::from_bytes(b"stale data"[..].into()),
+        )
+        .await?;
+
+    // gc should remove both the stale lock and the orphaned directory.
+    let removed = remote::gc(store.as_ref(), &base).await?;
+
+    assert!(
+        removed.iter().any(|p| p.contains("stale-ds.uploading")),
+        "expected stale lock to be removed, got: {removed:?}"
+    );
+    assert!(
+        removed.iter().any(|p| p.contains("stale-ds-abc123")),
+        "expected stale orphan directory to be removed, got: {removed:?}"
+    );
+
+    // Lock file should be gone.
+    assert!(
+        matches!(
+            store.get(&lock_path).await,
+            Err(object_store::Error::NotFound { .. })
+        ),
+        "stale lock file should be deleted"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_gc_with_short_threshold_treats_recent_lock_as_stale() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    // Create a lock with a recent timestamp.
+    let lock_path = ObjPath::from("threshold-ds.uploading");
+    let lock_body = format!(
+        "locked at {}",
+        (chrono::Utc::now() - chrono::Duration::seconds(10))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    );
+    store
+        .put(
+            &lock_path,
+            object_store::PutPayload::from_bytes(lock_body.into()),
+        )
+        .await?;
+
+    // With default threshold (1 hour), lock is active.
+    let removed = remote::gc(store.as_ref(), &base).await?;
+    assert!(
+        !removed.iter().any(|p| p.contains("threshold-ds")),
+        "lock should be active with default threshold"
+    );
+
+    // With a very short threshold (1 second), lock is stale.
+    let removed =
+        remote::gc_with_threshold(store.as_ref(), &base, std::time::Duration::from_secs(1)).await?;
+    assert!(
+        removed.iter().any(|p| p.contains("threshold-ds.uploading")),
+        "lock should be stale with 1s threshold, got: {removed:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_checkout_skips_cached_files() -> anyhow::Result<()> {
     let work = TempDir::new()?;
     let remote_dir = work.path().join("remote");
