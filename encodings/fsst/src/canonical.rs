@@ -46,52 +46,38 @@ pub(crate) fn fsst_decode_views(
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    let bytes = fsst_array.codes().sliced_bytes();
+    let compressed = fsst_array.codes().sliced_bytes();
+    let decompressor = fsst_array.decompressor();
 
     // Fast path: try to downcast uncompressed_lengths directly to PrimitiveArray,
     // avoiding the execute() overhead when it's already in primitive form.
     // The compression path always writes i32 lengths, so this succeeds in the common case.
-    if let Some(parray) = fsst_array.uncompressed_lengths().as_opt::<Primitive>() {
-        return decompress_and_build_views(
-            &fsst_array.decompressor(),
-            bytes.as_slice(),
-            parray,
-            start_buf_index,
-        );
-    }
+    let lens_array = if let Some(parray) = fsst_array.uncompressed_lengths().as_opt::<Primitive>() {
+        parray.clone()
+    } else {
+        // Slow path: lengths are compressed, need to execute to get PrimitiveArray.
+        fsst_array
+            .uncompressed_lengths()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?
+    };
 
-    // Slow path: lengths are compressed, need to execute to get PrimitiveArray.
-    let uncompressed_lens_array = fsst_array
-        .uncompressed_lengths()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
+    // Skip the O(n) length summation by using the decompressor's upper-bound
+    // capacity estimate. After decompress, split off the unused portion so the
+    // frozen buffer only holds the actual decompressed data.
+    let max_cap = decompressor.max_decompression_capacity(compressed.as_slice());
 
-    decompress_and_build_views(
-        &fsst_array.decompressor(),
-        bytes.as_slice(),
-        &uncompressed_lens_array,
-        start_buf_index,
-    )
-}
+    let mut uncompressed_bytes = ByteBufferMut::with_capacity(max_cap + 7);
+    let len = decompressor.decompress_into(
+        compressed.as_slice(),
+        uncompressed_bytes.spare_capacity_mut(),
+    );
+    unsafe { uncompressed_bytes.set_len(len) };
+    // Split off unused capacity so the frozen buffer is right-sized.
+    let _unused = uncompressed_bytes.split_off(len);
 
-/// Core decompress + view building, split out to avoid duplicating logic between
-/// the fast (direct downcast) and slow (execute) paths.
-#[inline]
-fn decompress_and_build_views(
-    decompressor: &fsst::Decompressor<'_>,
-    compressed: &[u8],
-    lens_array: &PrimitiveArray,
-    start_buf_index: u32,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
     match_each_integer_ptype!(lens_array.ptype(), |P| {
         let lens = lens_array.as_slice::<P>();
-        #[allow(clippy::cast_possible_truncation)]
-        let total_size: usize = lens.iter().map(|x| *x as usize).sum();
-
-        let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-        let len = decompressor.decompress_into(compressed, uncompressed_bytes.spare_capacity_mut());
-        unsafe { uncompressed_bytes.set_len(len) };
-
         Ok(build_views(
             start_buf_index,
             MAX_BUFFER_LEN,
