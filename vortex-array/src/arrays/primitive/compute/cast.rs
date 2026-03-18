@@ -12,9 +12,9 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::compute;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -27,7 +27,7 @@ impl CastKernel for Primitive {
     fn cast(
         array: &PrimitiveArray,
         dtype: &DType,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             return Ok(None);
@@ -60,7 +60,7 @@ impl CastKernel for Primitive {
             && new_ptype.is_int()
             && array.ptype().byte_width() == new_ptype.byte_width()
         {
-            if !values_fit_in(array, new_ptype) {
+            if !values_fit_in(array, new_ptype, ctx) {
                 vortex_bail!(
                     Compute: "Cannot cast {} to {} — values exceed target range",
                     array.ptype(),
@@ -92,9 +92,9 @@ impl CastKernel for Primitive {
 }
 
 /// Returns `true` if all valid values in `array` are representable as `target_ptype`.
-fn values_fit_in(array: &PrimitiveArray, target_ptype: PType) -> bool {
+fn values_fit_in(array: &PrimitiveArray, target_ptype: PType, ctx: &mut ExecutionCtx) -> bool {
     let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
-    compute::min_max(&array.clone().into_array())
+    aggregate_fn::fns::min_max::min_max(&array.clone().into_array(), ctx)
         .ok()
         .flatten()
         .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
