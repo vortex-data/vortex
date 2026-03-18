@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
 use itertools::Itertools;
+use num_traits::AsPrimitive;
+use num_traits::CheckedAdd;
+use num_traits::NumOps;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use super::SumState;
 use crate::arrays::DecimalArray;
@@ -19,40 +27,82 @@ pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> Vort
     };
 
     let mask = d.validity_mask()?;
-    match mask.bit_buffer() {
-        AllOr::None => Ok(false),
-        AllOr::All => match_each_decimal_value_type!(d.values_type(), |T| {
-            for &v in d.buffer::<T>().iter() {
-                match value.checked_add(&DecimalValue::from(v)) {
-                    Some(r) => {
-                        *value = r;
-                        // Check for overflow
-                        if !value.fits_in_precision(*dtype) {
-                            return Ok(true);
-                        }
-                    }
-                    None => return Ok(true),
-                }
+    let validity = match &mask {
+        Mask::AllTrue(_) => None,
+        Mask::Values(mask_values) => Some(mask_values.bit_buffer()),
+        Mask::AllFalse(_) => {
+            return Ok(false);
+        }
+    };
+
+    let values_type = DecimalType::smallest_decimal_value_type(&dtype);
+    match_each_decimal_value_type!(d.values_type(), |I| {
+        match_each_decimal_value_type!(values_type, |O| {
+            let initial_val: O = value
+                .cast()
+                .vortex_expect("cannot fail to cast initial value");
+
+            let res = sum_to_scalar(d.buffer::<I>(), validity, initial_val, *dtype);
+            match res {
+                Some(v) => *value = v,
+                None => return Ok(true),
             }
             Ok(false)
-        }),
-        AllOr::Some(validity) => match_each_decimal_value_type!(d.values_type(), |T| {
-            for (&v, valid) in d.buffer::<T>().iter().zip_eq(validity.iter()) {
-                if valid {
-                    match value.checked_add(&DecimalValue::from(v)) {
-                        Some(r) => {
-                            *value = r;
-                            if !value.fits_in_precision(*dtype) {
-                                return Ok(true);
-                            }
-                        }
-                        None => return Ok(true),
-                    }
-                }
-            }
-            Ok(false)
-        }),
+        })
+    })
+}
+
+/// Compute the checked sum and convert the result to a [`Scalar`].
+///
+/// Returns a null scalar if the sum overflows the underlying integer type or if the result
+/// exceeds the declared decimal precision.
+fn sum_to_scalar<T, O>(
+    values: Buffer<T>,
+    validity: Option<&BitBuffer>,
+    initial: O,
+    return_decimal_dtype: DecimalDType,
+) -> Option<DecimalValue>
+where
+    T: AsPrimitive<O>,
+    O: CheckedAdd + NumOps + Into<DecimalValue> + Copy + 'static,
+    bool: AsPrimitive<O>,
+{
+    let raw_sum = match validity {
+        Some(v) => sum_decimal_with_validity(values, v, initial),
+        None => sum_decimal(values, initial),
+    };
+
+    raw_sum
+        .map(Into::<DecimalValue>::into)
+        // We have to make sure that the decimal value fits the precision of the decimal dtype.
+        .filter(|v| v.fits_in_precision(return_decimal_dtype))
+}
+
+fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
+    values: Buffer<T>,
+    initial: I,
+) -> Option<I> {
+    let mut sum = initial;
+    for v in values.iter() {
+        let v: I = v.as_();
+        sum = CheckedAdd::checked_add(&sum, &v)?;
     }
+    Some(sum)
+}
+
+fn sum_decimal_with_validity<T, I>(values: Buffer<T>, validity: &BitBuffer, initial: I) -> Option<I>
+where
+    T: AsPrimitive<I>,
+    I: NumOps + CheckedAdd + Copy + 'static,
+    bool: AsPrimitive<I>,
+{
+    let mut sum = initial;
+    for (v, valid) in values.iter().zip_eq(validity) {
+        let v: I = v.as_() * valid.as_();
+
+        sum = CheckedAdd::checked_add(&sum, &v)?;
+    }
+    Some(sum)
 }
 
 #[cfg(test)]
