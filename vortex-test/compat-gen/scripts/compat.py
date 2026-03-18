@@ -342,7 +342,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     output = Path(args.output)
     version = _version_from_ref(args.git_ref)
 
-    _run_rust_generate(output)
+    _run_rust_generate(output, profile=args.profile)
 
     # Read fixtures.json (with sha256 from Rust) and write a versioned manifest.
     fixtures_json = json.loads((output / "fixtures.json").read_text())
@@ -388,7 +388,7 @@ def _publish_full(
         output = Path(tmpdir) / "fixtures"
 
         _info("generating fixtures...")
-        _run_rust_generate(output)
+        _run_rust_generate(output, profile=args.profile)
 
         fixtures_json = json.loads((output / "fixtures.json").read_text())
 
@@ -473,7 +473,7 @@ def _publish_update(
         output = Path(tmpdir) / "fixtures"
 
         _info("generating fixtures...")
-        _run_rust_generate(output)
+        _run_rust_generate(output, profile=args.profile)
 
         fixtures_json = json.loads((output / "fixtures.json").read_text())
 
@@ -588,7 +588,7 @@ def cmd_check(args: argparse.Namespace) -> None:
                 total_failed += 1
 
             _info(f"  checking v{version}...")
-            result = _run_rust_check(tmppath, mode="subset")
+            result = _run_rust_check(tmppath, mode="subset", profile=args.profile)
 
             passed = len(result.get("passed", []))
             failed_list = result.get("failed", [])
@@ -779,7 +779,7 @@ def _parallel_download(
     return failures
 
 
-def _build_compat_bin() -> str:
+def _build_compat_bin(profile: str = "release") -> str:
     """Build vortex-compat and return the path to the binary.
 
     If VORTEX_COMPAT_BIN is set, skips the build and returns that path.
@@ -789,8 +789,8 @@ def _build_compat_bin() -> str:
     if bin_path:
         return bin_path
 
-    _info("building vortex-compat (release)...")
-    _run_cmd(["cargo", "build", "-p", CARGO_BIN, "--release"], check=True)
+    _info(f"building vortex-compat ({profile})...")
+    _run_cmd(["cargo", "build", "-p", CARGO_BIN, "--profile", profile], check=True)
 
     # Ask cargo where the binary is.
     result = subprocess.run(
@@ -800,19 +800,21 @@ def _build_compat_bin() -> str:
         check=True,
     )
     target_dir = json.loads(result.stdout)["target_directory"]
-    bin_path = str(Path(target_dir) / "release" / CARGO_BIN)
+    # Cargo puts "dev" profile binaries in "debug/", all others in "<profile>/".
+    dir_name = "debug" if profile == "dev" else profile
+    bin_path = str(Path(target_dir) / dir_name / CARGO_BIN)
     return bin_path
 
 
-def _run_rust_generate(output: Path) -> None:
+def _run_rust_generate(output: Path, profile: str = "release") -> None:
     """Run `vortex-compat generate --output <dir>`."""
-    bin_path = _build_compat_bin()
+    bin_path = _build_compat_bin(profile)
     _run_cmd([bin_path, "generate", "--output", str(output)], check=True)
 
 
-def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
+def _run_rust_check(dir: Path, mode: str = "subset", profile: str = "release") -> dict:
     """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
-    bin_path = _build_compat_bin()
+    bin_path = _build_compat_bin(profile)
     cmd = [bin_path, "check", "--dir", str(dir), "--mode", mode]
     _info(f"  $ {' '.join(cmd)}")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)  # noqa: UP022
@@ -872,6 +874,11 @@ def main() -> None:
         description="Vortex backward-compatibility fixture orchestrator",
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--profile",
+        default="release",
+        help="Cargo build profile (default: release). Use 'dev' for faster builds.",
     )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
