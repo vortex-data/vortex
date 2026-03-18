@@ -11,13 +11,13 @@ Unified 5 DFA structs down to 3:
 | `FlatBranchlessDfa` | `FlatContainsDfa` | Merged with `FusedDfa` into single struct with `EscapeStrategy` enum |
 | `FusedDfa` | `FlatContainsDfa` | Merged (see above) |
 | `BranchlessShiftDfa` | `BranchlessShiftDfa` | Unchanged |
-| `FsstPrefixDfa` | `FsstPrefixDfa` | Simplified escape transition building |
+| `FlatPrefixDfa` | `FlatPrefixDfa` | Simplified escape transition building |
 
 Other changes:
 - Extracted `build_escape_folded_table()` (shared by `BranchlessShiftDfa` and `FlatContainsDfa`)
 - Extracted `compose_packed()` (shared by `build_pair_compose` and `build_compose_4b`)
 - Extended `FlatContainsDfa` folded range from 14 → 127 (2*127+1=255 fits in u8)
-- Simplified `FsstPrefixDfa` escape transitions (reuse byte_table directly)
+- Simplified `FlatPrefixDfa` escape transitions (reuse byte_table directly)
 - Deleted `pack_escape_shift_table` (only caller was `ShiftDfa`)
 
 ## Removed code (recoverable from git)
@@ -106,10 +106,9 @@ Would reduce loop overhead for long compressed strings. Tables stay the same siz
 just add a `compose_8b` level on top of `compose_4b`.
 
 ### 2. Branchless prefix DFA
-`FsstPrefixDfa` currently uses escape sentinel + branch. Could use escape-folding
+`FlatPrefixDfa` currently uses escape sentinel + branch. Could use escape-folding
 (like the contains DFAs) to make the prefix scan branchless. Needs 2*prefix_len+1
-states to fit in 4-bit packing, so max prefix drops from 13 to 7. Worth it if
-prefix matching is a bottleneck.
+states, so max prefix would drop. Worth it if prefix matching is a bottleneck.
 
 ### 3. Further struct merging
 `BranchlessShiftDfa` and `FlatContainsDfa` (folded) share the same escape-folded

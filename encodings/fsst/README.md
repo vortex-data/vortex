@@ -17,7 +17,7 @@ wildcards, fall back to ordinary decompression-based LIKE evaluation.
 There are also two implementation limits on the pushdown path, both measured in
 pattern bytes:
 
-- `prefix%` supports up to 13 bytes.
+- `prefix%` supports up to 253 bytes.
 - `%needle%` supports up to 254 bytes.
 
 Patterns beyond those limits are still evaluated correctly, but they do so via

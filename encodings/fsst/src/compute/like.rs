@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn test_like_long_prefix_falls_back_but_still_matches() -> VortexResult<()> {
+    fn test_like_long_prefix_handled_by_flat_dfa() -> VortexResult<()> {
         let fsst = make_fsst(
             &[
                 Some("abcdefghijklmn-tail"),
@@ -290,12 +290,10 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )?;
         assert!(
-            direct.is_none(),
-            "14-byte prefixes exceed the packed prefix DFA and should fall back"
+            direct.is_some(),
+            "14-byte prefixes are now handled by the flat prefix DFA"
         );
-
-        let result = like(fsst, pattern)?;
-        assert_arrays_eq!(&result, &BoolArray::from_iter([true, false, true]));
+        assert_arrays_eq!(direct.unwrap(), BoolArray::from_iter([true, false, true]));
         Ok(())
     }
 
@@ -467,7 +465,7 @@ mod tests {
     #[test]
     fn fuzz_prefix_matching() -> VortexResult<()> {
         for seed in 0..50 {
-            for prefix_len in [1, 3, 5, 10, 13] {
+            for prefix_len in [1, 3, 5, 10, 13, 20, 40] {
                 fuzz_prefix(seed, prefix_len, 200)?;
             }
         }

@@ -111,9 +111,9 @@
 //! The public behavior is shaped by two implementation limits, both measured in
 //! pattern **bytes** rather than Unicode scalar values:
 //!
-//! - `prefix%` pushdown is limited to **13 bytes**. The packed prefix DFA uses
-//!   4-bit state ids and needs room for normal prefix-progress states, an
-//!   accept state, a fail state, and one escape sentinel for FSST literals.
+//! - `prefix%` pushdown is limited to **253 bytes**. The flat prefix DFA uses
+//!   `u8` state ids and needs room for progress states, an accept state, a
+//!   fail state, and one escape sentinel (N+3 ≤ 256).
 //! - `%needle%` pushdown is limited to **254 bytes**. The long-needle DFA stores
 //!   states in `u8`, so it needs room for every match-progress state plus both
 //!   the accept state and the escape sentinel.
@@ -127,7 +127,7 @@
 //! ┌───────────────┬──────────────────────────────────────────────────────┐
 //! │ Pattern       │ Needle length → DFA variant                        │
 //! ├───────────────┼──────────────────────────────────────────────────────┤
-//! │ prefix%       │ 0–13 → FsstPrefixDfa (shift-packed, no KMP)        │
+//! │ prefix%       │ 0–253 → FlatPrefixDfa (flat u8, esc-sentinel)      │
 //! ├───────────────┼──────────────────────────────────────────────────────┤
 //! │ %needle%      │ 1–7     → BranchlessShiftDfa (hierarchical 4-byte) │
 //! │               │ 8–127   → FlatContainsDfa (flat u8, esc-folded)   │
@@ -139,7 +139,7 @@
 //!
 //! There are two ways to handle the FSST escape code in the DFA:
 //!
-//! **Escape sentinel** (used by `FlatContainsDfa` for long needles, `FsstPrefixDfa`):
+//! **Escape sentinel** (used by `FlatContainsDfa` for long needles, `FlatPrefixDfa`):
 //! The escape code maps to a sentinel state. The scanner checks for it and
 //! reads the next byte from a separate escape transition table.
 //!
@@ -173,7 +173,7 @@ use branchless_shift::BranchlessShiftDfa;
 use flat_contains::FlatContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
-use prefix::FsstPrefixDfa;
+use prefix::FlatPrefixDfa;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
@@ -193,7 +193,7 @@ pub(crate) struct FsstMatcher {
 
 enum MatcherInner {
     MatchAll,
-    Prefix(Box<FsstPrefixDfa>),
+    Prefix(FlatPrefixDfa),
     ContainsBranchless(Box<BranchlessShiftDfa>),
     ContainsFlat(FlatContainsDfa),
 }
@@ -203,7 +203,7 @@ impl FsstMatcher {
     ///
     /// Returns `Ok(None)` if the pattern shape is not supported for pushdown
     /// (e.g. `_` wildcards, multiple non-bookend `%`, `prefix%` longer than
-    /// 13 bytes, or `%needle%` longer than 254 bytes).
+    /// 253 bytes, or `%needle%` longer than 254 bytes).
     pub(crate) fn try_new(
         symbols: &[Symbol],
         symbol_lengths: &[u8],
@@ -217,14 +217,10 @@ impl FsstMatcher {
             LikeKind::Prefix("") => MatcherInner::MatchAll,
             LikeKind::Prefix(prefix) => {
                 let prefix = prefix.as_bytes();
-                if prefix.len() > FsstPrefixDfa::MAX_PREFIX_LEN {
+                if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Prefix(Box::new(FsstPrefixDfa::new(
-                    symbols,
-                    symbol_lengths,
-                    prefix,
-                )?))
+                MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix)?)
             }
             LikeKind::Contains(needle) => {
                 let needle = needle.as_bytes();
@@ -373,20 +369,18 @@ fn build_symbol_transitions(
             }
             let sym = symbols[code].to_u64().to_le_bytes();
             let sym_len = usize::from(symbol_lengths[code]);
-            let mut s = state;
-            for &b in &sym[..sym_len] {
-                if s == usize::from(accept_state) {
-                    break;
-                }
-                s = usize::from(byte_table[s * 256 + usize::from(b)]);
-            }
             #[expect(
                 clippy::cast_possible_truncation,
-                reason = "s is a state id < n_states ≤ 256"
+                reason = "state < n_states ≤ 256"
             )]
-            {
-                sym_trans[state * n_symbols + code] = s as u8;
+            let mut s = state as u8;
+            for &b in &sym[..sym_len] {
+                if s == accept_state {
+                    break;
+                }
+                s = byte_table[usize::from(s) * 256 + usize::from(b)];
             }
+            sym_trans[state * n_symbols + code] = s;
         }
     }
     sym_trans
