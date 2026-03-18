@@ -3108,7 +3108,7 @@ pub fn vortex_array::arrays::Primitive::between(arr: &vortex_array::arrays::Prim
 
 impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Primitive
 
-pub fn vortex_array::arrays::Primitive::cast(array: &vortex_array::arrays::PrimitiveArray, dtype: &vortex_array::dtype::DType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::Primitive::cast(array: &vortex_array::arrays::PrimitiveArray, dtype: &vortex_array::dtype::DType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::fill_null::FillNullKernel for vortex_array::arrays::Primitive
 
@@ -6636,7 +6636,7 @@ pub fn vortex_array::arrays::Primitive::between(arr: &vortex_array::arrays::Prim
 
 impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Primitive
 
-pub fn vortex_array::arrays::Primitive::cast(array: &vortex_array::arrays::PrimitiveArray, dtype: &vortex_array::dtype::DType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::Primitive::cast(array: &vortex_array::arrays::PrimitiveArray, dtype: &vortex_array::dtype::DType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::fill_null::FillNullKernel for vortex_array::arrays::Primitive
 
@@ -17156,7 +17156,7 @@ pub fn vortex_array::arrays::Decimal::cast(array: &vortex_array::arrays::Decimal
 
 impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Primitive
 
-pub fn vortex_array::arrays::Primitive::cast(array: &vortex_array::arrays::PrimitiveArray, dtype: &vortex_array::dtype::DType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::Primitive::cast(array: &vortex_array::arrays::PrimitiveArray, dtype: &vortex_array::dtype::DType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Struct
 
