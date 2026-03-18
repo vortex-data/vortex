@@ -144,6 +144,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "dict_take_canonical"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "dict_compare"
 harness = false
 required-features = ["_test-harness"]
