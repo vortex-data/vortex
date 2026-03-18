@@ -25,7 +25,7 @@ jobs:
   compat-test:
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=compat-validation', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=compat-validation', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 120
     steps:
