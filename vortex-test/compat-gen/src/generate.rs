@@ -4,8 +4,6 @@
 use std::path::Path;
 
 use serde::Serialize;
-use sha2::Digest;
-use sha2::Sha256;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -40,13 +38,8 @@ pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec
     let mut infos = Vec::new();
     for fixture in &fixtures {
         let entries = fixture.write(output_dir)?;
-        for mut entry in entries {
-            let path = output_dir.join(&entry.name);
-            let file_bytes = std::fs::read(&path)
-                .map_err(|e| vortex_err!("failed to read back {}: {e}", path.display()))?;
-            let sha256 = format!("{:x}", Sha256::digest(&file_bytes));
+        for entry in entries {
             eprintln!("  wrote {}", entry.name);
-            entry.sha256 = Some(sha256);
             infos.push(entry);
         }
     }

@@ -6,12 +6,15 @@ mod arrays;
 use std::path::Path;
 use std::sync::Arc;
 
+use sha2::Digest;
+use sha2::Sha256;
 use vortex::file::WriteStrategyBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVisitorExt;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use crate::adapter;
 use crate::adapter::compute_all_stats;
@@ -88,10 +91,11 @@ impl Fixture for FlatLayoutAdapter {
         compute_all_stats(&array)?;
         let path = dir.join(self.name());
         adapter::write_file(&path, array)?;
+        let sha256 = hash_file(&path)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
-            sha256: None,
+            sha256,
         }])
     }
 }
@@ -144,10 +148,11 @@ impl Fixture for DatasetFixtureAdapter {
             let strategy = WriteStrategyBuilder::default().build();
             adapter::write_compressed(&path, array, strategy)?;
         }
+        let sha256 = hash_file(&path)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
-            sha256: None,
+            sha256,
         }])
     }
 }
@@ -155,6 +160,13 @@ impl Fixture for DatasetFixtureAdapter {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Compute the SHA-256 hex digest of a file.
+fn hash_file(path: &Path) -> VortexResult<String> {
+    let bytes =
+        std::fs::read(path).map_err(|e| vortex_err!("failed to read {}: {e}", path.display()))?;
+    Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
 
 /// Walk the array tree, collect encoding IDs, and assert that all expected encodings
 /// are present. This is a no-op when [`FlatLayoutFixture::expected_encodings`] returns an empty vec.
