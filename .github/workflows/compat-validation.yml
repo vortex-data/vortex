@@ -15,17 +15,17 @@ on:
       mode:
         description: "Validation mode"
         required: true
-        default: "all"
+        default: "last"
         type: choice
         options:
-          - all
           - last
+          - all
 
 jobs:
   compat-test:
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=compat-validation', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=compat-validation', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 120
     steps:
@@ -35,12 +35,8 @@ jobs:
           sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-prebuild
-      - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
-        with:
-          sync: false
       - name: Run compat tests
         run: |
-          MODE="${{ inputs.mode || 'all' }}"
+          MODE="${{ inputs.mode || 'last' }}"
           uv run vortex-test/compat-gen/scripts/compat.py check \
             --mode "$MODE"

@@ -35,10 +35,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 import jsonschema
@@ -169,13 +170,19 @@ class S3Store(Store):
 
     def read(self, key: str) -> bytes | None:
         url = f"{self.https_base}/{key}"
-        try:
-            with urlopen(url) as resp:
-                return resp.read()
-        except HTTPError as e:
-            if e.code in (403, 404):
-                return None
-            raise
+        for attempt in range(3):
+            try:
+                with urlopen(url, timeout=10) as resp:
+                    return resp.read()
+            except HTTPError as e:
+                if e.code in (403, 404):
+                    return None
+                raise
+            except (URLError, ConnectionError, TimeoutError):
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
+                    continue
+                raise
 
     def write(self, key: str, data: bytes) -> None:
         with tempfile.NamedTemporaryFile(delete=False) as f:
