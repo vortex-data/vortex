@@ -839,7 +839,7 @@ def main() -> None:
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     # -- generate --
     p = sub.add_parser(
@@ -997,6 +997,10 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
 
     commands = {
         "generate": cmd_generate,
