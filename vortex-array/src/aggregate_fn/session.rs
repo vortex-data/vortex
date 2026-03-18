@@ -12,10 +12,13 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::arrays::Chunked;
+use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
+use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::vtable::ArrayId;
 
 /// Registry of aggregate function vtables.
@@ -42,6 +45,7 @@ impl Default for AggregateFnSession {
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked::ID, None, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(Dict::ID, Some(MinMax.id()), &DictMinMaxKernel);
 
         this
     }

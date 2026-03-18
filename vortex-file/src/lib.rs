@@ -120,7 +120,6 @@ use vortex_fastlanes::FoR;
 use vortex_fastlanes::RLE;
 use vortex_fsst::FSST;
 use vortex_pco::Pco;
-use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 use vortex_zigzag::ZigZag;
@@ -175,7 +174,6 @@ pub fn register_default_encodings(session: &mut VortexSession) {
         arrays.register(FoR::ID, FoR);
         arrays.register(Pco::ID, Pco);
         arrays.register(RLE::ID, RLE);
-        arrays.register(Sequence::ID, Sequence);
         arrays.register(Sparse::ID, Sparse);
         arrays.register(ZigZag::ID, ZigZag);
         #[cfg(feature = "zstd")]
@@ -187,5 +185,6 @@ pub fn register_default_encodings(session: &mut VortexSession) {
     // Eventually all encodings crates should expose an initialize function. For now it's only
     // a few of them.
     vortex_alp::initialize(session);
-    vortex_runend::initialize(session)
+    vortex_runend::initialize(session);
+    vortex_sequence::initialize(session);
 }

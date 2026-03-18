@@ -26,12 +26,22 @@ pub mod _benchmarking {
     use super::*;
 }
 
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
     session.arrays().register(RunEnd::ID, RunEnd);
+
+    // Register the RunEnd-specific min/max aggregate kernel.
+    session.aggregate_fns().register_aggregate_kernel(
+        RunEnd::ID,
+        Some(MinMax.id()),
+        &compute::min_max::RunEndMinMaxKernel,
+    );
 }
 
 #[cfg(test)]

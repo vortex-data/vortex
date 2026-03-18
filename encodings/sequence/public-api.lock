@@ -158,4 +158,6 @@ pub vortex_sequence::SequenceArrayParts::nullability: vortex_array::dtype::nulla
 
 pub vortex_sequence::SequenceArrayParts::ptype: vortex_array::dtype::ptype::PType
 
+pub fn vortex_sequence::initialize(session: &mut vortex_session::VortexSession)
+
 pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

@@ -154,7 +154,8 @@ impl MinMaxPartial {
     }
 }
 
-fn make_struct_dtype(element_dtype: &DType) -> DType {
+/// Creates the struct dtype `{min: T, max: T}` (nullable) used for min/max aggregate results.
+pub fn make_struct_dtype(element_dtype: &DType) -> DType {
     DType::Struct(
         StructFields::new(
             NAMES.clone(),
