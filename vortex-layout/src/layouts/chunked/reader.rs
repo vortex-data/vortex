@@ -7,7 +7,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
