@@ -2,15 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
+use std::future;
 use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
@@ -293,9 +296,7 @@ impl LayoutReader for ChunkedReader {
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
         if row_range.is_empty() {
-            return Ok(
-                async move { Ok(ChunkedArray::try_new(vec![], dtype)?.into_array()) }.boxed(),
-            );
+            return Ok(future::ready(Ok(Canonical::empty(&dtype).into_array())).boxed());
         }
 
         let mut chunk_evals = vec![];
