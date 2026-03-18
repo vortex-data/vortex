@@ -748,7 +748,10 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           targets: "wasm32-wasip1"
       - name: Setup Wasmer
-        uses: wasmerio/setup-wasmer@v3.1
+        shell: bash
+        run: |
+          curl https://get.wasmer.io -sSfL | sh
+          echo "$HOME/.wasmer/bin" >> $GITHUB_PATH
       - run: cargo build --target wasm32-wasip1
         working-directory: ./wasm-test
       - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
