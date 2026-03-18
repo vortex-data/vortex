@@ -9,6 +9,7 @@ use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -187,16 +188,9 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
 
     let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
 
-    // Equality and inequality can be determined without `partial_cmp`.
-    match operator {
-        CompareOperator::Eq => return Ok(Scalar::bool(lhs == rhs, nullability)),
-        CompareOperator::NotEq => return Ok(Scalar::bool(lhs != rhs, nullability)),
-        _ => {}
-    }
-
-    // We do this instead of `<` and `>` to ensure we do not lose a type mismatch error.
+    // We use `partial_cmp` to ensure we do not lose a type mismatch error.
     let ordering = lhs.partial_cmp(rhs).ok_or_else(|| {
-        vortex_error::vortex_err!(
+        vortex_err!(
             "Cannot compare scalars with incompatible types: {} and {}",
             lhs.dtype(),
             rhs.dtype()
@@ -204,12 +198,12 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
     })?;
 
     let b = match operator {
+        CompareOperator::Eq => ordering.is_eq(),
+        CompareOperator::NotEq => ordering.is_ne(),
         CompareOperator::Gt => ordering.is_gt(),
         CompareOperator::Gte => ordering.is_ge(),
         CompareOperator::Lt => ordering.is_lt(),
         CompareOperator::Lte => ordering.is_le(),
-        // Already handled above.
-        CompareOperator::Eq | CompareOperator::NotEq => unreachable!(),
     };
 
     Ok(Scalar::bool(b, nullability))
@@ -275,6 +269,7 @@ mod tests {
     use crate::extension::datetime::TimestampOptions;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::binary::compare::ConstantArray;
+    use crate::scalar_fn::fns::binary::scalar_cmp;
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::test_harness::to_int_indices;
@@ -523,26 +518,12 @@ mod tests {
         );
 
         // Ordering comparisons must error on incompatible types.
-        assert!(super::scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Gt).is_err());
-        assert!(super::scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Lt).is_err());
-        assert!(super::scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Gte).is_err());
-        assert!(super::scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Lte).is_err());
-
-        // Equality comparisons should succeed (and return false since the types differ).
-        assert_eq!(
-            super::scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Eq)
-                .unwrap()
-                .as_bool()
-                .value(),
-            Some(false),
-        );
-        assert_eq!(
-            super::scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::NotEq)
-                .unwrap()
-                .as_bool()
-                .value(),
-            Some(true),
-        );
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Gt).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Lt).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Gte).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Lte).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Eq).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::NotEq).is_err());
     }
 
     #[test]
