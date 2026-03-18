@@ -14,18 +14,90 @@ use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
+use vortex_array::arrays::varbinview::build_views::build_views;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
+use vortex_buffer::ByteBufferMut;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_compress_iter;
 use vortex_fsst::fsst_train_compressor;
 use vortex_session::VortexSession;
+
+// --- Decompress component isolation benchmarks ---
+// These benchmarks decompose the full FSST decompress pipeline into its parts:
+//   raw_decompress_only: just the fsst-rs decompressor (no allocation, no view building)
+//   view_build_only: just the view construction loop (no decompression)
+
+const COMPONENT_ARGS: &[(usize, usize, u8)] = &[(10_000, 16, 4), (10_000, 64, 4), (10_000, 256, 4)];
+
+fn build_single_fsst(string_count: usize, avg_len: usize, unique_chars: u8) -> FSSTArray {
+    let mut rng = StdRng::seed_from_u64(42);
+    let strings: Vec<Option<Box<[u8]>>> = (0..string_count)
+        .map(|_| {
+            let len = avg_len * rng.random_range(80..=120) / 100;
+            let s: Vec<u8> = (0..len)
+                .map(|_| b'a' + rng.random_range(0..unique_chars))
+                .collect();
+            Some(s.into_boxed_slice())
+        })
+        .collect();
+    let array = VarBinArray::from_iter(strings, DType::Binary(Nullability::NonNullable));
+    let compressor = fsst_train_compressor(&array);
+    fsst_compress(array, &compressor)
+}
+
+#[divan::bench(args = COMPONENT_ARGS)]
+fn raw_decompress_only(
+    bencher: Bencher,
+    &(string_count, avg_len, unique_chars): &(usize, usize, u8),
+) {
+    let encoded = build_single_fsst(string_count, avg_len, unique_chars);
+    let compressed = encoded.codes().sliced_bytes();
+    let decompressor = encoded.decompressor();
+    let lens = encoded
+        .uncompressed_lengths()
+        .as_opt::<Primitive>()
+        .unwrap();
+    #[allow(clippy::cast_sign_loss)]
+    let total_size: usize = lens.as_slice::<i32>().iter().map(|&x| x as usize).sum();
+
+    bencher
+        .with_inputs(|| ByteBufferMut::with_capacity(total_size + 7))
+        .bench_refs(|buf| {
+            let len = decompressor.decompress_into(compressed.as_slice(), buf.spare_capacity_mut());
+            unsafe { buf.set_len(len) };
+        })
+}
+
+#[divan::bench(args = COMPONENT_ARGS)]
+fn view_build_only(bencher: Bencher, &(string_count, avg_len, unique_chars): &(usize, usize, u8)) {
+    let encoded = build_single_fsst(string_count, avg_len, unique_chars);
+    let compressed = encoded.codes().sliced_bytes();
+    let decompressor = encoded.decompressor();
+    let lens = encoded
+        .uncompressed_lengths()
+        .as_opt::<Primitive>()
+        .unwrap();
+    let lens_slice = lens.as_slice::<i32>();
+    #[allow(clippy::cast_sign_loss)]
+    let total_size: usize = lens_slice.iter().map(|&x| x as usize).sum();
+
+    let mut buf = ByteBufferMut::with_capacity(total_size + 7);
+    let len = decompressor.decompress_into(compressed.as_slice(), buf.spare_capacity_mut());
+    unsafe { buf.set_len(len) };
+
+    bencher
+        .with_inputs(|| buf.clone())
+        .bench_refs(|buf| build_views(0, MAX_BUFFER_LEN, std::mem::take(buf), lens_slice))
+}
 
 fn main() {
     warm_up_vtables();
