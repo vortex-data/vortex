@@ -79,6 +79,7 @@ examples:
 
   # Check all versions, or specific ones
   uv run compat.py check
+  uv run compat.py check --mode last
   uv run compat.py check --versions 0.62.0,0.63.0
 
   # Inspect store contents
@@ -541,10 +542,16 @@ def cmd_check(args: argparse.Namespace) -> None:
     """Download fixtures from store and check with Rust binary."""
     store = _parse_store(args.store)
 
+    if args.versions and args.mode != "all":
+        print("error: --versions and --mode are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+
     if args.versions:
         versions = [v.strip() for v in args.versions.split(",")]
     else:
         versions = store.list_versions()
+        if args.mode == "last" and versions:
+            versions = versions[-1:]
 
     if not versions:
         _info("no versions found in store")
@@ -902,6 +909,7 @@ def main() -> None:
         epilog=(
             "examples:\n"
             "  uv run compat.py check\n"
+            "  uv run compat.py check --mode last\n"
             "  uv run compat.py check --versions 0.62.0,0.63.0\n"
             "  uv run compat.py check --store /tmp/store"
         ),
@@ -910,7 +918,14 @@ def main() -> None:
     p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
     p.add_argument(
         "--versions",
-        help="Comma-separated versions to check (default: all)",
+        help="Comma-separated versions to check (mutually exclusive with --mode)",
+    )
+    p.add_argument(
+        "--mode",
+        choices=["all", "last"],
+        default="all",
+        help="Which versions to check: 'all' (default) or 'last' (most recent only). "
+        "Mutually exclusive with --versions.",
     )
 
     # -- list --
