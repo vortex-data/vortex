@@ -160,15 +160,15 @@ impl AggregateFnVTable for Sum {
                 *acc += val;
                 false
             }
-            SumState::Decimal(acc) => {
+            SumState::Decimal { value, dtype } => {
                 let val = other
                     .as_decimal()
                     .decimal_value()
                     .vortex_expect("checked non-null");
-                match acc.checked_add(&val) {
+                match value.checked_add(&val) {
                     Some(r) => {
-                        *acc = r;
-                        false
+                        *value = r;
+                        !value.fits_in_precision(*dtype)
                     }
                     None => true,
                 }
@@ -186,12 +186,12 @@ impl AggregateFnVTable for Sum {
             Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Float(v)) => Scalar::primitive(*v, Nullability::Nullable),
-            Some(SumState::Decimal(v)) => {
+            Some(SumState::Decimal { value, .. }) => {
                 let decimal_dtype = *partial
                     .return_dtype
                     .as_decimal_opt()
                     .vortex_expect("return dtype must be decimal");
-                Scalar::decimal(*v, decimal_dtype, Nullability::Nullable)
+                Scalar::decimal(*value, decimal_dtype, Nullability::Nullable)
             }
         };
 
@@ -271,7 +271,10 @@ pub enum SumState {
     Unsigned(u64),
     Signed(i64),
     Float(f64),
-    Decimal(DecimalValue),
+    Decimal {
+        value: DecimalValue,
+        dtype: DecimalDType,
+    },
 }
 
 fn make_zero_state(return_dtype: &DType) -> SumState {
@@ -281,7 +284,10 @@ fn make_zero_state(return_dtype: &DType) -> SumState {
             PType::I8 | PType::I16 | PType::I32 | PType::I64 => SumState::Signed(0),
             PType::F16 | PType::F32 | PType::F64 => SumState::Float(0.0),
         },
-        DType::Decimal(decimal, _) => SumState::Decimal(DecimalValue::zero(decimal)),
+        DType::Decimal(decimal, _) => SumState::Decimal {
+            value: DecimalValue::zero(decimal),
+            dtype: *decimal,
+        },
         _ => vortex_panic!("Unsupported sum type"),
     }
 }
