@@ -39,6 +39,35 @@ mod copy;
 #[cfg(test)]
 mod e2e_test;
 
+use core::alloc::{GlobalAlloc, Layout};
+use core::ffi::c_void;
+use core::ptr;
+
+unsafe extern "C-unwind" {
+    fn duckdb_malloc(size: usize) -> *mut c_void;
+    fn duckdb_free(ptr: *mut c_void);
+}
+
+struct DuckAllocator;
+
+unsafe impl GlobalAlloc for DuckAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let ptr = unsafe { duckdb_malloc(layout.size()) };
+        if ptr.is_null() {
+            ptr::null_mut()
+        } else {
+            ptr as *mut u8
+        }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        unsafe { duckdb_free(ptr as *mut c_void) }
+    }
+}
+
+#[global_allocator]
+static GLOBAL: DuckAllocator = DuckAllocator;
+
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 static SESSION: LazyLock<VortexSession> =

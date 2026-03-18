@@ -14,6 +14,10 @@ extern "C" {
 #include "duckdb.h"
 
 
+extern void *duckdb_malloc(uintptr_t size);
+
+extern void duckdb_free(void *ptr);
+
 /**
  * Global symbol visibility in the Vortex extension:
  * - Rust functions use C ABI with "_rust" suffix (e.g., vortex_init_rust)
