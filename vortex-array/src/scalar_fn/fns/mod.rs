@@ -19,5 +19,4 @@ pub mod operators;
 pub mod pack;
 pub mod root;
 pub mod select;
-pub mod variant_get;
 pub mod zip;

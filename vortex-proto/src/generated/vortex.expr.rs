@@ -155,9 +155,3 @@ pub struct CaseWhenOpts {
     #[prost(uint32, tag = "1")]
     pub num_children: u32,
 }
-/// Options for `vortex.variant_get`
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct VariantGetOpts {
-    #[prost(message, optional, tag = "1")]
-    pub dtype: ::core::option::Option<super::dtype::DType>,
-}
