@@ -359,8 +359,6 @@ jobs:
         if: ${{ matrix.suite == 'tests' }}
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
       - name: Generate coverage report
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
