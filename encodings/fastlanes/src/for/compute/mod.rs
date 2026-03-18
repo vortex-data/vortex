@@ -3,7 +3,7 @@
 
 mod cast;
 mod compare;
-mod is_constant;
+pub(crate) mod is_constant;
 mod is_sorted;
 
 use vortex_array::ArrayRef;

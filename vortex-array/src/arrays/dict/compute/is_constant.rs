@@ -3,22 +3,69 @@
 
 use vortex_error::VortexResult;
 
-use super::Dict;
-use super::DictArray;
-use crate::compute::IsConstantKernel;
-use crate::compute::IsConstantKernelAdapter;
-use crate::compute::IsConstantOpts;
-use crate::compute::is_constant_opts;
-use crate::register_kernel;
+use crate::ArrayRef;
+use crate::DynArray;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::Dict;
+use crate::scalar::Scalar;
 
-impl IsConstantKernel for Dict {
-    fn is_constant(&self, array: &DictArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
-        if is_constant_opts(array.codes(), opts)? == Some(true) {
-            return Ok(Some(true));
+/// Dict-specific is_constant kernel.
+///
+/// If codes are constant, the whole array is constant.
+/// Otherwise, check the values array.
+#[derive(Debug)]
+pub(crate) struct DictIsConstantKernel;
+
+impl DynAggregateKernel for DictIsConstantKernel {
+    fn aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<IsConstant>() {
+            return Ok(None);
         }
 
-        is_constant_opts(array.values(), opts)
+        let Some(dict) = batch.as_opt::<Dict>() else {
+            return Ok(None);
+        };
+
+        let result = if is_constant(dict.codes(), ctx)? {
+            true
+        } else {
+            is_constant(dict.values(), ctx)?
+        };
+
+        // Return in the partial dtype format: struct {is_constant, value}
+        // We use the first scalar as the representative value.
+        let partial_dtype =
+            crate::aggregate_fn::fns::is_constant::make_is_constant_partial_dtype(batch.dtype());
+        if result {
+            let first_value = if batch.is_empty() {
+                return Ok(Some(Scalar::null(partial_dtype)));
+            } else {
+                batch.scalar_at(0)?.into_nullable()
+            };
+            Ok(Some(Scalar::struct_(
+                partial_dtype,
+                vec![
+                    Scalar::bool(true, crate::dtype::Nullability::NonNullable),
+                    first_value,
+                ],
+            )))
+        } else {
+            Ok(Some(Scalar::struct_(
+                partial_dtype,
+                vec![
+                    Scalar::bool(false, crate::dtype::Nullability::NonNullable),
+                    Scalar::null(batch.dtype().as_nullable()),
+                ],
+            )))
+        }
     }
 }
-
-register_kernel!(IsConstantKernelAdapter(Dict).lift());

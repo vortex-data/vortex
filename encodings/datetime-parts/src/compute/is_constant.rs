@@ -1,45 +1,65 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::IsConstantKernel;
-use vortex_array::compute::IsConstantKernelAdapter;
-use vortex_array::compute::IsConstantOpts;
-use vortex_array::compute::is_constant_opts;
-use vortex_array::register_kernel;
+use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::aggregate_fn::fns::is_constant::make_is_constant_partial_dtype;
+use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
 
-impl IsConstantKernel for DateTimeParts {
-    fn is_constant(
+/// DateTimeParts-specific is_constant kernel.
+///
+/// Checks each component (days, seconds, subseconds) individually.
+#[derive(Debug)]
+pub(crate) struct DateTimePartsIsConstantKernel;
+
+impl DynAggregateKernel for DateTimePartsIsConstantKernel {
+    fn aggregate(
         &self,
-        array: &DateTimePartsArray,
-        opts: &IsConstantOpts,
-    ) -> VortexResult<Option<bool>> {
-        let Some(days) = is_constant_opts(array.days(), opts)? else {
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<IsConstant>() {
             return Ok(None);
-        };
-        if !days {
-            return Ok(Some(false));
         }
 
-        let Some(seconds) = is_constant_opts(array.seconds(), opts)? else {
+        let Some(array) = batch.as_opt::<DateTimeParts>() else {
             return Ok(None);
         };
-        if !seconds {
-            return Ok(Some(false));
-        }
 
-        let Some(subseconds) = is_constant_opts(array.subseconds(), opts)? else {
-            return Ok(None);
-        };
-        if !subseconds {
-            return Ok(Some(false));
-        }
+        let result = is_constant(array.days(), ctx)?
+            && is_constant(array.seconds(), ctx)?
+            && is_constant(array.subseconds(), ctx)?;
 
-        Ok(Some(true))
+        let partial_dtype = make_is_constant_partial_dtype(batch.dtype());
+
+        if result {
+            let first_value = if batch.is_empty() {
+                return Ok(Some(Scalar::null(partial_dtype)));
+            } else {
+                batch.scalar_at(0)?.into_nullable()
+            };
+            Ok(Some(Scalar::struct_(
+                partial_dtype,
+                vec![Scalar::bool(true, Nullability::NonNullable), first_value],
+            )))
+        } else {
+            Ok(Some(Scalar::struct_(
+                partial_dtype,
+                vec![
+                    Scalar::bool(false, Nullability::NonNullable),
+                    Scalar::null(batch.dtype().as_nullable()),
+                ],
+            )))
+        }
     }
 }
-
-register_kernel!(IsConstantKernelAdapter(DateTimeParts).lift());

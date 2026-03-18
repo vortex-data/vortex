@@ -16,6 +16,34 @@ mod rle;
 
 pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 
+use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
+use r#for::compute::is_constant::FoRIsConstantKernel;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
+/// Initialize fastlanes encodings in the given session.
+pub fn initialize(session: &mut VortexSession) {
+    session.arrays().register(BitPacked::ID, BitPacked);
+    session.arrays().register(Delta::ID, Delta);
+    session.arrays().register(FoR::ID, FoR);
+    session.arrays().register(RLE::ID, RLE);
+
+    // Register the encoding-specific aggregate kernels.
+    session.aggregate_fns().register_aggregate_kernel(
+        BitPacked::ID,
+        Some(IsConstant.id()),
+        &BitPackedIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        FoR::ID,
+        Some(IsConstant.id()),
+        &FoRIsConstantKernel,
+    );
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::LazyLock;

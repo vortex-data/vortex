@@ -4,7 +4,6 @@
 mod cast;
 mod fill_null;
 pub(crate) mod filter;
-mod is_constant;
 mod is_sorted;
 mod mask;
 pub mod rules;

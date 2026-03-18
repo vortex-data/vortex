@@ -2,263 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::LazyLock;
 
-use arcref::ArcRef;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
-use crate::IntoArray as _;
-use crate::arrays::Constant;
-use crate::arrays::Null;
-use crate::compute::ComputeFn;
-use crate::compute::ComputeFnVTable;
-use crate::compute::InvocationArgs;
-use crate::compute::Kernel;
-use crate::compute::Options;
-use crate::compute::Output;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
-use crate::scalar::Scalar;
-use crate::vtable::VTable;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 
-static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("is_constant".into(), ArcRef::new_ref(&IsConstant));
-    for kernel in inventory::iter::<IsConstantKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
-pub(crate) fn warm_up_vtable() -> usize {
-    IS_CONSTANT_FN.kernels().len()
-}
-
-/// Computes whether an array has constant values. If the array's encoding doesn't implement the
-/// relevant VTable, it'll try and canonicalize in order to make a determination.
+/// Computes whether an array has constant values.
 ///
-/// An array is constant IFF at least one of the following conditions apply:
-/// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 1. It's encoded as a [`crate::arrays::ConstantArray`] or [`crate::arrays::NullArray`]
-/// 1. Has an exact statistic attached to it, saying its constant.
-/// 1. Is all invalid.
-/// 1. Is all valid AND has minimum and maximum statistics that are equal.
-///
-/// If the array has some null values but is not all null, it'll never be constant.
-///
-/// Returns `Ok(None)` if we could not determine whether the array is constant, e.g. if
-/// canonicalization is disabled and the no kernel exists for the array's encoding.
+/// **Deprecated**: Use [`crate::aggregate_fn::fns::is_constant::is_constant`] instead.
+#[deprecated(note = "Use crate::aggregate_fn::fns::is_constant::is_constant instead")]
 pub fn is_constant(array: &ArrayRef) -> VortexResult<Option<bool>> {
-    let opts = IsConstantOpts::default();
-    is_constant_opts(array, &opts)
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    Ok(Some(crate::aggregate_fn::fns::is_constant::is_constant(
+        array, &mut ctx,
+    )?))
 }
 
-/// Computes whether an array has constant values. Configurable by [`IsConstantOpts`].
+/// Computes whether an array has constant values.
 ///
-/// Please see [`is_constant`] for a more detailed explanation of its behavior.
-pub fn is_constant_opts(array: &ArrayRef, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
-    Ok(IS_CONSTANT_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into()],
-            options,
-        })?
-        .unwrap_scalar()?
-        .as_bool()
-        .value())
-}
-
-struct IsConstant;
-
-impl ComputeFnVTable for IsConstant {
-    fn invoke(
-        &self,
-        args: &InvocationArgs,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output> {
-        let IsConstantArgs { array, options } = IsConstantArgs::try_from(args)?;
-        let array = array.to_array();
-
-        // We try and rely on some easy-to-get stats
-        if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-            let scalar: Scalar = Some(value).into();
-            return Ok(scalar.into());
-        }
-
-        let value = is_constant_impl(&array, options, kernels)?;
-
-        if options.cost == Cost::Canonicalize {
-            // When we run linear canonicalize, there we must always return an exact answer.
-            assert!(
-                value.is_some(),
-                "is constant in array {array} canonicalize returned None"
-            );
-        }
-
-        // Only if we made a determination do we update the stats.
-        if let Some(value) = value {
-            array
-                .statistics()
-                .set(Stat::IsConstant, Precision::Exact(value.into()));
-        }
-
-        let scalar: Scalar = value.into();
-        Ok(scalar.into())
-    }
-
-    fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
-        // We always return a nullable boolean where `null` indicates we couldn't determine
-        // whether the array is constant.
-        Ok(DType::Bool(Nullability::Nullable))
-    }
-
-    fn return_len(&self, _args: &InvocationArgs) -> VortexResult<usize> {
-        Ok(1)
-    }
-
-    fn is_elementwise(&self) -> bool {
-        false
-    }
-}
-
-fn is_constant_impl(
-    array: &ArrayRef,
-    options: &IsConstantOpts,
-    kernels: &[ArcRef<dyn Kernel>],
-) -> VortexResult<Option<bool>> {
-    match array.len() {
-        // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
-        0 => return Ok(Some(false)),
-        // Array of length 1 is always constant.
-        1 => return Ok(Some(true)),
-        _ => {}
-    }
-
-    // Constant and null arrays are always constant
-    if array.is::<Constant>() || array.is::<Null>() {
-        return Ok(Some(true));
-    }
-
-    let all_invalid = array.all_invalid()?;
-    if all_invalid {
-        return Ok(Some(true));
-    }
-
-    let all_valid = array.all_valid()?;
-
-    // If we have some nulls, array can't be constant
-    if !all_valid && !all_invalid {
-        return Ok(Some(false));
-    }
-
-    // We already know here that the array is all valid, so we check for min/max stats.
-    let min = array.statistics().get(Stat::Min);
-    let max = array.statistics().get(Stat::Max);
-
-    if let Some((min, max)) = min.zip(max) {
-        // min/max are equal and exact and there are no NaNs
-        if min.is_exact()
-            && min == max
-            && (Stat::NaNCount.dtype(array.dtype()).is_none()
-                || array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64)))
-        {
-            return Ok(Some(true));
-        }
-    }
-
-    assert!(
-        all_valid,
-        "All values must be valid as an invariant of the VTable."
-    );
-    let args = InvocationArgs {
-        inputs: &[array.into()],
-        options,
-    };
-    for kernel in kernels {
-        if let Some(output) = kernel.invoke(&args)? {
-            return Ok(output.unwrap_scalar()?.as_bool().value());
-        }
-    }
-
-    tracing::debug!(
-        "No is_constant implementation found for {}",
-        array.encoding_id()
-    );
-
-    if options.cost == Cost::Canonicalize && !array.is_canonical() {
-        let array = array.to_canonical()?.into_array();
-        let is_constant = is_constant_opts(&array, options)?;
-        return Ok(is_constant);
-    }
-
-    // Otherwise, we cannot determine if the array is constant.
-    Ok(None)
-}
-
-pub struct IsConstantKernelRef(ArcRef<dyn Kernel>);
-inventory::collect!(IsConstantKernelRef);
-
-pub trait IsConstantKernel: VTable {
-    /// # Preconditions
-    ///
-    /// * All values are valid
-    /// * array.len() > 1
-    ///
-    /// Returns `Ok(None)` to signal we couldn't make an exact determination.
-    fn is_constant(&self, array: &Self::Array, opts: &IsConstantOpts)
-    -> VortexResult<Option<bool>>;
-}
-
-#[derive(Debug)]
-pub struct IsConstantKernelAdapter<V: VTable>(pub V);
-
-impl<V: VTable + IsConstantKernel> IsConstantKernelAdapter<V> {
-    pub const fn lift(&'static self) -> IsConstantKernelRef {
-        IsConstantKernelRef(ArcRef::new_ref(self))
-    }
-}
-
-impl<V: VTable + IsConstantKernel> Kernel for IsConstantKernelAdapter<V> {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let args = IsConstantArgs::try_from(args)?;
-        let Some(array) = args.array.as_opt::<V>() else {
-            return Ok(None);
-        };
-        let is_constant = V::is_constant(&self.0, array, args.options)?;
-        let scalar: Scalar = is_constant.into();
-        Ok(Some(scalar.into()))
-    }
-}
-
-struct IsConstantArgs<'a> {
-    array: &'a dyn DynArray,
-    options: &'a IsConstantOpts,
-}
-
-impl<'a> TryFrom<&InvocationArgs<'a>> for IsConstantArgs<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
-        if value.inputs.len() != 1 {
-            vortex_bail!("Expected 1 input, found {}", value.inputs.len());
-        }
-        let array = value.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
-        let options = value
-            .options
-            .as_any()
-            .downcast_ref::<IsConstantOpts>()
-            .ok_or_else(|| vortex_err!("Expected options to be of type IsConstantOpts"))?;
-        Ok(Self { array, options })
-    }
+/// **Deprecated**: Use [`crate::aggregate_fn::fns::is_constant::is_constant`] instead.
+#[deprecated(note = "Use crate::aggregate_fn::fns::is_constant::is_constant instead")]
+pub fn is_constant_opts(array: &ArrayRef, _opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    Ok(Some(crate::aggregate_fn::fns::is_constant::is_constant(
+        array, &mut ctx,
+    )?))
 }
 
 /// When calling `is_constant` the children are all checked for constantness.
@@ -269,11 +39,8 @@ pub enum Cost {
     /// Only apply constant time computation to estimate constantness.
     Negligible,
     /// Allow the encoding to do a linear amount of work to determine is constant.
-    /// Each encoding should implement short-circuiting make the common case runtime well below
-    /// a linear scan.
     Specialized,
     /// Same as linear, but when necessary canonicalize the array and check is constant.
-    /// This *must* always return a known answer.
     Canonicalize,
 }
 
@@ -292,7 +59,7 @@ impl Default for IsConstantOpts {
     }
 }
 
-impl Options for IsConstantOpts {
+impl super::Options for IsConstantOpts {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -301,50 +68,5 @@ impl Options for IsConstantOpts {
 impl IsConstantOpts {
     pub fn is_negligible_cost(&self) -> bool {
         self.cost == Cost::Negligible
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_buffer::buffer;
-
-    use crate::IntoArray as _;
-    use crate::arrays::PrimitiveArray;
-    use crate::compute::is_constant;
-    use crate::expr::stats::Stat;
-
-    #[test]
-    fn is_constant_min_max_no_nan() {
-        let arr = buffer![0, 1].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max])
-            .unwrap();
-        assert!(!is_constant(&arr).unwrap().unwrap_or_default());
-
-        let arr = buffer![0, 0].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max])
-            .unwrap();
-        assert!(is_constant(&arr).unwrap().unwrap_or_default());
-
-        let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]).into_array();
-        assert!(is_constant(&arr).unwrap().unwrap_or_default());
-    }
-
-    #[test]
-    fn is_constant_min_max_with_nan() {
-        let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]).into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max])
-            .unwrap();
-        assert!(!is_constant(&arr).unwrap().unwrap_or_default());
-
-        let arr =
-            PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)])
-                .into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max])
-            .unwrap();
-        assert!(is_constant(&arr).unwrap().unwrap_or_default());
     }
 }

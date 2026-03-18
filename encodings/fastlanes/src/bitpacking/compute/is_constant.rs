@@ -5,40 +5,74 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
+use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::make_is_constant_partial_dtype;
+use vortex_array::aggregate_fn::fns::is_constant::primitive::IS_CONST_LANE_WIDTH;
+use vortex_array::aggregate_fn::fns::is_constant::primitive::compute_is_constant;
+use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::IS_CONST_LANE_WIDTH;
-use vortex_array::arrays::primitive::compute_is_constant;
-use vortex_array::compute::IsConstantKernel;
-use vortex_array::compute::IsConstantKernelAdapter;
-use vortex_array::compute::IsConstantOpts;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::register_kernel;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
-impl IsConstantKernel for BitPacked {
-    fn is_constant(
+/// BitPacked-specific is_constant kernel with SIMD support.
+#[derive(Debug)]
+pub(crate) struct BitPackedIsConstantKernel;
+
+impl DynAggregateKernel for BitPackedIsConstantKernel {
+    fn aggregate(
         &self,
-        array: &BitPackedArray,
-        opts: &IsConstantOpts,
-    ) -> VortexResult<Option<bool>> {
-        if opts.is_negligible_cost() {
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<IsConstant>() {
             return Ok(None);
         }
-        match_each_integer_ptype!(array.ptype(), |P| {
-            bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)
-        })
-        .map(Some)
+
+        let Some(array) = batch.as_opt::<BitPacked>() else {
+            return Ok(None);
+        };
+
+        let result = match_each_integer_ptype!(array.ptype(), |P| {
+            bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)?
+        });
+
+        let partial_dtype = make_is_constant_partial_dtype(batch.dtype());
+
+        if result {
+            let first_value = if batch.is_empty() {
+                return Ok(Some(Scalar::null(partial_dtype)));
+            } else {
+                batch.scalar_at(0)?.into_nullable()
+            };
+            Ok(Some(Scalar::struct_(
+                partial_dtype,
+                vec![Scalar::bool(true, Nullability::NonNullable), first_value],
+            )))
+        } else {
+            Ok(Some(Scalar::struct_(
+                partial_dtype,
+                vec![
+                    Scalar::bool(false, Nullability::NonNullable),
+                    Scalar::null(batch.dtype().as_nullable()),
+                ],
+            )))
+        }
     }
 }
-
-register_kernel!(IsConstantKernelAdapter(BitPacked).lift());
 
 fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: &BitPackedArray,
@@ -170,14 +204,19 @@ fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::compute::is_constant;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::BitPackedArray;
 
     #[test]
-    fn is_constant_with_patches() {
-        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
-        assert!(is_constant(&array.into_array()).unwrap().unwrap());
+    fn is_constant_with_patches() -> VortexResult<()> {
+        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert!(is_constant(&array.into_array(), &mut ctx)?);
+        Ok(())
     }
 }

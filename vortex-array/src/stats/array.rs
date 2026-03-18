@@ -17,12 +17,12 @@ use super::TypedStatsSetRef;
 use crate::DynArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::builders::builder_with_capacity;
-use crate::compute::is_constant;
 use crate::compute::is_sorted;
 use crate::compute::is_strict_sorted;
 use crate::expr::stats::Precision;
@@ -170,7 +170,7 @@ impl StatsSetRef<'_> {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    is_constant(&array_ref)?.map(|v| v.into())
+                    Some(is_constant(&array_ref, &mut ctx)?.into())
                 }
             }
             Stat::IsSorted => is_sorted(&array_ref)?.map(|v| v.into()),
