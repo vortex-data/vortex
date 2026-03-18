@@ -18,6 +18,7 @@ mod tests;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::mem::size_of;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 use std::sync::Arc;
@@ -379,6 +380,22 @@ impl Mask {
             Self::AllTrue(len) => *len,
             Self::AllFalse(_) => 0,
             Self::Values(values) => values.true_count,
+        }
+    }
+
+    /// Returns an estimate of the in-memory footprint needed to hold this selection.
+    ///
+    /// This prefers the smaller of a dense bitset representation and an index-list
+    /// representation because the scheduler only needs an approximate holding cost.
+    #[inline]
+    pub fn estimated_selection_bytes(&self) -> usize {
+        match self {
+            Self::AllTrue(_) | Self::AllFalse(_) => 0,
+            Self::Values(values) => {
+                let bitset_bytes = values.len().div_ceil(8);
+                let index_bytes = values.true_count.saturating_mul(size_of::<usize>());
+                bitset_bytes.min(index_bytes)
+            }
         }
     }
 

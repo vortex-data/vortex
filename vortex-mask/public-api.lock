@@ -48,6 +48,8 @@ pub fn vortex_mask::Mask::concat<'a>(masks: impl core::iter::traits::iterator::I
 
 pub fn vortex_mask::Mask::density(&self) -> f64
 
+pub fn vortex_mask::Mask::estimated_selection_bytes(&self) -> usize
+
 pub fn vortex_mask::Mask::false_count(&self) -> usize
 
 pub fn vortex_mask::Mask::first(&self) -> core::option::Option<usize>

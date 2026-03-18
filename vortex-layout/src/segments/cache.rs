@@ -21,6 +21,7 @@ use vortex_metrics::MetricsRegistry;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::segments::record_segment_request;
 
 /// A cache for storing and retrieving individual segment data.
 #[async_trait]
@@ -136,7 +137,12 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
+    fn flush(&self) {
+        self.source.flush();
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
+        record_segment_request();
         let cache = self.cache.clone();
         let delegate = self.source.request(id);
 

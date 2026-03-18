@@ -39,6 +39,10 @@ pub enum ReadEvent {
     Request(ReadRequest),
     Polled(RequestId),
     Dropped(RequestId),
+    /// Signals that a logical batch of requests has been fully registered.
+    /// The driver promotes all registered-but-unpolled requests to polled status,
+    /// allowing the coalescer to form optimal reads over the entire batch.
+    BatchBoundary,
 }
 
 /// A [`SegmentSource`] for file-like IO.
@@ -134,6 +138,10 @@ impl FileSegmentSource {
 }
 
 impl SegmentSource for FileSegmentSource {
+    fn flush(&self) {
+        drop(self.events.unbounded_send(ReadEvent::BatchBoundary));
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileRead`], where
         // coalescing becomes effective prior to the future being polled.
@@ -232,14 +240,31 @@ impl Drop for ReadFuture {
 }
 
 pub struct RequestMetrics {
+    pub registered_requests: Counter,
+    pub polled_requests: Counter,
+    pub dropped_requests: Counter,
     pub individual_requests: Counter,
     pub coalesced_requests: Counter,
     pub num_requests_coalesced: Histogram,
+    pub batched_range_bytes: Histogram,
+    pub batched_payload_bytes: Histogram,
+    pub batched_registered_only_requests: Histogram,
+    pub batched_polled_requests: Histogram,
+    pub batched_skipped_max_size: Counter,
 }
 
 impl RequestMetrics {
     pub fn new(metrics_registry: &dyn MetricsRegistry, labels: Vec<Label>) -> Self {
         Self {
+            registered_requests: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .counter("io.requests.registered"),
+            polled_requests: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .counter("io.requests.polled"),
+            dropped_requests: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .counter("io.requests.dropped"),
             individual_requests: MetricBuilder::new(metrics_registry)
                 .add_labels(labels.clone())
                 .counter("io.requests.individual"),
@@ -247,8 +272,23 @@ impl RequestMetrics {
                 .add_labels(labels.clone())
                 .counter("io.requests.coalesced"),
             num_requests_coalesced: MetricBuilder::new(metrics_registry)
-                .add_labels(labels)
+                .add_labels(labels.clone())
                 .histogram("io.requests.coalesced.num_coalesced"),
+            batched_range_bytes: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .histogram("io.requests.batched.range_bytes"),
+            batched_payload_bytes: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .histogram("io.requests.batched.payload_bytes"),
+            batched_registered_only_requests: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .histogram("io.requests.batched.registered_only_requests"),
+            batched_polled_requests: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .histogram("io.requests.batched.polled_requests"),
+            batched_skipped_max_size: MetricBuilder::new(metrics_registry)
+                .add_labels(labels)
+                .counter("io.requests.batched.skipped_max_size"),
         }
     }
 }

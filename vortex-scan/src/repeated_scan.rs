@@ -22,15 +22,18 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
+use vortex_layout::segments::SegmentSource;
 use vortex_session::VortexSession;
 
+use crate::fetch_plan::DEFERRED_IN_FLIGHT_BUDGET_BYTES;
+use crate::fetch_plan::DEFERRED_WAIT_BUDGET_BYTES;
+use crate::fetch_plan::MaterializationPlan;
 use crate::filter::FilterExpr;
 use crate::selection::Selection;
 use crate::splits::Splits;
@@ -39,10 +42,10 @@ use crate::tasks::TaskContext;
 use crate::tasks::filter_split;
 use crate::tasks::project_filtered_split;
 use crate::tasks::split_exec;
+use crate::scan_metrics::ScanMetrics;
 
 const ADAPTIVE_SELECTIVITY_SAMPLE_SPLITS: usize = 4;
 const HIGH_SURVIVOR_RATIO: f64 = 0.75;
-const MAX_PROJECTION_SUBSPLITS_PER_SPLIT: usize = 8;
 const IMMEDIATE_PROJECTION_FILTER_AHEAD_MULTIPLIER: usize = 2;
 
 fn should_prefer_immediate_projection(
@@ -80,12 +83,9 @@ pub struct RepeatedScan<A: 'static + Send> {
     /// The dtype of the projected arrays.
     dtype: DType,
     projection_field_mask: Vec<FieldMask>,
-    /// Preferred lower bound for rows accumulated before starting projection.
-    target_output_rows: usize,
-    /// Preferred lower bound for projected payload bytes accumulated before starting projection.
-    target_output_bytes: usize,
-    /// Estimated incremental projection payload bytes per surviving row.
-    projection_row_cost_bytes: usize,
+    materialization_plan: MaterializationPlan,
+    scan_metrics: Option<Arc<ScanMetrics>>,
+    segment_source: Option<Arc<dyn SegmentSource>>,
 }
 
 impl RepeatedScan<ArrayRef> {
@@ -122,7 +122,10 @@ impl<A: 'static + Send> RepeatedScan<A> {
             reader: self.layout_reader.clone(),
             projection: self.projection.clone(),
             projection_field_mask: self.projection_field_mask.clone(),
+            materialization_plan: self.materialization_plan.clone(),
+            scan_metrics: self.scan_metrics.clone(),
             mapper: self.map_fn.clone(),
+            segment_source: self.segment_source.clone(),
         })
     }
 
@@ -218,9 +221,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
         limit: Option<u64>,
         dtype: DType,
         projection_field_mask: Vec<FieldMask>,
-        target_output_rows: usize,
-        target_output_bytes: usize,
-        projection_row_cost_bytes: usize,
+        materialization_plan: MaterializationPlan,
+        scan_metrics: Option<Arc<ScanMetrics>>,
+        segment_source: Option<Arc<dyn SegmentSource>>,
     ) -> Self {
         Self {
             session,
@@ -236,9 +239,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
             limit,
             dtype,
             projection_field_mask,
-            target_output_rows,
-            target_output_bytes,
-            projection_row_cost_bytes,
+            materialization_plan,
+            scan_metrics,
+            segment_source,
         }
     }
 
@@ -318,9 +321,6 @@ impl<A: 'static + Send> RepeatedScan<A> {
             ordered,
             handle,
             self.filter.is_some(),
-            self.target_output_rows,
-            self.target_output_bytes,
-            self.projection_row_cost_bytes,
         );
 
         Ok(stream::poll_fn(move |cx| staged.poll_next(cx)).boxed())
@@ -358,13 +358,13 @@ struct StagedSplitStream<A: 'static + Send> {
 }
 
 type FilterTaskResult = (usize, usize, VortexResult<Option<FilteredSplit>>);
-type ProjectionTaskResult<A> = (usize, usize, usize, VortexResult<A>);
+type ProjectionTaskResult<A> = (usize, usize, VortexResult<A>);
 
 struct FilterQueue {
     in_flight: FuturesUnordered<Task<FilterTaskResult>>,
     ready: BTreeMap<usize, FilteredSplit>,
-    ready_rows: usize,
-    ready_projection_bytes: usize,
+    waiting_selection_bytes: usize,
+    waiting_projection_bytes: usize,
 }
 
 impl FilterQueue {
@@ -372,85 +372,45 @@ impl FilterQueue {
         self.in_flight.len() + self.ready.len()
     }
 
-    fn push_ready(&mut self, idx: usize, filtered: FilteredSplit, row_cost_bytes: usize) {
-        let rows = filtered.mask.true_count();
-        self.ready_rows += rows;
-        self.ready_projection_bytes = self
-            .ready_projection_bytes
-            .saturating_add(rows.saturating_mul(row_cost_bytes));
+    fn push_ready(&mut self, idx: usize, filtered: FilteredSplit) {
+        self.waiting_selection_bytes = self
+            .waiting_selection_bytes
+            .saturating_add(filtered.selection_bytes_estimate);
+        self.waiting_projection_bytes = self
+            .waiting_projection_bytes
+            .saturating_add(filtered.estimated_projection_bytes);
         self.ready.insert(idx, filtered);
     }
 
-    fn take_ready(&mut self, row_cost_bytes: usize) -> Option<(usize, FilteredSplit)> {
+    fn take_ready(&mut self) -> Option<(usize, FilteredSplit)> {
         let (idx, filtered) = self.ready.pop_first()?;
-        let rows = filtered.mask.true_count();
-        self.ready_rows = self.ready_rows.saturating_sub(rows);
-        self.ready_projection_bytes = self
-            .ready_projection_bytes
-            .saturating_sub(rows.saturating_mul(row_cost_bytes));
+        self.waiting_selection_bytes = self
+            .waiting_selection_bytes
+            .saturating_sub(filtered.selection_bytes_estimate);
+        self.waiting_projection_bytes = self
+            .waiting_projection_bytes
+            .saturating_sub(filtered.estimated_projection_bytes);
         Some((idx, filtered))
     }
 }
 
 struct ProjectionQueue<A: 'static + Send> {
     in_flight: FuturesUnordered<Task<ProjectionTaskResult<A>>>,
-    target_rows: usize,
-    target_bytes: usize,
-    row_cost_bytes: usize,
-    subsplit_rows: usize,
+    in_flight_projection_bytes: usize,
 }
 
 struct EmitQueue<A> {
     ordered: bool,
     next_split_idx: usize,
-    next_part_idx: usize,
     unordered: VecDeque<VortexResult<A>>,
-    ordered_map: BTreeMap<usize, OrderedSplitOutput<A>>,
-}
-
-struct OrderedSplitOutput<A> {
-    total_parts: usize,
-    parts: BTreeMap<usize, VortexResult<A>>,
+    ordered_map: BTreeMap<usize, Option<VortexResult<A>>>,
 }
 
 impl<A> EmitQueue<A> {
     fn queue(&mut self, idx: usize, value: Option<VortexResult<A>>) {
-        self.queue_split(idx, value.into_iter().collect());
-    }
-
-    fn queue_split(&mut self, idx: usize, values: Vec<VortexResult<A>>) {
         if self.ordered {
-            let parts: BTreeMap<usize, VortexResult<A>> = values.into_iter().enumerate().collect();
-            self.ordered_map.insert(
-                idx,
-                OrderedSplitOutput {
-                    total_parts: parts.len(),
-                    parts,
-                },
-            );
-        } else {
-            self.unordered.extend(values);
-        }
-    }
-
-    fn queue_part(
-        &mut self,
-        idx: usize,
-        part_idx: usize,
-        total_parts: usize,
-        value: VortexResult<A>,
-    ) {
-        if self.ordered {
-            let split = self
-                .ordered_map
-                .entry(idx)
-                .or_insert_with(|| OrderedSplitOutput {
-                    total_parts,
-                    parts: BTreeMap::new(),
-                });
-            split.total_parts = total_parts;
-            split.parts.insert(part_idx, value);
-        } else {
+            self.ordered_map.insert(idx, value);
+        } else if let Some(value) = value {
             self.unordered.push_back(value);
         }
     }
@@ -458,18 +418,11 @@ impl<A> EmitQueue<A> {
     fn pop(&mut self) -> Option<VortexResult<A>> {
         if self.ordered {
             loop {
-                let current = self.ordered_map.get_mut(&self.next_split_idx)?;
-                if self.next_part_idx < current.total_parts {
-                    if let Some(value) = current.parts.remove(&self.next_part_idx) {
-                        self.next_part_idx += 1;
-                        return Some(value);
-                    }
-                    return None;
-                }
-
-                self.ordered_map.remove(&self.next_split_idx);
+                let value = self.ordered_map.remove(&self.next_split_idx)?;
                 self.next_split_idx += 1;
-                self.next_part_idx = 0;
+                if let Some(value) = value {
+                    return Some(value);
+                }
             }
         } else {
             self.unordered.pop_front()
@@ -482,10 +435,6 @@ impl<A> EmitQueue<A> {
 }
 
 impl<A: 'static + Send> StagedSplitStream<A> {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "all arguments are part of staged scheduler construction"
-    )]
     fn new(
         ctx: Arc<TaskContext<A>>,
         split_ranges: Box<dyn Iterator<Item = Range<u64>> + Send>,
@@ -494,9 +443,6 @@ impl<A: 'static + Send> StagedSplitStream<A> {
         ordered: bool,
         handle: Handle,
         filter_enabled: bool,
-        target_output_rows: usize,
-        target_output_bytes: usize,
-        projection_row_cost_bytes: usize,
     ) -> Self {
         let concurrency = concurrency.max(1);
         let filter_ahead = filter_ahead_for(concurrency, filter_enabled);
@@ -518,20 +464,16 @@ impl<A: 'static + Send> StagedSplitStream<A> {
             filter: FilterQueue {
                 in_flight: FuturesUnordered::new(),
                 ready: BTreeMap::new(),
-                ready_rows: 0,
-                ready_projection_bytes: 0,
+                waiting_selection_bytes: 0,
+                waiting_projection_bytes: 0,
             },
             projection: ProjectionQueue {
                 in_flight: FuturesUnordered::new(),
-                target_rows: target_output_rows.max(1),
-                target_bytes: target_output_bytes,
-                row_cost_bytes: projection_row_cost_bytes,
-                subsplit_rows: target_output_rows.div_ceil(4).max(1),
+                in_flight_projection_bytes: 0,
             },
             emit: EmitQueue {
                 ordered,
                 next_split_idx: 0,
-                next_part_idx: 0,
                 unordered: VecDeque::new(),
                 ordered_map: BTreeMap::new(),
             },
@@ -599,11 +541,12 @@ impl<A: 'static + Send> StagedSplitStream<A> {
             return true;
         }
 
-        if self.filter.ready_rows >= self.projection.target_rows {
-            return true;
-        }
-
-        if self.filter.ready_projection_bytes >= self.projection.target_bytes {
+        if self
+            .filter
+            .waiting_selection_bytes
+            .saturating_add(self.filter.waiting_projection_bytes)
+            >= DEFERRED_WAIT_BUDGET_BYTES
+        {
             return true;
         }
 
@@ -616,38 +559,61 @@ impl<A: 'static + Send> StagedSplitStream<A> {
 
     fn spawn_projection_tasks(&mut self) -> bool {
         let mut progress = false;
-        while self.available_projection_slots() > 0 && self.should_start_projection() {
-            let Some((idx, filtered)) = self.filter.take_ready(self.projection.row_cost_bytes)
-            else {
+
+        // Phase 1: Collect a window of ready splits
+        let mut window: Vec<(usize, FilteredSplit)> = Vec::new();
+        while self.available_projection_slots() > window.len()
+            && self.should_start_projection()
+        {
+            let Some((idx, filtered)) = self.filter.take_ready() else {
                 break;
             };
-            let parts = split_filtered_for_projection(filtered, self.projection.subsplit_rows);
-            let total_parts = parts.len();
-
-            for (part_idx, part) in parts.into_iter().enumerate() {
-                progress |= self.spawn_projection_part(idx, part_idx, total_parts, part);
+            if !window.is_empty()
+                && self.projection.in_flight_projection_bytes > 0
+                && self
+                    .projection
+                    .in_flight_projection_bytes
+                    .saturating_add(filtered.estimated_projection_bytes)
+                    > DEFERRED_IN_FLIGHT_BUDGET_BYTES
+            {
+                self.filter.push_ready(idx, filtered);
+                break;
             }
+
+            window.push((idx, filtered));
         }
+
+        // Phase 2: Register all projections, then signal batch boundary
+        for (idx, filtered) in window {
+            progress |= self.spawn_projection_task(idx, filtered);
+        }
+
+        // Phase 3: Signal that the batch is complete
+        if progress
+            && let Some(source) = &self.ctx.segment_source
+        {
+            source.flush();
+        }
+
         progress
     }
 
-    fn spawn_projection_part(
-        &mut self,
-        idx: usize,
-        part_idx: usize,
-        total_parts: usize,
-        filtered: FilteredSplit,
-    ) -> bool {
+    fn spawn_projection_task(&mut self, idx: usize, filtered: FilteredSplit) -> bool {
+        let estimated_projection_bytes = filtered.estimated_projection_bytes;
         match project_filtered_split(self.ctx.clone(), filtered) {
             Ok(task) => {
+                self.projection.in_flight_projection_bytes = self
+                    .projection
+                    .in_flight_projection_bytes
+                    .saturating_add(estimated_projection_bytes);
                 self.projection.in_flight.push(
                     self.handle
-                        .spawn(async move { (idx, part_idx, total_parts, task.await) }),
+                        .spawn(async move { (idx, estimated_projection_bytes, task.await) }),
                 );
                 true
             }
             Err(err) => {
-                self.emit.queue_part(idx, part_idx, total_parts, Err(err));
+                self.emit.queue(idx, Some(Err(err)));
                 true
             }
         }
@@ -696,10 +662,14 @@ impl<A: 'static + Send> StagedSplitStream<A> {
 
     fn poll_projection_completions(&mut self, cx: &mut Context<'_>) -> bool {
         let mut progress = false;
-        while let Poll::Ready(Some((idx, part_idx, total_parts, value))) =
+        while let Poll::Ready(Some((idx, projection_bytes, value))) =
             self.projection.in_flight.poll_next_unpin(cx)
         {
-            self.emit.queue_part(idx, part_idx, total_parts, value);
+            self.projection.in_flight_projection_bytes = self
+                .projection
+                .in_flight_projection_bytes
+                .saturating_sub(projection_bytes);
+            self.emit.queue(idx, Some(value));
             progress = true;
         }
         progress
@@ -711,8 +681,7 @@ impl<A: 'static + Send> StagedSplitStream<A> {
             match result {
                 (idx, split_rows, Ok(Some(filtered))) => {
                     self.record_filter_observation(split_rows, filtered.mask.true_count());
-                    self.filter
-                        .push_ready(idx, filtered, self.projection.row_cost_bytes);
+                    self.filter.push_ready(idx, filtered);
                 }
                 (idx, split_rows, Ok(None)) => {
                     self.record_filter_observation(split_rows, 0);
@@ -800,59 +769,6 @@ fn immediate_projection_filter_ahead(filter_ahead: usize, concurrency: usize) ->
         .max(1)
 }
 
-fn split_filtered_for_projection(
-    filtered: FilteredSplit,
-    _target_rows: usize,
-) -> Vec<FilteredSplit> {
-    if filtered.projection_ranges.len() <= 1 || filtered.mask.true_count() == 0 {
-        return vec![filtered];
-    }
-
-    let FilteredSplit {
-        row_range,
-        mask,
-        projection_ranges,
-    } = filtered;
-    let group_size = projection_ranges
-        .len()
-        .div_ceil(MAX_PROJECTION_SUBSPLITS_PER_SPLIT)
-        .max(1);
-    let mut parts = Vec::with_capacity(projection_ranges.len().div_ceil(group_size));
-    for grouped_ranges in projection_ranges.chunks(group_size) {
-        let part_row_range = grouped_ranges
-            .first()
-            .vortex_expect("grouped projection ranges are non-empty")
-            .start
-            ..grouped_ranges
-                .last()
-                .vortex_expect("grouped projection ranges are non-empty")
-                .end;
-        let start_offset = usize::try_from(part_row_range.start.saturating_sub(row_range.start))
-            .unwrap_or(usize::MAX);
-        let end_offset = usize::try_from(part_row_range.end.saturating_sub(row_range.start))
-            .unwrap_or(usize::MAX);
-        let part_mask = mask.slice(start_offset..end_offset);
-        if part_mask.all_false() {
-            continue;
-        }
-        parts.push(FilteredSplit {
-            row_range: part_row_range.clone(),
-            mask: part_mask,
-            projection_ranges: vec![part_row_range],
-        });
-    }
-
-    if parts.is_empty() {
-        vec![FilteredSplit {
-            row_range: row_range.clone(),
-            mask,
-            projection_ranges: vec![row_range],
-        }]
-    } else {
-        parts
-    }
-}
-
 fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Option<Range<u64>> {
     match (left, right) {
         (None, None) => None,
@@ -936,74 +852,6 @@ mod test {
     }
 
     #[test]
-    fn projection_splitter_subdivides_dense_masks() {
-        let parts = super::split_filtered_for_projection(
-            FilteredSplit {
-                row_range: 100..164,
-                mask: Mask::new_true(64),
-                projection_ranges: vec![100..116, 116..132, 132..148, 148..164],
-            },
-            16,
-        );
-
-        assert_eq!(parts.len(), 4);
-        assert_eq!(parts[0].row_range, 100..116);
-        assert_eq!(parts[1].row_range, 116..132);
-        assert_eq!(parts[2].row_range, 132..148);
-        assert_eq!(parts[3].row_range, 148..164);
-        assert!(parts.iter().all(|part| part.mask.all_true()));
-    }
-
-    #[test]
-    fn projection_splitter_subdivides_by_surviving_rows() {
-        let parts = super::split_filtered_for_projection(
-            FilteredSplit {
-                row_range: 200..216,
-                mask: Mask::from_indices(16, vec![1, 2, 3, 10, 12, 15]),
-                projection_ranges: vec![200..203, 203..212, 212..216],
-            },
-            2,
-        );
-
-        assert_eq!(parts.len(), 3);
-        assert_eq!(parts[0].row_range, 200..203);
-        assert_eq!(parts[0].mask.true_count(), 2);
-        assert_eq!(parts[1].row_range, 203..212);
-        assert_eq!(parts[1].mask.true_count(), 2);
-        assert_eq!(parts[2].row_range, 212..216);
-        assert_eq!(parts[2].mask.true_count(), 2);
-    }
-
-    #[test]
-    fn projection_splitter_keeps_all_ranges_when_capped() {
-        let projection_ranges = (0..10)
-            .map(|idx| {
-                let start = idx * 10;
-                start..start + 10
-            })
-            .collect::<Vec<_>>();
-        let parts = super::split_filtered_for_projection(
-            FilteredSplit {
-                row_range: 0..100,
-                mask: Mask::new_true(100),
-                projection_ranges,
-            },
-            10,
-        );
-
-        assert!(parts.len() <= super::MAX_PROJECTION_SUBSPLITS_PER_SPLIT);
-        assert_eq!(parts.first().expect("at least one part").row_range.start, 0);
-        assert_eq!(parts.last().expect("at least one part").row_range.end, 100);
-        assert_eq!(
-            parts
-                .iter()
-                .map(|part| part.mask.true_count())
-                .sum::<usize>(),
-            100
-        );
-    }
-
-    #[test]
     fn filter_queue_take_ready_pops_first_split() {
         let mut filter = super::FilterQueue {
             in_flight: FuturesUnordered::new(),
@@ -1013,7 +861,9 @@ mod test {
                     FilteredSplit {
                         row_range: 0..10,
                         mask: Mask::new_true(10),
-                        projection_ranges: std::iter::once(0..10).collect(),
+                        projection_fetch_hints: Vec::new(),
+                        estimated_projection_bytes: 10,
+                        selection_bytes_estimate: 4,
                     },
                 ),
                 (
@@ -1021,19 +871,21 @@ mod test {
                     FilteredSplit {
                         row_range: 10..20,
                         mask: Mask::new_true(10),
-                        projection_ranges: std::iter::once(10..20).collect(),
+                        projection_fetch_hints: Vec::new(),
+                        estimated_projection_bytes: 10,
+                        selection_bytes_estimate: 4,
                     },
                 ),
             ]),
-            ready_rows: 20,
-            ready_projection_bytes: 20,
+            waiting_selection_bytes: 8,
+            waiting_projection_bytes: 20,
         };
 
-        let (idx, filtered) = filter.take_ready(1).expect("expected one split");
+        let (idx, filtered) = filter.take_ready().expect("expected one split");
         assert_eq!(idx, 0);
         assert_eq!(filtered.row_range, 0..10);
         assert_eq!(filter.ready.keys().copied().collect::<Vec<_>>(), vec![1]);
-        assert_eq!(filter.ready_rows, 10);
-        assert_eq!(filter.ready_projection_bytes, 10);
+        assert_eq!(filter.waiting_selection_bytes, 4);
+        assert_eq!(filter.waiting_projection_bytes, 10);
     }
 }

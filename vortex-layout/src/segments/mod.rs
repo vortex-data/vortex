@@ -4,7 +4,7 @@
 mod cache;
 mod shared;
 mod sink;
-mod source;
+pub(crate) mod source;
 
 #[cfg(any(test, feature = "_test-harness"))]
 mod test;

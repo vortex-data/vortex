@@ -103,10 +103,10 @@ impl VortexFile {
                 self.session.clone(),
             ));
         }
-        Ok(Arc::new(LayoutReaderDataSource::new(
-            reader,
-            self.session.clone(),
-        )))
+        Ok(Arc::new(
+            LayoutReaderDataSource::new(reader, self.session.clone())
+                .with_segment_source(self.segment_source()),
+        ))
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
@@ -114,7 +114,8 @@ impl VortexFile {
         Ok(ScanBuilder::new(
             self.session.clone(),
             self.layout_reader()?,
-        ))
+        )
+        .with_segment_source(self.segment_source()))
     }
 
     /// Returns true if the expression will never match any rows in the file.

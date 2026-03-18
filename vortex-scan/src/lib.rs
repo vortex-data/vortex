@@ -12,6 +12,7 @@ const IDEAL_SPLIT_SIZE: u64 = 100_000;
 
 pub mod api;
 pub mod arrow;
+mod fetch_plan;
 mod filter;
 pub mod row_mask;
 mod splits;
@@ -24,6 +25,7 @@ mod split_by;
 pub use split_by::SplitBy;
 
 mod scan_builder;
+mod scan_metrics;
 pub use scan_builder::ScanBuilder;
 
 pub mod layout;

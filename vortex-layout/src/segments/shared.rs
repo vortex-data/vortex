@@ -38,6 +38,10 @@ impl<S: SegmentSource> SharedSegmentSource<S> {
 }
 
 impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
+    fn flush(&self) {
+        self.inner.flush();
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         loop {
             match self.in_flight.entry(id) {

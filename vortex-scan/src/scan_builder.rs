@@ -36,11 +36,13 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
+use vortex_layout::segments::SegmentSource;
 use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
 use crate::RepeatedScan;
-use crate::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT;
+use crate::fetch_plan::MaterializationPlan;
+use crate::scan_metrics::ScanMetrics;
 use crate::selection::Selection;
 use crate::split_by::SplitBy;
 use crate::splits::Splits;
@@ -73,18 +75,11 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
-    /// Preferred lower bound for rows accumulated before materializing projected data.
-    target_output_rows: Option<usize>,
-    /// Preferred lower bound for projected payload bytes accumulated before materialization.
-    target_output_bytes: Option<usize>,
+    /// Optional segment source for signaling batch boundaries to the IO driver.
+    segment_source: Option<Arc<dyn SegmentSource>>,
 }
 
-const DEFAULT_TARGET_OUTPUT_ROWS: usize = DEFAULT_TARGET_OUTPUT_ROWS_HINT;
 const DEFAULT_SCAN_CONCURRENCY: usize = 16;
-const MIN_TARGET_OUTPUT_BYTES: usize = 1 << 20;
-const MAX_TARGET_OUTPUT_BYTES: usize = 8 << 20;
-const DEFAULT_VARIABLE_ROW_BYTES: usize = 32;
-const NESTED_PROJECTION_TARGET_MULTIPLIER: usize = 2;
 
 impl ScanBuilder<ArrayRef> {
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
@@ -105,8 +100,7 @@ impl ScanBuilder<ArrayRef> {
             file_stats: None,
             limit: None,
             row_offset: 0,
-            target_output_rows: None,
-            target_output_bytes: None,
+            segment_source: None,
         }
     }
 
@@ -214,6 +208,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Set the segment source for signaling batch boundaries to the IO driver.
+    pub fn with_segment_source(mut self, source: Arc<dyn SegmentSource>) -> Self {
+        self.segment_source = Some(source);
+        self
+    }
+
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection.return_dtype(self.layout_reader.dtype())
@@ -244,21 +244,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
-            target_output_rows: self.target_output_rows,
-            target_output_bytes: self.target_output_bytes,
+            segment_source: self.segment_source,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
-    }
-
-    pub fn with_target_output_rows(mut self, target_output_rows: usize) -> Self {
-        assert!(target_output_rows > 0);
-        self.target_output_rows = Some(target_output_rows);
-        self
-    }
-
-    pub fn with_target_output_bytes(mut self, target_output_bytes: usize) -> Self {
-        self.target_output_bytes = Some(target_output_bytes);
-        self
     }
 
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
@@ -293,25 +281,28 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // producing work before we've traversed every touched layout.
         let (filter_mask, projection_mask, projection_only_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
+        let materialization_plan = MaterializationPlan::from_projection(
+            &projection,
+            &dtype,
+            filter.is_some(),
+            &projection_mask,
+        );
+        let scan_metrics = self
+            .metrics_registry
+            .as_ref()
+            .map(|registry| Arc::new(ScanMetrics::new(registry.as_ref())));
+
         let split_field_mask = if filter_mask.is_empty() {
-            projection_only_mask.clone()
+            projection_only_mask
+        } else if materialization_plan.prefers_projection_aligned_splits() {
+            filter_mask
+                .iter()
+                .cloned()
+                .chain(projection_only_mask.iter().cloned())
+                .collect_vec()
         } else {
             filter_mask
         };
-        let mut target_output_rows = self
-            .target_output_rows
-            .unwrap_or(DEFAULT_TARGET_OUTPUT_ROWS);
-        let projection_row_cost_bytes =
-            estimate_field_mask_row_bytes(layout_reader.dtype(), &projection_only_mask);
-        let mut target_output_bytes = self.target_output_bytes.unwrap_or_else(|| {
-            default_target_output_bytes(target_output_rows, projection_row_cost_bytes)
-        });
-        if filter.is_some() && contains_nested_projection_dtype(&dtype) {
-            target_output_rows =
-                target_output_rows.saturating_mul(NESTED_PROJECTION_TARGET_MULTIPLIER);
-            target_output_bytes =
-                target_output_bytes.saturating_mul(NESTED_PROJECTION_TARGET_MULTIPLIER);
-        }
 
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
@@ -337,9 +328,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.limit,
             dtype,
             projection_mask,
-            target_output_rows,
-            target_output_bytes,
-            projection_row_cost_bytes,
+            materialization_plan,
+            scan_metrics,
+            self.segment_source,
         ))
     }
 
@@ -466,73 +457,6 @@ fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
-fn default_target_output_bytes(
-    target_output_rows: usize,
-    projection_row_cost_bytes: usize,
-) -> usize {
-    if projection_row_cost_bytes == 0 {
-        return 0;
-    }
-
-    target_output_rows
-        .saturating_mul(projection_row_cost_bytes)
-        .clamp(MIN_TARGET_OUTPUT_BYTES, MAX_TARGET_OUTPUT_BYTES)
-}
-
-fn estimate_field_mask_row_bytes(dtype: &DType, field_masks: &[FieldMask]) -> usize {
-    if field_masks.is_empty() {
-        return 0;
-    }
-
-    if field_masks.iter().any(FieldMask::matches_all) {
-        return estimate_dtype_row_bytes(dtype);
-    }
-
-    field_masks.iter().fold(0usize, |sum, mask| {
-        sum.saturating_add(estimate_single_mask_row_bytes(dtype, mask))
-    })
-}
-
-fn estimate_single_mask_row_bytes(dtype: &DType, field_mask: &FieldMask) -> usize {
-    match field_mask {
-        FieldMask::All => estimate_dtype_row_bytes(dtype),
-        FieldMask::Prefix(path) | FieldMask::Exact(path) => {
-            if path.is_root() {
-                return estimate_dtype_row_bytes(dtype);
-            }
-
-            path.resolve(dtype.clone())
-                .map(|dtype| estimate_dtype_row_bytes(&dtype))
-                .unwrap_or_else(|| estimate_dtype_row_bytes(dtype))
-        }
-    }
-}
-
-fn estimate_dtype_row_bytes(dtype: &DType) -> usize {
-    dtype.element_size().unwrap_or_else(|| match dtype {
-        DType::Struct(fields, _) => fields.fields().fold(0usize, |sum, dtype| {
-            sum.saturating_add(estimate_dtype_row_bytes(&dtype))
-        }),
-        DType::List(elem_dtype, _) => {
-            DEFAULT_VARIABLE_ROW_BYTES.saturating_add(estimate_dtype_row_bytes(elem_dtype))
-        }
-        DType::FixedSizeList(elem_dtype, list_size, _) => {
-            estimate_dtype_row_bytes(elem_dtype).saturating_mul(*list_size as usize)
-        }
-        DType::Extension(ext_dtype) => estimate_dtype_row_bytes(ext_dtype.storage_dtype()),
-        DType::Utf8(_) | DType::Binary(_) => DEFAULT_VARIABLE_ROW_BYTES,
-        _ => DEFAULT_VARIABLE_ROW_BYTES,
-    })
-}
-
-fn contains_nested_projection_dtype(dtype: &DType) -> bool {
-    match dtype {
-        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => true,
-        DType::Extension(ext_dtype) => contains_nested_projection_dtype(ext_dtype.storage_dtype()),
-        _ => false,
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::collections::BTreeSet;
@@ -563,6 +487,7 @@ mod test {
     use vortex_array::expr::eq;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::expr::select;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -572,7 +497,6 @@ mod test {
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
-    use super::contains_nested_projection_dtype;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -1049,6 +973,8 @@ mod test {
                     StructFields::from_iter([
                         ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
                         ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ("c", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ("d", DType::Primitive(PType::I32, Nullability::NonNullable)),
                     ]),
                     Nullability::NonNullable,
                 ),
@@ -1162,90 +1088,25 @@ mod test {
     }
 
     #[test]
-    fn estimate_field_mask_row_bytes_uses_only_requested_fields() {
-        let dtype = DType::Struct(
-            StructFields::from_iter([
-                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                ("b", DType::Primitive(PType::I64, Nullability::NonNullable)),
-                ("c", DType::Utf8(Nullability::NonNullable)),
-            ]),
-            Nullability::NonNullable,
-        );
+    fn filtered_wide_monolithic_split_discovery_uses_projection_coverage() -> VortexResult<()> {
+        let seen_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(RecordingSplitMaskReader::new(seen_masks.clone()));
+        let session = crate::test::SCAN_SESSION.clone();
 
-        let bytes = super::estimate_field_mask_row_bytes(
-            &dtype,
-            &[FieldMask::Prefix(FieldPath::from_name("b"))],
-        );
-        let var_bytes = super::estimate_field_mask_row_bytes(
-            &dtype,
-            &[FieldMask::Prefix(FieldPath::from_name("c"))],
-        );
+        let scan = ScanBuilder::new(session, reader)
+            .with_filter(eq(col("a"), lit(1i32)))
+            .with_projection(select(["b", "c", "d"], root()))
+            .prepare()?;
+        drop(scan.execute(None)?);
 
-        assert_eq!(bytes, 8);
-        assert_eq!(var_bytes, super::DEFAULT_VARIABLE_ROW_BYTES);
-        assert_eq!(super::estimate_field_mask_row_bytes(&dtype, &[]), 0);
-    }
+        let seen_masks = seen_masks.lock();
+        assert_eq!(seen_masks.len(), 1);
+        assert_eq!(seen_masks[0].len(), 4);
+        assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("a"))));
+        assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("b"))));
+        assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("c"))));
+        assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("d"))));
 
-    #[test]
-    fn estimate_dtype_row_bytes_recurses_into_lists() {
-        let list_dtype = DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Nullability::Nullable,
-        );
-
-        assert_eq!(
-            super::estimate_dtype_row_bytes(&list_dtype),
-            super::DEFAULT_VARIABLE_ROW_BYTES + 4
-        );
-    }
-
-    #[test]
-    fn estimate_dtype_row_bytes_sums_nested_struct_children() {
-        let dtype = DType::Struct(
-            StructFields::from_iter([
-                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                (
-                    "b",
-                    DType::List(
-                        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-                        Nullability::Nullable,
-                    ),
-                ),
-            ]),
-            Nullability::NonNullable,
-        );
-
-        assert_eq!(
-            super::estimate_dtype_row_bytes(&dtype),
-            4 + super::DEFAULT_VARIABLE_ROW_BYTES + 8
-        );
-    }
-
-    #[test]
-    fn default_target_output_bytes_clamps_to_reasonable_bounds() {
-        assert_eq!(super::default_target_output_bytes(32 * 1024, 0), 0);
-        assert_eq!(
-            super::default_target_output_bytes(32 * 1024, 1),
-            super::MIN_TARGET_OUTPUT_BYTES
-        );
-        assert_eq!(
-            super::default_target_output_bytes(32 * 1024, 1024),
-            super::MAX_TARGET_OUTPUT_BYTES
-        );
-    }
-
-    #[test]
-    fn nested_projection_detection_matches_struct_and_list_outputs() {
-        let primitive = DType::Primitive(PType::I32, Nullability::NonNullable);
-        assert!(!contains_nested_projection_dtype(&primitive));
-
-        let list = DType::List(Arc::new(primitive.clone()), Nullability::Nullable);
-        assert!(contains_nested_projection_dtype(&list));
-
-        let struct_dtype = DType::Struct(
-            StructFields::from_iter([("x", primitive)]),
-            Nullability::NonNullable,
-        );
-        assert!(contains_nested_projection_dtype(&struct_dtype));
+        Ok(())
     }
 }

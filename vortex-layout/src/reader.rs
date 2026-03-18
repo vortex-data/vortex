@@ -26,6 +26,12 @@ use crate::segments::SegmentSource;
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 pub type SplitPointIter = Box<dyn Iterator<Item = u64> + Send>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectionFetchHint {
+    pub row_range: Range<u64>,
+    pub estimated_fetch_bytes: usize,
+}
+
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
 pub trait LayoutReader: 'static + Send + Sync {
@@ -74,6 +80,44 @@ pub trait LayoutReader: 'static + Send + Sync {
         }
 
         Ok(Box::new(points.into_iter()))
+    }
+
+    fn projection_fetch_hints(
+        &self,
+        field_mask: Vec<FieldMask>,
+        row_range: Range<u64>,
+        row_bytes_hint: usize,
+    ) -> VortexResult<Vec<ProjectionFetchHint>> {
+        if row_range.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut start = row_range.start;
+        let mut hints = Vec::new();
+        let split_points = self.split_points(field_mask, row_range.clone())?;
+        for end in split_points {
+            if end <= start {
+                continue;
+            }
+
+            let rows = usize::try_from(end.saturating_sub(start)).unwrap_or(usize::MAX);
+            hints.push(ProjectionFetchHint {
+                row_range: start..end,
+                estimated_fetch_bytes: rows.saturating_mul(row_bytes_hint),
+            });
+            start = end;
+        }
+
+        if hints.is_empty() {
+            let rows = usize::try_from(row_range.end.saturating_sub(row_range.start))
+                .unwrap_or(usize::MAX);
+            hints.push(ProjectionFetchHint {
+                row_range,
+                estimated_fetch_bytes: rows.saturating_mul(row_bytes_hint),
+            });
+        }
+
+        Ok(hints)
     }
 
     /// Returns a mask where all false values are proven to be false in the given expression.

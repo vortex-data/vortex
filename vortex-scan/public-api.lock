@@ -16,10 +16,6 @@ pub vortex_scan::api::ScanRequest::row_range: core::option::Option<core::ops::ra
 
 pub vortex_scan::api::ScanRequest::selection: vortex_scan::Selection
 
-pub vortex_scan::api::ScanRequest::target_output_bytes: core::option::Option<usize>
-
-pub vortex_scan::api::ScanRequest::target_output_rows: core::option::Option<usize>
-
 impl core::clone::Clone for vortex_scan::api::ScanRequest
 
 pub fn vortex_scan::api::ScanRequest::clone(&self) -> vortex_scan::api::ScanRequest
@@ -31,10 +27,6 @@ pub fn vortex_scan::api::ScanRequest::default() -> Self
 impl core::fmt::Debug for vortex_scan::api::ScanRequest
 
 pub fn vortex_scan::api::ScanRequest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-pub const vortex_scan::api::DEFAULT_TARGET_OUTPUT_BYTES_HINT: usize
-
-pub const vortex_scan::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT: usize
 
 pub trait vortex_scan::api::DataSource: 'static + core::marker::Send + core::marker::Sync
 
@@ -337,7 +329,3 @@ pub fn vortex_scan::ScanBuilder<A>::with_some_limit(self, limit: core::option::O
 pub fn vortex_scan::ScanBuilder<A>::with_some_metrics_registry(self, metrics: core::option::Option<alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>>) -> Self
 
 pub fn vortex_scan::ScanBuilder<A>::with_split_by(self, split_by: vortex_scan::SplitBy) -> Self
-
-pub fn vortex_scan::ScanBuilder<A>::with_target_output_bytes(self, target_output_bytes: usize) -> Self
-
-pub fn vortex_scan::ScanBuilder<A>::with_target_output_rows(self, target_output_rows: usize) -> Self

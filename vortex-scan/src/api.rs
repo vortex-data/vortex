@@ -41,18 +41,6 @@ use crate::Selection;
 /// A sendable stream of partitions.
 pub type PartitionStream = BoxStream<'static, VortexResult<PartitionRef>>;
 
-/// Shared default lower bound for rows accumulated before materializing projected data.
-///
-/// Engines that drive scans via [`ScanRequest`] can use this to align with the tuned Vortex
-/// execution path used by DataFusion.
-pub const DEFAULT_TARGET_OUTPUT_ROWS_HINT: usize = 64 * 1024;
-
-/// Shared default lower bound for projected payload bytes accumulated before materialization.
-///
-/// Engines that drive scans via [`ScanRequest`] can use this to align with the tuned Vortex
-/// execution path used by DataFusion.
-pub const DEFAULT_TARGET_OUTPUT_BYTES_HINT: usize = 4 << 20;
-
 /// Opens a Vortex [`DataSource`] from a URI.
 ///
 /// Configuration can be passed via the URI query parameters, similar to JDBC / ADBC.
@@ -138,10 +126,6 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
-    /// Preferred lower bound for rows accumulated before materializing projected data.
-    pub target_output_rows: Option<usize>,
-    /// Preferred lower bound for projected payload bytes accumulated before materialization.
-    pub target_output_bytes: Option<usize>,
 }
 
 impl Default for ScanRequest {
@@ -153,8 +137,6 @@ impl Default for ScanRequest {
             selection: Selection::default(),
             ordered: false,
             limit: None,
-            target_output_rows: None,
-            target_output_bytes: None,
         }
     }
 }

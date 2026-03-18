@@ -48,6 +48,8 @@ use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::merge_split_point_iters;
 use crate::segments::SegmentSource;
+use crate::segments::source::record_segment_requests;
+use crate::segments::source::with_request_count_scope;
 
 pub struct StructReader {
     layout: StructLayout,
@@ -390,33 +392,67 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        let validity_fut = self
-            .validity()?
-            .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
-            .transpose()?;
+        let (validity_fut, validity_requests) = with_request_count_scope(|| {
+            self.validity()?
+                .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
+                .transpose()
+        });
+        record_segment_requests(validity_requests);
+        let validity_fut = validity_fut?;
+        if validity_requests > 0 {
+            tracing::debug!(
+                "StructReader {} validity segment_requests={} row_range={:?}",
+                self.name,
+                validity_requests,
+                row_range,
+            );
+        }
 
         // Partition the expression into expressions that can be evaluated over individual fields
         let (projected, is_pack_merge) = match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => (
-                self.field_reader(name)?
-                    .projection_evaluation(row_range, partition, mask_fut)
-                    .map_err(|err| {
-                        err.with_context(format!("While evaluating projection partition {name}"))
-                    })?,
-                partition.is::<Pack>() || partition.is::<Merge>(),
-            ),
+            Partitioned::Single(name, partition) => {
+                let (result, field_requests) = with_request_count_scope(|| {
+                    self.field_reader(name)?
+                        .projection_evaluation(row_range, partition, mask_fut)
+                        .map_err(|err| {
+                            err.with_context(format!(
+                                "While evaluating projection partition {name}"
+                            ))
+                        })
+                });
+                record_segment_requests(field_requests);
+                tracing::debug!(
+                    "StructReader {} field {} segment_requests={} row_range={:?}",
+                    self.name,
+                    name,
+                    field_requests,
+                    row_range,
+                );
+                (result?, partition.is::<Pack>() || partition.is::<Merge>())
+            }
 
             Partitioned::Multi(partitioned) => (
                 partitioned
                     .clone()
                     .into_array_future(mask_fut, |name, expr, mask| {
-                        self.field_reader(name)?
-                            .projection_evaluation(row_range, expr, mask)
-                            .map_err(|err| {
-                                err.with_context(format!(
-                                    "While evaluating projection partition {name}"
-                                ))
-                            })
+                        let (result, field_requests) = with_request_count_scope(|| {
+                            self.field_reader(name)?
+                                .projection_evaluation(row_range, expr, mask)
+                                .map_err(|err| {
+                                    err.with_context(format!(
+                                        "While evaluating projection partition {name}"
+                                    ))
+                                })
+                        });
+                        record_segment_requests(field_requests);
+                        tracing::debug!(
+                            "StructReader {} field {} segment_requests={} row_range={:?}",
+                            self.name,
+                            name,
+                            field_requests,
+                            row_range,
+                        );
+                        result
                     })?,
                 partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
             ),

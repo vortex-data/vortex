@@ -323,6 +323,13 @@ impl LayoutReader for ChunkedReader {
         }
 
         let mut chunk_evals = vec![];
+        let chunk_count = self.ranges(row_range).count();
+        tracing::debug!(
+            "ChunkedReader {} projection chunks={} row_range={:?}",
+            self.name,
+            chunk_count,
+            row_range,
+        );
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;

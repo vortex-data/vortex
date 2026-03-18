@@ -140,6 +140,7 @@ impl State {
                     tracing::debug!(?req, "ReadRequest dropped before registration");
                     return;
                 }
+                self.metrics.registered_requests.add(1);
                 self.requests_by_offset.insert((req.offset, req.id));
                 self.requests.insert(req.id, req);
             }
@@ -149,18 +150,41 @@ impl State {
                         self.requests_by_offset.remove(&(req.offset, req_id));
                         tracing::debug!(?req, "ReadRequest dropped before poll");
                     } else {
+                        self.metrics.polled_requests.add(1);
                         self.polled_requests.insert(req_id, req);
                     }
                 }
             }
             ReadEvent::Dropped(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
+                    self.metrics.dropped_requests.add(1);
                     self.requests_by_offset.remove(&(req.offset, req_id));
                     tracing::debug!(?req, "ReadRequest dropped before poll");
                 }
                 if let Some(req) = self.polled_requests.remove(&req_id) {
+                    self.metrics.dropped_requests.add(1);
                     self.requests_by_offset.remove(&(req.offset, req_id));
                     tracing::debug!(?req, "ReadRequest dropped after poll");
+                }
+            }
+            ReadEvent::BatchBoundary => {
+                // Promote all registered-but-unpolled requests to polled status.
+                // This tells the coalescer that the entire batch is needed now,
+                // allowing it to form optimal coalesced reads.
+                let promoted = self.requests.len();
+                if promoted > 0 {
+                    tracing::debug!(
+                        promoted,
+                        "BatchBoundary: promoting registered requests to polled"
+                    );
+                    self.metrics.polled_requests.add(promoted as u64);
+                    for (req_id, req) in std::mem::take(&mut self.requests) {
+                        if req.callback.is_closed() {
+                            self.requests_by_offset.remove(&(req.offset, req_id));
+                        } else {
+                            self.polled_requests.insert(req_id, req);
+                        }
+                    }
                 }
             }
         }
@@ -215,6 +239,9 @@ impl State {
         let first_req = self.next_uncoalesced()?;
 
         let mut requests = vec![first_req];
+        let mut payload_bytes = requests[0].length as u64;
+        let mut registered_only_requests = 0usize;
+        let mut polled_requests = 1usize;
         let mut current_start = requests[0].offset;
         let mut current_end = requests[0].offset + requests[0].length as u64;
         let align = *self.coalesced_buffer_alignment as u64;
@@ -269,18 +296,28 @@ impl State {
                     let new_total_size = new_end - aligned_start;
 
                     if new_total_size > window.max_size {
+                        self.metrics.batched_skipped_max_size.add(1);
                         // Skip it but keep it available for future coalescing operations.
                         continue;
                     }
 
                     current_start = new_start;
                     current_end = new_end;
-                    let req = self
-                        .polled_requests
-                        .remove(&req_id)
-                        .or_else(|| self.requests.remove(&req_id))
-                        .vortex_expect("Missing request in requests_by_offset");
+                    let (req, was_polled) = if let Some(req) = self.polled_requests.remove(&req_id)
+                    {
+                        (req, true)
+                    } else if let Some(req) = self.requests.remove(&req_id) {
+                        (req, false)
+                    } else {
+                        unreachable!("Missing request in requests_by_offset");
+                    };
 
+                    payload_bytes = payload_bytes.saturating_add(req.length as u64);
+                    if was_polled {
+                        polled_requests = polled_requests.saturating_add(1);
+                    } else {
+                        registered_only_requests = registered_only_requests.saturating_add(1);
+                    }
                     requests.push(req);
                     if ids_to_remove.insert(req_id) {
                         keys_to_remove.push((req_offset, req_id));
@@ -302,6 +339,18 @@ impl State {
         requests.sort_unstable_by_key(|r| r.offset);
 
         let aligned_start = current_start - (current_start % align);
+        let range_bytes = current_end - aligned_start;
+
+        self.metrics.batched_range_bytes.update(range_bytes as f64);
+        self.metrics
+            .batched_payload_bytes
+            .update(payload_bytes as f64);
+        self.metrics
+            .batched_registered_only_requests
+            .update(registered_only_requests as f64);
+        self.metrics
+            .batched_polled_requests
+            .update(polled_requests as f64);
 
         tracing::debug!(
             "Coalesced {} requests into range {}..{} (len={})",
@@ -807,5 +856,87 @@ mod tests {
         // Should have 2 individual requests and no coalesced operations
         assert_eq!(individual_count, 2, "Expected 2 individual requests");
         assert_eq!(coalesced_operations, 0, "Expected 0 coalesced operations");
+    }
+
+    #[tokio::test]
+    async fn test_metrics_record_registered_only_batch_members() {
+        let (req1, _rx1) = create_request(1, 0, 10);
+        let (req2, _rx2) = create_request(2, 50, 10);
+        let (req3, _rx3) = create_request(3, 100, 10);
+
+        let events = vec![
+            ReadEvent::Request(req1),
+            ReadEvent::Request(req2),
+            ReadEvent::Request(req3),
+            ReadEvent::Polled(2),
+        ];
+
+        let event_stream = stream::iter(events);
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let io_stream = IoRequestStream::new(
+            event_stream,
+            Some(CoalesceConfig {
+                distance: 60,
+                max_size: 1024,
+            }),
+            Alignment::none(),
+            metrics,
+        );
+
+        let outputs: Vec<IoRequest> = io_stream.collect().await;
+        assert_eq!(outputs.len(), 1);
+
+        let snapshot = metrics_registry.snapshot();
+        let mut registered = 0u64;
+        let mut polled = 0u64;
+        let mut coalesced = 0u64;
+        let mut registered_only_count = 0usize;
+        let mut registered_only_total = 0.0;
+        let mut polled_in_batch_count = 0usize;
+        let mut polled_in_batch_total = 0.0;
+
+        for metric in snapshot.iter() {
+            match metric.value() {
+                MetricValue::Counter(counter) => match metric.name().as_ref() {
+                    "io.requests.registered" => registered = counter.value(),
+                    "io.requests.polled" => polled = counter.value(),
+                    "io.requests.coalesced" => coalesced = counter.value(),
+                    _ => {}
+                },
+                MetricValue::Histogram(histogram) => match metric.name().as_ref() {
+                    "io.requests.batched.registered_only_requests" => {
+                        registered_only_count = histogram.count();
+                        registered_only_total = histogram.total();
+                    }
+                    "io.requests.batched.polled_requests" => {
+                        polled_in_batch_count = histogram.count();
+                        polled_in_batch_total = histogram.total();
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
+        assert_eq!(registered, 3, "Expected 3 registered requests");
+        assert_eq!(polled, 1, "Expected 1 polled request");
+        assert_eq!(coalesced, 1, "Expected 1 coalesced operation");
+        assert_eq!(
+            registered_only_count, 1,
+            "Expected one histogram sample for registered-only requests"
+        );
+        assert_eq!(
+            registered_only_total, 2.0,
+            "Expected two registered-only requests in the coalesced batch"
+        );
+        assert_eq!(
+            polled_in_batch_count, 1,
+            "Expected one histogram sample for polled requests"
+        );
+        assert_eq!(
+            polled_in_batch_total, 1.0,
+            "Expected one polled request in the coalesced batch"
+        );
     }
 }

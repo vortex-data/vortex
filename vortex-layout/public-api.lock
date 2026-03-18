@@ -632,6 +632,8 @@ pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::name(&self) -> &allo
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::projection_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::array::ArrayRef>>>
 
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::projection_fetch_hints(&self, field_mask: alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>, row_range: core::ops::range::Range<u64>, row_bytes_hint: usize) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_layout::ProjectionFetchHint>>
+
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::pruning_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::register_splits(&self, field_mask: &[vortex_array::dtype::field_mask::FieldMask], row_range: &core::ops::range::Range<u64>, splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
@@ -1540,6 +1542,28 @@ pub fn vortex_layout::LazyReaderChildren::get(&self, idx: usize) -> vortex_error
 
 pub fn vortex_layout::LazyReaderChildren::new(children: alloc::sync::Arc<dyn vortex_layout::LayoutChildren>, dtypes: alloc::vec::Vec<vortex_array::dtype::DType>, names: alloc::vec::Vec<alloc::sync::Arc<str>>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: vortex_session::VortexSession) -> Self
 
+pub struct vortex_layout::ProjectionFetchHint
+
+pub vortex_layout::ProjectionFetchHint::estimated_fetch_bytes: usize
+
+pub vortex_layout::ProjectionFetchHint::row_range: core::ops::range::Range<u64>
+
+impl core::clone::Clone for vortex_layout::ProjectionFetchHint
+
+pub fn vortex_layout::ProjectionFetchHint::clone(&self) -> vortex_layout::ProjectionFetchHint
+
+impl core::cmp::Eq for vortex_layout::ProjectionFetchHint
+
+impl core::cmp::PartialEq for vortex_layout::ProjectionFetchHint
+
+pub fn vortex_layout::ProjectionFetchHint::eq(&self, other: &vortex_layout::ProjectionFetchHint) -> bool
+
+impl core::fmt::Debug for vortex_layout::ProjectionFetchHint
+
+pub fn vortex_layout::ProjectionFetchHint::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_layout::ProjectionFetchHint
+
 pub trait vortex_layout::ArrayFutureExt
 
 pub fn vortex_layout::ArrayFutureExt::masked(self, mask: vortex_array::mask_future::MaskFuture) -> Self
@@ -1670,6 +1694,8 @@ pub fn vortex_layout::LayoutReader::name(&self) -> &alloc::sync::Arc<str>
 
 pub fn vortex_layout::LayoutReader::projection_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_layout::ArrayFuture>
 
+pub fn vortex_layout::LayoutReader::projection_fetch_hints(&self, field_mask: alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>, row_range: core::ops::range::Range<u64>, row_bytes_hint: usize) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_layout::ProjectionFetchHint>>
+
 pub fn vortex_layout::LayoutReader::pruning_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
 
 pub fn vortex_layout::LayoutReader::register_splits(&self, field_mask: &[vortex_array::dtype::field_mask::FieldMask], row_range: &core::ops::range::Range<u64>, splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
@@ -1687,6 +1713,8 @@ pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::filter_evaluation(&s
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::name(&self) -> &alloc::sync::Arc<str>
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::projection_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::array::ArrayRef>>>
+
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::projection_fetch_hints(&self, field_mask: alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>, row_range: core::ops::range::Range<u64>, row_bytes_hint: usize) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_layout::ProjectionFetchHint>>
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::pruning_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
 

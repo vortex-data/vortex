@@ -3,6 +3,7 @@
 
 //! Split scanning task implementation.
 
+use std::collections::BTreeMap;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
@@ -12,14 +13,28 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::ok;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
 use vortex_array::expr::Expression;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_layout::LayoutReader;
+use vortex_layout::ProjectionFetchHint;
+use vortex_layout::segments::SegmentSource;
+use vortex_layout::with_request_count_scope;
 use vortex_mask::Mask;
 
+use crate::fetch_plan::DeferredMaterializationPlan;
+use crate::fetch_plan::MaterializationPlan;
 use crate::filter::FilterExpr;
+use crate::scan_metrics::ScanMetrics;
 use crate::selection::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
@@ -29,7 +44,9 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 pub(super) struct FilteredSplit {
     pub(super) row_range: Range<u64>,
     pub(super) mask: Mask,
-    pub(super) projection_ranges: Vec<Range<u64>>,
+    pub(super) projection_fetch_hints: Vec<ProjectionFetchHint>,
+    pub(super) estimated_projection_bytes: usize,
+    pub(super) selection_bytes_estimate: usize,
 }
 
 /// Execute the selection, pruning, and filter stages for a single split.
@@ -139,13 +156,20 @@ pub(super) fn filter_split<A: 'static + Send>(
         if mask.all_false() {
             return Ok(None);
         }
-
-        let projection_ranges =
-            projection_split_ranges(ctx.reader.as_ref(), &ctx.projection_field_mask, &row_range)?;
+        let projection_fetch_hints = ctx.materialization_plan.fetch_hints(
+            ctx.reader.as_ref(),
+            &ctx.projection_field_mask,
+            &row_range,
+        )?;
+        let estimated_projection_bytes = projection_fetch_hints.iter().fold(0usize, |sum, hint| {
+            sum.saturating_add(hint.estimated_fetch_bytes)
+        });
         Ok(Some(FilteredSplit {
             row_range,
+            selection_bytes_estimate: mask.estimated_selection_bytes(),
+            estimated_projection_bytes,
             mask,
-            projection_ranges,
+            projection_fetch_hints,
         }))
     };
 
@@ -161,13 +185,41 @@ pub(super) fn project_filtered_split<A: 'static + Send>(
     let projection = ctx.projection.clone();
     let mapper = ctx.mapper.clone();
     let FilteredSplit {
-        row_range, mask, ..
+        row_range,
+        mask,
+        projection_fetch_hints,
+        ..
     } = filtered;
+    let projection_field_count = projection_field_count(&ctx.materialization_plan, &ctx);
+    let (projection_future, segment_request_count) =
+        with_request_count_scope(|| -> VortexResult<_> {
+            match &ctx.materialization_plan {
+                MaterializationPlan::Monolithic { .. } => {
+                    reader.projection_evaluation(&row_range, &projection, MaskFuture::ready(mask))
+                }
+                MaterializationPlan::Deferred(plan) => {
+                    prepare_deferred_projection(reader, row_range.clone(), mask, plan.clone())
+                }
+            }
+        });
+    let projection_future = projection_future?;
+    if let Some(metrics) = &ctx.scan_metrics {
+        match &ctx.materialization_plan {
+            MaterializationPlan::Monolithic { .. } => metrics.projection_tasks_monolithic.add(1),
+            MaterializationPlan::Deferred(_) => metrics.projection_tasks_deferred.add(1),
+        }
+        metrics
+            .projection_segment_requests
+            .update(segment_request_count as f64);
+        metrics
+            .projection_fetch_hints
+            .update(projection_fetch_hints.len() as f64);
+        metrics
+            .projection_fields
+            .update(projection_field_count as f64);
+    }
 
     let array_fut = async move {
-        // Only schedule payload reads once the filter has resolved for this split.
-        let projection_future =
-            reader.projection_evaluation(&row_range, &projection, MaskFuture::ready(mask))?;
         let array = projection_future.await?;
         mapper(array)
     };
@@ -216,34 +268,109 @@ pub(super) struct TaskContext<A> {
     pub(super) projection: Expression,
     /// Field mask for the projected columns, used to discover projection boundaries.
     pub(super) projection_field_mask: Vec<FieldMask>,
+    /// The per-field materialization plan for projected output.
+    pub(super) materialization_plan: MaterializationPlan,
+    /// Optional metrics for scan scheduling and projection shaping.
+    pub(super) scan_metrics: Option<Arc<ScanMetrics>>,
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    /// Optional segment source for signaling batch boundaries to the IO driver.
+    pub(super) segment_source: Option<Arc<dyn SegmentSource>>,
 }
 
-fn projection_split_ranges(
-    reader: &dyn LayoutReader,
-    projection_field_mask: &[FieldMask],
-    row_range: &Range<u64>,
-) -> VortexResult<Vec<Range<u64>>> {
-    if row_range.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut start = row_range.start;
-    let mut ranges = Vec::new();
-    let split_points = reader.split_points(projection_field_mask.to_vec(), row_range.clone())?;
-    for end in split_points {
-        if end > start {
-            ranges.push(start..end);
-            start = end;
+fn projection_field_count<A>(plan: &MaterializationPlan, ctx: &TaskContext<A>) -> usize {
+    match plan {
+        MaterializationPlan::Monolithic { .. } => ctx.projection_field_mask.len(),
+        MaterializationPlan::Deferred(plan) => {
+            let immediate = usize::from(plan.immediate_expr().is_some());
+            let deferred = plan.deferred_groups().len();
+            immediate.saturating_add(deferred)
         }
     }
+}
 
-    if ranges.is_empty() {
-        ranges.push(row_range.clone());
+fn prepare_deferred_projection(
+    reader: Arc<dyn LayoutReader>,
+    row_range: Range<u64>,
+    mask: Mask,
+    plan: DeferredMaterializationPlan,
+) -> VortexResult<TaskFuture<ArrayRef>> {
+    let immediate_future = plan
+        .immediate_expr()
+        .map(|expr| {
+            reader.projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))
+        })
+        .transpose()?;
+    let deferred_futures = plan
+        .deferred_groups()
+        .iter()
+        .map(|group| {
+            reader.projection_evaluation(
+                &row_range,
+                &group.projection_expr(),
+                MaskFuture::ready(mask.clone()),
+            )
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    Ok(async move {
+        let mut projected_fields = BTreeMap::<FieldName, ArrayRef>::new();
+        let mut validity = None;
+
+        if let Some(immediate) = immediate_future {
+            let immediate = immediate.await?;
+            collect_struct_fields(&immediate, &mut projected_fields, &mut validity)?;
+        }
+
+        for deferred in deferred_futures {
+            let projected = deferred.await?;
+            collect_struct_fields(&projected, &mut projected_fields, &mut validity)?;
+        }
+
+        let fields = plan
+            .final_fields()
+            .iter()
+            .map(|field_name| {
+                projected_fields
+                    .remove(field_name)
+                    .ok_or_else(|| vortex_err!("missing projected field {}", field_name))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(StructArray::try_new(
+            plan.final_fields().clone(),
+            fields,
+            mask.true_count(),
+            validity.unwrap_or(Validity::NonNullable),
+        )?
+        .into_array())
+    }
+    .boxed())
+}
+
+fn collect_struct_fields(
+    array: &ArrayRef,
+    projected_fields: &mut BTreeMap<FieldName, ArrayRef>,
+    validity: &mut Option<Validity>,
+) -> VortexResult<()> {
+    let Some(struct_array) = array.as_opt::<Struct>() else {
+        vortex_bail!("deferred materialization expects struct projection results");
+    };
+
+    if validity.is_none() {
+        *validity = Some(struct_array.validity().clone());
     }
 
-    Ok(ranges)
+    for (field_name, field) in struct_array
+        .names()
+        .iter()
+        .cloned()
+        .zip(struct_array.unmasked_fields().iter().cloned())
+    {
+        projected_fields.insert(field_name, field);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -276,8 +403,10 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::TaskContext;
+    use crate::fetch_plan::MaterializationPlan;
     use crate::filter::FilterExpr;
     use crate::selection::Selection;
+    use crate::tasks::FilteredSplit;
     use crate::tasks::filter_split;
     use crate::tasks::project_filtered_split;
     use crate::tasks::split_exec;
@@ -444,7 +573,13 @@ mod tests {
             reader,
             projection: root(),
             projection_field_mask: vec![FieldMask::All],
+            materialization_plan: MaterializationPlan::Monolithic {
+                projected_row_bytes: 0,
+                projection_aligned_splits: false,
+            },
+            scan_metrics: None,
             mapper: Arc::new(|array: ArrayRef| Ok(array)),
+            segment_source: None,
         });
 
         let result = block_on(split_exec(ctx, 0..4, None).unwrap()).unwrap();
@@ -466,7 +601,13 @@ mod tests {
             reader,
             projection: root(),
             projection_field_mask: vec![FieldMask::All],
+            materialization_plan: MaterializationPlan::Monolithic {
+                projected_row_bytes: 0,
+                projection_aligned_splits: false,
+            },
+            scan_metrics: None,
             mapper: Arc::new(|array: ArrayRef| Ok(array)),
+            segment_source: None,
         });
 
         let filtered = block_on(filter_split(ctx.clone(), 0..4, None).unwrap())
@@ -481,5 +622,36 @@ mod tests {
         let projected_mask = projected_mask.lock();
         let projected_mask = projected_mask.as_ref().unwrap();
         assert_eq!(projected_mask.values().unwrap().indices(), &[1, 3]);
+    }
+
+    #[test]
+    fn project_filtered_split_registers_projection_before_poll() {
+        let projection_calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(ProjectionCountingReader::new(projection_calls.clone()));
+        let ctx = Arc::new(TaskContext {
+            selection: Selection::default(),
+            filter: None,
+            reader,
+            projection: root(),
+            projection_field_mask: vec![FieldMask::All],
+            materialization_plan: MaterializationPlan::Monolithic {
+                projected_row_bytes: 0,
+                projection_aligned_splits: false,
+            },
+            scan_metrics: None,
+            mapper: Arc::new(|array: ArrayRef| Ok(array)),
+            segment_source: None,
+        });
+        let filtered = FilteredSplit {
+            row_range: 0..4,
+            mask: Mask::new_true(4),
+            projection_fetch_hints: Vec::new(),
+            estimated_projection_bytes: 0,
+            selection_bytes_estimate: 0,
+        };
+
+        let _future = project_filtered_split(ctx, filtered).unwrap();
+
+        assert_eq!(projection_calls.load(Ordering::Relaxed), 1);
     }
 }

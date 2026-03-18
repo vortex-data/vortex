@@ -28,14 +28,13 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_layout::LayoutReaderRef;
+use vortex_layout::segments::SegmentSource;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
 use crate::Selection;
-use crate::api::DEFAULT_TARGET_OUTPUT_BYTES_HINT;
-use crate::api::DEFAULT_TARGET_OUTPUT_ROWS_HINT;
 use crate::api::DataSource;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
@@ -50,6 +49,7 @@ pub struct LayoutReaderDataSource {
     session: VortexSession,
     split_max_row_count: u64,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    segment_source: Option<Arc<dyn SegmentSource>>,
 }
 
 impl LayoutReaderDataSource {
@@ -65,6 +65,7 @@ impl LayoutReaderDataSource {
             session,
             split_max_row_count: u64::MAX,
             metrics_registry: None,
+            segment_source: None,
         }
     }
 
@@ -87,6 +88,18 @@ impl LayoutReaderDataSource {
     /// Optionally sets the metrics registry for tracking scan performance.
     pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
         self.metrics_registry = metrics;
+        self
+    }
+
+    /// Sets the segment source for signaling batch boundaries to the IO driver.
+    pub fn with_segment_source(mut self, source: Arc<dyn SegmentSource>) -> Self {
+        self.segment_source = Some(source);
+        self
+    }
+
+    /// Optionally sets the segment source.
+    pub fn with_some_segment_source(mut self, source: Option<Arc<dyn SegmentSource>>) -> Self {
+        self.segment_source = source;
         self
     }
 }
@@ -168,9 +181,8 @@ impl DataSource for LayoutReaderDataSource {
             limit: scan_request.limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
-            target_output_rows: scan_request.target_output_rows,
-            target_output_bytes: scan_request.target_output_bytes,
             metrics_registry: self.metrics_registry.clone(),
+            segment_source: self.segment_source.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
             split_size: self.split_max_row_count,
@@ -191,9 +203,8 @@ struct LayoutReaderScan {
     limit: Option<u64>,
     ordered: bool,
     selection: Selection,
-    target_output_rows: Option<usize>,
-    target_output_bytes: Option<usize>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    segment_source: Option<Arc<dyn SegmentSource>>,
     next_row: u64,
     end_row: u64,
     split_size: u64,
@@ -260,9 +271,8 @@ impl Stream for LayoutReaderScan {
             ordered: this.ordered,
             row_range,
             selection: this.selection.clone(),
-            target_output_rows: this.target_output_rows,
-            target_output_bytes: this.target_output_bytes,
             metrics_registry: this.metrics_registry.clone(),
+            segment_source: this.segment_source.clone(),
         }) as PartitionRef;
 
         this.next_row = split_end;
@@ -289,9 +299,8 @@ struct LayoutReaderSplit {
     ordered: bool,
     row_range: Range<u64>,
     selection: Selection,
-    target_output_rows: Option<usize>,
-    target_output_bytes: Option<usize>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    segment_source: Option<Arc<dyn SegmentSource>>,
 }
 
 impl Partition for LayoutReaderSplit {
@@ -316,22 +325,16 @@ impl Partition for LayoutReaderSplit {
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        let builder = ScanBuilder::new(self.session, self.reader)
+        let mut builder = ScanBuilder::new(self.session, self.reader)
             .with_row_range(self.row_range)
             .with_selection(self.selection)
             .with_projection(self.projection)
             .with_some_filter(self.filter)
             .with_some_limit(self.limit)
             .with_ordered(self.ordered);
-        let builder = builder
-            .with_target_output_rows(
-                self.target_output_rows
-                    .unwrap_or(DEFAULT_TARGET_OUTPUT_ROWS_HINT),
-            )
-            .with_target_output_bytes(
-                self.target_output_bytes
-                    .unwrap_or(DEFAULT_TARGET_OUTPUT_BYTES_HINT),
-            );
+        if let Some(source) = self.segment_source {
+            builder = builder.with_segment_source(source);
+        }
         let builder = builder.with_some_metrics_registry(self.metrics_registry);
 
         let dtype = builder.dtype()?;

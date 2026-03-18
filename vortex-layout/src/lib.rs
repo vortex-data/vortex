@@ -8,6 +8,7 @@ pub use encoding::*;
 pub use flatbuffers::*;
 pub use layout::*;
 pub use reader::*;
+pub use segments::with_request_count_scope;
 pub use strategy::*;
 use vortex_session::registry::Context;
 pub use vtable::*;
