@@ -359,7 +359,6 @@ impl ArrayBuilder for VarBinViewBuilder {
 }
 
 impl VarBinViewBuilder {
-    #[inline]
     fn push_view(
         &mut self,
         view: BinaryView,
@@ -752,7 +751,6 @@ enum PrecomputedViewAdjustment {
 }
 
 impl PrecomputedViewAdjustment {
-    #[inline]
     fn adjust_view(&self, view: &BinaryView) -> BinaryView {
         if view.is_inlined() {
             return *view;

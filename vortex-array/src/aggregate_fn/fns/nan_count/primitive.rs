@@ -15,7 +15,6 @@ pub(super) fn accumulate_primitive(count: &mut u64, p: &PrimitiveArray) -> Vorte
     Ok(())
 }
 
-#[inline]
 fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask) -> usize {
     match validity {
         Mask::AllTrue(_) => values.iter().filter(|v| v.is_nan()).count(),
