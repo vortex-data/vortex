@@ -8,7 +8,7 @@ on:
       mode:
         description: "Validation mode"
         required: true
-        default: "last"
+        default: "all"
         type: string
   workflow_dispatch:
     inputs:

@@ -135,7 +135,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
         // Read the stored file.
         let stored_bytes = match std::fs::read(&stored_path) {
-            Ok(b) => b,
+            Ok(b) => ByteBuffer::from(b),
             Err(e) => {
                 result.failed.push(FailedFixture {
                     name: fresh_name.clone(),
@@ -144,7 +144,32 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
                 continue;
             }
         };
-        let stored_array = match adapter::read_file(ByteBuffer::from(stored_bytes)) {
+
+        // Read the fresh file.
+        let fresh_path = tmp_dir.path().join(fresh_name);
+        let fresh_bytes = match std::fs::read(&fresh_path) {
+            Ok(b) => ByteBuffer::from(b),
+            Err(e) => {
+                result.failed.push(FailedFixture {
+                    name: fresh_name.clone(),
+                    error: format!("failed to read fresh file: {e}"),
+                });
+                continue;
+            }
+        };
+
+        // Validate the full layout tree of the stored file (reads every segment
+        // including zone maps, dictionaries, etc.).
+        if let Err(e) = adapter::read_layout_tree(stored_bytes.clone()) {
+            result.failed.push(FailedFixture {
+                name: fresh_name.clone(),
+                error: format!("stored file layout tree invalid: {e}"),
+            });
+            continue;
+        }
+
+        // Scan data arrays from both files and compare.
+        let stored_array = match adapter::read_file(stored_bytes) {
             Ok(a) => a,
             Err(e) => {
                 result.failed.push(FailedFixture {
@@ -154,20 +179,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
                 continue;
             }
         };
-
-        // Read the fresh file.
-        let fresh_path = tmp_dir.path().join(fresh_name);
-        let fresh_bytes = match std::fs::read(&fresh_path) {
-            Ok(b) => b,
-            Err(e) => {
-                result.failed.push(FailedFixture {
-                    name: fresh_name.clone(),
-                    error: format!("failed to read fresh file: {e}"),
-                });
-                continue;
-            }
-        };
-        let fresh_array = match adapter::read_file(ByteBuffer::from(fresh_bytes)) {
+        let fresh_array = match adapter::read_file(fresh_bytes) {
             Ok(a) => a,
             Err(e) => {
                 result.failed.push(FailedFixture {
@@ -178,7 +190,6 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
             }
         };
 
-        // Compare arrays.
         assert_arrays_eq!(stored_array, fresh_array);
         eprintln!("  pass {fresh_name}");
         result.passed.push(fresh_name.clone());
