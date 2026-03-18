@@ -303,35 +303,41 @@ impl VTable for ALPRD {
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
 
-        let validity = array
-            .left_parts()
-            .validity()?
-            .to_array(array.len())
-            .execute::<Mask>(ctx)?;
+        let nullability = array.dtype().nullability();
+        let validity = if nullability == Nullability::NonNullable {
+            Validity::NonNullable
+        } else {
+            let mask = array
+                .left_parts()
+                .validity()?
+                .to_array(array.len())
+                .execute::<Mask>(ctx)?;
+            Validity::from_mask(mask, nullability)
+        };
 
         let decoded_array = if array.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.into_buffer_mut::<u16>(),
                     left_parts_dict,
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
                     array.left_parts_patches(),
                     ctx,
                 )?,
-                Validity::from_mask(validity, array.dtype().nullability()),
+                validity,
             )
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.into_buffer_mut::<u16>(),
                     left_parts_dict,
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
                     array.left_parts_patches(),
                     ctx,
                 )?,
-                Validity::from_mask(validity, array.dtype().nullability()),
+                validity,
             )
         };
 
