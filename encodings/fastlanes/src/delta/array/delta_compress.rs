@@ -78,7 +78,7 @@ fn compress_primitive<T: NativePType + Delta + Transpose, const LANES: usize>(
     let bases_len = num_chunks * LANES;
 
     // Split into full 1024-element chunks and a remainder.
-    let (full_chunks, remainder) = array.as_chunks::      <1024>();
+    let (full_chunks, remainder) = array.as_chunks::<1024>();
 
     // Allocate result arrays.
     let mut bases = BufferMut::with_capacity(bases_len);
