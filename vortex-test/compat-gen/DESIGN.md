@@ -6,9 +6,8 @@
 ## The Problem
 
 Vortex is a columnar file format. Users write `.vortex` files with one
-version of the library and expect to read them with any future version. If a
-code change silently breaks the ability to decode old files, we ship data
-loss.
+version of the library and expect to read them in any future version. 
+We need back-compat!
 
 ## The Solution
 
@@ -52,7 +51,7 @@ pattern, create a **new fixture file** with a new name.
 Every fixture implements this trait in Rust:
 
 ```rust
-pub trait Fixture: Send + Sync {
+pub trait Fixture {
     /// Filename, e.g. "primitives.vortex".
     fn name(&self) -> &str;
 
