@@ -6,6 +6,10 @@ on:
       git_ref:
         description: "Git ref for version detection (e.g. v0.62.0). Defaults to HEAD."
         required: false
+      confirm_upload:
+        description: "Type 'yes' to confirm upload after reviewing the dry-run output."
+        required: true
+        default: "no"
 
 jobs:
   dry-run:
@@ -47,6 +51,7 @@ jobs:
 
   upload:
     needs: dry-run
+    if: inputs.confirm_upload == 'yes'
     runs-on: ubuntu-latest
     environment: compat-upload
     permissions:
