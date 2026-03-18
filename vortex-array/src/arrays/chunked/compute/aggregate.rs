@@ -24,9 +24,9 @@ impl DynAggregateKernel for ChunkedArrayAggregate {
             return Ok(None);
         };
 
-        let mut acc = aggregate_fn.accumulator(chunked.dtype(), ctx.session())?;
+        let mut acc = aggregate_fn.accumulator(chunked.dtype())?;
         for chunk in chunked.chunks() {
-            acc.accumulate(chunk)?;
+            acc.accumulate(chunk, ctx)?;
         }
         Ok(Some(acc.finish()?))
     }
@@ -37,9 +37,10 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
@@ -52,13 +53,10 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
 
-    fn session() -> VortexSession {
-        VortexSession::empty()
-    }
-
     fn run_sum(batch: &crate::ArrayRef) -> VortexResult<Scalar> {
-        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone(), session())?;
-        acc.accumulate(batch)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone())?;
+        acc.accumulate(batch, &mut ctx)?;
         acc.finish()
     }
 

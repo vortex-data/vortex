@@ -70,13 +70,17 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     }
 
     /// The return [`DType`] of the aggregate.
-    fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
+    ///
+    /// Returns `None` if the aggregate function cannot be applied to the input dtype.
+    fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
 
     /// DType of the intermediate partial accumulator state.
     ///
     /// Use a struct dtype when multiple fields are needed
     /// (e.g., Mean: `Struct { sum: f64, count: u64 }`).
-    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
+    ///
+    /// Returns `None` if the aggregate function cannot be applied to the input dtype.
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
 
     /// Return the partial accumulator state for an empty group.
     fn empty_partial(

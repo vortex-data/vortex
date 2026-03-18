@@ -90,7 +90,7 @@ fn download_with_retries(url: &str) -> VortexResult<Bytes> {
     ))
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn sample_and_write(source_bytes: &[u8], dest: &std::path::Path) -> VortexResult<()> {
     let source_bytes = Bytes::copy_from_slice(source_bytes);
     let builder = ParquetRecordBatchReaderBuilder::try_new(source_bytes.clone())

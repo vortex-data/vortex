@@ -20,6 +20,7 @@ mod struct_;
 mod utf8;
 
 use pyo3::PyClass;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
@@ -109,6 +110,9 @@ impl PyScalar {
                 Self::with_subclass(py, scalar, PyListScalar)
             }
             DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
+            DType::Variant(_) => Err(PyValueError::new_err(
+                "Variant scalars are not supported in Python yet",
+            )),
         }
     }
 

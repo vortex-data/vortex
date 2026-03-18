@@ -42,13 +42,14 @@ use tracing::debug;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::min_max;
-use vortex_array::compute::sum;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
@@ -68,6 +69,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::SESSION;
 use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
@@ -172,6 +174,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let array = ArbitraryArray::arbitrary(u)?.0;
         let mut current_array = array.to_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
 
         let mut valid_actions = actions_for_dtype(current_array.dtype())
             .into_iter()
@@ -330,6 +334,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
+                        &mut ctx,
                     )
                     .vortex_expect("sum_canonical_array should succeed in fuzz test");
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
@@ -503,6 +508,8 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             // Extension types delegate to storage dtype, support most operations
             ActionType::iter().collect()
         }
+        // Currently, no support at all
+        DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
     }
 }
 
@@ -565,6 +572,8 @@ pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayR
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
 
     debug!(
         "Initial array:\nTree:\n{}Values:\n{:#}",
@@ -640,8 +649,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 current_array = cast_result;
             }
             Action::Sum => {
-                let sum_result =
-                    sum(&current_array).vortex_expect("sum operation should succeed in fuzz test");
+                let sum_result = sum(&current_array, &mut ctx)
+                    .vortex_expect("sum operation should succeed in fuzz test");
                 assert_scalar_eq(&expected.scalar(), &sum_result, i)?;
             }
             Action::MinMax => {

@@ -21,6 +21,7 @@ impl Display for Scalar {
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
             DType::Extension(_) => write!(f, "{}", self.as_extension()),
+            DType::Variant(_) => write!(f, "{}", self.as_variant()),
         }
     }
 }
@@ -237,6 +238,22 @@ mod tests {
                 Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I32(365 * 4))))
             ),
             "1973-12-31"
+        );
+    }
+
+    #[test]
+    fn display_variant_values() {
+        assert_eq!(
+            format!("{}", Scalar::null(DType::Variant(Nullable))),
+            "null"
+        );
+        assert_eq!(
+            format!("{}", Scalar::variant(Scalar::null(DType::Null))),
+            "variant(null)"
+        );
+        assert_eq!(
+            format!("{}", Scalar::variant(Scalar::from(42_u32))),
+            "variant(42u32)"
         );
     }
 

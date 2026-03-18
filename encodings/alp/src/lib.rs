@@ -18,6 +18,24 @@
 
 pub use alp::*;
 pub use alp_rd::*;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
 
 mod alp;
 mod alp_rd;
+
+/// Initialize ALP encoding in the given session.
+pub fn initialize(session: &mut VortexSession) {
+    session.arrays().register(ALP::ID, ALP);
+    session.arrays().register(ALPRD::ID, ALPRD);
+
+    // Register the ALP-specific NaN count aggregate kernel.
+    session.aggregate_fns().register_aggregate_kernel(
+        ALP::ID,
+        Some(NanCount.id()),
+        &compute::nan_count::ALPNanCountKernel,
+    );
+}

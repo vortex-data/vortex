@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::aggregate_fn::AccumulatorRef;
@@ -81,31 +80,27 @@ impl AggregateFnRef {
     }
 
     /// Compute the return [`DType`] per group given the input element type.
-    pub fn return_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+    ///
+    /// Returns `None` if the input dtype is not supported by the aggregate function.
+    pub fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
         self.0.return_dtype(input_dtype)
     }
 
     /// DType of the intermediate accumulator state.
-    pub fn state_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+    ///
+    /// Returns `None` if the input dtype is not supported by the aggregate function.
+    pub fn state_dtype(&self, input_dtype: &DType) -> Option<DType> {
         self.0.state_dtype(input_dtype)
     }
 
     /// Create an accumulator for streaming aggregation.
-    pub fn accumulator(
-        &self,
-        input_dtype: &DType,
-        session: &VortexSession,
-    ) -> VortexResult<AccumulatorRef> {
-        self.0.accumulator(input_dtype, session)
+    pub fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
+        self.0.accumulator(input_dtype)
     }
 
     /// Create a grouped accumulator for grouped streaming aggregation.
-    pub fn accumulator_grouped(
-        &self,
-        input_dtype: &DType,
-        session: &VortexSession,
-    ) -> VortexResult<GroupedAccumulatorRef> {
-        self.0.accumulator_grouped(input_dtype, session)
+    pub fn accumulator_grouped(&self, input_dtype: &DType) -> VortexResult<GroupedAccumulatorRef> {
+        self.0.accumulator_grouped(input_dtype)
     }
 }
 

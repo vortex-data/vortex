@@ -27,7 +27,6 @@ impl MinMaxKernel for Primitive {
 
 register_kernel!(MinMaxKernelAdapter(Primitive).lift());
 
-#[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
 where
     T: NativePType,

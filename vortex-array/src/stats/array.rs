@@ -15,14 +15,16 @@ use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::DynArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::nan_count::nan_count;
+use crate::aggregate_fn::fns::sum::sum;
 use crate::builders::builder_with_capacity;
 use crate::compute::MinMaxResult;
 use crate::compute::is_constant;
 use crate::compute::is_sorted;
 use crate::compute::is_strict_sorted;
 use crate::compute::min_max;
-use crate::compute::nan_count;
-use crate::compute::sum;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -142,6 +144,8 @@ impl StatsSetRef<'_> {
     }
 
     pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<Scalar>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
         // If it's already computed and exact, we can return it.
         if let Some(Precision::Exact(s)) = self.get(stat) {
             return Ok(Some(s));
@@ -157,7 +161,7 @@ impl StatsSetRef<'_> {
                     .is_some()
                     .then(|| {
                         // Sum is supported for this dtype.
-                        sum(&array_ref)
+                        sum(&array_ref, &mut ctx)
                     })
                     .transpose()?
             }
@@ -187,7 +191,7 @@ impl StatsSetRef<'_> {
                     .is_some()
                     .then(|| {
                         // NaNCount is supported for this dtype.
-                        nan_count(&array_ref)
+                        nan_count(&array_ref, &mut ctx)
                     })
                     .transpose()?
                     .map(|s| s.into())

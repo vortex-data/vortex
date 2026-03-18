@@ -106,7 +106,6 @@ impl FieldDType {
 }
 
 impl FieldDTypeInner {
-    #[inline]
     fn value(&self) -> VortexResult<DType> {
         match &self {
             FieldDTypeInner::Owned(owned) => Ok(owned.clone()),

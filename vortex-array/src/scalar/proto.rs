@@ -39,7 +39,7 @@ impl From<&Scalar> for pb::Scalar {
                     .try_into()
                     .vortex_expect("Failed to convert DType to proto"),
             ),
-            value: Some(ScalarValue::to_proto(value.value())),
+            value: Some(Box::new(ScalarValue::to_proto(value.value()))),
         }
     }
 }
@@ -110,6 +110,9 @@ impl From<&ScalarValue> for pb::ScalarValue {
                     kind: Some(Kind::ListValue(ListValue { values })),
                 }
             }
+            ScalarValue::Variant(v) => pb::ScalarValue {
+                kind: Some(Kind::VariantValue(Box::new(pb::Scalar::from(v.as_ref())))),
+            },
         }
     }
 }
@@ -244,18 +247,24 @@ impl ScalarValue {
             _ => dtype,
         };
 
-        Ok(Some(match kind {
-            Kind::NullValue(_) => return Ok(None),
-            Kind::BoolValue(v) => bool_from_proto(*v, dtype)?,
-            Kind::Int64Value(v) => int64_from_proto(*v, dtype)?,
-            Kind::Uint64Value(v) => uint64_from_proto(*v, dtype)?,
-            Kind::F16Value(v) => f16_from_proto(*v, dtype)?,
-            Kind::F32Value(v) => f32_from_proto(*v, dtype)?,
-            Kind::F64Value(v) => f64_from_proto(*v, dtype)?,
-            Kind::StringValue(s) => string_from_proto(s, dtype)?,
-            Kind::BytesValue(b) => bytes_from_proto(b, dtype)?,
-            Kind::ListValue(v) => list_from_proto(v, dtype, session)?,
-        }))
+        Ok(match kind {
+            Kind::NullValue(_) => None,
+            Kind::BoolValue(v) => Some(bool_from_proto(*v, dtype)?),
+            Kind::Int64Value(v) => Some(int64_from_proto(*v, dtype)?),
+            Kind::Uint64Value(v) => Some(uint64_from_proto(*v, dtype)?),
+            Kind::F16Value(v) => Some(f16_from_proto(*v, dtype)?),
+            Kind::F32Value(v) => Some(f32_from_proto(*v, dtype)?),
+            Kind::F64Value(v) => Some(f64_from_proto(*v, dtype)?),
+            Kind::StringValue(s) => Some(string_from_proto(s, dtype)?),
+            Kind::BytesValue(b) => Some(bytes_from_proto(b, dtype)?),
+            Kind::ListValue(v) => Some(list_from_proto(v, dtype, session)?),
+            Kind::VariantValue(v) => match dtype {
+                DType::Variant(_) => Some(ScalarValue::Variant(Box::new(Scalar::from_proto(
+                    v, session,
+                )?))),
+                _ => vortex_bail!(Serde: "expected non-Variant scalar proto for dtype {dtype}"),
+            },
+        })
     }
 }
 
@@ -594,6 +603,58 @@ mod tests {
     #[test]
     fn test_scalar_value_serde_roundtrip_utf8() {
         round_trip(Scalar::utf8("hello", Nullability::NonNullable));
+    }
+
+    #[test]
+    fn test_variant_scalar_roundtrip() {
+        let nums = Scalar::list(
+            Arc::new(DType::Variant(Nullability::NonNullable)),
+            vec![
+                Scalar::variant(Scalar::primitive(-7_i16, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(42_u32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::decimal(
+                    DecimalValue::I128(123_456_789),
+                    DecimalDType::new(18, 0),
+                    Nullability::NonNullable,
+                )),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let nested = Scalar::list(
+            Arc::new(DType::Variant(Nullability::NonNullable)),
+            vec![
+                Scalar::variant(Scalar::from(true)),
+                Scalar::variant(nums),
+                Scalar::variant(Scalar::binary(
+                    ByteBuffer::copy_from(b"abc"),
+                    Nullability::NonNullable,
+                )),
+                Scalar::variant(Scalar::null(DType::Null)),
+            ],
+            Nullability::NonNullable,
+        );
+
+        round_trip(Scalar::variant(nested));
+    }
+
+    #[test]
+    fn test_variant_scalar_proto_preserves_scalar_null_vs_variant_null() {
+        let scalar_null = Scalar::null(DType::Variant(Nullability::Nullable));
+        let variant_null = Scalar::variant(Scalar::null(DType::Null));
+
+        let scalar_null_pb = pb::Scalar::from(&scalar_null);
+        let variant_null_pb = pb::Scalar::from(&variant_null);
+
+        assert_ne!(scalar_null_pb, variant_null_pb);
+        assert_eq!(
+            Scalar::from_proto(&scalar_null_pb, &session()).unwrap(),
+            scalar_null,
+        );
+        assert_eq!(
+            Scalar::from_proto(&variant_null_pb, &session()).unwrap(),
+            variant_null,
+        );
     }
 
     #[test]

@@ -7,9 +7,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
@@ -18,7 +18,6 @@ use crate::Columnar;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
@@ -58,20 +57,25 @@ pub struct GroupedAccumulator<V: AggregateFnVTable> {
     partial_dtype: DType,
     /// The accumulated state for prior batches of groups.
     partials: Vec<ArrayRef>,
-    /// A session used to lookup custom aggregate kernels.
-    session: VortexSession,
 }
 
 impl<V: AggregateFnVTable> GroupedAccumulator<V> {
-    pub fn try_new(
-        vtable: V,
-        options: V::Options,
-        dtype: DType,
-        session: VortexSession,
-    ) -> VortexResult<Self> {
+    pub fn try_new(vtable: V, options: V::Options, dtype: DType) -> VortexResult<Self> {
         let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
-        let return_dtype = vtable.return_dtype(&options, &dtype)?;
-        let partial_dtype = vtable.partial_dtype(&options, &dtype)?;
+        let return_dtype = vtable.return_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
+        let partial_dtype = vtable.partial_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
 
         Ok(Self {
             vtable,
@@ -81,7 +85,6 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             return_dtype,
             partial_dtype,
             partials: vec![],
-            session,
         })
     }
 }
@@ -90,7 +93,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
 /// function is not known at compile time.
 pub trait DynGroupedAccumulator: 'static + Send {
     /// Accumulate a list of groups into the accumulator.
-    fn accumulate_list(&mut self, groups: &ArrayRef) -> VortexResult<()>;
+    fn accumulate_list(&mut self, groups: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
 
     /// Finish the accumulation and return the partial aggregate results for all groups.
     /// Resets the accumulator state for the next round of accumulation.
@@ -102,7 +105,7 @@ pub trait DynGroupedAccumulator: 'static + Send {
 }
 
 impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
-    fn accumulate_list(&mut self, groups: &ArrayRef) -> VortexResult<()> {
+    fn accumulate_list(&mut self, groups: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         let elements_dtype = match groups.dtype() {
             DType::List(elem, _) => elem,
             DType::FixedSizeList(elem, ..) => elem,
@@ -118,17 +121,15 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
             elements_dtype
         );
 
-        let mut ctx = self.session.create_execution_ctx();
-
         // We first execute the groups until it is a ListView or FixedSizeList, since we only
         // dispatch the aggregate kernel over the elements of these arrays.
-        let canonical = match groups.clone().execute::<Columnar>(&mut ctx)? {
+        let canonical = match groups.clone().execute::<Columnar>(ctx)? {
             Columnar::Canonical(c) => c,
-            Columnar::Constant(c) => c.into_array().execute::<Canonical>(&mut ctx)?,
+            Columnar::Constant(c) => c.into_array().execute::<Canonical>(ctx)?,
         };
         match canonical {
-            Canonical::List(groups) => self.accumulate_list_view(&groups, &mut ctx),
-            Canonical::FixedSizeList(groups) => self.accumulate_fixed_size_list(&groups, &mut ctx),
+            Canonical::List(groups) => self.accumulate_list_view(&groups, ctx),
+            Canonical::FixedSizeList(groups) => self.accumulate_fixed_size_list(&groups, ctx),
             _ => vortex_panic!("We checked the DType above, so this should never happen"),
         }
     }
@@ -160,8 +161,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
-        let session = self.session.clone();
-
+        let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().grouped_kernels;
 
         for _ in 0..*MAX_ITERATIONS {
@@ -205,7 +205,13 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
             let sizes = sizes.execute::<Buffer<O>>(ctx)?;
-            self.accumulate_list_view_typed(&elements, offsets.as_ref(), sizes.as_ref(), &validity)
+            self.accumulate_list_view_typed(
+                &elements,
+                offsets.as_ref(),
+                sizes.as_ref(),
+                &validity,
+                ctx,
+            )
         })
     }
 
@@ -215,12 +221,12 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         offsets: &[O],
         sizes: &[O],
         validity: &Mask,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut accumulator = Accumulator::try_new(
             self.vtable.clone(),
             self.options.clone(),
             self.dtype.clone(),
-            self.session.clone(),
         )?;
         let mut states = builder_with_capacity(&self.partial_dtype, offsets.len());
 
@@ -230,7 +236,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
 
             if validity.value(offset) {
                 let group = elements.slice(offset..offset + size)?;
-                accumulator.accumulate(&group)?;
+                accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.finish()?)?;
             } else {
                 states.append_null()
@@ -246,8 +252,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
-
-        let session = self.session.clone();
+        let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().grouped_kernels;
 
         for _ in 0..64 {
@@ -291,7 +296,6 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             self.vtable.clone(),
             self.options.clone(),
             self.dtype.clone(),
-            self.session.clone(),
         )?;
         let mut states = builder_with_capacity(&self.partial_dtype, groups.len());
 
@@ -304,7 +308,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         for i in 0..groups.len() {
             if validity.value(i) {
                 let group = elements.slice(offset..offset + size)?;
-                accumulator.accumulate(&group)?;
+                accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.finish()?)?;
             } else {
                 states.append_null()

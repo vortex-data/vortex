@@ -42,7 +42,6 @@ impl TakeExecute for Decimal {
     }
 }
 
-#[inline]
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {
     indices.iter().map(|idx| values[idx.as_()]).collect()
 }

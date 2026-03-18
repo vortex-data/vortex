@@ -3,13 +3,13 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
+use vortex_error::vortex_err;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::DynArray;
-use crate::VortexSessionExecute;
+use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
@@ -35,19 +35,24 @@ pub struct Accumulator<V: AggregateFnVTable> {
     partial_dtype: DType,
     /// The partial state of the accumulator, updated after each accumulate/merge call.
     partial: V::Partial,
-    /// A session used to lookup custom aggregate kernels.
-    session: VortexSession,
 }
 
 impl<V: AggregateFnVTable> Accumulator<V> {
-    pub fn try_new(
-        vtable: V,
-        options: V::Options,
-        dtype: DType,
-        session: VortexSession,
-    ) -> VortexResult<Self> {
-        let return_dtype = vtable.return_dtype(&options, &dtype)?;
-        let partial_dtype = vtable.partial_dtype(&options, &dtype)?;
+    pub fn try_new(vtable: V, options: V::Options, dtype: DType) -> VortexResult<Self> {
+        let return_dtype = vtable.return_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
+        let partial_dtype = vtable.partial_dtype(&options, &dtype).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                dtype
+            )
+        })?;
         let partial = vtable.empty_partial(&options, &dtype)?;
         let aggregate_fn = AggregateFn::new(vtable.clone(), options).erased();
 
@@ -58,7 +63,6 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             return_dtype,
             partial_dtype,
             partial,
-            session,
         })
     }
 }
@@ -67,7 +71,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
 /// function is not known at compile time.
 pub trait DynAccumulator: 'static + Send {
     /// Accumulate a new array into the accumulator's state.
-    fn accumulate(&mut self, batch: &ArrayRef) -> VortexResult<()>;
+    fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
 
     /// Whether the accumulator's result is fully determined.
     fn is_saturated(&self) -> bool;
@@ -84,7 +88,7 @@ pub trait DynAccumulator: 'static + Send {
 }
 
 impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
-    fn accumulate(&mut self, batch: &ArrayRef) -> VortexResult<()> {
+    fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         if self.is_saturated() {
             return Ok(());
         }
@@ -96,9 +100,9 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
-        let kernels = &self.session.aggregate_fns().kernels;
+        let session = ctx.session().clone();
+        let kernels = &session.aggregate_fns().kernels;
 
-        let mut ctx = self.session.create_execution_ctx();
         let mut batch = batch.clone();
         for _ in 0..*MAX_ITERATIONS {
             if batch.is::<AnyCanonical>() {
@@ -112,7 +116,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 .or_else(|| kernels_r.get(&(batch_id, None)))
                 .and_then(|kernel| {
                     kernel
-                        .aggregate(&self.aggregate_fn, &batch, &mut ctx)
+                        .aggregate(&self.aggregate_fn, &batch, ctx)
                         .transpose()
                 })
                 .transpose()?
@@ -128,14 +132,13 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             }
 
             // Execute one step and try again
-            batch = batch.execute(&mut ctx)?;
+            batch = batch.execute(ctx)?;
         }
 
         // Otherwise, execute the batch until it is columnar and accumulate it into the state.
-        let columnar = batch.execute::<Columnar>(&mut ctx)?;
+        let columnar = batch.execute::<Columnar>(ctx)?;
 
-        self.vtable
-            .accumulate(&mut self.partial, &columnar, &mut ctx)
+        self.vtable.accumulate(&mut self.partial, &columnar, ctx)
     }
 
     fn is_saturated(&self) -> bool {

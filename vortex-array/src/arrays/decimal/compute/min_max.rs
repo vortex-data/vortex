@@ -28,7 +28,6 @@ impl MinMaxKernel for Decimal {
 
 register_kernel!(MinMaxKernelAdapter(Decimal).lift());
 
-#[inline]
 fn compute_min_max_with_validity<D>(array: &DecimalArray) -> VortexResult<Option<MinMaxResult>>
 where
     D: Into<DecimalValue> + NativeDecimalType,

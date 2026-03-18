@@ -1,0 +1,34 @@
+name: Compat Validation
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Monday 6am UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Validation mode"
+        required: true
+        default: "last"
+        type: choice
+        options:
+          - last
+          - all
+
+env:
+  FIXTURES_URL: https://vortex-compat-fixtures.s3.amazonaws.com
+
+jobs:
+  compat-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run compat tests
+        run: |
+          MODE="${{ inputs.mode || 'last' }}"
+          python3 vortex-test/compat-gen/scripts/compat.py check \
+            --mode "$MODE"

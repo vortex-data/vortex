@@ -182,7 +182,6 @@ impl ScalarFnVTable for Binary {
         //
         // Non-floating point column and literal expressions should be unaffected as they do not
         // have a nan_count statistic defined.
-        #[inline]
         fn with_nan_predicate(
             lhs: &Expression,
             rhs: &Expression,

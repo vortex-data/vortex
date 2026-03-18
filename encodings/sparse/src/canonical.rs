@@ -50,6 +50,7 @@ use vortex_buffer::buffer_mut;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::ConstantArray;
@@ -117,6 +118,7 @@ pub(super) fn execute_sparse(
             execute_sparse_fixed_size_list(array, *nullability, ctx)?
         }
         DType::Extension(_ext_dtype) => todo!(),
+        DType::Variant(_) => vortex_bail!("Sparse canonicalization does not support Variant"),
     })
 }
 
