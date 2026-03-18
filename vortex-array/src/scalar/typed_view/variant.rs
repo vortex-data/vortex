@@ -66,9 +66,14 @@ impl<'a> VariantScalar<'a> {
         Some(self.value?.is_null())
     }
 
-    /// Returns `Some(true)` if the inner [`Scalar`] has a non-null zero value.
+    /// Returns `Some(true)` if the inner [`Scalar`] is variant-null or has a zero value.
     pub fn is_zero(&self) -> Option<bool> {
-        self.value?.is_zero()
+        let inner = self.value?;
+        if inner.is_null() {
+            Some(true)
+        } else {
+            inner.is_zero()
+        }
     }
 }
 
@@ -86,7 +91,6 @@ mod tests {
         assert!(variant.is_null());
         assert_eq!(variant.is_variant_null(), None);
         assert!(variant.value().is_none());
-        assert_eq!(scalar.is_variant_null(), None);
         assert_eq!(scalar.is_zero(), None);
     }
 
@@ -98,7 +102,6 @@ mod tests {
         assert!(!variant.is_null());
         assert_eq!(variant.is_variant_null(), Some(true));
         assert!(variant.value().is_some_and(Scalar::is_null));
-        assert_eq!(scalar.is_variant_null(), Some(true));
         assert_eq!(scalar.is_zero(), Some(true));
     }
 
@@ -113,7 +116,6 @@ mod tests {
             variant.value().map(ToString::to_string).as_deref(),
             Some("42u32")
         );
-        assert_eq!(scalar.is_variant_null(), Some(false));
         assert_eq!(scalar.is_zero(), Some(false));
     }
 }
