@@ -306,10 +306,10 @@ jobs:
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "false"
       - name: Install nightly for public-api
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN
       - name: Regenerate public API lock files
