@@ -815,7 +815,7 @@ def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
     bin_path = _build_compat_bin()
     cmd = [bin_path, "check", "--dir", str(dir), "--mode", mode]
     _info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.stderr:
         _info(result.stderr.rstrip())
 
@@ -833,7 +833,7 @@ def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
 
 def _run_cmd(cmd: list[str], check: bool = False, cwd: Path | None = None) -> subprocess.CompletedProcess:
     _info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(cmd, check=False, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(cmd, check=False, cwd=cwd, capture_output=True, text=True)
     if result.stderr:
         _info(result.stderr.rstrip())
     if check and result.returncode != 0:
