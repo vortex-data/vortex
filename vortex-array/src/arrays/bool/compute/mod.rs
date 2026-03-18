@@ -11,7 +11,7 @@ mod min_max;
 pub mod rules;
 mod slice;
 mod sum;
-pub(crate) mod take;
+mod take;
 
 #[cfg(test)]
 mod tests {

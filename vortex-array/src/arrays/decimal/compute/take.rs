@@ -43,7 +43,7 @@ impl TakeExecute for Decimal {
 }
 
 #[inline]
-pub(crate) fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(
+fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(
     indices: &[I],
     values: &[T],
 ) -> Buffer<T> {

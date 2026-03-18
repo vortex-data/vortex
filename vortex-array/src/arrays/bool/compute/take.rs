@@ -51,7 +51,7 @@ impl TakeExecute for Bool {
     }
 }
 
-pub(crate) fn take_valid_indices<I: AsPrimitive<usize>>(
+fn take_valid_indices<I: AsPrimitive<usize>>(
     bools: &BitBuffer,
     indices: &[I],
 ) -> BitBuffer {

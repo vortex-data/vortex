@@ -110,19 +110,6 @@ impl TakeExecute for Primitive {
     }
 }
 
-/// Take elements from a primitive array using pre-validated unsigned integer indices.
-///
-/// This bypasses the full `TakeExecute` pipeline (dtype checks, unsigned conversion,
-/// execute-to-PrimitiveArray) when the caller already has a `PrimitiveArray` with unsigned
-/// integer indices (e.g., dictionary codes during canonicalization).
-pub(crate) fn take_primitive_direct(
-    array: &PrimitiveArray,
-    indices: &PrimitiveArray,
-    validity: Validity,
-) -> VortexResult<ArrayRef> {
-    PRIMITIVE_TAKE_KERNEL.take(array, indices, validity)
-}
-
 // Compiler may see this as unused based on enabled features
 #[allow(unused)]
 #[inline(always)]

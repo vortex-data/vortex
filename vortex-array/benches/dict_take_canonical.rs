@@ -3,15 +3,11 @@
 
 //! Micro-benchmarks to measure dict decode overhead at each layer:
 //!
-//! - `take_bc_{type}` — take_canonical with pre-canonicalized inputs.
-//!    Measures: Canonical match + dict_take_validity + kernel. No execute loop.
-//! - `take_old_{type}` — old TakeExecute dispatch with pre-canonicalized inputs.
-//!    Measures: codes.clone().into_array() + TakeExecute trait dispatch + kernel.
-//! - `full_decode_{type}` — dict.to_canonical() end-to-end.
-//!    Measures: execute loop + canonicalization + kernel.
+//! - `take_bc` — take_canonical with pre-canonicalized inputs (kernel work only).
+//! - `take_old` — old TakeExecute dispatch with pre-canonicalized inputs.
+//! - `full_decode` — dict.to_canonical() end-to-end (execute loop + kernel).
 //!
-//! B savings (direct kernel) = take_old - take_bc
-//! A savings (execute loop shortcut) = full_decode - take_bc
+//! Execute loop overhead = full_decode - take_bc
 
 #![allow(clippy::unwrap_used)]
 

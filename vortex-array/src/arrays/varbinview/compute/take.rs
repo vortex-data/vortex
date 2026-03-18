@@ -53,7 +53,7 @@ impl TakeExecute for VarBinView {
     }
 }
 
-pub(crate) fn take_views<I: AsPrimitive<usize>>(
+fn take_views<I: AsPrimitive<usize>>(
     views_ref: &[BinaryView],
     indices: &[I],
     mask: &Mask,
