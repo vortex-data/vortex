@@ -8,10 +8,14 @@ use std::marker::PhantomData;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_error::VortexResult;
+use vortex_fastlanes::DeltaArray;
 use vortex_fastlanes::RLEArray;
+use vortex_fastlanes::delta_compress;
 
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
@@ -131,6 +135,16 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
             &new_excludes,
         )?;
 
+        // Delta in an unstable encoding, once we deem it stable we can switch over to this always.
+        #[cfg(feature = "unstable_encodings")]
+        let compressed_indices = try_compress_delta(
+            &rle_array.indices().to_primitive().narrow()?,
+            compressor,
+            ctx.descend(),
+            Excludes::from(&[IntCode::Dict]),
+        )?;
+
+        #[cfg(not(feature = "unstable_encodings"))]
         let compressed_indices = compressor.compress_canonical(
             Canonical::Primitive(rle_array.indices().to_primitive().narrow()?),
             ctx.descend(),
@@ -156,4 +170,23 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
             .into_array())
         }
     }
+}
+
+#[cfg(feature = "unstable_encodings")]
+fn try_compress_delta(
+    primitive_array: &PrimitiveArray,
+    compressor: &BtrBlocksCompressor,
+    ctx: CompressorContext,
+    excludes: Excludes,
+) -> VortexResult<ArrayRef> {
+    let (bases, deltas) =
+        delta_compress(primitive_array, &mut LEGACY_SESSION.create_execution_ctx())?;
+
+    let compressed_bases =
+        compressor.compress_canonical(Canonical::Primitive(bases), ctx, excludes)?;
+    let compressed_deltas =
+        compressor.compress_canonical(Canonical::Primitive(deltas), ctx, excludes)?;
+
+    DeltaArray::try_from_delta_compress_parts(compressed_bases, compressed_deltas)
+        .map(DeltaArray::into_array)
 }
