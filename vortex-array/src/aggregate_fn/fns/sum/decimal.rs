@@ -38,44 +38,27 @@ pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> Vort
     let values_type = DecimalType::smallest_decimal_value_type(dtype);
     match_each_decimal_value_type!(d.values_type(), |I| {
         match_each_decimal_value_type!(values_type, |O| {
-            let initial_val: O = value
+            let initial: O = value
                 .cast()
                 .vortex_expect("cannot fail to cast initial value");
 
-            let res = sum_to_scalar(d.buffer::<I>(), validity, initial_val, *dtype);
-            match res {
+            let sum = match validity {
+                Some(v) => sum_decimal_with_validity(d.buffer::<I>(), v, initial),
+                None => sum_decimal(d.buffer::<I>(), initial),
+            };
+
+            let decimal_sum = sum
+                .map(|v| DecimalValue::from(v))
+                // We have to make sure that the decimal value fits the precision of the decimal dtype.
+                .filter(|v| v.fits_in_precision(*dtype));
+
+            match decimal_sum {
                 Some(v) => *value = v,
                 None => return Ok(true),
             }
             Ok(false)
         })
     })
-}
-
-/// Compute the checked sum and convert the result to a [`Scalar`].
-///
-/// Returns a null scalar if the sum overflows the underlying integer type or if the result
-/// exceeds the declared decimal precision.
-fn sum_to_scalar<T, O>(
-    values: Buffer<T>,
-    validity: Option<&BitBuffer>,
-    initial: O,
-    return_decimal_dtype: DecimalDType,
-) -> Option<DecimalValue>
-where
-    T: AsPrimitive<O>,
-    O: CheckedAdd + NumOps + Into<DecimalValue> + Copy + 'static,
-    bool: AsPrimitive<O>,
-{
-    let raw_sum = match validity {
-        Some(v) => sum_decimal_with_validity(values, v, initial),
-        None => sum_decimal(values, initial),
-    };
-
-    raw_sum
-        .map(Into::<DecimalValue>::into)
-        // We have to make sure that the decimal value fits the precision of the decimal dtype.
-        .filter(|v| v.fits_in_precision(return_decimal_dtype))
 }
 
 fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
