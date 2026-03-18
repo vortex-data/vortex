@@ -29,56 +29,125 @@ python scripts/compat.py publish --store /tmp/compat-store
 python scripts/compat.py check --store /tmp/compat-store
 ```
 
-## AWS Setup (one-time)
+## Rust Binary: `vortex-compat`
 
-All resources live in the benchmark account (245040174862), region us-east-1.
+A thin binary with two commands. It has **no** knowledge of versions, S3,
+manifests, or orchestration.
 
-### 1. Create the S3 bucket
+**Output protocol:** progress/diagnostics to stderr, structured JSON to
+stdout (`check` only).
 
-```bash
-aws s3api create-bucket --bucket vortex-compat-fixtures --region us-east-1
+### `generate --output <DIR> [--exclude <CSV>]`
+
+Three phases:
+
+1. **Setup** — run each fixture's `setup()` concurrently via
+   `tokio::spawn_blocking`. Used by TPC-H and ClickBench fixtures to
+   download external data.
+2. **Build** — construct arrays in parallel threads via `std::thread::scope`.
+   All must succeed before any files are written.
+3. **Write** — serialize each fixture's arrays as a `.vortex` file, then
+   write `fixtures.json` listing all generated files.
+
+Output:
+```
+<DIR>/
+├── fixtures.json
+├── primitives.vortex
+├── strings.vortex
+└── ...
 ```
 
-### 2. Enable public read access
-
-```bash
-aws s3api put-public-access-block \
-  --bucket vortex-compat-fixtures \
-  --public-access-block-configuration \
-    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=false,RestrictPublicBuckets=false
-
-aws s3api put-bucket-policy \
-  --bucket vortex-compat-fixtures \
-  --policy '{
-    "Version": "2012-10-17",
-    "Statement": [{
-      "Sid": "PublicRead",
-      "Effect": "Allow",
-      "Principal": "*",
-      "Action": ["s3:GetObject", "s3:ListBucket"],
-      "Resource": [
-        "arn:aws:s3:::vortex-compat-fixtures",
-        "arn:aws:s3:::vortex-compat-fixtures/*"
-      ]
-    }]
-  }'
+`fixtures.json` format:
+```json
+{
+  "fixtures": [
+    {"name": "primitives.vortex", "description": "..."},
+    {"name": "strings.vortex", "description": "..."}
+  ]
+}
 ```
 
-### 3. Grant CI role access
+### `check --dir <DIR> --mode <MODE> [--exclude <CSV>]`
+
+For each `.vortex` file in the directory:
+
+1. Run `setup()` + `build()` to reconstruct expected arrays from current code
+2. Read the file bytes and decode via `adapter::read_file()`
+3. Combine chunks into `ChunkedArray` and compare with `assert_arrays_eq!`
+
+JSON result to stdout:
+```json
+{
+  "passed": ["primitives.vortex"],
+  "failed": [{"name": "foo.vortex", "error": "mismatch at row 42"}],
+  "skipped": ["old_fixture.vortex"]
+}
+```
+
+Check modes:
+
+| Mode | Extra files in dir | Missing fixtures |
+|------|--------------------|------------------|
+| `subset` (default) | Skipped | Error |
+| `exact` | Error | Error |
+| `superset` | Error | Skipped |
+
+Use `subset` when checking old versions (they may have extra fixtures not in
+current code). Use `exact` for the current version.
+
+## Python Orchestrator: `compat.py`
+
+### `publish [--git-ref <REF>] [--store <SPEC>] [--dry-run] [--exclude <CSV>]`
+
+1. Detect version from nearest git tag at HEAD (or `<REF>`)
+2. Generate fixtures (from current tree, or from a worktree at `<REF>`)
+3. Fetch previous version's manifest, merge `since` values, enforce additive-only
+4. Upload `.vortex` files + `manifest.json` to `v{version}/arrays/`
+5. Update `versions.json`
+
+### `check [--versions <CSV>] [--store <SPEC>] [--exclude <CSV>]`
+
+1. Read `versions.json` from store
+2. For each version, download `arrays/manifest.json` + all `.vortex` files
+3. Run `vortex-compat check --dir <tmpdir> --mode subset`
+4. Aggregate results, exit 1 if any failures
+
+### `generate --output <DIR> [--git-ref <REF>] [--exclude <CSV>]`
+
+Generate fixtures locally without publishing. Writes `.vortex` files and a
+`manifest.json`.
+
+### `list [--store <SPEC>] [--version <VER>]`
+
+Without `--version`: print all version numbers.
+With `--version`: print that version's `manifest.json`.
+
+### `validate-manifest [--store <SPEC>]`
+
+Walk all versions in order and verify no fixtures were removed between
+consecutive versions (additive-only property).
+
+### Store abstraction
+
+| Spec | Type | Auth |
+|------|------|------|
+| `s3://vortex-compat-fixtures` (default) | S3 | Public reads (HTTPS), AWS creds for writes |
+| `/tmp/compat` | Local directory | None |
+
+### Git worktree workflow
+
+`--git-ref` automates publishing from historical releases:
 
 ```bash
-aws iam put-role-policy \
-  --role-name GitHubBenchmarkRole \
-  --policy-name CompatFixturesS3Access \
-  --policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [{
-      "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
-      "Resource": [
-        "arn:aws:s3:::vortex-compat-fixtures",
-        "arn:aws:s3:::vortex-compat-fixtures/*"
-      ]
-    }]
-  }'
+python compat.py publish --git-ref v0.62.0
 ```
+
+This creates a worktree at the tag, builds the binary against that code,
+generates fixtures, then cleans up.
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `VORTEX_COMPAT_BIN` | Path to pre-built `vortex-compat` binary. Skips `cargo run`. |

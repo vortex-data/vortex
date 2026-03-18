@@ -17,18 +17,14 @@ struct FixturesJson {
 }
 
 #[derive(Serialize)]
-struct FixtureInfo {
-    name: String,
-    description: String,
-    sha256: String,
+pub struct FixtureInfo {
+    pub name: String,
+    pub description: String,
+    pub sha256: String,
 }
 
-/// Generate all fixtures into `output_dir`.
-///
-/// For each fixture, calls `fixture.write(output_dir)` which writes one or more
-/// `.vortex` files. After all fixtures are written, computes sha256 for each
-/// file and writes a `fixtures.json` manifest.
-pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
+/// Write all fixture files into `output_dir`, returning name, description, and sha256 for each.
+pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec<FixtureInfo>> {
     let fixtures = all_fixtures();
     let fixtures: Vec<_> = fixtures
         .into_iter()
@@ -64,6 +60,11 @@ pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
         }
     }
 
+    Ok(infos)
+}
+
+/// Write the `fixtures.json` manifest from previously collected fixture info.
+pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureInfo>) -> VortexResult<()> {
     let fixtures_json = FixturesJson { fixtures: infos };
     let json = serde_json::to_string_pretty(&fixtures_json)
         .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;
@@ -77,4 +78,10 @@ pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
         output_dir.display()
     );
     Ok(())
+}
+
+/// Generate all fixtures into `output_dir` and write the manifest.
+pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
+    let infos = write_fixtures(output_dir, exclude)?;
+    write_manifest(output_dir, infos)
 }
