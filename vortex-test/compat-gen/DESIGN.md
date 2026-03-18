@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+
 # Vortex Backward-Compatibility Testing
 
 ## The Problem
@@ -190,9 +193,15 @@ values.
 
 ### Fixture upload (`.github/workflows/compat-gen-upload.yml`)
 
-Used to upload fixtures for each new release.
+Used to upload fixtures for each new release. Triggered via **manual
+dispatch** with an optional `git_ref` input (defaults to HEAD).
 
-Triggered via **manual dispatch** with a required `version` input.
+Two-phase workflow:
+
+1. **dry-run** — auto-detects the version from the nearest git tag, builds
+   fixtures, and prints what would be uploaded.
+2. **upload** — requires manual approval via the `compat-upload` GitHub
+   environment, then performs the actual upload to S3.
 
 ### Compat validation (`.github/workflows/compat-validation.yml`)
 

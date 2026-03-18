@@ -114,7 +114,6 @@ class Store:
         raise NotImplementedError
 
 
-
 class LocalStore(Store):
     """Fixture store backed by a local directory."""
 
@@ -270,7 +269,9 @@ def _validate_manifest(manifest: dict, version: str) -> None:
     try:
         jsonschema.validate(manifest, MANIFEST_SCHEMA)
     except jsonschema.ValidationError as e:
-        raise ValueError(f"v{version} manifest: {e.message} (at path: {'/'.join(str(p) for p in e.absolute_path)})") from e
+        raise ValueError(
+            f"v{version} manifest: {e.message} (at path: {'/'.join(str(p) for p in e.absolute_path)})"
+        ) from e
 
 
 def _read_manifest(store: Store, version: str) -> dict | None:
@@ -296,7 +297,10 @@ def _read_manifest(store: Store, version: str) -> dict | None:
 
 
 def _merge_manifest(
-    store: Store, fixtures_json: dict, version: str, prev_version: str | None,
+    store: Store,
+    fixtures_json: dict,
+    version: str,
+    prev_version: str | None,
 ) -> dict:
     """Build a manifest for `version`, using sha256 from Rust-generated fixtures.json."""
     entries = []
@@ -423,18 +427,13 @@ def _publish_full(
             return
 
         if not args.yes:
-            _info(
-                f"\nabout to upload {len(manifest['fixtures'])} fixtures "
-                f"for v{version} to {store.display_name()}"
-            )
+            _info(f"\nabout to upload {len(manifest['fixtures'])} fixtures for v{version} to {store.display_name()}")
             answer = input("proceed? [y/N] ").strip().lower()
             if answer not in ("y", "yes"):
                 _info("aborted")
                 sys.exit(1)
 
-        _info(
-            f"uploading {len(manifest['fixtures'])} fixtures to {store.display_name()}..."
-        )
+        _info(f"uploading {len(manifest['fixtures'])} fixtures to {store.display_name()}...")
         _parallel_upload(
             store,
             [(f"v{version}/arrays/{e['name']}", output / e["name"]) for e in manifest["fixtures"]],
@@ -449,10 +448,7 @@ def _publish_full(
         store.write("versions.json", (json.dumps(versions, indent=2) + "\n").encode())
         _info("  updated versions.json")
 
-        _info(
-            f"\ndone: {len(manifest['fixtures'])} fixtures for v{version} "
-            f"published to {store.display_name()}"
-        )
+        _info(f"\ndone: {len(manifest['fixtures'])} fixtures for v{version} published to {store.display_name()}")
 
 
 def _publish_update(
@@ -492,10 +488,7 @@ def _publish_update(
             if remote_data is not None:
                 remote_hash = hashlib.sha256(remote_data).hexdigest()
                 if local_hash != remote_hash:
-                    _info(
-                        f"error: hash mismatch for {name}: "
-                        f"local={local_hash[:12]} remote={remote_hash[:12]}"
-                    )
+                    _info(f"error: hash mismatch for {name}: local={local_hash[:12]} remote={remote_hash[:12]}")
                     sys.exit(1)
                 else:
                     _info(f"  {name}: unchanged (sha256 match)")
@@ -515,10 +508,7 @@ def _publish_update(
             return
 
         if not args.yes:
-            _info(
-                f"\nabout to upload {len(new_fixtures)} new fixture(s) "
-                f"for v{version} to {store.display_name()}"
-            )
+            _info(f"\nabout to upload {len(new_fixtures)} new fixture(s) for v{version} to {store.display_name()}")
             answer = input("proceed? [y/N] ").strip().lower()
             if answer not in ("y", "yes"):
                 _info("aborted")
@@ -545,10 +535,7 @@ def _publish_update(
         store.write(f"{prefix}/manifest.json", (json.dumps(updated_manifest, indent=2) + "\n").encode())
         _info("  updated manifest.json")
 
-        _info(
-            f"\ndone: added {len(new_fixtures)} new fixture(s) to v{version} "
-            f"in {store.display_name()}"
-        )
+        _info(f"\ndone: added {len(new_fixtures)} new fixture(s) to v{version} in {store.display_name()}")
 
 
 def cmd_check(args: argparse.Namespace) -> None:
@@ -608,19 +595,14 @@ def cmd_check(args: argparse.Namespace) -> None:
             total_skipped += skipped
 
             if failed_list:
-                _info(
-                    f"  v{version}: {passed} passed, {len(failed_list)} FAILED, "
-                    f"{skipped} skipped"
-                )
+                _info(f"  v{version}: {passed} passed, {len(failed_list)} FAILED, {skipped} skipped")
                 for f in failed_list:
                     _info(f"    FAIL {f['name']}: {f['error']}")
                     all_failures.append((version, f["name"], f["error"]))
             else:
                 _info(f"  v{version}: {passed} passed, {skipped} skipped")
 
-    _info(
-        f"\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped"
-    )
+    _info(f"\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped")
     if all_failures:
         sys.exit(1)
 
@@ -734,9 +716,7 @@ def cmd_validate_manifest(args: argparse.Namespace) -> None:
             else:
                 new = len(names) - len(prev_names)
                 extra = f" (+{new} new)" if new > 0 else ""
-                _info(
-                    f"  v{prev_version} -> v{version}: ok ({len(names)} fixtures{extra})"
-                )
+                _info(f"  v{prev_version} -> v{version}: ok ({len(names)} fixtures{extra})")
         else:
             _info(f"  v{version}: {len(names)} fixtures (first)")
 
@@ -796,9 +776,7 @@ def _cargo_run_cmd() -> list[str]:
     return ["cargo", "run", "-p", CARGO_BIN, "--release", "--"]
 
 
-def _run_cmd(
-    cmd: list[str], check: bool = False, cwd: Path | None = None
-) -> subprocess.CompletedProcess:
+def _run_cmd(cmd: list[str], check: bool = False, cwd: Path | None = None) -> subprocess.CompletedProcess:
     _info(f"  $ {' '.join(cmd)}")
     return subprocess.run(cmd, check=check, cwd=cwd)
 
@@ -883,9 +861,7 @@ def main() -> None:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument(
-        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
-    )
+    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
     p.add_argument(
         "--git-ref",
         help="Git ref for version detection (e.g. v0.62.0). "
@@ -909,7 +885,8 @@ def main() -> None:
         "(hash-verified, skips unchanged files, errors on mismatches)",
     )
     p.add_argument(
-        "--yes", "-y",
+        "--yes",
+        "-y",
         action="store_true",
         help="Skip confirmation prompt",
     )
@@ -931,9 +908,7 @@ def main() -> None:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument(
-        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
-    )
+    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
     p.add_argument(
         "--versions",
         help="Comma-separated versions to check (default: all)",
@@ -952,9 +927,7 @@ def main() -> None:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument(
-        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
-    )
+    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
     p.add_argument("version", nargs="?", help="Show manifest for this version")
 
     # -- verify --
@@ -966,16 +939,10 @@ def main() -> None:
             "SHA-256 hash matches the manifest. Also checks that all files\n"
             "listed in manifests are present in the store."
         ),
-        epilog=(
-            "examples:\n"
-            "  uv run compat.py verify\n"
-            "  uv run compat.py verify --store /tmp/store"
-        ),
+        epilog=("examples:\n  uv run compat.py verify\n  uv run compat.py verify --store /tmp/store"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument(
-        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
-    )
+    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
 
     # -- validate-manifest --
     p = sub.add_parser(
@@ -986,15 +953,11 @@ def main() -> None:
             "New fixtures are allowed; removals are errors."
         ),
         epilog=(
-            "examples:\n"
-            "  uv run compat.py validate-manifest\n"
-            "  uv run compat.py validate-manifest --store /tmp/store"
+            "examples:\n  uv run compat.py validate-manifest\n  uv run compat.py validate-manifest --store /tmp/store"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument(
-        "--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)"
-    )
+    p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
 
     args = parser.parse_args()
 

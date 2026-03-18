@@ -22,7 +22,8 @@ use vortex_array::DynArray;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 fn runtime() -> VortexResult<Runtime> {
