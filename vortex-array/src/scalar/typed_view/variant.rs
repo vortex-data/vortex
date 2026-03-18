@@ -65,6 +65,11 @@ impl<'a> VariantScalar<'a> {
     pub fn is_variant_null(&self) -> Option<bool> {
         Some(self.value?.is_null())
     }
+
+    /// Returns `Some(true)` if the inner [`Scalar`] has a non-null zero value.
+    pub fn is_zero(&self) -> Option<bool> {
+        self.value?.is_zero()
+    }
 }
 
 #[cfg(test)]
