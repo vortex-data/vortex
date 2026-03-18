@@ -120,14 +120,102 @@ pub async fn read_dataset_descriptor(
     DatasetDescriptor::from_yaml(&bytes)
 }
 
+/// Check if a dataset already exists in the remote catalog.
+///
+/// Returns the existing entry if found. Use this before [`push`] to prompt
+/// the user for confirmation.
+pub async fn check_existing(
+    store: &dyn ObjectStore,
+    base: &ObjPath,
+    dataset_name: &str,
+) -> Result<Option<DatasetEntry>> {
+    let catalog = read_catalog(store, base).await?;
+    Ok(catalog.find(dataset_name).cloned())
+}
+
+/// Acquire an upload lock for a dataset.
+///
+/// Creates `{dataset_name}.uploading` at the repo root using `PutMode::Create`
+/// (CAS — fails if the file already exists). This prevents two concurrent
+/// pushes from racing on the same dataset name.
+async fn acquire_upload_lock(
+    store: &dyn ObjectStore,
+    base: &ObjPath,
+    dataset_name: &str,
+) -> Result<ObjPath> {
+    let lock_path = obj_path(base, &format!("{dataset_name}.uploading"));
+    let payload = PutPayload::from_bytes(
+        format!(
+            "locked at {}",
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        )
+        .into(),
+    );
+
+    match store
+        .put_opts(
+            &lock_path,
+            payload,
+            PutOptions {
+                mode: PutMode::Create,
+                ..Default::default()
+            },
+        )
+        .await
+    {
+        Ok(_) => {
+            info!(lock = %lock_path, "acquired upload lock");
+            Ok(lock_path)
+        }
+        Err(object_store::Error::AlreadyExists { path, .. }) => {
+            bail!(
+                "another upload is in progress for '{}' (lock file: {}). \
+                 If this is stale, delete the lock file manually and retry.",
+                dataset_name,
+                path
+            );
+        }
+        Err(object_store::Error::NotSupported { .. }) => {
+            // Backend doesn't support conditional put — fall back to overwrite.
+            warn!("object store does not support conditional put; upload lock is best-effort");
+            store
+                .put(
+                    &lock_path,
+                    PutPayload::from_bytes(b"locked (best-effort)"[..].into()),
+                )
+                .await?;
+            Ok(lock_path)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Release the upload lock (delete the lock file).
+async fn release_upload_lock(store: &dyn ObjectStore, lock_path: &ObjPath) {
+    match store.delete(lock_path).await {
+        Ok(()) => info!(lock = %lock_path, "released upload lock"),
+        Err(e) => warn!(lock = %lock_path, error = %e, "failed to release upload lock"),
+    }
+}
+
 /// Push a local dataset directory to remote.
 ///
 /// 1. Validates dataset descriptor.
-/// 2. Scans and hashes data files, builds manifest.
-/// 3. Uploads each file to `{name}-{rand}/`.
-/// 4. Uploads dataset.yaml and manifest.json.
-/// 5. Updates catalog.json (CAS).
-pub async fn push(store: &dyn ObjectStore, base: &ObjPath, dataset_dir: &Path) -> Result<()> {
+/// 2. Acquires upload lock (`{name}.uploading`, CAS).
+/// 3. Scans and hashes data files, builds manifest.
+/// 4. Uploads each file to `{name}-{rand}/`.
+/// 5. Uploads dataset.yaml and manifest.json.
+/// 6. Updates catalog.json.
+/// 7. Releases upload lock.
+///
+/// If `force` is false and the dataset already exists in the catalog, returns
+/// an error. The CLI should call [`check_existing`] first to prompt the user.
+pub async fn push(
+    store: &dyn ObjectStore,
+    base: &ObjPath,
+    dataset_dir: &Path,
+    force: bool,
+) -> Result<()> {
     let descriptor = DatasetDescriptor::from_file(dataset_dir.join("dataset.yaml"))?;
     let problems = descriptor.validate();
     if !problems.is_empty() {
@@ -137,13 +225,41 @@ pub async fn push(store: &dyn ObjectStore, base: &ObjPath, dataset_dir: &Path) -
         );
     }
 
+    // Check for existing dataset if not forced.
+    if let (false, Some(existing)) = (force, check_existing(store, base, &descriptor.name).await?) {
+        bail!(
+            "dataset '{}' already exists at '{}'. Use --force to overwrite.",
+            descriptor.name,
+            existing.path
+        );
+    }
+
     let data_dir = dataset_dir.join("data");
     if !data_dir.exists() {
         bail!("data/ directory not found in {}", dataset_dir.display());
     }
 
+    // Acquire upload lock.
+    let lock_path = acquire_upload_lock(store, base, &descriptor.name).await?;
+
+    // From here on, ensure we release the lock even on error.
+    let result = push_inner(store, base, &descriptor, &data_dir).await;
+
+    // Always release the lock.
+    release_upload_lock(store, &lock_path).await;
+
+    result
+}
+
+/// Inner push logic, separated so the lock can be released on any exit path.
+async fn push_inner(
+    store: &dyn ObjectStore,
+    base: &ObjPath,
+    descriptor: &DatasetDescriptor,
+    data_dir: &Path,
+) -> Result<()> {
     // Build manifest by scanning data/.
-    let manifest = build_manifest_from_dir(&descriptor.name, &data_dir)?;
+    let manifest = build_manifest_from_dir(&descriptor.name, data_dir)?;
     info!(
         name = descriptor.name,
         files = manifest.total_files(),
@@ -189,7 +305,7 @@ pub async fn push(store: &dyn ObjectStore, base: &ObjPath, dataset_dir: &Path) -
         )
         .await?;
 
-    // Update catalog (CAS).
+    // Update catalog.
     let mut catalog = read_catalog(store, base).await?;
     let old = catalog.upsert(DatasetEntry {
         name: descriptor.name.clone(),

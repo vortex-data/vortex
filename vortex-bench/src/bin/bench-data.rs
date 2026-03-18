@@ -69,6 +69,9 @@ enum Command {
         /// Remote URL (s3://bucket/prefix, gs://bucket/prefix, or local path).
         #[arg(short, long)]
         remote: String,
+        /// Overwrite existing dataset without prompting.
+        #[arg(long, default_value = "false")]
+        force: bool,
     },
     /// Fetch catalog and manifests from remote (no data files).
     Pull {
@@ -177,9 +180,39 @@ async fn main() -> anyhow::Result<()> {
         Command::Push {
             path,
             remote: remote_url,
+            force,
         } => {
             let (store, base) = remote::resolve_store(&remote_url)?;
-            remote::push(store.as_ref(), &base, &path).await?;
+
+            // If not forced, check for existing and prompt.
+            let should_force = if !force {
+                if let Some(existing) = remote::check_existing(store.as_ref(), &base, &{
+                    // Read the dataset name from descriptor to check.
+                    let desc = DatasetDescriptor::from_file(path.join("dataset.yaml"))?;
+                    desc.name
+                })
+                .await?
+                {
+                    eprintln!(
+                        "Dataset '{}' already exists at '{}'.",
+                        existing.name, existing.path
+                    );
+                    eprint!("Replace it? [y/N] ");
+                    let mut answer = String::new();
+                    std::io::stdin().read_line(&mut answer)?;
+                    if !answer.trim().eq_ignore_ascii_case("y") {
+                        println!("Aborted.");
+                        return Ok(());
+                    }
+                    true
+                } else {
+                    false
+                }
+            } else {
+                true
+            };
+
+            remote::push(store.as_ref(), &base, &path, force || should_force).await?;
             println!("Push complete");
         }
 

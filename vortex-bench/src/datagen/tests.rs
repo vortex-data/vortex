@@ -392,7 +392,7 @@ async fn test_push_pull_checkout_e2e() -> anyhow::Result<()> {
     );
 
     // Push.
-    remote::push(store.as_ref(), &base, &dataset_dir).await?;
+    remote::push(store.as_ref(), &base, &dataset_dir, true).await?;
 
     // Verify catalog was created.
     let catalog = remote::read_catalog(store.as_ref(), &base).await?;
@@ -437,7 +437,7 @@ async fn test_push_replaces_existing() -> anyhow::Result<()> {
         "my-bench",
         &[("parquet/t1/a.parquet", b"version 1")],
     );
-    remote::push(store.as_ref(), &base, &ds1).await?;
+    remote::push(store.as_ref(), &base, &ds1, true).await?;
 
     let catalog1 = remote::read_catalog(store.as_ref(), &base).await?;
     let path1 = catalog1.datasets[0].path.clone();
@@ -449,7 +449,7 @@ async fn test_push_replaces_existing() -> anyhow::Result<()> {
         "my-bench",
         &[("parquet/t1/a.parquet", b"version 2")],
     );
-    remote::push(store.as_ref(), &base, &ds2).await?;
+    remote::push(store.as_ref(), &base, &ds2, true).await?;
 
     let catalog2 = remote::read_catalog(store.as_ref(), &base).await?;
     assert_eq!(catalog2.datasets.len(), 1);
@@ -470,7 +470,7 @@ async fn test_delete() -> anyhow::Result<()> {
         "deleteme",
         &[("parquet/t1/a.parquet", b"data")],
     );
-    remote::push(store.as_ref(), &base, &ds).await?;
+    remote::push(store.as_ref(), &base, &ds, true).await?;
 
     // Delete without purge.
     remote::delete(store.as_ref(), &base, "deleteme", false).await?;
@@ -487,7 +487,7 @@ async fn test_delete_with_purge() -> anyhow::Result<()> {
     let (store, base) = local_store(&remote_dir);
 
     let ds = create_test_dataset(work.path(), "purgeme", &[("parquet/t1/a.parquet", b"data")]);
-    remote::push(store.as_ref(), &base, &ds).await?;
+    remote::push(store.as_ref(), &base, &ds, true).await?;
 
     let catalog = remote::read_catalog(store.as_ref(), &base).await?;
     let dataset_path = catalog.datasets[0].path.clone();
@@ -514,7 +514,7 @@ async fn test_verify_passes() -> anyhow::Result<()> {
         "verify-me",
         &[("parquet/t1/a.parquet", b"data")],
     );
-    remote::push(store.as_ref(), &base, &ds).await?;
+    remote::push(store.as_ref(), &base, &ds, true).await?;
 
     let problems = remote::verify(store.as_ref(), &base, "verify-me").await?;
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
@@ -529,7 +529,7 @@ async fn test_gc_removes_orphans() -> anyhow::Result<()> {
 
     // Push a dataset.
     let ds = create_test_dataset(work.path(), "keeper", &[("parquet/t1/a.parquet", b"keep")]);
-    remote::push(store.as_ref(), &base, &ds).await?;
+    remote::push(store.as_ref(), &base, &ds, true).await?;
 
     // Manually create an orphaned directory.
     let orphan_path = ObjPath::from("orphan-xyz123/manifest.json");
@@ -564,7 +564,7 @@ async fn test_checkout_skips_cached_files() -> anyhow::Result<()> {
         "cache-test",
         &[("parquet/t1/a.parquet", b"cached data")],
     );
-    remote::push(store.as_ref(), &base, &ds).await?;
+    remote::push(store.as_ref(), &base, &ds, true).await?;
 
     let mirror = work.path().join("mirror");
     remote::pull(store.as_ref(), &base, &mirror).await?;
@@ -602,8 +602,8 @@ async fn test_two_remotes_independent() -> anyhow::Result<()> {
         &[("parquet/t1/b.parquet", b"data b")],
     );
 
-    remote::push(store_a.as_ref(), &base_a, &ds1).await?;
-    remote::push(store_b.as_ref(), &base_b, &ds2).await?;
+    remote::push(store_a.as_ref(), &base_a, &ds1, true).await?;
+    remote::push(store_b.as_ref(), &base_b, &ds2, true).await?;
 
     // Each remote has only its own dataset.
     let cat_a = remote::read_catalog(store_a.as_ref(), &base_a).await?;
@@ -612,6 +612,142 @@ async fn test_two_remotes_independent() -> anyhow::Result<()> {
     assert_eq!(cat_a.datasets[0].name, "dataset-a");
     assert_eq!(cat_b.datasets.len(), 1);
     assert_eq!(cat_b.datasets[0].name, "dataset-b");
+
+    Ok(())
+}
+
+// -- Upload lock tests --
+
+#[tokio::test]
+async fn test_push_without_force_fails_if_exists() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    let ds = create_test_dataset(
+        work.path(),
+        "locked-ds",
+        &[("parquet/t1/a.parquet", b"data")],
+    );
+
+    // First push succeeds (no existing dataset).
+    remote::push(store.as_ref(), &base, &ds, false).await?;
+
+    // Second push without force fails.
+    let result = remote::push(store.as_ref(), &base, &ds, false).await;
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("already exists"),
+        "expected 'already exists' error, got: {err_msg}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_push_with_force_overwrites() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    let ds = create_test_dataset(work.path(), "force-ds", &[("parquet/t1/a.parquet", b"v1")]);
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    // Overwrite with force.
+    std::fs::write(ds.join("data/parquet/t1/a.parquet"), b"v2")?;
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    let catalog = remote::read_catalog(store.as_ref(), &base).await?;
+    assert_eq!(catalog.datasets.len(), 1);
+    assert_eq!(catalog.datasets[0].name, "force-ds");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_upload_lock_prevents_concurrent_push() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    // Manually create a lock file to simulate a concurrent upload.
+    let lock_path = ObjPath::from("concurrent-ds.uploading");
+    store
+        .put(
+            &lock_path,
+            object_store::PutPayload::from_bytes(b"locked"[..].into()),
+        )
+        .await?;
+
+    let ds = create_test_dataset(
+        work.path(),
+        "concurrent-ds",
+        &[("parquet/t1/a.parquet", b"data")],
+    );
+
+    // Push should fail because lock exists.
+    let result = remote::push(store.as_ref(), &base, &ds, true).await;
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("another upload") || err_msg.contains("uploading"),
+        "expected lock error, got: {err_msg}"
+    );
+
+    // Clean up lock.
+    store.delete(&lock_path).await?;
+
+    // Now push should succeed.
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_upload_lock_released_after_push() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    let ds = create_test_dataset(
+        work.path(),
+        "lock-cleanup",
+        &[("parquet/t1/a.parquet", b"data")],
+    );
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    // Lock file should be gone after successful push.
+    let lock_path = ObjPath::from("lock-cleanup.uploading");
+    let result = store.get(&lock_path).await;
+    assert!(
+        matches!(result, Err(object_store::Error::NotFound { .. })),
+        "expected lock file to be deleted after push"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_check_existing() -> anyhow::Result<()> {
+    let work = TempDir::new()?;
+    let remote_dir = work.path().join("remote");
+    let (store, base) = local_store(&remote_dir);
+
+    // No dataset yet.
+    let existing = remote::check_existing(store.as_ref(), &base, "nonexistent").await?;
+    assert!(existing.is_none());
+
+    // Push a dataset.
+    let ds = create_test_dataset(
+        work.path(),
+        "exists-test",
+        &[("parquet/t1/a.parquet", b"data")],
+    );
+    remote::push(store.as_ref(), &base, &ds, true).await?;
+
+    // Now it exists.
+    let existing = remote::check_existing(store.as_ref(), &base, "exists-test").await?;
+    assert!(existing.is_some());
+    assert_eq!(existing.unwrap().name, "exists-test");
 
     Ok(())
 }

@@ -37,6 +37,51 @@
 //!
 //! Local mirror uses the same layout. `pull` fetches metadata, `checkout`
 //! fetches data files.
+//!
+//! # Usage graph
+//!
+//! ```text
+//!                    ┌──────────────────────────────────────────────┐
+//!                    │              Author workflow                 │
+//!                    └──────────────────────────────────────────────┘
+//!
+//!     init ──► edit dataset.yaml ──► add data files ──► push --remote <url>
+//!      │                                                     │
+//!      ▼                                                     ▼
+//!   my-dataset/                                ┌─── acquire lock (CAS) ───┐
+//!   ├── dataset.yaml  (you write)              │   {name}.uploading       │
+//!   └── data/                                  ▼                          │
+//!       └── {format}/{table}/files       upload files                     │
+//!                                              │                          │
+//!                                              ▼                          │
+//!                                        upload manifest.json             │
+//!                                              │                          │
+//!                                              ▼                          │
+//!                                        update catalog.json              │
+//!                                              │                          │
+//!                                              ▼                          │
+//!                                        release lock ◄──────────────────┘
+//!
+//!                    ┌──────────────────────────────────────────────┐
+//!                    │             Consumer workflow                │
+//!                    └──────────────────────────────────────────────┘
+//!
+//!   pull ──────────────────────► checkout <name> ────────► use data
+//!     │                               │
+//!     ▼                               ▼
+//!   fetches catalog.json         downloads data files
+//!   + all manifests              (skips if hash matches)
+//!   + all dataset.yaml
+//!
+//!                    ┌──────────────────────────────────────────────┐
+//!                    │              Maintenance                     │
+//!                    └──────────────────────────────────────────────┘
+//!
+//!   list ──► describe <name>     show catalog / dataset details
+//!   verify <name>                check all file hashes match manifest
+//!   delete <name> [--purge]      remove from catalog (optionally purge files)
+//!   gc                           remove orphaned directories not in catalog
+//! ```
 
 pub mod catalog;
 pub mod dataset;
