@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
+# /// script
+# dependencies = ["jsonschema"]
+# ///
 
 """
 Vortex backward-compatibility orchestrator.
