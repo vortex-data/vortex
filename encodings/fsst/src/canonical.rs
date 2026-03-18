@@ -12,6 +12,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
+use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -150,12 +151,18 @@ pub fn fsst_batch_decode(
         unsafe { combined_buf.set_len(prev_len + decompressed_len) };
 
         // Collect this chunk's lengths as i32 into the combined lens buffer.
-        match_each_integer_ptype!(parray.ptype(), |P| {
-            for &l in parray.as_slice::<P>() {
-                #[allow(clippy::cast_possible_truncation, clippy::unnecessary_cast)]
-                all_lens.push(l as i32);
-            }
-        });
+        // Fast path: when lengths are already i32 (the common case from compression),
+        // use memcpy via extend_from_slice instead of per-element push with cast.
+        if parray.ptype() == PType::I32 {
+            all_lens.extend_from_slice(parray.as_slice::<i32>());
+        } else {
+            match_each_integer_ptype!(parray.ptype(), |P| {
+                for &l in parray.as_slice::<P>() {
+                    #[allow(clippy::cast_possible_truncation, clippy::unnecessary_cast)]
+                    all_lens.push(l as i32);
+                }
+            });
+        }
     }
 
     // Phase 3: Build views over the single combined buffer.
