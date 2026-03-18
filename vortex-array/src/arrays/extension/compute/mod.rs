@@ -7,7 +7,6 @@ mod filter;
 mod is_constant;
 mod is_sorted;
 mod mask;
-mod min_max;
 pub(crate) mod rules;
 mod slice;
 mod take;

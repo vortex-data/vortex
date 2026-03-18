@@ -5,28 +5,26 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::Decimal;
+use super::MinMaxPartial;
+use super::MinMaxResult;
 use crate::arrays::DecimalArray;
-use crate::compute::MinMaxKernel;
-use crate::compute::MinMaxKernelAdapter;
-use crate::compute::MinMaxResult;
 use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::match_each_decimal_value_type;
-use crate::register_kernel;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
-impl MinMaxKernel for Decimal {
-    fn min_max(&self, array: &DecimalArray) -> VortexResult<Option<MinMaxResult>> {
-        match_each_decimal_value_type!(array.values_type(), |T| {
-            compute_min_max_with_validity::<T>(array)
-        })
-    }
+pub(super) fn accumulate_decimal(
+    partial: &mut MinMaxPartial,
+    array: &DecimalArray,
+) -> VortexResult<()> {
+    match_each_decimal_value_type!(array.values_type(), |T| {
+        let local = compute_min_max_with_validity::<T>(array)?;
+        partial.merge(local);
+        Ok(())
+    })
 }
-
-register_kernel!(MinMaxKernelAdapter(Decimal).lift());
 
 #[inline]
 fn compute_min_max_with_validity<D>(array: &DecimalArray) -> VortexResult<Option<MinMaxResult>>
@@ -67,47 +65,5 @@ where
             min: Scalar::decimal(min.into(), decimal_dtype, NonNullable),
             max: Scalar::decimal(max.into(), decimal_dtype, NonNullable),
         }),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_buffer::buffer;
-
-    use crate::IntoArray;
-    use crate::arrays::DecimalArray;
-    use crate::compute::MinMaxResult;
-    use crate::compute::min_max;
-    use crate::dtype::DecimalDType;
-    use crate::scalar::DecimalValue;
-    use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
-    use crate::validity::Validity;
-
-    #[test]
-    fn min_max_test() {
-        let decimal = DecimalArray::new(
-            buffer![100i32, 2000i32, 200i32],
-            DecimalDType::new(4, 2),
-            Validity::from_iter([true, false, true]),
-        );
-
-        let min_max = min_max(&decimal.clone().into_array()).unwrap();
-
-        let non_nullable_dtype = decimal.dtype().as_nonnullable();
-        let expected = MinMaxResult {
-            min: Scalar::try_new(
-                non_nullable_dtype.clone(),
-                Some(ScalarValue::from(DecimalValue::from(100i32))),
-            )
-            .unwrap(),
-            max: Scalar::try_new(
-                non_nullable_dtype,
-                Some(ScalarValue::from(DecimalValue::from(200i32))),
-            )
-            .unwrap(),
-        };
-
-        assert_eq!(Some(expected), min_max)
     }
 }

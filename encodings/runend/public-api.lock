@@ -44,10 +44,6 @@ pub fn vortex_runend::RunEnd::is_sorted(&self, array: &vortex_runend::RunEndArra
 
 pub fn vortex_runend::RunEnd::is_strict_sorted(&self, array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::min_max::MinMaxKernel for vortex_runend::RunEnd
-
-pub fn vortex_runend::RunEnd::min_max(&self, array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::min_max::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_runend::RunEnd
 
 pub fn vortex_runend::RunEnd::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

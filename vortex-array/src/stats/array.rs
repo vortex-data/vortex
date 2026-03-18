@@ -17,14 +17,14 @@ use super::TypedStatsSetRef;
 use crate::DynArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::builders::builder_with_capacity;
-use crate::compute::MinMaxResult;
 use crate::compute::is_constant;
 use crate::compute::is_sorted;
 use crate::compute::is_strict_sorted;
-use crate::compute::min_max;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -153,8 +153,8 @@ impl StatsSetRef<'_> {
 
         let array_ref = self.dyn_array_ref.to_array();
         Ok(match stat {
-            Stat::Min => min_max(&array_ref)?.map(|MinMaxResult { min, max: _ }| min),
-            Stat::Max => min_max(&array_ref)?.map(|MinMaxResult { min: _, max }| max),
+            Stat::Min => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min, max: _ }| min),
+            Stat::Max => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min: _, max }| max),
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())

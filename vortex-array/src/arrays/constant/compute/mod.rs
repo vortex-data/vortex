@@ -5,7 +5,6 @@ mod between;
 mod cast;
 mod fill_null;
 mod filter;
-mod min_max;
 mod not;
 pub(crate) mod rules;
 mod slice;

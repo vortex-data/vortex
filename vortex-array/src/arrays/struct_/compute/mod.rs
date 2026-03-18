@@ -4,7 +4,6 @@
 mod cast;
 mod is_constant;
 mod mask;
-mod min_max;
 pub(crate) mod rules;
 mod slice;
 mod take;

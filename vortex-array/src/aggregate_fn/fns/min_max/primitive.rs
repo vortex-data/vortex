@@ -5,27 +5,25 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::Primitive;
+use super::MinMaxPartial;
+use super::MinMaxResult;
 use crate::arrays::PrimitiveArray;
-use crate::compute::MinMaxKernel;
-use crate::compute::MinMaxKernelAdapter;
-use crate::compute::MinMaxResult;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability::NonNullable;
 use crate::match_each_native_ptype;
-use crate::register_kernel;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 
-impl MinMaxKernel for Primitive {
-    fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
-        match_each_native_ptype!(array.ptype(), |T| {
-            compute_min_max_with_validity::<T>(array)
-        })
-    }
+pub(super) fn accumulate_primitive(
+    partial: &mut MinMaxPartial,
+    p: &PrimitiveArray,
+) -> VortexResult<()> {
+    match_each_native_ptype!(p.ptype(), |T| {
+        let local = compute_min_max_with_validity::<T>(p)?;
+        partial.merge(local);
+        Ok(())
+    })
 }
-
-register_kernel!(MinMaxKernelAdapter(Primitive).lift());
 
 #[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
@@ -51,8 +49,6 @@ where
     T: NativePType,
     PValue: From<T>,
 {
-    // `total_compare` function provides a total ordering (even for NaN values).
-    // However, we exclude NaNs from min max as they're not useful for any purpose where min/max would be used
     match iter
         .filter(|v| !v.is_nan())
         .minmax_by(|a, b| a.total_compare(**b))
@@ -69,37 +65,5 @@ where
             min: Scalar::primitive(min, NonNullable),
             max: Scalar::primitive(max, NonNullable),
         }),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_buffer::buffer;
-
-    use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::compute::min_max;
-    use crate::validity::Validity;
-
-    #[test]
-    fn min_max_nan() {
-        let array = PrimitiveArray::new(
-            buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
-            Validity::NonNullable,
-        );
-        let min_max = min_max(&array.into_array()).unwrap().unwrap();
-        assert_eq!(f32::try_from(&min_max.min).unwrap(), -1.0);
-        assert_eq!(f32::try_from(&min_max.max).unwrap(), 1.0);
-    }
-
-    #[test]
-    fn min_max_inf() {
-        let array = PrimitiveArray::new(
-            buffer![f32::INFINITY, f32::NEG_INFINITY, -1.0, 1.0],
-            Validity::NonNullable,
-        );
-        let min_max = min_max(&array.into_array()).unwrap().unwrap();
-        assert_eq!(f32::try_from(&min_max.min).unwrap(), f32::NEG_INFINITY);
-        assert_eq!(f32::try_from(&min_max.max).unwrap(), f32::INFINITY);
     }
 }

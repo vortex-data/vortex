@@ -59,8 +59,7 @@ pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
-    min_max::warm_up_vtable();
-    // nan_count has been migrated to aggregate_fn
+    // min_max and nan_count have been migrated to aggregate_fn
 }
 
 impl ComputeFn {

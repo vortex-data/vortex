@@ -43,13 +43,13 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
+use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::MinMaxResult;
-use vortex_array::compute::min_max;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
@@ -345,6 +345,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
+                        &mut ctx,
                     )
                     .vortex_expect("min_max_canonical_array should succeed in fuzz test");
                     (Action::MinMax, ExpectedValue::MinMax(min_max_result))
@@ -652,7 +653,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 assert_scalar_eq(&expected.scalar(), &sum_result, i)?;
             }
             Action::MinMax => {
-                let min_max_result = min_max(&current_array)
+                let min_max_result = min_max(&current_array, &mut ctx)
                     .vortex_expect("min_max operation should succeed in fuzz test");
                 assert_min_max_eq(&expected.min_max(), &min_max_result, i)?;
             }

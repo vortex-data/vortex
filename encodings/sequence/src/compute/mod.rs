@@ -6,7 +6,6 @@ pub(crate) mod compare;
 mod filter;
 mod is_sorted;
 mod list_contains;
-mod min_max;
 mod slice;
 mod take;
 

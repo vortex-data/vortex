@@ -9,7 +9,6 @@ mod is_constant;
 mod is_sorted;
 pub(crate) mod kernel;
 mod mask;
-mod min_max;
 pub(crate) mod rules;
 mod slice;
 mod take;

@@ -8,12 +8,14 @@ use vortex_error::VortexResult;
 
 use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
-use crate::compute;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -307,10 +309,12 @@ impl ListViewArray {
             let offsets = self.offsets().cast(wide_dtype.clone())?;
             let sizes = self.sizes().cast(wide_dtype)?;
 
-            let min_max = compute::min_max(
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let min_max = min_max(
                 &offsets
                     .binary(sizes, Operator::Add)
                     .vortex_expect("`offsets + sizes` somehow overflowed"),
+                &mut ctx,
             )
             .vortex_expect("Something went wrong while computing min and max")
             .vortex_expect("We checked that the array was not empty in the top-level `rebuild`");

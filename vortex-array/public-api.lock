@@ -30,6 +30,80 @@ pub mod vortex_array::aggregate_fn
 
 pub mod vortex_array::aggregate_fn::fns
 
+pub mod vortex_array::aggregate_fn::fns::min_max
+
+pub struct vortex_array::aggregate_fn::fns::min_max::MinMax
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::min_max::MinMax
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::clone(&self) -> vortex_array::aggregate_fn::fns::min_max::MinMax
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::min_max::MinMax
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::min_max::MinMax
+
+pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Partial = vortex_array::aggregate_fn::fns::min_max::MinMaxPartial
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::empty_partial(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::is_saturated(&self, _partial: &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub struct vortex_array::aggregate_fn::fns::min_max::MinMaxPartial
+
+pub struct vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+pub vortex_array::aggregate_fn::fns::min_max::MinMaxResult::max: vortex_array::scalar::Scalar
+
+pub vortex_array::aggregate_fn::fns::min_max::MinMaxResult::min: vortex_array::scalar::Scalar
+
+impl vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::from_scalar(scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<Self>>
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::clone(&self) -> vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+impl core::cmp::Eq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+impl core::cmp::PartialEq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::eq(&self, other: &vortex_array::aggregate_fn::fns::min_max::MinMaxResult) -> bool
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
+
+pub fn vortex_array::aggregate_fn::fns::min_max::min_max(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::aggregate_fn::fns::min_max::MinMaxResult>>
+
 pub mod vortex_array::aggregate_fn::fns::nan_count
 
 pub struct vortex_array::aggregate_fn::fns::nan_count::NanCount
@@ -364,6 +438,38 @@ pub fn vortex_array::aggregate_fn::AggregateFnVTable::return_dtype(&self, option
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::min_max::MinMax
+
+pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Partial = vortex_array::aggregate_fn::fns::min_max::MinMaxPartial
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::empty_partial(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::is_saturated(&self, _partial: &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::nan_count::NanCount
 
 pub type vortex_array::aggregate_fn::fns::nan_count::NanCount::Options = vortex_array::aggregate_fn::EmptyOptions
@@ -515,10 +621,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Bool
 pub fn vortex_array::arrays::Bool::is_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::Bool::is_strict_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Bool
-
-pub fn vortex_array::arrays::Bool::min_max(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
 
@@ -740,10 +842,6 @@ pub fn vortex_array::arrays::Chunked::is_sorted(&self, array: &vortex_array::arr
 
 pub fn vortex_array::arrays::Chunked::is_strict_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Chunked
-
-pub fn vortex_array::arrays::Chunked::min_max(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::cast(array: &vortex_array::arrays::ChunkedArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -909,10 +1007,6 @@ pub fn vortex_array::arrays::Constant::filter(array: &vortex_array::arrays::Cons
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Constant
 
 pub fn vortex_array::arrays::Constant::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Constant
-
-pub fn vortex_array::arrays::Constant::min_max(&self, array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::between::BetweenReduce for vortex_array::arrays::Constant
 
@@ -1123,10 +1217,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Decimal
 pub fn vortex_array::arrays::Decimal::is_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::Decimal::is_strict_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Decimal
-
-pub fn vortex_array::arrays::Decimal::min_max(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Decimal> for vortex_array::arrays::decimal::DecimalMaskedValidityRule
 
@@ -1348,10 +1438,6 @@ pub fn vortex_array::arrays::dict::Dict::is_sorted(&self, array: &vortex_array::
 
 pub fn vortex_array::arrays::dict::Dict::is_strict_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::min_max(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
 pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1465,10 +1551,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::dict::Dict
 pub fn vortex_array::arrays::dict::Dict::is_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::dict::Dict::is_strict_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::min_max(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
@@ -1783,10 +1865,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Extension
 pub fn vortex_array::arrays::Extension::is_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::Extension::is_strict_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Extension
-
-pub fn vortex_array::arrays::Extension::min_max(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::Extension
 
@@ -2154,10 +2232,6 @@ pub fn vortex_array::arrays::FixedSizeList::is_sorted(&self, _array: &vortex_arr
 
 pub fn vortex_array::arrays::FixedSizeList::is_strict_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::FixedSizeList
-
-pub fn vortex_array::arrays::FixedSizeList::min_max(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::cast(array: &vortex_array::arrays::FixedSizeListArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2315,10 +2389,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::List
 pub fn vortex_array::arrays::List::is_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::List::is_strict_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::List
-
-pub fn vortex_array::arrays::List::min_max(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::List
 
@@ -2497,10 +2567,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::ListView
 pub fn vortex_array::arrays::ListView::is_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::ListView::is_strict_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ListView
-
-pub fn vortex_array::arrays::ListView::min_max(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::ListView
 
@@ -2818,10 +2884,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::null::Nu
 
 pub fn vortex_array::arrays::null::Null::slice(_array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::null::Null
-
-pub fn vortex_array::arrays::null::Null::min_max(&self, _array: &vortex_array::arrays::null::NullArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::cast(array: &vortex_array::arrays::null::NullArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3027,10 +3089,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Primitive
 pub fn vortex_array::arrays::Primitive::is_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::Primitive::is_strict_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Primitive
-
-pub fn vortex_array::arrays::Primitive::min_max(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
 
@@ -3816,10 +3874,6 @@ impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::is_constant(&self, array: &vortex_array::arrays::StructArray, opts: &vortex_array::compute::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::min_max(&self, _array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::cast(array: &vortex_array::arrays::StructArray, dtype: &vortex_array::dtype::DType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4045,10 +4099,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBin
 pub fn vortex_array::arrays::VarBin::is_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::VarBin::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBin
-
-pub fn vortex_array::arrays::VarBin::min_max(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::VarBin
 
@@ -4462,10 +4512,6 @@ pub fn vortex_array::arrays::VarBinView::is_sorted(&self, array: &vortex_array::
 
 pub fn vortex_array::arrays::VarBinView::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBinView
-
-pub fn vortex_array::arrays::VarBinView::min_max(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::VarBinView
 
 pub fn vortex_array::arrays::VarBinView::cast(array: &vortex_array::arrays::VarBinViewArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4688,10 +4734,6 @@ pub fn vortex_array::arrays::Bool::is_sorted(&self, array: &vortex_array::arrays
 
 pub fn vortex_array::arrays::Bool::is_strict_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Bool
-
-pub fn vortex_array::arrays::Bool::min_max(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
 
 pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
@@ -4884,10 +4926,6 @@ pub fn vortex_array::arrays::Chunked::is_sorted(&self, array: &vortex_array::arr
 
 pub fn vortex_array::arrays::Chunked::is_strict_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Chunked
-
-pub fn vortex_array::arrays::Chunked::min_max(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::cast(array: &vortex_array::arrays::ChunkedArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5052,10 +5090,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Constant
 
 pub fn vortex_array::arrays::Constant::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Constant
-
-pub fn vortex_array::arrays::Constant::min_max(&self, array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::between::BetweenReduce for vortex_array::arrays::Constant
 
 pub fn vortex_array::arrays::Constant::between(array: &vortex_array::arrays::ConstantArray, lower: &vortex_array::ArrayRef, upper: &vortex_array::ArrayRef, options: &vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5201,10 +5235,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Decimal
 pub fn vortex_array::arrays::Decimal::is_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::Decimal::is_strict_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Decimal
-
-pub fn vortex_array::arrays::Decimal::min_max(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Decimal> for vortex_array::arrays::decimal::DecimalMaskedValidityRule
 
@@ -5394,10 +5424,6 @@ pub fn vortex_array::arrays::dict::Dict::is_sorted(&self, array: &vortex_array::
 
 pub fn vortex_array::arrays::dict::Dict::is_strict_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::min_max(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
 pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5569,10 +5595,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Extension
 pub fn vortex_array::arrays::Extension::is_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::Extension::is_strict_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Extension
-
-pub fn vortex_array::arrays::Extension::min_max(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::Extension
 
@@ -5854,10 +5876,6 @@ pub fn vortex_array::arrays::FixedSizeList::is_sorted(&self, _array: &vortex_arr
 
 pub fn vortex_array::arrays::FixedSizeList::is_strict_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::FixedSizeList
-
-pub fn vortex_array::arrays::FixedSizeList::min_max(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::cast(array: &vortex_array::arrays::FixedSizeListArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6014,10 +6032,6 @@ pub fn vortex_array::arrays::List::is_sorted(&self, _array: &vortex_array::array
 
 pub fn vortex_array::arrays::List::is_strict_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::List
-
-pub fn vortex_array::arrays::List::min_max(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::cast(array: &vortex_array::arrays::ListArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6173,10 +6187,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::ListView
 pub fn vortex_array::arrays::ListView::is_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::ListView::is_strict_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ListView
-
-pub fn vortex_array::arrays::ListView::min_max(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::ListView
 
@@ -6470,10 +6480,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::null::Nu
 
 pub fn vortex_array::arrays::null::Null::slice(_array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::null::Null
-
-pub fn vortex_array::arrays::null::Null::min_max(&self, _array: &vortex_array::arrays::null::NullArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::cast(array: &vortex_array::arrays::null::NullArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6611,10 +6617,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Primitive
 pub fn vortex_array::arrays::Primitive::is_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::Primitive::is_strict_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Primitive
-
-pub fn vortex_array::arrays::Primitive::min_max(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
 
@@ -7188,10 +7190,6 @@ impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::is_constant(&self, array: &vortex_array::arrays::StructArray, opts: &vortex_array::compute::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::min_max(&self, _array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::cast(array: &vortex_array::arrays::StructArray, dtype: &vortex_array::dtype::DType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7442,10 +7440,6 @@ pub fn vortex_array::arrays::VarBin::is_sorted(&self, array: &vortex_array::arra
 
 pub fn vortex_array::arrays::VarBin::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBin
-
-pub fn vortex_array::arrays::VarBin::min_max(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7671,10 +7665,6 @@ impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBinView
 pub fn vortex_array::arrays::VarBinView::is_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::arrays::VarBinView::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBinView
-
-pub fn vortex_array::arrays::VarBinView::min_max(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::VarBinView
 
@@ -9648,61 +9638,31 @@ pub struct vortex_array::compute::IsSortedKernelRef(_)
 
 impl inventory::Collect for vortex_array::compute::IsSortedKernelRef
 
-pub struct vortex_array::compute::MinMax
-
-impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::MinMax
-
-pub fn vortex_array::compute::MinMax::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::compute::Output>
-
-pub fn vortex_array::compute::MinMax::is_elementwise(&self) -> bool
-
-pub fn vortex_array::compute::MinMax::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::compute::MinMax::return_len(&self, _args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
-
-pub struct vortex_array::compute::MinMaxKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::MinMaxKernel> vortex_array::compute::MinMaxKernelAdapter<V>
-
-pub const fn vortex_array::compute::MinMaxKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::MinMaxKernelRef
-
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::MinMaxKernelAdapter<V>
-
-pub fn vortex_array::compute::MinMaxKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::MinMaxKernel> vortex_array::compute::Kernel for vortex_array::compute::MinMaxKernelAdapter<V>
-
-pub fn vortex_array::compute::MinMaxKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-pub struct vortex_array::compute::MinMaxKernelRef(_)
-
-impl inventory::Collect for vortex_array::compute::MinMaxKernelRef
-
 pub struct vortex_array::compute::MinMaxResult
 
 pub vortex_array::compute::MinMaxResult::max: vortex_array::scalar::Scalar
 
 pub vortex_array::compute::MinMaxResult::min: vortex_array::scalar::Scalar
 
-impl vortex_array::compute::MinMaxResult
+impl vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
-pub fn vortex_array::compute::MinMaxResult::from_scalar(scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::from_scalar(scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-impl core::clone::Clone for vortex_array::compute::MinMaxResult
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
-pub fn vortex_array::compute::MinMaxResult::clone(&self) -> vortex_array::compute::MinMaxResult
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::clone(&self) -> vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
-impl core::cmp::Eq for vortex_array::compute::MinMaxResult
+impl core::cmp::Eq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
-impl core::cmp::PartialEq for vortex_array::compute::MinMaxResult
+impl core::cmp::PartialEq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
-pub fn vortex_array::compute::MinMaxResult::eq(&self, other: &vortex_array::compute::MinMaxResult) -> bool
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::eq(&self, other: &vortex_array::aggregate_fn::fns::min_max::MinMaxResult) -> bool
 
-impl core::fmt::Debug for vortex_array::compute::MinMaxResult
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
-pub fn vortex_array::compute::MinMaxResult::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl core::marker::StructuralPartialEq for vortex_array::compute::MinMaxResult
+impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
 
 pub struct vortex_array::compute::UnaryArgs<'a, O: vortex_array::compute::Options>
 
@@ -9725,16 +9685,6 @@ pub fn vortex_array::compute::ComputeFnVTable::is_elementwise(&self) -> bool
 pub fn vortex_array::compute::ComputeFnVTable::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::compute::ComputeFnVTable::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
-
-impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::MinMax
-
-pub fn vortex_array::compute::MinMax::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::compute::Output>
-
-pub fn vortex_array::compute::MinMax::is_elementwise(&self) -> bool
-
-pub fn vortex_array::compute::MinMax::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::compute::MinMax::return_len(&self, _args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
 
 pub trait vortex_array::compute::IsConstantKernel: vortex_array::vtable::VTable
 
@@ -9880,70 +9830,6 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::IsSortedKernel> vo
 
 pub fn vortex_array::compute::IsSortedKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::MinMaxKernel> vortex_array::compute::Kernel for vortex_array::compute::MinMaxKernelAdapter<V>
-
-pub fn vortex_array::compute::MinMaxKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-pub trait vortex_array::compute::MinMaxKernel: vortex_array::vtable::VTable
-
-pub fn vortex_array::compute::MinMaxKernel::min_max(&self, array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Bool
-
-pub fn vortex_array::arrays::Bool::min_max(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Chunked
-
-pub fn vortex_array::arrays::Chunked::min_max(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Constant
-
-pub fn vortex_array::arrays::Constant::min_max(&self, array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Decimal
-
-pub fn vortex_array::arrays::Decimal::min_max(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Extension
-
-pub fn vortex_array::arrays::Extension::min_max(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::FixedSizeList
-
-pub fn vortex_array::arrays::FixedSizeList::min_max(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::List
-
-pub fn vortex_array::arrays::List::min_max(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ListView
-
-pub fn vortex_array::arrays::ListView::min_max(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Primitive
-
-pub fn vortex_array::arrays::Primitive::min_max(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::min_max(&self, _array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBin
-
-pub fn vortex_array::arrays::VarBin::min_max(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBinView
-
-pub fn vortex_array::arrays::VarBinView::min_max(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::min_max(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
-impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::null::Null
-
-pub fn vortex_array::arrays::null::Null::min_max(&self, _array: &vortex_array::arrays::null::NullArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-
 pub trait vortex_array::compute::Options: 'static
 
 pub fn vortex_array::compute::Options::as_any(&self) -> &dyn core::any::Any
@@ -9970,7 +9856,7 @@ pub fn vortex_array::compute::is_sorted_opts(array: &vortex_array::ArrayRef, str
 
 pub fn vortex_array::compute::is_strict_sorted(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-pub fn vortex_array::compute::min_max(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
+pub fn vortex_array::compute::min_max(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::aggregate_fn::fns::min_max::MinMaxResult>>
 
 pub fn vortex_array::compute::nan_count(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<usize>
 

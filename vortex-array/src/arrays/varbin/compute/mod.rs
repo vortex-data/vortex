@@ -3,7 +3,6 @@
 
 pub(crate) mod rules;
 mod slice;
-pub(crate) use min_max::varbin_compute_min_max;
 
 mod cast;
 mod compare;
@@ -11,7 +10,6 @@ mod filter;
 mod is_constant;
 mod is_sorted;
 mod mask;
-mod min_max;
 mod take;
 
 #[cfg(test)]
