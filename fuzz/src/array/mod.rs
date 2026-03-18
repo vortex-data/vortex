@@ -509,6 +509,8 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             // Extension types delegate to storage dtype, support most operations
             ActionType::iter().collect()
         }
+        // Currently, no support at all
+        DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
     }
 }
 

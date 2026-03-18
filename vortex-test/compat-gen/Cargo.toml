@@ -1,7 +1,7 @@
 [package]
 name = "vortex-compat"
 authors = { workspace = true }
-description = "Backward-compatibility fixture generation and testing for Vortex"
+description = "Backward-compatibility fixture generation and checking for Vortex"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
@@ -16,12 +16,8 @@ version = { workspace = true }
 workspace = true
 
 [[bin]]
-name = "compat-gen"
+name = "vortex-compat"
 path = "src/main.rs"
-
-[[bin]]
-name = "compat-validate"
-path = "src/validate_main.rs"
 
 [dependencies]
 # Vortex crates
@@ -30,7 +26,6 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
 
 # TPC-H generation
 arrow-array = { workspace = true }
@@ -46,12 +41,12 @@ parquet = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
-# HTTP fetching (for ClickBench fixture + compat-test S3 downloads)
+# HTTP fetching (for ClickBench fixture setup)
 reqwest = { workspace = true }
 
 # CLI + serialization
-chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tempfile = { workspace = true }

@@ -138,7 +138,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             }
             Ok(builder.finish())
         }
-        d @ (DType::Null | DType::Extension(_)) => {
+        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

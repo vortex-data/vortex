@@ -3,18 +3,64 @@ name: Compat Fixture Upload
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to generate fixtures for (e.g. 0.62.0)"
+      git_ref:
+        description: "Git ref for version detection (e.g. v0.62.0). Defaults to HEAD."
+        required: false
+      confirm_upload:
+        description: "Type 'yes' to confirm upload after reviewing the dry-run output."
         required: true
+        default: "no"
 
 jobs:
-  upload-fixtures:
+  dry-run:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Detect version
+        id: detect
+        run: |
+          GIT_REF="${{ inputs.git_ref }}"
+          if [ -n "$GIT_REF" ]; then
+            TAG=$(git describe --tags --abbrev=0 "$GIT_REF")
+          else
+            TAG=$(git describe --tags --abbrev=0)
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $VERSION (from tag: $TAG)"
+
+      - name: Dry run publish
+        run: |
+          GIT_REF="${{ inputs.git_ref }}"
+          CMD="python3 vortex-test/compat-gen/scripts/compat.py publish --dry-run"
+          if [ -n "$GIT_REF" ]; then
+            CMD="$CMD --git-ref $GIT_REF"
+          fi
+          $CMD
+
+  upload:
+    needs: dry-run
+    if: inputs.confirm_upload == 'yes'
+    runs-on: ubuntu-latest
+    environment: compat-upload
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -23,10 +69,14 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          role-to-assume: "arn:aws:iam::245040174862:role/GitHubBenchmarkRole"
           aws-region: us-east-1
 
-      - name: Generate and upload fixtures
-        run: >
-          python3 vortex-test/compat-gen/scripts/upload.py
-          --version "${{ inputs.version }}"
+      - name: Upload fixtures for v${{ needs.dry-run.outputs.version }}
+        run: |
+          GIT_REF="${{ inputs.git_ref }}"
+          CMD="python3 vortex-test/compat-gen/scripts/compat.py publish --yes"
+          if [ -n "$GIT_REF" ]; then
+            CMD="$CMD --git-ref $GIT_REF"
+          fi
+          $CMD

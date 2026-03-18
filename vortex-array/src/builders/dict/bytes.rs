@@ -71,7 +71,6 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         self.views.len() * size_of::<BinaryView>() + self.values.len()
     }
 
-    #[inline]
     fn lookup_bytes(&self, idx: usize) -> Option<&[u8]> {
         self.values_nulls.value(idx).then(|| {
             let bin_view = &self.views[idx];
@@ -83,7 +82,6 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         })
     }
 
-    #[inline]
     fn encode_value(&mut self, lookup: &mut HashTable<Code>, val: Option<&[u8]>) -> Option<Code> {
         match lookup.entry(
             self.hasher.hash_one(val),

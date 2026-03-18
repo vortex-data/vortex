@@ -26,7 +26,6 @@ pub(super) fn accumulate_decimal(
     })
 }
 
-#[inline]
 fn compute_min_max_with_validity<D>(array: &DecimalArray) -> VortexResult<Option<MinMaxResult>>
 where
     D: Into<DecimalValue> + NativeDecimalType,

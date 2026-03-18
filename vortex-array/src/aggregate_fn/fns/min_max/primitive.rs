@@ -25,7 +25,6 @@ pub(super) fn accumulate_primitive(
     })
 }
 
-#[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
 where
     T: NativePType,
