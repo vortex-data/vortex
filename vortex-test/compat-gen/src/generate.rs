@@ -10,21 +10,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::fixtures::all_fixtures;
+use crate::manifest::FixtureEntry;
 
 #[derive(Serialize)]
 struct FixturesJson {
-    fixtures: Vec<FixtureInfo>,
-}
-
-#[derive(Serialize)]
-pub struct FixtureInfo {
-    pub name: String,
-    pub description: String,
-    pub sha256: String,
+    fixtures: Vec<FixtureEntry>,
 }
 
 /// Write all fixture files into `output_dir`, returning name, description, and sha256 for each.
-pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec<FixtureInfo>> {
+pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec<FixtureEntry>> {
     let fixtures = all_fixtures();
     let fixtures: Vec<_> = fixtures
         .into_iter()
@@ -46,17 +40,14 @@ pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec
     let mut infos = Vec::new();
     for fixture in &fixtures {
         let entries = fixture.write(output_dir)?;
-        for entry in entries {
+        for mut entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)
                 .map_err(|e| vortex_err!("failed to read back {}: {e}", path.display()))?;
             let sha256 = format!("{:x}", Sha256::digest(&file_bytes));
             eprintln!("  wrote {}", entry.name);
-            infos.push(FixtureInfo {
-                name: entry.name,
-                description: entry.description,
-                sha256,
-            });
+            entry.sha256 = Some(sha256);
+            infos.push(entry);
         }
     }
 
@@ -64,7 +55,7 @@ pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec
 }
 
 /// Write the `fixtures.json` manifest from previously collected fixture info.
-pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureInfo>) -> VortexResult<()> {
+pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureEntry>) -> VortexResult<()> {
     let fixtures_json = FixturesJson { fixtures: infos };
     let json = serde_json::to_string_pretty(&fixtures_json)
         .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;

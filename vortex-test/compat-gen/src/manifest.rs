@@ -11,4 +11,7 @@ pub struct FixtureEntry {
     pub name: String,
     /// Short description of what this fixture tests.
     pub description: String,
+    /// SHA-256 hex digest of the file contents (populated after writing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }

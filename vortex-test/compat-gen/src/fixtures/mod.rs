@@ -91,6 +91,7 @@ impl Fixture for FlatLayoutAdapter {
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
+            sha256: None,
         }])
     }
 }
@@ -146,6 +147,7 @@ impl Fixture for DatasetFixtureAdapter {
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
+            sha256: None,
         }])
     }
 }
