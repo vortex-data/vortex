@@ -379,36 +379,36 @@ impl Scheme for FORScheme {
 
     fn compress(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
         ctx: CompressorContext,
-        excludes: &[IntCode],
+        _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let for_array = FoRArray::encode(stats.src.clone())?;
         let biased = for_array.encoded().to_primitive();
-        let biased_stats = IntegerStats::generate_opts(
-            &biased,
-            GenerateStatsOptions {
-                count_distinct_values: false,
-            },
-        );
 
-        // Immediately bitpack. If any other scheme was preferable, it would be chosen instead
-        // of bitpacking.
-        // NOTE: we could delegate in the future if we had another downstream codec that performs
-        //  as well.
-        let leaf_ctx = CompressorContext {
-            is_sample: ctx.is_sample,
-            allowed_cascading: 0,
+        // BitPack the biased values directly without full stats generation.
+        // IntegerStats::generate_opts would do an O(N) scan for runs/min/max
+        // that BitPacking doesn't use — it only needs the histogram.
+        let histogram = bit_width_histogram(&biased)?;
+        let bw = find_best_bit_width(biased.ptype(), &histogram)?;
+
+        let compressed = if bw as usize == biased.ptype().bit_width() {
+            biased.into_array()
+        } else {
+            let mut packed = bitpack_encode(&biased, bw, Some(&histogram))?;
+            let patches = packed.patches().map(compress_patches).transpose()?;
+            packed.replace_patches(patches);
+            packed.into_array()
         };
-        let compressed =
-            BitPackingScheme.compress(compressor, &biased_stats, leaf_ctx, excludes)?;
 
         let for_compressed = FoRArray::try_new(compressed, for_array.reference_scalar().clone())?;
-        for_compressed
-            .as_ref()
-            .statistics()
-            .inherit_from(for_array.as_ref().statistics());
+        if !ctx.is_sample {
+            for_compressed
+                .as_ref()
+                .statistics()
+                .inherit_from(for_array.as_ref().statistics());
+        }
         Ok(for_compressed.into_array())
     }
 }
