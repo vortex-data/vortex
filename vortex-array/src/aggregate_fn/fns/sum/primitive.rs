@@ -255,6 +255,27 @@ mod tests {
     }
 
     #[test]
+    fn sum_f64_with_infinity() -> VortexResult<()> {
+        let batch = PrimitiveArray::new(
+            buffer![1.0f64, f64::INFINITY, f64::NEG_INFINITY, 2.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let acc = sum(&batch, &mut LEGACY_SESSION.create_execution_ctx())?;
+        // INFINITY + NEG_INFINITY = NaN, which is treated as saturated
+        assert!(acc.as_primitive().typed_value::<f64>().unwrap().is_nan());
+
+        let mut acc = Accumulator::try_new(
+            Sum,
+            EmptyOptions,
+            DType::Primitive(PType::F64, Nullability::NonNullable),
+        )?;
+        acc.accumulate(&batch, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(acc.is_saturated());
+        Ok(())
+    }
+
+    #[test]
     fn sum_checked_overflow() -> VortexResult<()> {
         let arr = PrimitiveArray::new(buffer![i64::MAX, 1i64], Validity::NonNullable).into_array();
         let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
