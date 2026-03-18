@@ -561,7 +561,10 @@ fn parquet_variant_to_scalar(variant: PqVariant<'_, '_>) -> VortexResult<Scalar>
                 ))));
             }
             let fields = StructFields::new(FieldNames::from(names), dtypes);
-            Scalar::try_new(DType::Struct(fields, nn), Some(ScalarValue::List(field_values)))?
+            Scalar::try_new(
+                DType::Struct(fields, nn),
+                Some(ScalarValue::List(field_values)),
+            )?
         }
     })
 }
@@ -592,10 +595,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
                 .value()
                 .cloned()
                 .vortex_expect("non-null value row must have binary value");
-            parquet_variant_to_scalar(PqVariant::try_new(
-                metadata.as_ref(),
-                value.as_ref(),
-            )?)?
+            parquet_variant_to_scalar(PqVariant::try_new(metadata.as_ref(), value.as_ref())?)?
         } else {
             Scalar::null(DType::Null)
         };
@@ -697,7 +697,10 @@ mod tests {
         let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.len(), 3);
-        assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::NonNullable));
+        assert_eq!(
+            vortex_arr.dtype(),
+            &DType::Variant(Nullability::NonNullable)
+        );
 
         Ok(())
     }
@@ -728,14 +731,14 @@ mod tests {
 
         let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
         assert_eq!(vortex_arr.len(), 3);
-        assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::NonNullable));
+        assert_eq!(
+            vortex_arr.dtype(),
+            &DType::Variant(Nullability::NonNullable)
+        );
 
         // Verify typed_value is present by downcasting through the layers
         let variant_arr = vortex_arr.as_opt::<Variant>().unwrap();
-        let inner = variant_arr
-            .child()
-            .as_opt::<ParquetVariant>()
-            .unwrap();
+        let inner = variant_arr.child().as_opt::<ParquetVariant>().unwrap();
         assert!(inner.typed_value_array().is_some());
 
         Ok(())
