@@ -22,10 +22,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_decimal_byte_parts::Dec
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::slice(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::compute::is_constant::IsConstantKernel for vortex_decimal_byte_parts::DecimalByteParts
-
-pub fn vortex_decimal_byte_parts::DecimalByteParts::is_constant(&self, array: &vortex_decimal_byte_parts::DecimalBytePartsArray, opts: &vortex_array::compute::is_constant::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_decimal_byte_parts::DecimalByteParts
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::compare(lhs: &Self::Array, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
@@ -167,3 +163,5 @@ impl prost::message::Message for vortex_decimal_byte_parts::DecimalBytesPartsMet
 pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::clear(&mut self)
 
 pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::encoded_len(&self) -> usize
+
+pub fn vortex_decimal_byte_parts::initialize(session: &mut vortex_session::VortexSession)
