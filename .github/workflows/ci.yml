@@ -188,10 +188,10 @@ jobs:
       matrix:
         config:
           - name: "all-features"
-            runner: amd64-medium
+            runner: amd64-large
             args: "--all-features --all-targets"
           - name: "default features"
-            runner: amd64-medium
+            runner: amd64-large
             args: "--all-targets"
           - name: "with tokio dispatcher"
             runner: amd64-small
