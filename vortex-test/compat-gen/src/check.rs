@@ -40,10 +40,15 @@ struct FailedFixture {
 
 /// Check `.vortex` files in `dir` against in-memory fixtures.
 ///
+/// For each known fixture, generates fresh files in a temp directory via
+/// `fixture.write(tmp_dir)`, then reads both the stored file and fresh file,
+/// decodes them, and compares the arrays.
+///
 /// Prints JSON result to stdout, human-readable progress to stderr.
 /// Returns error if any fixture failed or if mode constraints are violated.
 pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
-    let fixtures: Vec<_> = all_fixtures()
+    let fixtures = all_fixtures();
+    let fixtures: Vec<_> = fixtures
         .into_iter()
         .filter(|f| {
             let name = f.name();
@@ -54,10 +59,16 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
     if !exclude.is_empty() {
         eprintln!("excluding: {}", exclude.join(", "));
     }
-    let tmp_dir = dir.join(".tmp");
-    std::fs::create_dir_all(&tmp_dir).map_err(|e| vortex_err!("failed to create tmp dir: {e}"))?;
 
-    // Collect .vortex files in the directory.
+    // Generate fresh fixtures into a temp directory.
+    let tmp_dir = tempfile::tempdir().map_err(|e| vortex_err!("failed to create temp dir: {e}"))?;
+
+    eprintln!("generating fresh fixtures for comparison...");
+    for fixture in &fixtures {
+        fixture.write(tmp_dir.path())?;
+    }
+
+    // Collect .vortex files in the check directory.
     let dir_files: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| vortex_err!("failed to read dir {}: {e}", dir.display()))?
         .filter_map(|entry| {
@@ -67,7 +78,15 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
         })
         .collect();
 
-    let fixture_names: Vec<&str> = fixtures.iter().map(|f| f.name()).collect();
+    // Collect all fixture names (each fixture may produce multiple files).
+    let fresh_files: Vec<String> = std::fs::read_dir(tmp_dir.path())
+        .map_err(|e| vortex_err!("failed to read tmp dir: {e}"))?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            name.ends_with(".vortex").then_some(name)
+        })
+        .collect();
 
     let mut result = CheckResult {
         passed: Vec::new(),
@@ -77,7 +96,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
     // Check for unknown files in the directory.
     for file_name in &dir_files {
-        if !fixture_names.contains(&file_name.as_str()) {
+        if !fresh_files.contains(file_name) {
             match mode {
                 Mode::Exact | Mode::Superset => {
                     result.failed.push(FailedFixture {
@@ -93,72 +112,76 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
         }
     }
 
-    // Check each known fixture.
-    for fixture in &fixtures {
-        let file_path = dir.join(fixture.name());
-        if !file_path.exists() {
+    // Check each known fixture file.
+    for fresh_name in &fresh_files {
+        let stored_path = dir.join(fresh_name);
+        if !stored_path.exists() {
             match mode {
                 Mode::Exact | Mode::Subset => {
                     result.failed.push(FailedFixture {
-                        name: fixture.name().to_string(),
+                        name: fresh_name.clone(),
                         error: "file missing from directory".to_string(),
                     });
                 }
                 Mode::Superset => {
-                    eprintln!("  skip {} (missing)", fixture.name());
-                    result.skipped.push(fixture.name().to_string());
+                    eprintln!("  skip {fresh_name} (missing)");
+                    result.skipped.push(fresh_name.clone());
                 }
             }
             continue;
         }
 
-        eprintln!("  checking {}...", fixture.name());
+        eprintln!("  checking {fresh_name}...");
 
-        // Setup + build expected arrays.
-        if let Err(e) = fixture.setup(&tmp_dir) {
-            result.failed.push(FailedFixture {
-                name: fixture.name().to_string(),
-                error: format!("setup failed: {e}"),
-            });
-            continue;
-        }
-        let expected = match fixture.build(&tmp_dir) {
-            Ok(arr) => arr,
-            Err(e) => {
-                result.failed.push(FailedFixture {
-                    name: fixture.name().to_string(),
-                    error: format!("build failed: {e}"),
-                });
-                continue;
-            }
-        };
-
-        // Read actual file.
-        let file_bytes = match std::fs::read(&file_path) {
+        // Read the stored file.
+        let stored_bytes = match std::fs::read(&stored_path) {
             Ok(b) => b,
             Err(e) => {
                 result.failed.push(FailedFixture {
-                    name: fixture.name().to_string(),
-                    error: format!("failed to read file: {e}"),
+                    name: fresh_name.clone(),
+                    error: format!("failed to read stored file: {e}"),
                 });
                 continue;
             }
         };
-        let actual = match adapter::read_file(ByteBuffer::from(file_bytes)) {
+        let stored_array = match adapter::read_file(ByteBuffer::from(stored_bytes)) {
             Ok(a) => a,
             Err(e) => {
                 result.failed.push(FailedFixture {
-                    name: fixture.name().to_string(),
-                    error: format!("failed to decode vortex file: {e}"),
+                    name: fresh_name.clone(),
+                    error: format!("failed to decode stored vortex file: {e}"),
                 });
                 continue;
             }
         };
 
-        // Compare.
-        assert_arrays_eq!(actual, expected);
-        eprintln!("  pass {}", fixture.name());
-        result.passed.push(fixture.name().to_string());
+        // Read the fresh file.
+        let fresh_path = tmp_dir.path().join(fresh_name);
+        let fresh_bytes = match std::fs::read(&fresh_path) {
+            Ok(b) => b,
+            Err(e) => {
+                result.failed.push(FailedFixture {
+                    name: fresh_name.clone(),
+                    error: format!("failed to read fresh file: {e}"),
+                });
+                continue;
+            }
+        };
+        let fresh_array = match adapter::read_file(ByteBuffer::from(fresh_bytes)) {
+            Ok(a) => a,
+            Err(e) => {
+                result.failed.push(FailedFixture {
+                    name: fresh_name.clone(),
+                    error: format!("failed to decode fresh vortex file: {e}"),
+                });
+                continue;
+            }
+        };
+
+        // Compare arrays.
+        assert_arrays_eq!(stored_array, fresh_array);
+        eprintln!("  pass {fresh_name}");
+        result.passed.push(fresh_name.clone());
     }
 
     // Print JSON result to stdout.

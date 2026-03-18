@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// Epoch C adapter — for Vortex v0.58.0 through HEAD
+//
+// Write: session.write_options(), returns WriteSummary, takes &mut sink
+// Read:  session.open_options().open_buffer(buf) (sync), into_array_stream() (async)
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,13 +15,14 @@ use vortex::VortexSessionDefault;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_error::{vortex_err, VortexResult};
 use vortex_session::VortexSession;
 
 fn runtime() -> VortexResult<Runtime> {
@@ -28,9 +34,21 @@ fn runtime() -> VortexResult<Runtime> {
 /// Uses `FlatLayoutStrategy` directly — no repartitioning, no zone maps, no dictionary
 /// encoding, no compression. Each chunk is serialized as a single flat segment.
 pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()> {
-    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+    write_compressed(path, chunk, Arc::new(FlatLayoutStrategy::default()))
+}
 
-    let strategy: Arc<dyn vortex::layout::LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+/// Write a sequence of array chunks to an in-memory `.vortex` byte buffer with no compression.
+pub fn write_file_to_bytes(chunk: ArrayRef) -> VortexResult<ByteBuffer> {
+    write_compressed_to_bytes(chunk, Arc::new(FlatLayoutStrategy::default()))
+}
+
+/// Write a `.vortex` file using a caller-provided layout strategy (compressor pipeline).
+pub fn write_compressed(
+    path: &Path,
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<()> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
 
     runtime()?.block_on(async {
         let session = VortexSession::default().with_tokio();
@@ -43,6 +61,25 @@ pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()> {
             .write(&mut file, stream)
             .await?;
         Ok(())
+    })
+}
+
+/// Write a `.vortex` file into an in-memory byte buffer using a caller-provided layout strategy.
+pub fn write_compressed_to_bytes(
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<ByteBuffer> {
+    let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
+
+    runtime()?.block_on(async {
+        let session = VortexSession::default().with_tokio();
+        let mut bytes = Vec::new();
+        let _summary = session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, stream)
+            .await?;
+        Ok(ByteBuffer::from(bytes))
     })
 }
 
