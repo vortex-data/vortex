@@ -20,7 +20,7 @@ use crate::scalar::DecimalValue;
 
 /// Accumulate a decimal array into the sum state.
 /// Returns Ok(true) if saturated (overflow), Ok(false) if not.
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity)]
 pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> VortexResult<bool> {
     let SumState::Decimal { value, dtype } = inner else {
         vortex_panic!("expected decimal sum state for decimal input");
