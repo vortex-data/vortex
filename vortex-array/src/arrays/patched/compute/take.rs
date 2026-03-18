@@ -5,12 +5,18 @@ use rustc_hash::FxHashMap;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
+use crate::DynArray;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Patched;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::primitive::PrimitiveArrayParts;
-use crate::arrays::{Patched, PrimitiveArray};
-use crate::dtype::{IntegerPType, NativePType};
-use crate::{ArrayRef, DynArray, IntoArray, match_each_native_ptype};
-use crate::{ExecutionCtx, match_each_unsigned_integer_ptype};
+use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
+use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for Patched {
     fn take(
@@ -50,12 +56,12 @@ impl TakeExecute for Patched {
 
                 // SAFETY: output and validity still have same length after take_map returns.
                 unsafe {
-                    return Ok(Some(
+                    Ok(Some(
                         PrimitiveArray::new_unchecked(output.freeze(), validity).into_array(),
-                    ));
+                    ))
                 }
             })
-        });
+        })
     }
 }
 
@@ -63,6 +69,7 @@ impl TakeExecute for Patched {
 ///
 /// First, builds a hashmap from index to patch value, then uses the hashmap in a loop to collect
 /// the values.
+#[allow(clippy::too_many_arguments)]
 fn take_map<I: IntegerPType, V: NativePType>(
     output: &mut [V],
     indices: &[I],
@@ -75,10 +82,11 @@ fn take_map<I: IntegerPType, V: NativePType>(
     patch_value: &[V],
 ) {
     // Build a hashmap of patch_index -> values.
-    let mut index_map = FxHashMap::with_capacity(indices.len());
+    let mut index_map = FxHashMap::with_capacity_and_hasher(indices.len(), Default::default());
     for chunk in 0..n_chunks {
         for lane in 0..n_lanes {
-            let [lane_start, lane_end] = lane_offsets[chunk * n_lanes + lane..][..2];
+            let lane_start = lane_offsets[chunk * n_lanes + lane];
+            let lane_end = lane_offsets[chunk * n_lanes + lane + 1];
             for i in lane_start..lane_end {
                 let patch_idx = patch_index[i as usize];
                 let patch_value = patch_value[i as usize];
@@ -103,8 +111,120 @@ fn take_map<I: IntegerPType, V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::DynArray;
+    use crate::ExecutionCtx;
+    use crate::IntoArray;
+    use crate::arrays::PatchedArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::patches::Patches;
+
+    fn make_patched_array(
+        base: &[u16],
+        patch_indices: &[u32],
+        patch_values: &[u16],
+    ) -> VortexResult<PatchedArray> {
+        let values = PrimitiveArray::from_iter(base.iter().copied()).into_array();
+        let patches = Patches::new(
+            base.len(),
+            0,
+            PrimitiveArray::from_iter(patch_indices.iter().copied()).into_array(),
+            PrimitiveArray::from_iter(patch_values.iter().copied()).into_array(),
+            None,
+        )?;
+
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
+        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+    }
+
     #[test]
-    fn test_take() {
-        // Patch some values here instead.
+    fn test_take_basic() -> VortexResult<()> {
+        // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
+        let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30])?.into_array();
+
+        // Take indices [0, 1, 2, 3, 4] - should get [0, 10, 0, 30, 0]
+        let indices = buffer![0u32, 1, 2, 3, 4].into_array();
+        let result = array.take(indices)?;
+
+        let expected = PrimitiveArray::from_iter([0u16, 10, 0, 30, 0]).into_array();
+        assert_arrays_eq!(expected, result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_out_of_order() -> VortexResult<()> {
+        // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
+        let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30])?.into_array();
+
+        // Take indices in reverse order
+        let indices = buffer![4u32, 3, 2, 1, 0].into_array();
+        let result = array.take(indices)?;
+
+        let expected = PrimitiveArray::from_iter([0u16, 30, 0, 10, 0]).into_array();
+        assert_arrays_eq!(expected, result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_duplicates() -> VortexResult<()> {
+        // Array with base values [0, 0, 0, 0, 0] patched at index [2] with value [99]
+        let array = make_patched_array(&[0; 5], &[2], &[99])?.into_array();
+
+        // Take the same patched index multiple times
+        let indices = buffer![2u32, 2, 0, 2].into_array();
+        let result = array.take(indices)?;
+
+        let expected = PrimitiveArray::from_iter([99u16, 99, 0, 99]).into_array();
+        assert_arrays_eq!(expected, result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_with_null_indices() -> VortexResult<()> {
+        use crate::arrays::BoolArray;
+        use crate::validity::Validity;
+
+        // Array: 10 elements, base value 0, patches at indices 2, 5, 8 with values 20, 50, 80
+        let array = make_patched_array(&[0; 10], &[2, 5, 8], &[20, 50, 80])?.into_array();
+
+        // Take 10 indices, with nulls at positions 1, 4, 7
+        // Indices: [0, 2, 2, 5, 8, 0, 5, 8, 3, 1]
+        // Nulls:   [ ,  , N,  ,  , N,  ,  , N,  ]
+        // Position 2 (index=2, patched) is null
+        // Position 5 (index=0, unpatched) is null
+        // Position 8 (index=3, unpatched) is null
+        let indices = PrimitiveArray::new(
+            buffer![0u32, 2, 2, 5, 8, 0, 5, 8, 3, 1],
+            Validity::Array(
+                BoolArray::from_iter([
+                    true, true, false, true, true, false, true, true, false, true,
+                ])
+                .into_array(),
+            ),
+        );
+        let result = array.take(indices.into_array())?;
+
+        // Expected: [0, 20, null, 50, 80, null, 50, 80, null, 0]
+        let expected = PrimitiveArray::new(
+            buffer![0u16, 20, 0, 50, 80, 0, 50, 80, 0, 0],
+            Validity::Array(
+                BoolArray::from_iter([
+                    true, true, false, true, true, false, true, true, false, true,
+                ])
+                .into_array(),
+            ),
+        );
+        assert_arrays_eq!(expected.into_array(), result);
+
+        Ok(())
     }
 }
