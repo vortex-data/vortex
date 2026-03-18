@@ -40,6 +40,10 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::primitive::compute_is_const
 
 pub struct vortex_array::aggregate_fn::fns::is_constant::IsConstant
 
+impl vortex_array::aggregate_fn::fns::is_constant::IsConstant
+
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::make_partial(batch: &vortex_array::ArrayRef, is_constant: bool) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
 impl core::clone::Clone for vortex_array::aggregate_fn::fns::is_constant::IsConstant
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::clone(&self) -> vortex_array::aggregate_fn::fns::is_constant::IsConstant
@@ -54,7 +58,7 @@ pub type vortex_array::aggregate_fn::fns::is_constant::IsConstant::Options = vor
 
 pub type vortex_array::aggregate_fn::fns::is_constant::IsConstant::Partial = vortex_array::aggregate_fn::fns::is_constant::IsConstantPartial
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -506,7 +510,7 @@ pub type vortex_array::aggregate_fn::fns::is_constant::IsConstant::Options = vor
 
 pub type vortex_array::aggregate_fn::fns::is_constant::IsConstant::Partial = vortex_array::aggregate_fn::fns::is_constant::IsConstantPartial
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
