@@ -18,7 +18,6 @@ use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::scalar_fn::Arity;
@@ -73,13 +72,6 @@ impl ScalarFnVTable for L2Norm {
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        vortex_ensure_eq!(
-            arg_dtypes.len(),
-            1,
-            "L2Norm requires exactly 2 arguments, got {}",
-            arg_dtypes.len()
-        );
-
         let input_dtype = &arg_dtypes[0];
 
         // Input must be a tensor-like extension type.
@@ -146,8 +138,7 @@ impl ScalarFnVTable for L2Norm {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        // Canonicalization of the storage array can fail.
-        true
+        false
     }
 }
 

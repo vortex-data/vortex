@@ -18,7 +18,6 @@ use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::scalar_fn::Arity;
@@ -81,13 +80,6 @@ impl ScalarFnVTable for CosineSimilarity {
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        vortex_ensure_eq!(
-            arg_dtypes.len(),
-            2,
-            "CosineSimilarity requires exactly 2 arguments, got {}",
-            arg_dtypes.len()
-        );
-
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
