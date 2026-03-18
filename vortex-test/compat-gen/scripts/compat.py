@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
+# /// script
+# dependencies = ["jsonschema"]
+# ///
 
 """
 Vortex backward-compatibility orchestrator.
@@ -79,6 +82,7 @@ examples:
 
   # Check all versions, or specific ones
   uv run compat.py check
+  uv run compat.py check --mode last
   uv run compat.py check --versions 0.62.0,0.63.0
 
   # Inspect store contents
@@ -341,7 +345,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     output = Path(args.output)
     version = _version_from_ref(args.git_ref)
 
-    _run_rust_generate(output)
+    _run_rust_generate(output, profile=args.profile)
 
     # Read fixtures.json (with sha256 from Rust) and write a versioned manifest.
     fixtures_json = json.loads((output / "fixtures.json").read_text())
@@ -387,7 +391,7 @@ def _publish_full(
         output = Path(tmpdir) / "fixtures"
 
         _info("generating fixtures...")
-        _run_rust_generate(output)
+        _run_rust_generate(output, profile=args.profile)
 
         fixtures_json = json.loads((output / "fixtures.json").read_text())
 
@@ -472,7 +476,7 @@ def _publish_update(
         output = Path(tmpdir) / "fixtures"
 
         _info("generating fixtures...")
-        _run_rust_generate(output)
+        _run_rust_generate(output, profile=args.profile)
 
         fixtures_json = json.loads((output / "fixtures.json").read_text())
 
@@ -541,10 +545,16 @@ def cmd_check(args: argparse.Namespace) -> None:
     """Download fixtures from store and check with Rust binary."""
     store = _parse_store(args.store)
 
+    if args.versions and args.mode != "all":
+        print("error: --versions and --mode are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+
     if args.versions:
         versions = [v.strip() for v in args.versions.split(",")]
     else:
         versions = store.list_versions()
+        if args.mode == "last" and versions:
+            versions = versions[-1:]
 
     if not versions:
         _info("no versions found in store")
@@ -573,18 +583,15 @@ def cmd_check(args: argparse.Namespace) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
 
-            for entry in manifest["fixtures"]:
-                name = entry["name"]
-                data = store.read(f"{prefix}/{name}")
-                if data is None:
-                    _info(f"  v{version}: {name} not found at {prefix}/{name}")
-                    all_failures.append((version, name, "fixture file not found in store"))
-                    total_failed += 1
-                    continue
-                (tmppath / name).write_bytes(data)
-                _info(f"  downloaded {name} ({len(data)} bytes)")
+            _info(f"  downloading {len(manifest['fixtures'])} fixtures...")
+            download_failures = _parallel_download(store, manifest["fixtures"], prefix, tmppath)
+            for name, error in download_failures:
+                _info(f"  v{version}: {name} {error}")
+                all_failures.append((version, name, error))
+                total_failed += 1
 
-            result = _run_rust_check(tmppath, mode="subset")
+            _info(f"  checking v{version}...")
+            result = _run_rust_check(tmppath, mode="subset", profile=args.profile)
 
             passed = len(result.get("passed", []))
             failed_list = result.get("failed", [])
@@ -742,18 +749,78 @@ def _parallel_upload(store: Store, items: list[tuple[str, Path]], max_workers: i
             future.result()
 
 
-def _run_rust_generate(output: Path) -> None:
+def _parallel_download(
+    store: Store,
+    fixtures: list[dict],
+    prefix: str,
+    dest: Path,
+    max_workers: int = 8,
+) -> list[tuple[str, str]]:
+    """Download fixture files from the store in parallel.
+
+    Returns a list of (name, error) for any failures.
+    """
+    failures: list[tuple[str, str]] = []
+    total_bytes = 0
+
+    def _download_one(entry: dict) -> tuple[str, bytes | None]:
+        name = entry["name"]
+        data = store.read(f"{prefix}/{name}")
+        return name, data
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_download_one, entry): entry["name"] for entry in fixtures}
+        for future in as_completed(futures):
+            name, data = future.result()
+            if data is None:
+                failures.append((name, f"not found at {prefix}/{name}"))
+            else:
+                (dest / name).write_bytes(data)
+                total_bytes += len(data)
+
+    _info(f"  downloaded {len(fixtures) - len(failures)} fixtures ({total_bytes} bytes)")
+    return failures
+
+
+def _build_compat_bin(profile: str = "release") -> str:
+    """Build vortex-compat and return the path to the binary.
+
+    If VORTEX_COMPAT_BIN is set, skips the build and returns that path.
+    Otherwise runs `cargo build` with visible output, then locates the binary.
+    """
+    bin_path = os.environ.get("VORTEX_COMPAT_BIN")
+    if bin_path:
+        return bin_path
+
+    _info(f"building vortex-compat ({profile})...")
+    _run_cmd(["cargo", "build", "-p", CARGO_BIN, "--profile", profile], check=True)
+
+    # Ask cargo where the binary is.
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version=1", "--no-deps"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    target_dir = json.loads(result.stdout)["target_directory"]
+    # Cargo puts "dev" profile binaries in "debug/", all others in "<profile>/".
+    dir_name = "debug" if profile == "dev" else profile
+    bin_path = str(Path(target_dir) / dir_name / CARGO_BIN)
+    return bin_path
+
+
+def _run_rust_generate(output: Path, profile: str = "release") -> None:
     """Run `vortex-compat generate --output <dir>`."""
-    cmd = _cargo_run_cmd() + ["generate", "--output", str(output)]
-    _run_cmd(cmd, check=True)
+    bin_path = _build_compat_bin(profile)
+    _run_cmd([bin_path, "generate", "--output", str(output)], check=True)
 
 
-def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
+def _run_rust_check(dir: Path, mode: str = "subset", profile: str = "release") -> dict:
     """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
-    cmd = _cargo_run_cmd() + ["check", "--dir", str(dir), "--mode", mode]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
+    bin_path = _build_compat_bin(profile)
+    cmd = [bin_path, "check", "--dir", str(dir), "--mode", mode]
+    _info(f"  $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)  # noqa: UP022
 
     if result.stdout.strip():
         return json.loads(result.stdout)
@@ -767,17 +834,12 @@ def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
     return {"passed": [], "failed": [], "skipped": []}
 
 
-def _cargo_run_cmd() -> list[str]:
-    """Build the command to invoke vortex-compat (pre-built binary or cargo run)."""
-    bin_path = os.environ.get("VORTEX_COMPAT_BIN")
-    if bin_path:
-        return [bin_path]
-    return ["cargo", "run", "-p", CARGO_BIN, "--release", "--"]
-
-
 def _run_cmd(cmd: list[str], check: bool = False, cwd: Path | None = None) -> subprocess.CompletedProcess:
     _info(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, check=check, cwd=cwd)
+    result = subprocess.run(cmd, check=False, cwd=cwd)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd)
+    return result
 
 
 def _find_prev_version(versions: list[str], current: str) -> str | None:
@@ -815,6 +877,11 @@ def main() -> None:
         description="Vortex backward-compatibility fixture orchestrator",
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--profile",
+        default="release",
+        help="Cargo build profile (default: release). Use 'dev' for faster builds.",
     )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
@@ -902,6 +969,7 @@ def main() -> None:
         epilog=(
             "examples:\n"
             "  uv run compat.py check\n"
+            "  uv run compat.py check --mode last\n"
             "  uv run compat.py check --versions 0.62.0,0.63.0\n"
             "  uv run compat.py check --store /tmp/store"
         ),
@@ -910,7 +978,14 @@ def main() -> None:
     p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
     p.add_argument(
         "--versions",
-        help="Comma-separated versions to check (default: all)",
+        help="Comma-separated versions to check (mutually exclusive with --mode)",
+    )
+    p.add_argument(
+        "--mode",
+        choices=["all", "last"],
+        default="all",
+        help="Which versions to check: 'all' (default) or 'last' (most recent only). "
+        "Mutually exclusive with --versions.",
     )
 
     # -- list --

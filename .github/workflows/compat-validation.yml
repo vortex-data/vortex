@@ -3,32 +3,44 @@ name: Compat Validation
 on:
   schedule:
     - cron: "0 6 * * 1"  # Monday 6am UTC
+  workflow_call:
+    inputs:
+      mode:
+        description: "Validation mode"
+        required: true
+        default: "all"
+        type: string
   workflow_dispatch:
     inputs:
       mode:
         description: "Validation mode"
         required: true
-        default: "last"
+        default: "all"
         type: choice
         options:
-          - last
           - all
-
-env:
-  FIXTURES_URL: https://vortex-compat-fixtures.s3.amazonaws.com
+          - last
 
 jobs:
   compat-test:
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre/tag=compat-validation', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
       - name: Run compat tests
         run: |
-          MODE="${{ inputs.mode || 'last' }}"
-          python3 vortex-test/compat-gen/scripts/compat.py check \
+          MODE="${{ inputs.mode || 'all' }}"
+          uv run vortex-test/compat-gen/scripts/compat.py check \
             --mode "$MODE"
