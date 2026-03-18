@@ -815,9 +815,7 @@ def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
     bin_path = _build_compat_bin()
     cmd = [bin_path, "check", "--dir", str(dir), "--mode", mode]
     _info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.stderr:
-        _info(result.stderr.rstrip())
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)  # noqa: UP022
 
     if result.stdout.strip():
         return json.loads(result.stdout)
@@ -833,11 +831,8 @@ def _run_rust_check(dir: Path, mode: str = "subset") -> dict:
 
 def _run_cmd(cmd: list[str], check: bool = False, cwd: Path | None = None) -> subprocess.CompletedProcess:
     _info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(cmd, check=False, cwd=cwd, capture_output=True, text=True)
-    if result.stderr:
-        _info(result.stderr.rstrip())
+    result = subprocess.run(cmd, check=False, cwd=cwd)
     if check and result.returncode != 0:
-        print(result.stdout, end="", file=sys.stdout)
         raise subprocess.CalledProcessError(result.returncode, cmd)
     return result
 
