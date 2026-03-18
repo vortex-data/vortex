@@ -189,8 +189,7 @@ impl ScalarFnVTable for CosineSimilarity {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        // Canonicalization of the storage arrays can fail.
-        true
+        false
     }
 }
 
