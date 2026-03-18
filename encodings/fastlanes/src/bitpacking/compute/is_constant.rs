@@ -15,6 +15,7 @@ use vortex_array::aggregate_fn::fns::is_constant::primitive::compute_is_constant
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;

@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-use crate::compute::Options;
 
 /// Computes whether an array has constant values.
 ///
@@ -60,7 +59,7 @@ impl Default for IsConstantOpts {
     }
 }
 
-impl Options for IsConstantOpts {
+impl super::Options for IsConstantOpts {
     fn as_any(&self) -> &dyn Any {
         self
     }
