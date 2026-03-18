@@ -575,7 +575,7 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Setup (Windows)
         if: matrix.os == 'windows-x64'
         run: |
