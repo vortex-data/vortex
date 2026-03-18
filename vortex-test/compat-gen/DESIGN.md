@@ -222,8 +222,3 @@ boundary regressions, struct field ordering, encoding removal.
 projection (reads all columns), missing DType coverage (no decimal, temporal,
 list, binary, extension), degenerate cases (empty files, all-null, float
 specials), partial reads / mmap.
-
-**Dependency drift:** If a dependency like `tpchgen` silently changes output
-across versions, old fixtures will fail validation even though the reader is
-fine. If you see unexpected failures across *all* old versions for a specific
-fixture, check whether its `build()` deps changed first.

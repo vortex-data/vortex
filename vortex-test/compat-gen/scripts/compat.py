@@ -33,7 +33,7 @@ import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -223,10 +223,9 @@ def _version_from_ref(git_ref: str | None = None) -> str:
         cmd.append(git_ref)
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        ref_msg = f" ref '{git_ref}'" if git_ref else ""
         print(
-            f"error: could not detect version from git"
-            + (f" ref '{git_ref}'" if git_ref else "")
-            + f": {result.stderr.strip()}",
+            f"error: could not detect version from git{ref_msg}: {result.stderr.strip()}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -327,7 +326,7 @@ def _merge_manifest(
 
     return {
         "version": version,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "fixtures": entries,
     }
 
@@ -351,7 +350,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
         entries.append({"name": f["name"], "description": f["description"], "sha256": f["sha256"]})
     manifest = {
         "version": version,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "fixtures": entries,
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -414,7 +413,7 @@ def _publish_full(
                     _info(f"  removed fixtures: {', '.join(sorted(removed))}")
                 if not added and not removed:
                     _info(f"  same {len(new_names)} fixtures as existing")
-            _info(f"  target paths:")
+            _info("  target paths:")
             for entry in manifest["fixtures"]:
                 _info(f"    {store.display_name()}/v{version}/arrays/{entry['name']}")
             _info(f"    {store.display_name()}/v{version}/arrays/manifest.json")
@@ -529,7 +528,7 @@ def _publish_update(
 
         updated_manifest = {
             "version": version,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "fixtures": new_entries,
         }
         store.write(f"{prefix}/manifest.json", (json.dumps(updated_manifest, indent=2) + "\n").encode())

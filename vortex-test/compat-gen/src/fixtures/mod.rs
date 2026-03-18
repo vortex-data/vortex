@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::adapter;
+use crate::adapter::compute_all_stats;
 use crate::manifest::FixtureEntry;
 
 /// Top-level trait that the runner (compat-gen / compat-validate) interacts with.
@@ -84,6 +85,7 @@ impl Fixture for FlatLayoutAdapter {
     fn write(&self, dir: &Path) -> VortexResult<Vec<FixtureEntry>> {
         let array = self.0.build()?;
         check_expected_encodings(&array, self.0.as_ref())?;
+        compute_all_stats(&array)?;
         let path = dir.join(self.name());
         adapter::write_file(&path, array)?;
         Ok(vec![FixtureEntry {
