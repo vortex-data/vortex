@@ -4,11 +4,15 @@
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::stats::ArrayStats;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -23,7 +27,7 @@ impl FoRArray {
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
-            compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
+            compress_primitive::<T>(array, T::try_from(&min)?).into_array()
         });
         let for_array = FoRArray::try_new(encoded, min)?;
         for_array
@@ -37,16 +41,34 @@ impl FoRArray {
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,
-) -> VortexResult<PrimitiveArray> {
-    // Set null values to the min value, ensuring that decompress into a value in the primitive
-    // range (and stop them wrapping around).
-    parray.map_each_with_validity::<T, _, _>(|(v, bool)| {
-        if bool {
-            v.wrapping_sub(&min)
-        } else {
-            T::zero()
+) -> PrimitiveArray {
+    let validity = parray.validity().clone();
+    let has_nulls = matches!(&validity, Validity::AllInvalid | Validity::Array(_));
+
+    if !has_nulls {
+        // Fast path: no nulls, just subtract min from every element in-place.
+        return parray.map_each::<T, T, _>(|v| v.wrapping_sub(&min));
+    }
+
+    // Nullable path: subtract min from valid elements, set nulls to zero.
+    // Use direct slice access to avoid per-element validity iterator overhead.
+    let slice = parray.as_slice::<T>();
+    match &validity {
+        Validity::AllInvalid => PrimitiveArray::new(BufferMut::<T>::zeroed(slice.len()), validity),
+        Validity::Array(val) => {
+            let val_bits = val.to_bool().to_bit_buffer();
+            let mut buf = BufferMut::with_capacity(slice.len());
+            for (&v, is_valid) in slice.iter().zip(val_bits.iter()) {
+                buf.push(if is_valid {
+                    v.wrapping_sub(&min)
+                } else {
+                    T::zero()
+                });
+            }
+            PrimitiveArray::new(buf, validity)
         }
-    })
+        _ => unreachable!(),
+    }
 }
 
 #[cfg(test)]

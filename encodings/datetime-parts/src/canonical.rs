@@ -12,7 +12,7 @@ use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -49,13 +49,17 @@ pub fn decode_to_temporal(
         .vortex_expect("must be able to cast days to i64")
         .execute::<PrimitiveArray>(ctx)?;
 
+    // Validity is carried by the days component. Capture it before consuming the buffer.
+    let validity = days_buf.validity().clone();
+
     // We start with the days component, which is always present.
     // And then add the seconds and subseconds components.
-    // We split this into separate passes because often the seconds and/org subseconds components
+    // We split this into separate passes because often the seconds and/or subseconds components
     // are constant.
+    let seconds_per_day: i64 = 86_400;
     let mut values: BufferMut<i64> = days_buf
         .into_buffer_mut::<i64>()
-        .map_each_in_place(|d| d * 86_400 * divisor);
+        .map_each_in_place(|d| d * seconds_per_day * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
         let seconds = seconds
@@ -95,11 +99,7 @@ pub fn decode_to_temporal(
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(
-            values.freeze(),
-            Validity::copy_from_array(&array.clone().into_array())?,
-        )
-        .into_array(),
+        PrimitiveArray::new(values.freeze(), validity).into_array(),
         options.unit,
         options.tz.clone(),
     ))

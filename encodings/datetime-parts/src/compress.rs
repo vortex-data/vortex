@@ -9,13 +9,15 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::DateTimePartsArray;
-use crate::timestamp;
+use crate::timestamp::SECONDS_PER_DAY;
 
 pub struct TemporalParts {
     pub days: ArrayRef,
@@ -28,6 +30,17 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
+    let time_unit = array.temporal_metadata().time_unit();
+
+    let divisor: i64 = match time_unit {
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => vortex_bail!("Cannot handle day-level data"),
+    };
+    let ticks_per_day = SECONDS_PER_DAY * divisor;
+
     let temporal_values = array.temporal_values().to_primitive();
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
@@ -40,16 +53,16 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
         ))?
         .to_primitive();
 
-    let length = timestamps.len();
+    let ts_slice = timestamps.as_slice::<i64>();
+    let length = ts_slice.len();
     let mut days = BufferMut::with_capacity(length);
     let mut seconds = BufferMut::with_capacity(length);
     let mut subseconds = BufferMut::with_capacity(length);
 
-    for &ts in timestamps.as_slice::<i64>() {
-        let ts_parts = timestamp::split(ts, array.temporal_metadata().time_unit())?;
-        days.push(ts_parts.days);
-        seconds.push(ts_parts.seconds);
-        subseconds.push(ts_parts.subseconds);
+    for &ts in ts_slice {
+        days.push(ts / ticks_per_day);
+        seconds.push((ts % ticks_per_day) / divisor);
+        subseconds.push((ts % ticks_per_day) % divisor);
     }
 
     Ok(TemporalParts {
