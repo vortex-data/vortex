@@ -12,17 +12,19 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchAccessor;
 use crate::arrays::patched::TransposedPatches;
 use crate::arrays::patched::patch_lanes;
 use crate::buffer::BufferHandle;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
-use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
+use crate::validity::Validity;
 
 /// An array that partially "patches" another array with new values.
 ///
@@ -50,14 +52,17 @@ pub struct PatchedArray {
     /// indices within a 1024-element chunk. The PType of these MUST be u16
     pub(super) indices: BufferHandle,
     /// patch values corresponding to the indices. The ptype is specified by `values_ptype`.
-    pub(super) values: BufferHandle,
-    /// PType of the scalars in `values`. Can be any native type.
-    pub(super) values_ptype: PType,
+    pub(super) values: ArrayRef,
 
     pub(super) stats_set: ArrayStats,
 }
 
 impl PatchedArray {
+    /// Create a new `PatchedArray` from a child array and a set of [`Patches`].
+    ///
+    /// # Errors
+    ///
+    /// The `inner` array must be primitive type, and it must have the same DType as the patches.
     pub fn from_array_and_patches(
         inner: ArrayRef,
         patches: &Patches,
@@ -66,6 +71,11 @@ impl PatchedArray {
         vortex_ensure!(
             inner.dtype().eq_with_nullability_superset(patches.dtype()),
             "array DType must match patches DType"
+        );
+
+        vortex_ensure!(
+            inner.dtype().is_primitive(),
+            "Creating PatchedArray from Patches only supported for primitive arrays"
         );
 
         let values_ptype = patches.dtype().as_ptype();
@@ -80,27 +90,32 @@ impl PatchedArray {
 
         let len = inner.len();
 
+        let values = PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_host(values),
+            values_ptype,
+            Validity::NonNullable,
+        )
+        .into_array();
+
         Ok(Self {
             inner,
             n_chunks,
             n_lanes,
-            values_ptype,
             offset: 0,
             len,
             lane_offsets: BufferHandle::new_host(lane_offsets),
             indices: BufferHandle::new_host(indices),
-            values: BufferHandle::new_host(values),
+            values,
             stats_set: ArrayStats::default(),
         })
     }
 
     /// Get an accessor, which allows ranged access to patches by chunk/lane.
-    pub fn accessor<V: NativePType>(&self) -> PatchAccessor<'_, V> {
+    pub fn accessor(&self) -> PatchAccessor<'_> {
         PatchAccessor {
             n_lanes: self.n_lanes,
             lane_offsets: self.lane_offsets.as_host().reinterpret::<u32>(),
             indices: self.indices.as_host().reinterpret::<u16>(),
-            values: self.values.as_host().reinterpret::<V>(),
         }
     }
 
@@ -133,7 +148,6 @@ impl PatchedArray {
             len,
             indices,
             values,
-            values_ptype: self.values_ptype,
             lane_offsets: sliced_lane_offsets,
             stats_set: ArrayStats::default(),
         })

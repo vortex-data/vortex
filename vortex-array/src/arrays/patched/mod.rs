@@ -32,23 +32,34 @@ const fn patch_lanes<V: Sized>() -> usize {
     if size_of::<V>() < 8 { 32 } else { 16 }
 }
 
-pub struct PatchAccessor<'a, V> {
+pub struct PatchAccessor<'a> {
     n_lanes: usize,
     lane_offsets: &'a [u32],
     indices: &'a [u16],
-    values: &'a [V],
 }
 
-impl<'a, V: Sized> PatchAccessor<'a, V> {
-    /// Access the patches for a particular lane
-    pub fn access(&'a self, chunk: usize, lane: usize) -> LanePatches<'a, V> {
+pub struct PatchOffset {
+    /// Global offset into the list of patches. These are some of the
+    pub index: usize,
+    /// This is the value stored in the `indices` buffer, which encodes the offset of the `index`-th
+    /// patch
+    pub chunk_offset: u16,
+}
+
+impl<'a> PatchAccessor<'a> {
+    /// Get an iterator over indices and values offsets.
+    ///
+    /// The first component is the index into the `indices` and `values`, and the second component
+    /// is the set of values instead here...I think?
+    pub fn offsets_iter(
+        &self,
+        chunk: usize,
+        lane: usize,
+    ) -> impl Iterator<Item = (usize, u16)> + '_ {
         let start = self.lane_offsets[chunk * self.n_lanes + lane] as usize;
         let stop = self.lane_offsets[chunk * self.n_lanes + lane + 1] as usize;
 
-        LanePatches {
-            indices: &self.indices[start..stop],
-            values: &self.values[start..stop],
-        }
+        std::iter::zip(start..stop, self.indices[start..stop].iter().copied())
     }
 }
 

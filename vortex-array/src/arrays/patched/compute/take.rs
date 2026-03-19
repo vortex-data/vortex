@@ -24,6 +24,11 @@ impl TakeExecute for Patched {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Only pushdown take when we have primitive types.
+        if !array.dtype().is_primitive() {
+            return Ok(None);
+        }
+
         // Perform take on the inner array, including the placeholders.
         let inner = array
             .inner
@@ -41,6 +46,7 @@ impl TakeExecute for Patched {
         match_each_unsigned_integer_ptype!(indices_ptype, |I| {
             match_each_native_ptype!(ptype, |V| {
                 let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+                let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
                 let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
                 take_map(
                     output.as_mut(),
@@ -51,7 +57,7 @@ impl TakeExecute for Patched {
                     array.n_lanes,
                     array.lane_offsets.as_host().reinterpret::<u32>(),
                     array.indices.as_host().reinterpret::<u16>(),
-                    array.values.as_host().reinterpret::<V>(),
+                    values.as_slice::<V>(),
                 );
 
                 // SAFETY: output and validity still have same length after take_map returns.
