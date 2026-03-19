@@ -38,6 +38,8 @@ pub(crate) enum MaterializationPlan {
 pub(crate) struct DeferredMaterializationPlan {
     final_fields: FieldNames,
     immediate_fields: FieldNames,
+    immediate_field_masks: Vec<FieldMask>,
+    immediate_fetch_row_bytes: usize,
     deferred_groups: Vec<DeferredFieldGroup>,
 }
 
@@ -95,8 +97,10 @@ impl MaterializationPlan {
         }
 
         let mut immediate = Vec::new();
+        let mut immediate_field_masks = Vec::new();
         let mut deferred_groups = Vec::new();
         let mut immediate_carry_cost = 0usize;
+        let mut immediate_fetch_cost = 0usize;
         let mut deferred_carry_cost = 0usize;
 
         for name in final_fields.iter() {
@@ -128,7 +132,12 @@ impl MaterializationPlan {
             } else {
                 immediate_carry_cost =
                     immediate_carry_cost.saturating_add(carry_cost_bytes_per_row);
+                immediate_fetch_cost =
+                    immediate_fetch_cost.saturating_add(carry_cost_bytes_per_row);
                 immediate.push(name.clone());
+                immediate_field_masks.push(FieldMask::Prefix(FieldPath::from(Field::Name(
+                    name.clone(),
+                ))));
             }
         }
 
@@ -150,6 +159,8 @@ impl MaterializationPlan {
         Self::Deferred(DeferredMaterializationPlan {
             final_fields,
             immediate_fields: FieldNames::from(immediate),
+            immediate_field_masks,
+            immediate_fetch_row_bytes: immediate_fetch_cost,
             deferred_groups,
         })
     }
@@ -171,6 +182,13 @@ impl MaterializationPlan {
             ),
             Self::Deferred(plan) => {
                 let mut hints = Vec::new();
+                if plan.immediate_fetch_row_bytes > 0 {
+                    hints.extend(reader.projection_fetch_hints(
+                        plan.immediate_field_masks.clone(),
+                        row_range.clone(),
+                        plan.immediate_fetch_row_bytes,
+                    )?);
+                }
                 for group in &plan.deferred_groups {
                     hints.extend(reader.projection_fetch_hints(
                         group.field_masks.clone(),
@@ -322,9 +340,13 @@ fn estimate_dtype_row_bytes(dtype: &DType) -> usize {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::ops::Range;
+    use std::sync::Arc;
 
+    use vortex_array::MaskFuture;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Field;
+    use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::FieldPath;
@@ -333,6 +355,10 @@ mod tests {
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::root;
     use vortex_array::expr::select;
+    use vortex_error::VortexResult;
+    use vortex_layout::ArrayFuture;
+    use vortex_layout::LayoutReader;
+    use vortex_mask::Mask;
 
     use super::MaterializationPlan;
     use super::estimate_field_mask_row_bytes;
@@ -357,6 +383,75 @@ mod tests {
             ),
             Nullability::Nullable,
         )
+    }
+
+    fn field_mask(name: &str) -> FieldMask {
+        FieldMask::Prefix(FieldPath::from(Field::Name(name.into())))
+    }
+
+    struct HintOnlyReader {
+        name: Arc<str>,
+        dtype: DType,
+    }
+
+    impl HintOnlyReader {
+        fn new(dtype: DType) -> Self {
+            Self {
+                name: Arc::from("hint-only-reader"),
+                dtype,
+            }
+        }
+    }
+
+    impl LayoutReader for HintOnlyReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            1024
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &vortex_array::expr::Expression,
+            _mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!()
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &vortex_array::expr::Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!()
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &vortex_array::expr::Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            unimplemented!()
+        }
     }
 
     #[test]
@@ -431,5 +526,56 @@ mod tests {
             estimate_field_mask_row_bytes(&dtype, &payload_mask)
                 > estimate_field_mask_row_bytes(&dtype, &id_mask)
         );
+    }
+
+    #[test]
+    fn deferred_fetch_hints_include_non_filter_immediate_fields() {
+        let dtype = scan_dtype();
+        let reader = HintOnlyReader::new(dtype.clone());
+        let projection = select(["id", "payload"], root());
+        let projection_masks = vec![field_mask("id"), field_mask("payload")];
+        let plan = MaterializationPlan::from_projection(
+            &projection,
+            &dtype,
+            true,
+            &projection_masks,
+            &BTreeSet::from([FieldName::from("score")]),
+        );
+
+        let hints = plan
+            .fetch_hints(&reader, &projection_masks, &(0..10))
+            .expect("fetch hints");
+
+        let total_bytes = hints.iter().map(|hint| hint.estimated_fetch_bytes).sum::<usize>();
+        let expected_immediate = estimate_field_mask_row_bytes(&dtype, &[field_mask("id")]);
+        let expected_deferred = estimate_field_mask_row_bytes(&dtype, &[field_mask("payload")]);
+
+        assert_eq!(hints.len(), 2);
+        assert_eq!(total_bytes, 10 * (expected_immediate + expected_deferred));
+    }
+
+    #[test]
+    fn deferred_fetch_hints_do_not_double_count_filter_shared_immediate_fields() {
+        let dtype = scan_dtype();
+        let reader = HintOnlyReader::new(dtype.clone());
+        let projection = select(["id", "payload"], root());
+        let projection_masks = vec![field_mask("id"), field_mask("payload")];
+        let plan = MaterializationPlan::from_projection(
+            &projection,
+            &dtype,
+            true,
+            &projection_masks,
+            &BTreeSet::from([FieldName::from("id")]),
+        );
+
+        let hints = plan
+            .fetch_hints(&reader, &projection_masks, &(0..10))
+            .expect("fetch hints");
+
+        let total_bytes = hints.iter().map(|hint| hint.estimated_fetch_bytes).sum::<usize>();
+        let expected_deferred = estimate_field_mask_row_bytes(&dtype, &[field_mask("payload")]);
+
+        assert_eq!(hints.len(), 1);
+        assert_eq!(total_bytes, 10 * expected_deferred);
     }
 }
