@@ -111,11 +111,10 @@ impl VortexFile {
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(
-            self.session.clone(),
-            self.layout_reader()?,
+        Ok(
+            ScanBuilder::new(self.session.clone(), self.layout_reader()?)
+                .with_segment_source(self.segment_source()),
         )
-        .with_segment_source(self.segment_source()))
     }
 
     /// Returns true if the expression will never match any rows in the file.

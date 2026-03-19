@@ -12,6 +12,7 @@ pub(crate) struct ScanMetrics {
     pub(crate) projection_segment_requests: Histogram,
     pub(crate) projection_fetch_hints: Histogram,
     pub(crate) projection_fields: Histogram,
+    pub(crate) projection_flushes: Counter,
 }
 
 impl ScanMetrics {
@@ -27,6 +28,8 @@ impl ScanMetrics {
                 .histogram("vortex.scan.projection.fetch_hints"),
             projection_fields: MetricBuilder::new(metrics_registry)
                 .histogram("vortex.scan.projection.fields"),
+            projection_flushes: MetricBuilder::new(metrics_registry)
+                .counter("vortex.scan.projection.flushes"),
         }
     }
 }

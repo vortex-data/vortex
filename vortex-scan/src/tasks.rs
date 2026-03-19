@@ -244,6 +244,10 @@ pub(super) fn split_exec<A: 'static + Send>(
     split: Range<u64>,
     limit: Option<&mut u64>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
+    if matches!(ctx.materialization_plan, MaterializationPlan::Monolithic { .. }) {
+        return split_exec_monolithic(ctx, split, limit);
+    }
+
     let filtered = filter_split(ctx.clone(), split, limit)?;
     let array_fut = async move {
         let Some(filtered) = filtered.await? else {
@@ -251,6 +255,128 @@ pub(super) fn split_exec<A: 'static + Send>(
         };
         let array = project_filtered_split(ctx, filtered)?.await?;
         Ok(Some(array))
+    };
+
+    Ok(array_fut.boxed())
+}
+
+fn split_exec_monolithic<A: 'static + Send>(
+    ctx: Arc<TaskContext<A>>,
+    split: Range<u64>,
+    limit: Option<&mut u64>,
+) -> VortexResult<TaskFuture<Option<A>>> {
+    let read_mask = ctx.selection.row_mask(&split);
+    let row_range = read_mask.row_range();
+    let row_mask = read_mask.mask().clone();
+    if row_mask.all_false() {
+        return Ok(ok(None).boxed());
+    }
+
+    let filter_mask = match ctx.filter.as_ref() {
+        None => {
+            let row_mask = match limit {
+                Some(l) if *l == 0 => Mask::new_false(row_mask.len()),
+                Some(l) => {
+                    let true_count = row_mask.true_count();
+                    let mask_limit = usize::try_from(*l)
+                        .map(|l| l.min(true_count))
+                        .unwrap_or(true_count);
+                    let row_mask = row_mask.limit(mask_limit);
+                    *l -= mask_limit as u64;
+                    row_mask
+                }
+                None => row_mask,
+            };
+
+            MaskFuture::ready(row_mask)
+        }
+        Some(filter) => {
+            let reader = ctx.reader.clone();
+            let filter = filter.clone();
+            let row_range = row_range.clone();
+
+            MaskFuture::new(row_mask.len(), async move {
+                let mut mask = row_mask;
+                let mut dynamic_versions = vec![None; filter.conjuncts().len()];
+
+                for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
+
+                    let conjunct_mask = reader
+                        .pruning_evaluation(&row_range, conjunct, mask.clone())?
+                        .await?;
+                    mask = mask.bitand(&conjunct_mask);
+                }
+
+                let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
+                while let Some(idx) = filter.next_conjunct(&remaining) {
+                    remaining.set(idx, false);
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    let conjunct = &filter.conjuncts()[idx];
+                    let current_version = filter.dynamic_updates(idx).map(|du| du.version());
+                    if let Some(dv) = current_version
+                        && dynamic_versions[idx].is_none_or(|v| v < dv)
+                    {
+                        dynamic_versions[idx] = Some(dv);
+                        let conjunct_mask = reader
+                            .pruning_evaluation(&row_range, conjunct, mask.clone())?
+                            .await?;
+                        mask = mask.bitand(&conjunct_mask);
+                    }
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    let conjunct_mask = reader
+                        .filter_evaluation(&row_range, conjunct, MaskFuture::ready(mask))?
+                        .await?;
+                    filter.report_selectivity(idx, conjunct_mask.density());
+                    mask = conjunct_mask;
+                }
+
+                Ok(mask)
+            })
+        }
+    };
+
+    let projection_fetch_hints =
+        ctx.materialization_plan
+            .fetch_hints(ctx.reader.as_ref(), &ctx.projection_field_mask, &row_range)?;
+    let projection_field_count = projection_field_count(&ctx.materialization_plan, &ctx);
+    let (projection_future, segment_request_count) = with_request_count_scope(|| {
+        ctx.reader
+            .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())
+    });
+    let projection_future = projection_future?;
+
+    let mapper = ctx.mapper.clone();
+    let scan_metrics = ctx.scan_metrics.clone();
+    let array_fut = async move {
+        let mask = filter_mask.await?;
+        if mask.all_false() {
+            return Ok(None);
+        }
+
+        if let Some(metrics) = &scan_metrics {
+            metrics.projection_tasks_monolithic.add(1);
+            metrics
+                .projection_segment_requests
+                .update(segment_request_count as f64);
+            metrics
+                .projection_fetch_hints
+                .update(projection_fetch_hints.len() as f64);
+            metrics.projection_fields.update(projection_field_count as f64);
+        }
+
+        let array = projection_future.await?;
+        mapper(array).map(Some)
     };
 
     Ok(array_fut.boxed())
@@ -564,7 +690,7 @@ mod tests {
     }
 
     #[test]
-    fn split_exec_skips_projection_for_all_false_filter() {
+    fn split_exec_monolithic_registers_projection_before_filter_resolves() {
         let projection_calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(ProjectionCountingReader::new(projection_calls.clone()));
         let ctx = Arc::new(TaskContext {
@@ -582,9 +708,61 @@ mod tests {
             segment_source: None,
         });
 
-        let result = block_on(split_exec(ctx, 0..4, None).unwrap()).unwrap();
+        let future = split_exec(ctx, 0..4, None).unwrap();
+        assert_eq!(projection_calls.load(Ordering::Relaxed), 1);
+
+        let result = block_on(future).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn split_exec_monolithic_registers_projection_before_poll() {
+        let projection_calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(ProjectionCountingReader::new(projection_calls.clone()));
+        let ctx = Arc::new(TaskContext {
+            selection: Selection::default(),
+            filter: None,
+            reader,
+            projection: root(),
+            projection_field_mask: vec![FieldMask::All],
+            materialization_plan: MaterializationPlan::Monolithic {
+                projected_row_bytes: 0,
+                projection_aligned_splits: false,
+            },
+            scan_metrics: None,
+            mapper: Arc::new(|array: ArrayRef| Ok(array)),
+            segment_source: None,
+        });
+
+        let _future = split_exec(ctx, 0..4, None).unwrap();
+        assert_eq!(projection_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn filtered_split_still_defers_projection_registration() {
+        let projection_calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(ProjectionCountingReader::new(projection_calls.clone()));
+        let ctx = Arc::new(TaskContext {
+            selection: Selection::default(),
+            filter: None,
+            reader,
+            projection: root(),
+            projection_field_mask: vec![FieldMask::All],
+            materialization_plan: MaterializationPlan::Monolithic {
+                projected_row_bytes: 0,
+                projection_aligned_splits: false,
+            },
+            scan_metrics: None,
+            mapper: Arc::new(|array: ArrayRef| Ok(array)),
+            segment_source: None,
+        });
+
+        let _future = filter_split(ctx, 0..4, None).unwrap();
         assert_eq!(projection_calls.load(Ordering::Relaxed), 0);
+
+        let result = block_on(split_exec(ctx, 0..4, None).unwrap()).unwrap();
+        assert!(result.is_some());
+        assert_eq!(projection_calls.load(Ordering::Relaxed), 1);
     }
 
     #[test]

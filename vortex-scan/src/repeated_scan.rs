@@ -35,6 +35,7 @@ use crate::fetch_plan::DEFERRED_IN_FLIGHT_BUDGET_BYTES;
 use crate::fetch_plan::DEFERRED_WAIT_BUDGET_BYTES;
 use crate::fetch_plan::MaterializationPlan;
 use crate::filter::FilterExpr;
+use crate::scan_metrics::ScanMetrics;
 use crate::selection::Selection;
 use crate::splits::Splits;
 use crate::tasks::FilteredSplit;
@@ -42,7 +43,6 @@ use crate::tasks::TaskContext;
 use crate::tasks::filter_split;
 use crate::tasks::project_filtered_split;
 use crate::tasks::split_exec;
-use crate::scan_metrics::ScanMetrics;
 
 const ADAPTIVE_SELECTIVITY_SAMPLE_SPLITS: usize = 4;
 const HIGH_SURVIVOR_RATIO: f64 = 0.75;
@@ -278,6 +278,17 @@ impl<A: 'static + Send> RepeatedScan<A> {
     ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
         let ctx = self.task_context();
         let concurrency = concurrency.max(1);
+        if matches!(self.materialization_plan, MaterializationPlan::Monolithic { .. }) {
+            let split_ranges = self.split_ranges(row_range)?.collect::<Vec<_>>();
+            return self.legacy_stream_from_ranges(
+                ctx,
+                split_ranges,
+                concurrency,
+                ordered,
+                handle,
+            );
+        }
+
         let filter_ahead = filter_ahead_for(concurrency, self.filter.is_some());
         let mut split_ranges = self.split_ranges(row_range)?;
         let mut prefetched_ranges = Vec::with_capacity(filter_ahead.saturating_add(1));
@@ -397,6 +408,7 @@ impl FilterQueue {
 struct ProjectionQueue<A: 'static + Send> {
     in_flight: FuturesUnordered<Task<ProjectionTaskResult<A>>>,
     in_flight_projection_bytes: usize,
+    flush_pending: bool,
 }
 
 struct EmitQueue<A> {
@@ -470,6 +482,7 @@ impl<A: 'static + Send> StagedSplitStream<A> {
             projection: ProjectionQueue {
                 in_flight: FuturesUnordered::new(),
                 in_flight_projection_bytes: 0,
+                flush_pending: false,
             },
             emit: EmitQueue {
                 ordered,
@@ -563,9 +576,7 @@ impl<A: 'static + Send> StagedSplitStream<A> {
         // Phase 1: Collect a window of ready splits
         let mut window: Vec<(usize, FilteredSplit)> = Vec::new();
         let mut window_bytes: usize = 0;
-        while self.available_projection_slots() > window.len()
-            && self.should_start_projection()
-        {
+        while self.available_projection_slots() > window.len() && self.should_start_projection() {
             let Some((idx, filtered)) = self.filter.take_ready() else {
                 break;
             };
@@ -583,16 +594,10 @@ impl<A: 'static + Send> StagedSplitStream<A> {
             window.push((idx, filtered));
         }
 
-        // Phase 2: Register all projections, then signal batch boundary
+        // Phase 2: Register all projections. Flushing is handled separately so the
+        // coalescer can see requests from multiple projection windows together.
         for (idx, filtered) in window {
             progress |= self.spawn_projection_task(idx, filtered);
-        }
-
-        // Phase 3: Signal that the batch is complete
-        if progress
-            && let Some(source) = &self.ctx.segment_source
-        {
-            source.flush();
         }
 
         progress
@@ -606,6 +611,7 @@ impl<A: 'static + Send> StagedSplitStream<A> {
                     .projection
                     .in_flight_projection_bytes
                     .saturating_add(estimated_projection_bytes);
+                self.projection.flush_pending = true;
                 self.projection.in_flight.push(
                     self.handle
                         .spawn(async move { (idx, estimated_projection_bytes, task.await) }),
@@ -697,6 +703,48 @@ impl<A: 'static + Send> StagedSplitStream<A> {
         progress
     }
 
+    fn should_flush_projection_tasks(&self, made_progress: bool) -> bool {
+        if !self.projection.flush_pending {
+            return false;
+        }
+
+        if self.available_projection_slots() == 0 {
+            return true;
+        }
+
+        if self.split_ranges_exhausted
+            && self.filter.in_flight.is_empty()
+            && self.filter.ready.is_empty()
+        {
+            return true;
+        }
+
+        !made_progress
+    }
+
+    fn flush_projection_tasks(&mut self) -> bool {
+        if !self.projection.flush_pending {
+            return false;
+        }
+
+        self.projection.flush_pending = false;
+        if let Some(metrics) = &self.ctx.scan_metrics {
+            metrics.projection_flushes.add(1);
+        }
+        if let Some(source) = &self.ctx.segment_source {
+            source.flush();
+        }
+        true
+    }
+
+    fn maybe_flush_projection_tasks(&mut self, made_progress: bool) -> bool {
+        if !self.should_flush_projection_tasks(made_progress) {
+            return false;
+        }
+
+        self.flush_projection_tasks()
+    }
+
     fn is_finished(&self) -> bool {
         self.split_ranges_exhausted
             && self.filter.in_flight.is_empty()
@@ -734,6 +782,8 @@ impl<A: 'static + Send> StagedSplitStream<A> {
             if let Some(value) = self.emit.pop() {
                 return Poll::Ready(Some(value));
             }
+
+            progress |= self.maybe_flush_projection_tasks(progress);
 
             if self.is_finished() {
                 return Poll::Ready(None);
@@ -781,11 +831,41 @@ fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Opt
 #[cfg(test)]
 mod test {
     use std::collections::BTreeMap;
+    use std::collections::BTreeSet;
+    use std::ops::Range;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use futures::FutureExt;
     use futures::stream::FuturesUnordered;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::buffer::BufferHandle;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldMask;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::root;
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_io::runtime::BlockingRuntime;
+    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_layout::ArrayFuture;
+    use vortex_layout::LayoutReader;
+    use vortex_layout::segments::SegmentFuture;
+    use vortex_layout::segments::SegmentId;
+    use vortex_layout::segments::SegmentSource;
     use vortex_mask::Mask;
 
+    use crate::fetch_plan::MaterializationPlan;
     use crate::tasks::FilteredSplit;
+    use crate::tasks::TaskContext;
 
     fn projection_slots_for(
         concurrency: usize,
@@ -887,5 +967,188 @@ mod test {
         assert_eq!(filter.ready.keys().copied().collect::<Vec<_>>(), vec![1]);
         assert_eq!(filter.waiting_selection_bytes, 4);
         assert_eq!(filter.waiting_projection_bytes, 10);
+    }
+
+    #[derive(Clone, Default)]
+    struct CountingSegmentSource {
+        flushes: Arc<AtomicUsize>,
+    }
+
+    impl CountingSegmentSource {
+        fn flush_count(&self) -> usize {
+            self.flushes.load(Ordering::Relaxed)
+        }
+    }
+
+    impl SegmentSource for CountingSegmentSource {
+        fn flush(&self) {
+            self.flushes.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            async move {
+                Ok(BufferHandle::new_host(ByteBuffer::empty_aligned(
+                    Alignment::none(),
+                )))
+            }
+            .boxed()
+        }
+    }
+
+    struct ImmediateProjectionReader {
+        name: Arc<str>,
+        dtype: DType,
+    }
+
+    impl ImmediateProjectionReader {
+        fn new() -> Self {
+            Self {
+                name: Arc::from("immediate-projection"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+            }
+        }
+    }
+
+    impl LayoutReader for ImmediateProjectionReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            8
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            Ok(MaskFuture::ready(mask))
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            Ok(mask)
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            let array = PrimitiveArray::from_iter(buffer![1i32]).into_array();
+            Ok(async move { Ok(array) }.boxed())
+        }
+    }
+
+    fn filtered_split(row_range: Range<u64>) -> FilteredSplit {
+        let mask_len = usize::try_from(row_range.end.saturating_sub(row_range.start)).unwrap_or(1);
+        FilteredSplit {
+            selection_bytes_estimate: 8,
+            estimated_projection_bytes: 8,
+            row_range,
+            mask: Mask::new_true(mask_len),
+            projection_fetch_hints: Vec::new(),
+        }
+    }
+
+    fn staged_stream_for_test(
+        concurrency: usize,
+        source: CountingSegmentSource,
+    ) -> (SingleThreadRuntime, super::StagedSplitStream<ArrayRef>) {
+        let runtime = SingleThreadRuntime::default();
+        let ctx = Arc::new(TaskContext {
+            selection: crate::Selection::default(),
+            filter: None,
+            reader: Arc::new(ImmediateProjectionReader::new()),
+            projection: root(),
+            projection_field_mask: vec![FieldMask::All],
+            materialization_plan: MaterializationPlan::Monolithic {
+                projected_row_bytes: 4,
+                projection_aligned_splits: false,
+            },
+            scan_metrics: None,
+            mapper: Arc::new(Ok),
+            segment_source: Some(Arc::new(source)),
+        });
+
+        let staged = super::StagedSplitStream::new(
+            ctx,
+            Box::new(std::iter::empty()),
+            None,
+            concurrency,
+            true,
+            runtime.handle(),
+            false,
+        );
+        (runtime, staged)
+    }
+
+    #[test]
+    fn projection_flush_accumulates_across_multiple_spawn_windows() {
+        let source = CountingSegmentSource::default();
+        let (_runtime, mut staged) = staged_stream_for_test(4, source.clone());
+
+        staged.filter.push_ready(0, filtered_split(0..1));
+        assert!(staged.spawn_projection_tasks());
+        assert_eq!(source.flush_count(), 0);
+        assert!(staged.projection.flush_pending);
+
+        staged.filter.push_ready(1, filtered_split(1..2));
+        assert!(staged.spawn_projection_tasks());
+        assert_eq!(source.flush_count(), 0);
+
+        assert!(staged.maybe_flush_projection_tasks(false));
+        assert_eq!(source.flush_count(), 1);
+        assert!(!staged.projection.flush_pending);
+    }
+
+    #[test]
+    fn projection_flushes_when_projection_slots_are_saturated() {
+        let source = CountingSegmentSource::default();
+        let (_runtime, mut staged) = staged_stream_for_test(1, source.clone());
+
+        staged.filter.push_ready(0, filtered_split(0..1));
+        assert!(staged.spawn_projection_tasks());
+        assert_eq!(source.flush_count(), 0);
+
+        assert!(staged.maybe_flush_projection_tasks(true));
+        assert_eq!(source.flush_count(), 1);
+        assert!(!staged.projection.flush_pending);
+    }
+
+    #[test]
+    fn projection_flushes_while_draining_ready_work() {
+        let source = CountingSegmentSource::default();
+        let (_runtime, mut staged) = staged_stream_for_test(4, source.clone());
+        staged.split_ranges_exhausted = true;
+
+        staged.filter.push_ready(0, filtered_split(0..1));
+        assert!(staged.spawn_projection_tasks());
+        assert_eq!(source.flush_count(), 0);
+
+        assert!(staged.maybe_flush_projection_tasks(true));
+        assert_eq!(source.flush_count(), 1);
+        assert!(!staged.projection.flush_pending);
     }
 }

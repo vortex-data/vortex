@@ -336,7 +336,13 @@ mod tests {
     fn deferred_plan_activates_for_narrow_filtered_projection() {
         let projection = select(["id", "payload"], root());
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), true, &mask, &BTreeSet::new());
+        let plan = MaterializationPlan::from_projection(
+            &projection,
+            &scan_dtype(),
+            true,
+            &mask,
+            &BTreeSet::new(),
+        );
         let deferred = plan.deferred().expect("deferred plan");
         assert_eq!(
             deferred.final_fields(),
@@ -350,14 +356,26 @@ mod tests {
     fn deferred_plan_stays_off_for_unfiltered_projection() {
         let projection = select(["id", "payload"], root());
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), false, &mask, &BTreeSet::new());
+        let plan = MaterializationPlan::from_projection(
+            &projection,
+            &scan_dtype(),
+            false,
+            &mask,
+            &BTreeSet::new(),
+        );
         assert!(plan.deferred().is_none());
     }
 
     #[test]
     fn deferred_plan_stays_off_for_root_projection() {
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&root(), &scan_dtype(), true, &mask, &BTreeSet::new());
+        let plan = MaterializationPlan::from_projection(
+            &root(),
+            &scan_dtype(),
+            true,
+            &mask,
+            &BTreeSet::new(),
+        );
         assert!(plan.deferred().is_none());
     }
 
@@ -365,7 +383,13 @@ mod tests {
     fn deferred_plan_stays_off_for_wide_projection() {
         let projection = select(["id", "score", "payload", "nested"], root());
         let mask = vec![FieldMask::Prefix(FieldPath::from(Field::Name("id".into())))];
-        let plan = MaterializationPlan::from_projection(&projection, &scan_dtype(), true, &mask, &BTreeSet::new());
+        let plan = MaterializationPlan::from_projection(
+            &projection,
+            &scan_dtype(),
+            true,
+            &mask,
+            &BTreeSet::new(),
+        );
         assert!(plan.deferred().is_none());
     }
 
