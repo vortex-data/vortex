@@ -26,6 +26,11 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-error = { workspace = true }
+
+[[bench]]
+name = "split_temporal"
+harness = false

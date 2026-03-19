@@ -59,4 +59,8 @@ required-features = ["_test-harness"]
 [[bench]]
 name = "bit_transpose"
 harness = false
+
+[[bench]]
+name = "for_compress"
+harness = false
 required-features = ["_test-harness"]
