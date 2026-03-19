@@ -26,7 +26,6 @@ use crate::ArrayVisitor;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
@@ -190,7 +189,8 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                use crate::VortexSessionExecute;
+                let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
                 assert!(
                     crate::aggregate_fn::fns::is_sorted::is_sorted(&indices, &mut ctx)
                         .unwrap_or(false),
