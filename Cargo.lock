@@ -5969,24 +5969,6 @@ dependencies = [
 [[package]]
 name = "noodles-bgzf"
 version = "0.46.0"
-<<<<<<< HEAD
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37290f565045fd2775b549e62dffca7e1afadc70d8d5a3a2ef19609eb3d8193b"
-dependencies = [
- "bytes",
- "crossbeam-channel",
- "flate2",
- "futures",
- "pin-project-lite",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "noodles-core"
-version = "0.18.0"
-=======
->>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37290f565045fd2775b549e62dffca7e1afadc70d8d5a3a2ef19609eb3d8193b"
 dependencies = [
@@ -6018,15 +6000,7 @@ dependencies = [
  "bstr",
  "futures",
  "indexmap",
-<<<<<<< HEAD
-<<<<<<< HEAD
- "noodles-bgzf 0.44.0",
-=======
- "noodles-bgzf 0.46.0",
->>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
-=======
  "noodles-bgzf",
->>>>>>> 048959940 (fixes)
  "noodles-core",
  "pin-project-lite",
  "tokio",
@@ -6040,15 +6014,7 @@ checksum = "2443d0852c9618cd4aa8d11bc7c1884285e46aa4466cf5c1e49f3d9756ca7ced"
 dependencies = [
  "bstr",
  "indexmap",
-<<<<<<< HEAD
-<<<<<<< HEAD
- "noodles-bgzf 0.44.0",
-=======
- "noodles-bgzf 0.46.0",
->>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
-=======
  "noodles-bgzf",
->>>>>>> 048959940 (fixes)
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -6063,15 +6029,7 @@ dependencies = [
  "futures",
  "indexmap",
  "memchr",
-<<<<<<< HEAD
-<<<<<<< HEAD
- "noodles-bgzf 0.44.0",
-=======
- "noodles-bgzf 0.46.0",
->>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
-=======
  "noodles-bgzf",
->>>>>>> 048959940 (fixes)
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
@@ -9850,15 +9808,7 @@ dependencies = [
  "indicatif",
  "itertools 0.14.0",
  "mimalloc",
-<<<<<<< HEAD
-<<<<<<< HEAD
- "noodles-bgzf 0.46.0",
-=======
- "noodles-bgzf 0.44.0",
->>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
-=======
  "noodles-bgzf",
->>>>>>> 048959940 (fixes)
  "noodles-vcf",
  "parking_lot",
  "parquet",
