@@ -188,6 +188,7 @@ fn cosine_similarity_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex::array::ArrayRef;
     use vortex::array::ToCanonical;
     use vortex::array::arrays::ScalarFnArray;
     use vortex::error::VortexResult;
@@ -202,11 +203,7 @@ mod tests {
     use crate::scalar_fns::utils::test_helpers::vector_array;
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
-    fn eval_cosine_similarity(
-        lhs: vortex::array::ArrayRef,
-        rhs: vortex::array::ArrayRef,
-        len: usize,
-    ) -> VortexResult<Vec<f64>> {
+    fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(CosineSimilarity, EmptyOptions).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
         let prim = result.to_primitive();
