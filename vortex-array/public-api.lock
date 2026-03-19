@@ -488,6 +488,8 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::as_opt<V: vortex_array::aggre
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::coerce_args(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::AggregateFnRef::deserialize(id: &str, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_array::aggregate_fn::AggregateFnRef::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::is<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> bool
@@ -495,6 +497,8 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::is<V: vortex_array::aggregate
 pub fn vortex_array::aggregate_fn::AggregateFnRef::options(&self) -> vortex_array::aggregate_fn::AggregateFnOptions<'_>
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::state_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
