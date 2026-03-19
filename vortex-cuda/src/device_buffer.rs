@@ -287,6 +287,64 @@ impl DeviceBuffer for CudaDeviceBuffer {
         }))
     }
 
+    fn filter(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        let total_len: usize = ranges.iter().map(|r| r.len()).sum();
+
+        let stream = self.allocation.stream();
+        stream
+            .context()
+            .bind_to_thread()
+            .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
+
+        if total_len == 0 {
+            let dst_slice: CudaSlice<u8> = unsafe {
+                stream
+                    .alloc::<u8>(0)
+                    .map_err(|e| vortex_err!("Failed to allocate device memory: {}", e))?
+            };
+            return Ok(Arc::new(CudaDeviceBuffer::new(dst_slice)));
+        }
+
+        // Allocate new device memory for the filtered result.
+        let dst_slice: CudaSlice<u8> = unsafe {
+            stream
+                .alloc::<u8>(total_len)
+                .map_err(|e| vortex_err!("Failed to allocate device memory for filter: {}", e))?
+        };
+
+        let (dst_base_ptr, _) = dst_slice.device_ptr(stream);
+
+        // Copy each selected range from source to the new contiguous buffer.
+        let mut dst_offset: u64 = 0;
+        for range in ranges {
+            assert!(
+                range.end <= self.len,
+                "Filter range end {} exceeds buffer size {}",
+                range.end,
+                self.len
+            );
+            let src_ptr = self.device_ptr + (self.offset + range.start) as u64;
+            let len = range.len();
+            if len > 0 {
+                unsafe {
+                    sys::cuMemcpyDtoDAsync_v2(
+                        dst_base_ptr + dst_offset,
+                        src_ptr,
+                        len,
+                        stream.cu_stream(),
+                    )
+                    .result()
+                    .map_err(|e| {
+                        vortex_err!("Failed to copy device memory during filter: {}", e)
+                    })?;
+                }
+            }
+            dst_offset += len as u64;
+        }
+
+        Ok(Arc::new(CudaDeviceBuffer::new(dst_slice)))
+    }
+
     /// Slices the CUDA device buffer to a subrange.
     ///
     /// This is a byte range, not elements range, due to the DeviceBuffer interface.

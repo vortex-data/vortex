@@ -8326,6 +8326,10 @@ pub fn vortex_array::buffer::BufferHandle::as_host_opt(&self) -> core::option::O
 
 pub fn vortex_array::buffer::BufferHandle::ensure_aligned(self, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::buffer::BufferHandle::filter(&self, ranges: &[core::ops::range::Range<usize>]) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::buffer::BufferHandle::filter_typed<T: core::marker::Sized>(&self, ranges: &[core::ops::range::Range<usize>]) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_array::buffer::BufferHandle::into_host(self) -> futures_core::future::BoxFuture<'static, vortex_buffer::ByteBuffer>
 
 pub fn vortex_array::buffer::BufferHandle::into_host_sync(self) -> vortex_buffer::ByteBuffer
@@ -8400,6 +8404,8 @@ pub fn vortex_array::buffer::DeviceBuffer::copy_to_host(&self, alignment: vortex
 
 pub fn vortex_array::buffer::DeviceBuffer::copy_to_host_sync(&self, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_buffer::ByteBuffer>
 
+pub fn vortex_array::buffer::DeviceBuffer::filter(&self, ranges: &[core::ops::range::Range<usize>]) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>>
+
 pub fn vortex_array::buffer::DeviceBuffer::is_empty(&self) -> bool
 
 pub fn vortex_array::buffer::DeviceBuffer::len(&self) -> usize
@@ -8408,9 +8414,13 @@ pub fn vortex_array::buffer::DeviceBuffer::slice(&self, range: core::ops::range:
 
 pub trait vortex_array::buffer::DeviceBufferExt: vortex_array::buffer::DeviceBuffer
 
+pub fn vortex_array::buffer::DeviceBufferExt::filter_typed<T: core::marker::Sized>(&self, ranges: &[core::ops::range::Range<usize>]) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>>
+
 pub fn vortex_array::buffer::DeviceBufferExt::slice_typed<T: core::marker::Sized>(&self, range: core::ops::range::Range<usize>) -> alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>
 
 impl<B: vortex_array::buffer::DeviceBuffer> vortex_array::buffer::DeviceBufferExt for B
+
+pub fn B::filter_typed<T: core::marker::Sized>(&self, ranges: &[core::ops::range::Range<usize>]) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>>
 
 pub fn B::slice_typed<T: core::marker::Sized>(&self, range: core::ops::range::Range<usize>) -> alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>
 

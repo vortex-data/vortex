@@ -12,6 +12,7 @@ use futures::future::BoxFuture;
 use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::dyn_traits::DynEq;
@@ -87,6 +88,16 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Note that slice indices are in byte units.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
 
+    /// Select and concatenate multiple byte ranges from this buffer into a new buffer.
+    ///
+    /// Unlike [`slice`](DeviceBuffer::slice), this method allocates new memory and copies the
+    /// selected ranges into a contiguous buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device cannot allocate memory or copy the data.
+    fn filter(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>>;
+
     /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
     ///
     /// # Errors
@@ -98,6 +109,16 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
 pub trait DeviceBufferExt: DeviceBuffer {
     /// Slice a range of elements `T` out of the device buffer.
     fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+
+    /// Select and concatenate multiple element ranges of type `T` from this buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device cannot allocate memory or copy the data.
+    fn filter_typed<T: Sized>(
+        &self,
+        ranges: &[Range<usize>],
+    ) -> VortexResult<Arc<dyn DeviceBuffer>>;
 }
 
 impl<B: DeviceBuffer> DeviceBufferExt for B {
@@ -105,6 +126,17 @@ impl<B: DeviceBuffer> DeviceBufferExt for B {
         let start_bytes = range.start * size_of::<T>();
         let end_bytes = range.end * size_of::<T>();
         self.slice(start_bytes..end_bytes)
+    }
+
+    fn filter_typed<T: Sized>(
+        &self,
+        ranges: &[Range<usize>],
+    ) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        let byte_ranges: Vec<Range<usize>> = ranges
+            .iter()
+            .map(|r| (r.start * size_of::<T>())..(r.end * size_of::<T>()))
+            .collect();
+        self.filter(&byte_ranges)
     }
 }
 
@@ -200,6 +232,55 @@ impl BufferHandle {
             Inner::Host(host) => BufferHandle::new_host(host.slice(range)),
             Inner::Device(device) => BufferHandle::new_device(device.slice(range)),
         }
+    }
+
+    /// Select and concatenate multiple byte ranges from this buffer into a new buffer.
+    ///
+    /// Unlike [`slice`](BufferHandle::slice), this method allocates a new buffer and copies
+    /// the selected ranges.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use vortex_array::buffer::BufferHandle;
+    /// # use vortex_buffer::buffer;
+    /// let handle = BufferHandle::new_host(buffer![1u8, 2, 3, 4, 5, 6]);
+    /// let filtered = handle.filter(&[0..2, 4..6]).unwrap();
+    /// assert_eq!(filtered.unwrap_host(), buffer![1u8, 2, 5, 6]);
+    /// ```
+    pub fn filter(&self, ranges: &[Range<usize>]) -> VortexResult<Self> {
+        match &self.0 {
+            Inner::Host(host) => {
+                let total_len: usize = ranges.iter().map(|r| r.len()).sum();
+                let mut result = ByteBufferMut::with_capacity_aligned(total_len, host.alignment());
+                for range in ranges {
+                    result.extend_from_slice(&host.as_slice()[range.start..range.end]);
+                }
+                Ok(BufferHandle::new_host(result.freeze()))
+            }
+            Inner::Device(device) => Ok(BufferHandle::new_device(device.filter(ranges)?)),
+        }
+    }
+
+    /// Select and concatenate multiple element ranges of type `T` from this buffer.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use vortex_array::buffer::BufferHandle;
+    /// # use vortex_buffer::{buffer, Buffer};
+    /// let values = buffer![1u32, 2u32, 3u32, 4u32, 5u32, 6u32];
+    /// let handle = BufferHandle::new_host(values.into_byte_buffer());
+    /// let filtered = handle.filter_typed::<u32>(&[0..2, 4..6]).unwrap();
+    /// let result = Buffer::<u32>::from_byte_buffer(filtered.to_host_sync());
+    /// assert_eq!(result, buffer![1, 2, 5, 6]);
+    /// ```
+    pub fn filter_typed<T: Sized>(&self, ranges: &[Range<usize>]) -> VortexResult<Self> {
+        let byte_ranges: Vec<Range<usize>> = ranges
+            .iter()
+            .map(|r| (r.start * size_of::<T>())..(r.end * size_of::<T>()))
+            .collect();
+        self.filter(&byte_ranges)
     }
 
     /// Reinterpret the pointee as a buffer of `T` and slice the provided element range.
