@@ -20,6 +20,12 @@ message Expr {
   optional bytes metadata = 3;
 }
 
+// Captures a serialized aggregate function with its ID and options metadata.
+message AggregateFn {
+  string id = 1;
+  optional bytes metadata = 2;
+}
+
 // Options for `vortex.literal`
 message LiteralOpts {
   vortex.scalar.Scalar value = 1;

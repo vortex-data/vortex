@@ -368,7 +368,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::reset(&self, partial: &mut Sel
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -387,6 +387,16 @@ pub trait vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel: 'stati
 pub fn vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel::grouped_aggregate(&self, aggregate_fn: &vortex_array::aggregate_fn::AggregateFnRef, groups: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel::grouped_aggregate_fixed_size(&self, aggregate_fn: &vortex_array::aggregate_fn::AggregateFnRef, groups: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub mod vortex_array::aggregate_fn::proto
+
+pub trait vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt
+
+pub fn vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt::serialize_proto(&self) -> vortex_error::VortexResult<vortex_proto::expr::AggregateFn>
+
+impl vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt for vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::serialize_proto(&self) -> vortex_error::VortexResult<vortex_proto::expr::AggregateFn>
 
 pub mod vortex_array::aggregate_fn::session
 
@@ -488,8 +498,6 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::as_opt<V: vortex_array::aggre
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::coerce_args(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::AggregateFnRef::deserialize(id: &str, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_array::aggregate_fn::AggregateFnRef::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::is<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> bool
@@ -498,11 +506,13 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::options(&self) -> vortex_arra
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::AggregateFnRef::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
 pub fn vortex_array::aggregate_fn::AggregateFnRef::state_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::vtable_ref<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> core::option::Option<&V>
+
+impl vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::from_proto(proto: &vortex_proto::expr::AggregateFn, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_array::aggregate_fn::AggregateFnRef
 
@@ -525,6 +535,10 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::fmt(&self, f: &mut core::fmt:
 impl core::hash::Hash for vortex_array::aggregate_fn::AggregateFnRef
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+impl vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt for vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::serialize_proto(&self) -> vortex_error::VortexResult<vortex_proto::expr::AggregateFn>
 
 pub struct vortex_array::aggregate_fn::EmptyOptions
 
@@ -778,7 +792,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::reset(&self, partial: &mut Sel
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
