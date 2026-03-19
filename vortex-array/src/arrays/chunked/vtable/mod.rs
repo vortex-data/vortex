@@ -229,26 +229,44 @@ impl VTable for Chunked {
             let chunk_offsets = chunk_offsets.as_opt::<Primitive>().unwrap_or_else(|| {
                 vortex_panic!("Chunked array chunk_offsets slot must be primitive")
             });
+            let chunk_offsets_buf = chunk_offsets.to_buffer::<u64>();
             debug_assert_eq!(
-                chunk_offsets.len(),
+                chunk_offsets_buf.len(),
                 slots.len(),
                 "Expected {} chunk offsets, found {}",
                 slots.len(),
-                chunk_offsets.len(),
+                chunk_offsets_buf.len(),
             );
-        }
+            debug_assert_eq!(
+                chunk_offsets_buf.last().copied().unwrap_or_default(),
+                array.len as u64,
+                "Chunked array replacement changed logical len: expected {}, got {}",
+                array.len,
+                chunk_offsets_buf.last().copied().unwrap_or_default(),
+            );
 
-        #[cfg(debug_assertions)]
-        for (idx, chunk_slot) in slots[1..].iter().enumerate() {
-            let chunk = chunk_slot
-                .as_ref()
-                .unwrap_or_else(|| vortex_panic!("Chunked array chunk slot {idx} must be present"));
-            debug_assert!(
-                chunk.dtype() == array.dtype(),
-                "Chunked array chunk slot {} has dtype {:?}, expected {:?}",
-                idx,
-                chunk.dtype(),
-                array.dtype(),
+            let mut total_len = 0usize;
+
+            for (idx, chunk_slot) in slots[1..].iter().enumerate() {
+                let chunk = chunk_slot.as_ref().unwrap_or_else(|| {
+                    vortex_panic!("Chunked array chunk slot {idx} must be present")
+                });
+                debug_assert!(
+                    chunk.dtype() == array.dtype(),
+                    "Chunked array chunk slot {} has dtype {:?}, expected {:?}",
+                    idx,
+                    chunk.dtype(),
+                    array.dtype(),
+                );
+                total_len = total_len.checked_add(chunk.len()).unwrap_or_else(|| {
+                    vortex_panic!("Chunked array chunk lengths exceed usize range")
+                });
+            }
+
+            debug_assert_eq!(
+                total_len, array.len,
+                "Chunked array replacement changed logical len: expected {}, got {}",
+                array.len, total_len,
             );
         }
 
