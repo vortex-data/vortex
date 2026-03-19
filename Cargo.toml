@@ -231,7 +231,7 @@ take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
 tempfile = "3"
-termtree = { version = "0.5" }
+termtree = { version = "1.0" }
 test-with = "0.15"
 thiserror = "2.0.3"
 tokio = { version = "1.48" }
