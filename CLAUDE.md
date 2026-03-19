@@ -8,6 +8,8 @@
   time you reach a stopping point or think you've finished work.
 * run `cargo +nightly fmt --all` to format Rust source files. Please do this every time you reach a stopping point or
   think you've finished work.
+* run `cargo xtask public-api` to re-generate the public API lock files. Please do this every time you reach a stopping
+  point or think you've finished work.
 * you can try running
   `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged` to
   automatically many fix minor errors.
@@ -47,8 +49,11 @@
 * Prefer having test return VortexResult<()> and use ? over unwrap.
 * All imports must be at the top of the module, never inside functions. The only exception is `#[cfg(test)]` blocks,
   where imports should be at the top of the test module. Function-scoped imports are only acceptable when (a) required,
-  or (b) it would be exceptionally verbose otherwise, such as a match statement where left and right sides have similar names.
-* Only write comments that explain non-obvious logic or important context. Avoid commenting simple or self-explanatory code.
+  or (b) it would be exceptionally verbose otherwise, such as a match statement where left and right sides have similar
+  names.
+* Imports should be preferred over qualified identifiers.
+* Only write comments that explain non-obvious logic or important context. Avoid commenting simple or self-explanatory
+  code.
 * Use `assert_arrays_eq!` macro for comparing arrays in tests instead of element-by-element comparison.
 * Keep tests concise and to the point - avoid unnecessary setup or verbose assertions.
 * Run tests for a specific crate with `cargo test -p <crate-name>` (e.g., `cargo test -p vortex-array`).

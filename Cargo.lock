@@ -10242,6 +10242,7 @@ dependencies = [
  "vortex-cuda",
  "vortex-error",
  "vortex-file",
+ "vortex-fsst",
  "vortex-io",
  "vortex-mask",
  "vortex-runend",

@@ -100,6 +100,42 @@ jobs:
       incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
 
   # ============================================================================
+  # FSST LIKE Fuzzer
+  # ============================================================================
+  fsst_like_fuzz:
+    name: "FSST LIKE Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: fsst_like
+      jobs: 16
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-fsst-like-fuzz-failures:
+    name: "Report FSST LIKE Fuzz Failures"
+    needs: fsst_like_fuzz
+    if: always() && needs.fsst_like_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: fsst_like
+      crash_file: ${{ needs.fsst_like_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.fsst_like_fuzz.outputs.artifact_url }}
+      artifact_name: fsst_like-crash-artifacts
+      logs_artifact_name: fsst_like-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  # ============================================================================
   # Compress Roundtrip Fuzzer
   # ============================================================================
   compress_fuzz:
