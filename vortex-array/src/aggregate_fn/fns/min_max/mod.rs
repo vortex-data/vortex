@@ -176,6 +176,18 @@ impl AggregateFnVTable for MinMax {
         AggregateFnId::new_ref("vortex.min_max")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
             DType::Bool(_)

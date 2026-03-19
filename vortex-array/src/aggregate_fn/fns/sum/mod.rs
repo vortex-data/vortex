@@ -74,6 +74,18 @@ impl AggregateFnVTable for Sum {
         AggregateFnId::new_ref("vortex.sum")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         // When a sum overflows, we return a sum _value_ of null. Therefore, we all return dtypes
         // are nullable.

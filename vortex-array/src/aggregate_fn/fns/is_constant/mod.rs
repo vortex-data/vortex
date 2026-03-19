@@ -259,6 +259,18 @@ impl AggregateFnVTable for IsConstant {
         AggregateFnId::new_ref("vortex.is_constant")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
             DType::Null => None,
