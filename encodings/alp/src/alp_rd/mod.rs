@@ -329,7 +329,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         alp_rd_combine_inplace::<T>(
             right_parts,
             |right, &code| {
-                // SAFETY: The encoder guarantees all codes are < left_parts_dict.len() <= MAX_DICT_SIZE.
+                // SAFETY: codes are bounded by dict size (< left_parts_dict.len() <= MAX_DICT_SIZE).
                 *right = unsafe { *shifted_dict.get_unchecked(code as usize) } | *right;
             },
             left_parts.as_ref(),
@@ -344,13 +344,14 @@ fn alp_rd_apply_patches(
     patch_values: &PrimitiveArray,
     offset: usize,
 ) {
-    let patch_vals = patch_values.as_slice::<u16>();
     match_each_integer_ptype!(indices.ptype(), |T| {
-        let idx_slice = indices.as_slice::<T>();
-        for i in 0..idx_slice.len() {
-            let idx = (idx_slice[i] - offset as T) as usize;
-            values[idx] = patch_vals[i];
-        }
+        indices
+            .as_slice::<T>()
+            .iter()
+            .copied()
+            .map(|idx| idx - offset as T)
+            .zip(patch_values.as_slice::<u16>().iter())
+            .for_each(|(idx, v)| values[idx as usize] = *v);
     })
 }
 
