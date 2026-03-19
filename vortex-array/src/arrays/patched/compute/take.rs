@@ -101,10 +101,10 @@ fn take_map<I: IntegerPType, V: NativePType>(
 
     // Now, iterate the take indices using the prebuilt hashmap.
     // Undefined/null indices will miss the hash map, which we can ignore.
-    for index in indices {
+    for (output_index, index) in indices.iter().enumerate() {
         let index = index.as_();
         if let Some(&patch_value) = index_map.get(&index) {
-            output[index] = patch_value;
+            output[output_index] = patch_value;
         }
     }
 }
@@ -150,7 +150,7 @@ mod tests {
 
         // Take indices [0, 1, 2, 3, 4] - should get [0, 10, 0, 30, 0]
         let indices = buffer![0u32, 1, 2, 3, 4].into_array();
-        let result = array.take(indices)?;
+        let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 10, 0, 30, 0]).into_array();
         assert_arrays_eq!(expected, result);
@@ -165,7 +165,7 @@ mod tests {
 
         // Take indices in reverse order
         let indices = buffer![4u32, 3, 2, 1, 0].into_array();
-        let result = array.take(indices)?;
+        let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 30, 0, 10, 0]).into_array();
         assert_arrays_eq!(expected, result);
@@ -180,7 +180,10 @@ mod tests {
 
         // Take the same patched index multiple times
         let indices = buffer![2u32, 2, 0, 2].into_array();
-        let result = array.take(indices)?;
+        let result = array.take(indices)?.to_canonical()?.into_array();
+
+        // execute the array.
+        let _canonical = result.to_canonical()?.into_primitive();
 
         let expected = PrimitiveArray::from_iter([99u16, 99, 0, 99]).into_array();
         assert_arrays_eq!(expected, result);
@@ -211,7 +214,10 @@ mod tests {
                 .into_array(),
             ),
         );
-        let result = array.take(indices.into_array())?;
+        let result = array
+            .take(indices.into_array())?
+            .to_canonical()?
+            .into_array();
 
         // Expected: [0, 20, null, 50, 80, null, 50, 80, null, 0]
         let expected = PrimitiveArray::new(
