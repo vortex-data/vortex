@@ -56,7 +56,7 @@ impl ScalarFnVTable for DynamicComparison {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new("lhs"),
+            0 => ChildName::new_ref("lhs"),
             _ => unreachable!(),
         }
     }

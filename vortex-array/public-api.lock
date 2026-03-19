@@ -19460,7 +19460,7 @@ pub trait vortex_array::scalar_fn::SimplifyCtx
 
 pub fn vortex_array::scalar_fn::SimplifyCtx::return_dtype(&self, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub type vortex_array::scalar_fn::ChildName = vortex_session::registry::Id
+pub type vortex_array::scalar_fn::ChildName = arcref::ArcRef<str>
 
 pub type vortex_array::scalar_fn::ReduceNodeRef = alloc::sync::Arc<dyn vortex_array::scalar_fn::ReduceNode>
 

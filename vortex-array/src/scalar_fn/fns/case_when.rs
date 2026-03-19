@@ -13,6 +13,7 @@
 use std::fmt;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use prost::Message;
 use vortex_error::VortexResult;
@@ -114,12 +115,12 @@ impl ScalarFnVTable for CaseWhen {
         if child_idx < num_pair_children {
             let pair_idx = child_idx / 2;
             if child_idx.is_multiple_of(2) {
-                ChildName::new(&format!("when_{pair_idx}"))
+                ChildName::from(Arc::from(format!("when_{pair_idx}").as_str()))
             } else {
-                ChildName::new(&format!("then_{pair_idx}"))
+                ChildName::from(Arc::from(format!("then_{pair_idx}").as_str()))
             }
         } else if options.has_else && child_idx == num_pair_children {
-            ChildName::new("else")
+            ChildName::new_ref("else")
         } else {
             unreachable!("Invalid child index {} for CaseWhen", child_idx)
         }

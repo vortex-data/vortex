@@ -90,7 +90,7 @@ impl ScalarFnVTable for Pack {
 
     fn child_name(&self, instance: &Self::Options, child_idx: usize) -> ChildName {
         match instance.names.get(child_idx) {
-            Some(name) => ChildName::new(name.inner()),
+            Some(name) => ChildName::new_arc(name.inner().clone()),
             None => unreachable!(
                 "Invalid child index {} for Pack expression with {} fields",
                 child_idx,

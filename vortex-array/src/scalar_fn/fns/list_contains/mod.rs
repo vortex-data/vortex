@@ -81,8 +81,8 @@ impl ScalarFnVTable for ListContains {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new("list"),
-            1 => ChildName::new("needle"),
+            0 => ChildName::new_ref("list"),
+            1 => ChildName::new_ref("needle"),
             _ => unreachable!(
                 "Invalid child index {} for ListContains expression",
                 child_idx

@@ -59,8 +59,8 @@ impl ScalarFnVTable for CosineSimilarity {
 
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new("lhs"),
-            1 => ChildName::new("rhs"),
+            0 => ChildName::new_ref("lhs"),
+            1 => ChildName::new_ref("rhs"),
             _ => unreachable!("CosineSimilarity must have exactly two children"),
         }
     }
