@@ -115,12 +115,12 @@ impl ScalarFnVTable for CaseWhen {
         if child_idx < num_pair_children {
             let pair_idx = child_idx / 2;
             if child_idx.is_multiple_of(2) {
-                ChildName::from(Arc::from(format!("when_{pair_idx}").as_str()))
+                ChildName::from(Arc::from(format!("when_{pair_idx}")))
             } else {
-                ChildName::from(Arc::from(format!("then_{pair_idx}").as_str()))
+                ChildName::from(Arc::from(format!("then_{pair_idx}")))
             }
         } else if options.has_else && child_idx == num_pair_children {
-            ChildName::new_ref("else")
+            ChildName::from("else")
         } else {
             unreachable!("Invalid child index {} for CaseWhen", child_idx)
         }

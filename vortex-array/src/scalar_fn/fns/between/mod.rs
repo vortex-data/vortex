@@ -233,9 +233,9 @@ impl ScalarFnVTable for Between {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new_ref("array"),
-            1 => ChildName::new_ref("lower"),
-            2 => ChildName::new_ref("upper"),
+            0 => ChildName::from("array"),
+            1 => ChildName::from("lower"),
+            2 => ChildName::from("upper"),
             _ => unreachable!("Invalid child index {} for Between expression", child_idx),
         }
     }

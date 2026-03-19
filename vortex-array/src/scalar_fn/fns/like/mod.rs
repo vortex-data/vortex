@@ -94,8 +94,8 @@ impl ScalarFnVTable for Like {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new_ref("child"),
-            1 => ChildName::new_ref("pattern"),
+            0 => ChildName::from("child"),
+            1 => ChildName::from("pattern"),
             _ => unreachable!("Invalid child index {} for Like expression", child_idx),
         }
     }

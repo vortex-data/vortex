@@ -85,7 +85,7 @@ impl ScalarFnVTable for Cast {
 
     fn child_name(&self, _instance: &DType, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new_ref("input"),
+            0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for Cast expression", child_idx),
         }
     }

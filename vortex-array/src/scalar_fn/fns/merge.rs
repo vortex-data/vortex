@@ -80,7 +80,7 @@ impl ScalarFnVTable for Merge {
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
-        ChildName::from(Arc::from(format!("{child_idx}").as_str()))
+        ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
     fn fmt_sql(
