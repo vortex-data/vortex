@@ -30,7 +30,6 @@ use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::is_sorted;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -187,10 +186,16 @@ impl Patches {
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
             );
 
-            debug_assert!(
-                is_sorted(&indices).unwrap_or(Some(false)).unwrap_or(false),
-                "Patch indices must be sorted"
-            );
+            #[cfg(debug_assertions)]
+            {
+                use crate::VortexSessionExecute;
+                let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+                assert!(
+                    crate::aggregate_fn::fns::is_sorted::is_sorted(&indices, &mut ctx)
+                        .unwrap_or(false),
+                    "Patch indices must be sorted"
+                );
+            }
         }
 
         Ok(Self {

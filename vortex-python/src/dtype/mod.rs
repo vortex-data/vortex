@@ -92,7 +92,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 /// Base class for all Vortex data types.
-#[pyclass(name = "DType", module = "vortex", frozen, eq, hash, subclass)]
+#[pyclass(
+    name = "DType",
+    module = "vortex",
+    frozen,
+    eq,
+    hash,
+    subclass,
+    from_py_object
+)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
 

@@ -3,7 +3,6 @@
 
 mod cast;
 mod filter;
-mod is_sorted;
 mod kernels;
 mod mask;
 pub(crate) mod rules;

@@ -365,7 +365,7 @@ mod tests {
         let small = Scalar::decimal(DecimalValue::from(9i64), DecimalDType::new(14, 0), Nullable);
         Sum.combine_partials(&mut state, small)?;
 
-        let result = Sum.flush(&mut state)?;
+        let result = Sum.to_scalar(&state)?;
         assert!(!result.is_null());
         assert_eq!(
             result.as_decimal().decimal_value(),
@@ -396,7 +396,7 @@ mod tests {
             Scalar::decimal(DecimalValue::from(1i64), DecimalDType::new(14, 0), Nullable);
         Sum.combine_partials(&mut state, one_more)?;
 
-        let result = Sum.flush(&mut state)?;
+        let result = Sum.to_scalar(&state)?;
         assert!(result.is_null());
         assert_eq!(
             result.dtype(),
@@ -425,7 +425,7 @@ mod tests {
         );
         Sum.combine_partials(&mut state, one_more)?;
 
-        let result = Sum.flush(&mut state)?;
+        let result = Sum.to_scalar(&state)?;
         assert!(result.is_null());
         Ok(())
     }
@@ -458,7 +458,7 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         Sum.accumulate(&mut state, &columnar, &mut ctx)?;
 
-        let result = Sum.flush(&mut state)?;
+        let result = Sum.to_scalar(&state)?;
         assert!(result.is_null());
         Ok(())
     }

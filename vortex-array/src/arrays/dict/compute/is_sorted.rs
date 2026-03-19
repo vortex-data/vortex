@@ -3,30 +3,51 @@
 
 use vortex_error::VortexResult;
 
-use super::Dict;
-use super::DictArray;
-use crate::compute::IsSortedKernel;
-use crate::compute::IsSortedKernelAdapter;
-use crate::compute::is_sorted;
-use crate::compute::is_strict_sorted;
-use crate::register_kernel;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
+use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::Dict;
+use crate::scalar::Scalar;
 
-impl IsSortedKernel for Dict {
-    fn is_sorted(&self, array: &DictArray) -> VortexResult<Option<bool>> {
-        if Some((true, true)) == is_sorted(array.values())?.zip(is_sorted(array.codes())?) {
-            return Ok(Some(true));
-        }
-        Ok(None)
-    }
+/// Dict-specific is_sorted kernel.
+///
+/// If both values and codes are sorted (with the same strictness), then the dict array is sorted.
+#[derive(Debug)]
+pub(crate) struct DictIsSortedKernel;
 
-    fn is_strict_sorted(&self, array: &DictArray) -> VortexResult<Option<bool>> {
-        if Some((true, true))
-            == is_strict_sorted(array.values())?.zip(is_strict_sorted(array.codes())?)
-        {
-            return Ok(Some(true));
+impl DynAggregateKernel for DictIsSortedKernel {
+    fn aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        let Some(options) = aggregate_fn.as_opt::<IsSorted>() else {
+            return Ok(None);
+        };
+
+        let Some(dict) = batch.as_opt::<Dict>() else {
+            return Ok(None);
+        };
+
+        let strict = options.strict;
+
+        let result = if strict {
+            is_strict_sorted(dict.values(), ctx)? && is_strict_sorted(dict.codes(), ctx)?
+        } else {
+            is_sorted(dict.values(), ctx)? && is_sorted(dict.codes(), ctx)?
+        };
+
+        if result {
+            Ok(Some(IsSorted::make_partial(batch, true, strict)?))
+        } else {
+            // We can't definitively say it's NOT sorted without canonicalizing,
+            // so return None to let the accumulator handle it.
+            Ok(None)
         }
-        Ok(None)
     }
 }
-
-register_kernel!(IsSortedKernelAdapter(Dict).lift());

@@ -4,7 +4,6 @@
 mod cast;
 mod compare;
 mod filter;
-mod is_sorted;
 mod mask;
 pub(crate) mod rules;
 mod slice;

@@ -114,7 +114,7 @@ cc = "1.2"
 cfg-if = "1.0.1"
 chrono = "0.4.42"
 clap = "4.5"
-criterion = "0.7"
+criterion = "0.8"
 crossterm = "0.29"
 cudarc = { version = "0.18.2", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
@@ -172,13 +172,13 @@ memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 multiversion = "0.8.0"
-noodles-bgzf = "0.44.0"
-noodles-vcf = "0.82.0"
+noodles-bgzf = "0.46.0"
+noodles-vcf = { version = "0.86.0", features = ["async"] }
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.12.4", default-features = false }
 once_cell = "1.21"
-oneshot = "0.1.13"
+oneshot = { version = "0.2.0", features = ["async"] }
 opentelemetry = "0.31.0"
 opentelemetry-otlp = "0.31.0"
 opentelemetry_sdk = "0.31.0"
@@ -193,12 +193,13 @@ prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
 public-api = "0.51"
-pyo3 = { version = "0.27.0" }
-pyo3-bytes = "0.5"
+pyo3 = { version = "0.28.0" }
+pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
+pyo3-object_store = "0.10.0"
 quote = "1.0.41"
-rand = "0.9.0"
-rand_distr = "0.5"
+rand = "0.10.0"
+rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
 regex-automata = "0.4"
@@ -219,20 +220,20 @@ serde_test = "1.0.176"
 sha2 = "0.10"
 simdutf8 = "0.1.5"
 similar = "2.7.0"
-sketches-ddsketch = "0.3.0"
+sketches-ddsketch = "0.4.0"
 smol = "2.0.2"
 static_assertions = "1.1"
-strum = "0.27"
+strum = "0.28"
 syn = { version = "2.0.113", features = ["full"] }
-sysinfo = "0.37.0"
+sysinfo = "0.38.0"
 tabled = { version = "0.20.0", default-features = false }
 taffy = "0.9.0"
 take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
 tempfile = "3"
-termtree = { version = "0.5" }
-test-with = "0.14"
+termtree = { version = "1.0" }
+test-with = "0.15"
 thiserror = "2.0.3"
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"
@@ -247,7 +248,7 @@ uuid = { version = "1.19", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
 xshell = "0.2.6"
 zigzag = "0.1.0"
-zip = "6.0.0"
+zip = "8.0.0"
 zstd = { version = "0.13.3", default-features = false, features = [
     "zdict_builder",
 ] }
@@ -298,7 +299,7 @@ vortex-tui = { path = "./vortex-tui" }
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
 package = "getrandom"
-version = "0.3.1"
+version = "0.4.0"
 
 [workspace.lints.rust]
 let_underscore_drop = "deny"

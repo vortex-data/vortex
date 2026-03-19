@@ -180,8 +180,8 @@ impl AggregateFnVTable for Sum {
         Ok(())
     }
 
-    fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar> {
-        let result = match &partial.current {
+    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        Ok(match &partial.current {
             None => Scalar::null(partial.return_dtype.as_nullable()),
             Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
@@ -193,12 +193,11 @@ impl AggregateFnVTable for Sum {
                     .vortex_expect("return dtype must be decimal");
                 Scalar::decimal(*value, decimal_dtype, Nullability::Nullable)
             }
-        };
+        })
+    }
 
-        // Reset the state
+    fn reset(&self, partial: &mut Self::Partial) {
         partial.current = Some(make_zero_state(&partial.return_dtype));
-
-        Ok(result)
     }
 
     #[inline]
@@ -254,8 +253,8 @@ impl AggregateFnVTable for Sum {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: Scalar) -> VortexResult<Scalar> {
-        Ok(partial)
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        self.to_scalar(partial)
     }
 }
 
@@ -465,7 +464,8 @@ mod tests {
         let scalar2 = Scalar::primitive(50i64, Nullable);
         Sum.combine_partials(&mut state, scalar2)?;
 
-        let result = Sum.flush(&mut state)?;
+        let result = Sum.to_scalar(&state)?;
+        Sum.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(150));
         Ok(())
     }

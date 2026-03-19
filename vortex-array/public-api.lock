@@ -70,9 +70,7 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::empty_partial(&
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -80,15 +78,113 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::is_saturated(&s
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::partial_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub struct vortex_array::aggregate_fn::fns::is_constant::IsConstantPartial
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::is_constant(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::make_is_constant_partial_dtype(element_dtype: &vortex_array::dtype::DType) -> vortex_array::dtype::DType
+
+pub mod vortex_array::aggregate_fn::fns::is_sorted
+
+pub struct vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+
+impl vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::make_partial(batch: &vortex_array::ArrayRef, is_sorted: bool, strict: bool) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::clone(&self) -> vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+
+pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Options = vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Partial = vortex_array::aggregate_fn::fns::is_sorted::IsSortedPartial
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::is_saturated(&self, partial: &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::partial_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::reset(&self, partial: &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub struct vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions::strict: bool
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions::clone(&self) -> vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+impl core::cmp::Eq for vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+impl core::cmp::PartialEq for vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions::eq(&self, other: &vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions) -> bool
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub struct vortex_array::aggregate_fn::fns::is_sorted::IsSortedPartial
+
+pub trait vortex_array::aggregate_fn::fns::is_sorted::IsSortedIteratorExt where <Self as core::iter::traits::iterator::Iterator>::Item: core::cmp::PartialOrd: core::iter::traits::iterator::Iterator
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSortedIteratorExt::is_strict_sorted(self) -> bool where Self: core::marker::Sized, Self::Item: core::cmp::PartialOrd
+
+impl<T> vortex_array::aggregate_fn::fns::is_sorted::IsSortedIteratorExt for T where T: core::iter::traits::iterator::Iterator + ?core::marker::Sized, <T as core::iter::traits::iterator::Iterator>::Item: core::cmp::PartialOrd
+
+pub fn T::is_strict_sorted(self) -> bool where Self: core::marker::Sized, Self::Item: core::cmp::PartialOrd
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::is_sorted(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::make_is_sorted_partial_dtype(element_dtype: &vortex_array::dtype::DType) -> vortex_array::dtype::DType
 
 pub mod vortex_array::aggregate_fn::fns::min_max
 
@@ -120,9 +216,7 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::empty_partial(&self, _o
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -130,9 +224,13 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::is_saturated(&self, _pa
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub struct vortex_array::aggregate_fn::fns::min_max::MinMaxPartial
 
@@ -196,9 +294,7 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::empty_partial(&self
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -206,9 +302,13 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::is_saturated(&self,
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::nan_count(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
@@ -256,9 +356,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, options: 
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -266,9 +364,13 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::is_saturated(&self, partial: &
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub struct vortex_array::aggregate_fn::fns::sum::SumPartial
 
@@ -490,9 +592,7 @@ pub fn vortex_array::aggregate_fn::AggregateFnVTable::empty_partial(&self, optio
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::finalize(&self, states: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::AggregateFnVTable::finalize_scalar(&self, state: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::AggregateFnVTable::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -500,9 +600,13 @@ pub fn vortex_array::aggregate_fn::AggregateFnVTable::is_saturated(&self, state:
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::return_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::is_constant::IsConstant
 
@@ -522,9 +626,7 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::empty_partial(&
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -532,9 +634,47 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::is_saturated(&s
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::partial_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+
+pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Options = vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
+
+pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Partial = vortex_array::aggregate_fn::fns::is_sorted::IsSortedPartial
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::is_saturated(&self, partial: &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::partial_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::reset(&self, partial: &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::min_max::MinMax
 
@@ -554,9 +694,7 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::empty_partial(&self, _o
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -564,9 +702,13 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::is_saturated(&self, _pa
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::nan_count::NanCount
 
@@ -586,9 +728,7 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::empty_partial(&self
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -596,9 +736,13 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::is_saturated(&self,
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::sum::Sum
 
@@ -618,9 +762,7 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::empty_partial(&self, options: 
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, partials: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize_scalar(&self, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::flush(&self, partial: &mut Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -628,9 +770,13 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::is_saturated(&self, partial: &
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::reset(&self, partial: &mut Self::Partial)
+
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub trait vortex_array::aggregate_fn::AggregateFnVTableExt: vortex_array::aggregate_fn::AggregateFnVTable
 
@@ -709,12 +855,6 @@ pub fn vortex_array::arrays::Bool::filter(array: &vortex_array::arrays::BoolArra
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Bool
-
-pub fn vortex_array::arrays::Bool::is_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Bool::is_strict_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
 
@@ -925,12 +1065,6 @@ pub fn vortex_array::arrays::Chunked::filter(array: &vortex_array::arrays::Chunk
 impl vortex_array::arrays::slice::SliceKernel for vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Chunked
-
-pub fn vortex_array::arrays::Chunked::is_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Chunked::is_strict_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Chunked
 
@@ -1298,12 +1432,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Decimal
-
-pub fn vortex_array::arrays::Decimal::is_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Decimal::is_strict_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Decimal> for vortex_array::arrays::decimal::DecimalMaskedValidityRule
 
 pub type vortex_array::arrays::decimal::DecimalMaskedValidityRule::Parent = vortex_array::arrays::Masked
@@ -1514,12 +1642,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::dict::Di
 
 pub fn vortex_array::arrays::dict::Dict::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::is_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::dict::Dict::is_strict_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
 pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1623,12 +1745,6 @@ pub fn vortex_array::arrays::dict::Dict::filter(array: &vortex_array::arrays::di
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::dict::Dict
 
 pub fn vortex_array::arrays::dict::Dict::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::is_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::dict::Dict::is_strict_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
@@ -1933,12 +2049,6 @@ pub fn vortex_array::arrays::Extension::filter(array: &vortex_array::arrays::Ext
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Extension
 
 pub fn vortex_array::arrays::Extension::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Extension
-
-pub fn vortex_array::arrays::Extension::is_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Extension::is_strict_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::Extension
 
@@ -2296,12 +2406,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::FixedSiz
 
 pub fn vortex_array::arrays::FixedSizeList::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::FixedSizeList
-
-pub fn vortex_array::arrays::FixedSizeList::is_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::FixedSizeList::is_strict_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::cast(array: &vortex_array::arrays::FixedSizeListArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2449,12 +2553,6 @@ pub fn vortex_array::arrays::List::filter(array: &vortex_array::arrays::ListArra
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::List
-
-pub fn vortex_array::arrays::List::is_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::List::is_strict_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::List
 
@@ -2623,12 +2721,6 @@ pub fn vortex_array::arrays::ListView::take(array: &vortex_array::arrays::ListVi
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::ListView
-
-pub fn vortex_array::arrays::ListView::is_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::ListView::is_strict_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::ListView
 
@@ -3141,12 +3233,6 @@ pub fn vortex_array::arrays::Primitive::take(array: &vortex_array::arrays::Primi
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Primitive
-
-pub fn vortex_array::arrays::Primitive::is_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Primitive::is_strict_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
 
@@ -4140,12 +4226,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBin
-
-pub fn vortex_array::arrays::VarBin::is_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::VarBin::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4548,12 +4628,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::VarBinVi
 
 pub fn vortex_array::arrays::VarBinView::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBinView
-
-pub fn vortex_array::arrays::VarBinView::is_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::VarBinView::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::VarBinView
 
 pub fn vortex_array::arrays::VarBinView::cast(array: &vortex_array::arrays::VarBinViewArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4766,12 +4840,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Bool
-
-pub fn vortex_array::arrays::Bool::is_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Bool::is_strict_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
 
 pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
@@ -4953,12 +5021,6 @@ pub fn vortex_array::arrays::Chunked::filter(array: &vortex_array::arrays::Chunk
 impl vortex_array::arrays::slice::SliceKernel for vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Chunked
-
-pub fn vortex_array::arrays::Chunked::is_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Chunked::is_strict_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Chunked
 
@@ -5260,12 +5322,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Decimal
-
-pub fn vortex_array::arrays::Decimal::is_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Decimal::is_strict_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Decimal> for vortex_array::arrays::decimal::DecimalMaskedValidityRule
 
 pub type vortex_array::arrays::decimal::DecimalMaskedValidityRule::Parent = vortex_array::arrays::Masked
@@ -5444,12 +5500,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::dict::Di
 
 pub fn vortex_array::arrays::dict::Dict::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::is_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::dict::Dict::is_strict_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::dict::Dict
 
 pub fn vortex_array::arrays::dict::Dict::compare(lhs: &vortex_array::arrays::dict::DictArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5611,12 +5661,6 @@ pub fn vortex_array::arrays::Extension::filter(array: &vortex_array::arrays::Ext
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Extension
 
 pub fn vortex_array::arrays::Extension::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Extension
-
-pub fn vortex_array::arrays::Extension::is_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Extension::is_strict_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::Extension
 
@@ -5888,12 +5932,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::FixedSiz
 
 pub fn vortex_array::arrays::FixedSizeList::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::FixedSizeList
-
-pub fn vortex_array::arrays::FixedSizeList::is_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::FixedSizeList::is_strict_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::cast(array: &vortex_array::arrays::FixedSizeListArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6040,12 +6078,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::List
-
-pub fn vortex_array::arrays::List::is_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::List::is_strict_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::cast(array: &vortex_array::arrays::ListArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6191,12 +6223,6 @@ pub fn vortex_array::arrays::ListView::take(array: &vortex_array::arrays::ListVi
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::ListView
-
-pub fn vortex_array::arrays::ListView::is_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::ListView::is_strict_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::ListView
 
@@ -6617,12 +6643,6 @@ pub fn vortex_array::arrays::Primitive::take(array: &vortex_array::arrays::Primi
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Primitive
-
-pub fn vortex_array::arrays::Primitive::is_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Primitive::is_strict_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
 
@@ -7432,12 +7452,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBin
-
-pub fn vortex_array::arrays::VarBin::is_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::VarBin::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7653,12 +7667,6 @@ pub fn vortex_array::arrays::VarBinView::take(array: &vortex_array::arrays::VarB
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::VarBinView
 
 pub fn vortex_array::arrays::VarBinView::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBinView
-
-pub fn vortex_array::arrays::VarBinView::is_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::VarBinView::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::VarBinView
 
@@ -9596,24 +9604,6 @@ impl vortex_array::compute::Options for vortex_array::compute::IsConstantOpts
 
 pub fn vortex_array::compute::IsConstantOpts::as_any(&self) -> &dyn core::any::Any
 
-pub struct vortex_array::compute::IsSortedKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::IsSortedKernel> vortex_array::compute::IsSortedKernelAdapter<V>
-
-pub const fn vortex_array::compute::IsSortedKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::IsSortedKernelRef
-
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::IsSortedKernelAdapter<V>
-
-pub fn vortex_array::compute::IsSortedKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::IsSortedKernel> vortex_array::compute::Kernel for vortex_array::compute::IsSortedKernelAdapter<V>
-
-pub fn vortex_array::compute::IsSortedKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-pub struct vortex_array::compute::IsSortedKernelRef(_)
-
-impl inventory::Collect for vortex_array::compute::IsSortedKernelRef
-
 pub struct vortex_array::compute::MinMaxResult
 
 pub vortex_array::compute::MinMaxResult::max: vortex_array::scalar::Scalar
@@ -9662,93 +9652,9 @@ pub fn vortex_array::compute::ComputeFnVTable::return_dtype(&self, args: &vortex
 
 pub fn vortex_array::compute::ComputeFnVTable::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
 
-pub trait vortex_array::compute::IsSortedIteratorExt where <Self as core::iter::traits::iterator::Iterator>::Item: core::cmp::PartialOrd: core::iter::traits::iterator::Iterator
-
-pub fn vortex_array::compute::IsSortedIteratorExt::is_strict_sorted(self) -> bool where Self: core::marker::Sized, Self::Item: core::cmp::PartialOrd
-
-impl<T> vortex_array::compute::IsSortedIteratorExt for T where T: core::iter::traits::iterator::Iterator + ?core::marker::Sized, <T as core::iter::traits::iterator::Iterator>::Item: core::cmp::PartialOrd
-
-pub fn T::is_strict_sorted(self) -> bool where Self: core::marker::Sized, Self::Item: core::cmp::PartialOrd
-
-pub trait vortex_array::compute::IsSortedKernel: vortex_array::vtable::VTable
-
-pub fn vortex_array::compute::IsSortedKernel::is_sorted(&self, array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::compute::IsSortedKernel::is_strict_sorted(&self, array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Bool
-
-pub fn vortex_array::arrays::Bool::is_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Bool::is_strict_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Chunked
-
-pub fn vortex_array::arrays::Chunked::is_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Chunked::is_strict_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Decimal
-
-pub fn vortex_array::arrays::Decimal::is_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Decimal::is_strict_sorted(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Extension
-
-pub fn vortex_array::arrays::Extension::is_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Extension::is_strict_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::FixedSizeList
-
-pub fn vortex_array::arrays::FixedSizeList::is_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::FixedSizeList::is_strict_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::List
-
-pub fn vortex_array::arrays::List::is_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::List::is_strict_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::ListView
-
-pub fn vortex_array::arrays::ListView::is_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::ListView::is_strict_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::Primitive
-
-pub fn vortex_array::arrays::Primitive::is_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::Primitive::is_strict_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBin
-
-pub fn vortex_array::arrays::VarBin::is_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::VarBin::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::VarBinView
-
-pub fn vortex_array::arrays::VarBinView::is_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::VarBinView::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-impl vortex_array::compute::IsSortedKernel for vortex_array::arrays::dict::Dict
-
-pub fn vortex_array::arrays::dict::Dict::is_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::arrays::dict::Dict::is_strict_sorted(&self, array: &vortex_array::arrays::dict::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 pub trait vortex_array::compute::Kernel: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
 pub fn vortex_array::compute::Kernel::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::IsSortedKernel> vortex_array::compute::Kernel for vortex_array::compute::IsSortedKernelAdapter<V>
-
-pub fn vortex_array::compute::IsSortedKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 
 pub trait vortex_array::compute::Options: 'static
 
@@ -9772,8 +9678,6 @@ pub fn vortex_array::compute::is_constant_opts(array: &vortex_array::ArrayRef, _
 
 pub fn vortex_array::compute::is_sorted(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-pub fn vortex_array::compute::is_sorted_opts(array: &vortex_array::ArrayRef, strict: bool) -> vortex_error::VortexResult<core::option::Option<bool>>
-
 pub fn vortex_array::compute::is_strict_sorted(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::compute::min_max(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::aggregate_fn::fns::min_max::MinMaxResult>>
@@ -9781,8 +9685,6 @@ pub fn vortex_array::compute::min_max(array: &vortex_array::ArrayRef) -> vortex_
 pub fn vortex_array::compute::nan_count(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<usize>
 
 pub fn vortex_array::compute::sum(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::compute::warm_up_vtables()
 
 pub mod vortex_array::display
 

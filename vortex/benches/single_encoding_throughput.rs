@@ -9,7 +9,7 @@ use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;

@@ -9,7 +9,7 @@ use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
 use indicatif::ProgressBar;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::Distribution;

@@ -13,6 +13,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
@@ -20,6 +21,7 @@ use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
+use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::vtable::ArrayId;
 
@@ -49,6 +51,7 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Chunked::ID, None, &ChunkedArrayAggregate);
         this.register_aggregate_kernel(Dict::ID, Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(Dict::ID, Some(IsConstant.id()), &DictIsConstantKernel);
+        this.register_aggregate_kernel(Dict::ID, Some(IsSorted.id()), &DictIsSortedKernel);
 
         this
     }

@@ -76,7 +76,7 @@ impl Handle {
             .boxed(),
         );
         Task {
-            recv,
+            recv: recv.into_future(),
             abort_handle: Some(abort_handle),
         }
     }
@@ -116,7 +116,7 @@ impl Handle {
             }
         }));
         Task {
-            recv,
+            recv: recv.into_future(),
             abort_handle: Some(abort_handle),
         }
     }
@@ -138,7 +138,7 @@ impl Handle {
             }
         }));
         Task {
-            recv,
+            recv: recv.into_future(),
             abort_handle: Some(abort_handle),
         }
     }
@@ -150,7 +150,7 @@ impl Handle {
 /// continue running in the background, call [`Task::detach`].
 #[must_use = "When a Task is dropped without being awaited, it is cancelled"]
 pub struct Task<T> {
-    recv: oneshot::Receiver<T>,
+    recv: oneshot::AsyncReceiver<T>,
     abort_handle: Option<AbortHandleRef>,
 }
 

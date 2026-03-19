@@ -146,7 +146,8 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     }
 
     fn flush(&mut self) -> VortexResult<Scalar> {
-        let partial = self.vtable.flush(&mut self.partial)?;
+        let partial = self.vtable.to_scalar(&self.partial)?;
+        self.vtable.reset(&mut self.partial);
 
         #[cfg(debug_assertions)]
         {
@@ -162,8 +163,8 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     }
 
     fn finish(&mut self) -> VortexResult<Scalar> {
-        let partial = self.flush()?;
-        let result = self.vtable.finalize_scalar(partial)?;
+        let result = self.vtable.finalize_scalar(&self.partial)?;
+        self.vtable.reset(&mut self.partial);
 
         vortex_ensure!(
             result.dtype() == &self.return_dtype,

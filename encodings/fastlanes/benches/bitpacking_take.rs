@@ -5,7 +5,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
@@ -15,14 +15,12 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {
-    warm_up_vtables();
     divan::main();
 }
 
