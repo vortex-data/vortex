@@ -4862,7 +4862,9 @@ pub struct vortex_array::arrays::variant::Variant
 
 impl vortex_array::arrays::Variant
 
-pub const vortex_array::arrays::Variant::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Variant::ID: &'static str
+
+pub fn vortex_array::arrays::Variant::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Variant
 
@@ -8038,7 +8040,9 @@ pub struct vortex_array::arrays::Variant
 
 impl vortex_array::arrays::Variant
 
-pub const vortex_array::arrays::Variant::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Variant::ID: &'static str
+
+pub fn vortex_array::arrays::Variant::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Variant
 

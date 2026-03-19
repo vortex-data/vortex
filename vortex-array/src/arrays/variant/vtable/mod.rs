@@ -34,7 +34,13 @@ vtable!(Variant);
 pub struct Variant;
 
 impl Variant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.variant");
+    pub const ID: &'static str = "vortex.variant";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl VTable for Variant {
@@ -47,7 +53,7 @@ impl VTable for Variant {
     type ValidityVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &Self::Array) -> usize {

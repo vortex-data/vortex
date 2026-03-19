@@ -46,7 +46,7 @@ impl ScalarFnVTable for L2Norm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.tensor.l2_norm")
+        ScalarFnId::new("vortex.tensor.l2_norm")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
