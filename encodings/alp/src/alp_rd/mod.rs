@@ -306,8 +306,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     if let Some(patches) = left_parts_patches {
         for code in left_parts.iter_mut() {
-            // SAFETY: The encoder guarantees all codes are valid indices into left_parts_dict.
-            *code = unsafe { *left_parts_dict.get_unchecked(*code as usize) };
+            *code = left_parts_dict[*code as usize];
         }
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;

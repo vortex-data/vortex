@@ -26,7 +26,6 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
-use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
@@ -41,7 +40,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
@@ -302,18 +300,6 @@ impl VTable for ALPRD {
 
         let left_parts_dict = array.left_parts_dictionary();
 
-        let nullability = array.dtype().nullability();
-        let validity = if nullability == Nullability::NonNullable {
-            Validity::NonNullable
-        } else {
-            let mask = array
-                .left_parts()
-                .validity()?
-                .to_array(array.len())
-                .execute::<Mask>(ctx)?;
-            Validity::from_mask(mask, nullability)
-        };
-
         let decoded_array = if array.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
@@ -324,7 +310,7 @@ impl VTable for ALPRD {
                     array.left_parts_patches(),
                     ctx,
                 )?,
-                validity,
+                array.left_parts().validity()?.clone(),
             )
         } else {
             PrimitiveArray::new(
@@ -336,7 +322,7 @@ impl VTable for ALPRD {
                     array.left_parts_patches(),
                     ctx,
                 )?,
-                validity,
+                array.left_parts().validity()?.clone(),
             )
         };
 
