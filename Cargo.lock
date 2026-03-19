@@ -5968,21 +5968,6 @@ dependencies = [
 
 [[package]]
 name = "noodles-bgzf"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ab0c2585bad37cfc51a55f29c85449400ac51aaade935049d5d9fc5f8add255"
-dependencies = [
- "bytes",
- "crossbeam-channel",
- "flate2",
- "futures",
- "pin-project-lite",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "noodles-bgzf"
 version = "0.46.0"
 <<<<<<< HEAD
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6034,10 +6019,14 @@ dependencies = [
  "futures",
  "indexmap",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "noodles-bgzf 0.44.0",
 =======
  "noodles-bgzf 0.46.0",
 >>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
+=======
+ "noodles-bgzf",
+>>>>>>> 048959940 (fixes)
  "noodles-core",
  "pin-project-lite",
  "tokio",
@@ -6052,10 +6041,14 @@ dependencies = [
  "bstr",
  "indexmap",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "noodles-bgzf 0.44.0",
 =======
  "noodles-bgzf 0.46.0",
 >>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
+=======
+ "noodles-bgzf",
+>>>>>>> 048959940 (fixes)
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -6071,10 +6064,14 @@ dependencies = [
  "indexmap",
  "memchr",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "noodles-bgzf 0.44.0",
 =======
  "noodles-bgzf 0.46.0",
 >>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
+=======
+ "noodles-bgzf",
+>>>>>>> 048959940 (fixes)
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
@@ -9854,10 +9851,14 @@ dependencies = [
  "itertools 0.14.0",
  "mimalloc",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "noodles-bgzf 0.46.0",
 =======
  "noodles-bgzf 0.44.0",
 >>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
+=======
+ "noodles-bgzf",
+>>>>>>> 048959940 (fixes)
  "noodles-vcf",
  "parking_lot",
  "parquet",
