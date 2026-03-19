@@ -72,14 +72,11 @@ impl FlatPrefixDfa {
         let n_states = fail_state + 1;
         let sentinel = fail_state + 1;
 
-        // Step 1: byte-level transitions
         let byte_table = build_prefix_byte_table(prefix, accept_state, fail_state);
 
-        // Step 2: symbol-level transitions
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
 
-        // Step 3: fused table with escape sentinel
         let transitions = build_fused_table(
             &sym_trans,
             symbols.len(),
@@ -125,7 +122,7 @@ impl FlatPrefixDfa {
     }
 }
 
-/// Build a byte-level transition table for prefix matching (no KMP fallback).
+/// Build a byte-level transition table for prefix matching.
 ///
 /// For each state, only the correct next byte advances; everything else goes
 /// to the fail state.

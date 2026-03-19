@@ -42,9 +42,9 @@ struct SmallAlphabetString {
 impl SmallAlphabetString {
     fn generate(&self, u: &mut Unstructured<'_>) -> arbitrary::Result<String> {
         let len: usize = u.int_in_range(0..=self.max_len)?;
-        Ok((0..len)
-            .map(|_| u.int_in_range(b'a'..=b'h').expect("cannot make char") as char)
-            .collect())
+        (0..len)
+            .map(|_| Ok(u.int_in_range(b'a'..=b'h')? as char))
+            .collect()
     }
 }
 
