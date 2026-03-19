@@ -4788,9 +4788,7 @@ impl vortex_array::arrays::variant::VariantArray
 
 pub fn vortex_array::arrays::variant::VariantArray::child(&self) -> &vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef) -> Self
-
-pub fn vortex_array::arrays::variant::VariantArray::new_nullable(child: vortex_array::ArrayRef, nullability: vortex_array::dtype::Nullability) -> Self
+pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef, nullability: vortex_array::dtype::Nullability) -> Self
 
 impl vortex_array::arrays::variant::VariantArray
 
@@ -8044,9 +8042,7 @@ impl vortex_array::arrays::variant::VariantArray
 
 pub fn vortex_array::arrays::variant::VariantArray::child(&self) -> &vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef) -> Self
-
-pub fn vortex_array::arrays::variant::VariantArray::new_nullable(child: vortex_array::ArrayRef, nullability: vortex_array::dtype::Nullability) -> Self
+pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef, nullability: vortex_array::dtype::Nullability) -> Self
 
 impl vortex_array::arrays::variant::VariantArray
 

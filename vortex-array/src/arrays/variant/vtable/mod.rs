@@ -59,7 +59,7 @@ impl VTable for Variant {
     }
 
     fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.child.statistics()
     }
 
     fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision) {
@@ -137,7 +137,7 @@ impl VTable for Variant {
             &DType::Variant(crate::dtype::Nullability::NonNullable),
             len,
         )?;
-        Ok(VariantArray::new_nullable(child, dtype.nullability()))
+        Ok(VariantArray::new(child, dtype.nullability()))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
