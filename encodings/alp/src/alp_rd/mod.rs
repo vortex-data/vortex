@@ -285,15 +285,11 @@ impl RDEncoder {
     }
 }
 
-/// Decode a vector of ALP-RD encoded values back into their original floating point format.
-///
-/// When no patches are present, a pre-shifted dictionary is used to combine left and right
-/// parts in a single pass. When patches are present, dictionary decoding is done in-place
-/// first so patches can be applied, then combine runs as a second pass.
+/// Decode ALP-RD encoded values back into their original floating point format.
 ///
 /// # Panics
 ///
-/// The function panics if the provided `left_parts` and `right_parts` differ in length.
+/// Panics if `left_parts` and `right_parts` differ in length.
 pub fn alp_rd_decode<T: ALPRDFloat>(
     mut left_parts: BufferMut<u16>,
     left_parts_dict: &[u16],

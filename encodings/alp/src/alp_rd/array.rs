@@ -300,7 +300,6 @@ impl VTable for ALPRD {
         let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
         let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
 
-        // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
 
         let nullability = array.dtype().nullability();
