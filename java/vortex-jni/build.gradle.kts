@@ -8,7 +8,7 @@ plugins {
     `java-library`
     `jvm-test-suite`
     id("com.google.protobuf")
-    id("com.gradleup.shadow") version "9.2.2"
+    id("com.gradleup.shadow") version "9.4.0"
 }
 
 dependencies {
