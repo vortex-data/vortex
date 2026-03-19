@@ -4060,10 +4060,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -9761,7 +9763,7 @@ dependencies = [
  "enum-iterator",
  "flatbuffers",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "goldenfile",
  "half",
  "humansize",
@@ -9851,7 +9853,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "enum-iterator",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "itertools 0.14.0",
  "num-traits",
  "pco",
@@ -10153,7 +10155,7 @@ dependencies = [
  "bytes",
  "flatbuffers",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "itertools 0.14.0",
  "kanal",
  "moka",
@@ -10251,7 +10253,7 @@ dependencies = [
  "bytes",
  "custom-labels",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "glob",
  "handle",
  "itertools 0.14.0",
@@ -10363,7 +10365,7 @@ dependencies = [
 name = "vortex-metrics"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "parking_lot",
  "sketches-ddsketch",
 ]

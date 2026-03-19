@@ -298,7 +298,7 @@ vortex-tui = { path = "./vortex-tui" }
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
 package = "getrandom"
-version = "0.3.1"
+version = "0.4.0"
 
 [workspace.lints.rust]
 let_underscore_drop = "deny"
