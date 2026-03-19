@@ -209,7 +209,7 @@ enum LikeKind<'a> {
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a [u8]) -> Option<Self> {
         // `prefix%` (including just `%` where prefix is empty)
-        if let Some(prefix) = pattern.strip_suffix(&[b'%'])
+        if let Some(prefix) = pattern.strip_suffix(b"%")
             && !prefix.contains(&b'%')
             && !prefix.contains(&b'_')
         {
@@ -217,7 +217,7 @@ impl<'a> LikeKind<'a> {
         }
 
         // `%needle%`
-        let inner = pattern.strip_prefix(&[b'%'])?.strip_suffix(&[b'%'])?;
+        let inner = pattern.strip_prefix(b"%")?.strip_suffix(b"%")?;
         if !inner.contains(&b'%') && !inner.contains(&b'_') {
             return Some(LikeKind::Contains(inner));
         }
