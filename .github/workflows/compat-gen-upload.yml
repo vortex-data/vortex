@@ -1,6 +1,16 @@
 name: Compat Fixture Upload
 
 on:
+  workflow_call:
+    inputs:
+      git_ref:
+        description: "Git ref for version detection (e.g. v0.62.0). Defaults to HEAD."
+        required: false
+        type: string
+      confirm_upload:
+        description: "Set to 'yes' to confirm upload."
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       git_ref:
