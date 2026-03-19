@@ -46,7 +46,7 @@ vtable!(Chunked);
 pub struct Chunked;
 
 impl Chunked {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.chunked");
+    pub const ID: ArrayId = ArrayId::new("vortex.chunked");
 }
 
 impl VTable for Chunked {

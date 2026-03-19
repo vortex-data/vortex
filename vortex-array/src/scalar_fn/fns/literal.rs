@@ -38,7 +38,7 @@ impl ScalarFnVTable for Literal {
     type Options = Scalar;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.literal")
+        ScalarFnId::new("vortex.literal")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

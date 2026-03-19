@@ -27,7 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_utils::Id;
+use vortex_session::registry::Id;
 
 use crate::ArrayRef;
 use crate::DynArray;

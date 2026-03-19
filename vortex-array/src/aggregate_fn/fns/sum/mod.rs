@@ -71,7 +71,7 @@ impl AggregateFnVTable for Sum {
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.sum")
+        AggregateFnId::new("vortex.sum")
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

@@ -233,7 +233,7 @@ impl VTable for Decimal {
 pub struct Decimal;
 
 impl Decimal {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal");
+    pub const ID: ArrayId = ArrayId::new("vortex.decimal");
 }
 
 #[cfg(test)]

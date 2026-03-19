@@ -272,7 +272,7 @@ pub struct SparseArray {
 pub struct Sparse;
 
 impl Sparse {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
+    pub const ID: ArrayId = ArrayId::new("vortex.sparse");
 }
 
 impl SparseArray {

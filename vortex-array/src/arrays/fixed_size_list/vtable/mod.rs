@@ -40,7 +40,7 @@ vtable!(FixedSizeList);
 pub struct FixedSizeList;
 
 impl FixedSizeList {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
+    pub const ID: ArrayId = ArrayId::new("vortex.fixed_size_list");
 }
 
 impl VTable for FixedSizeList {

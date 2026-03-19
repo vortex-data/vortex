@@ -233,5 +233,5 @@ impl VTable for Struct {
 pub struct Struct;
 
 impl Struct {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
+    pub const ID: ArrayId = ArrayId::new("vortex.struct");
 }

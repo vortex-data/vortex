@@ -4,14 +4,72 @@
 //! Many session types use a registry of objects that can be looked up by name to construct
 //! contexts. This module provides a generic registry type for that purpose.
 
+use std::cmp::Ordering;
+use std::fmt;
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 use vortex_error::VortexExpect;
-use vortex_utils::Id;
 use vortex_utils::aliases::dash_map::DashMap;
+
+/// A lightweight, copyable identifier backed by a `&'static str`.
+///
+/// Used for array encoding IDs, scalar function IDs, layout IDs, and similar
+/// globally-unique string identifiers throughout Vortex.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Id(&'static str);
+
+impl Id {
+    /// Create a new `Id` from a static string.
+    pub const fn new(s: &'static str) -> Self {
+        Self(s)
+    }
+
+    /// Returns the underlying string.
+    pub const fn as_str(&self) -> &'static str {
+        self.0
+    }
+}
+
+impl Display for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl Debug for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Id(\"{}\")", self.0)
+    }
+}
+
+impl PartialOrd for Id {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Id {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(other.0)
+    }
+}
+
+impl PartialEq<str> for Id {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl AsRef<str> for Id {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
 
 /// A registry of items that are keyed by a string identifier.
 #[derive(Clone, Debug)]

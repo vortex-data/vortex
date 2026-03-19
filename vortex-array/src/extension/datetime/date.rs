@@ -79,7 +79,7 @@ impl ExtVTable for Date {
     type NativeValue<'a> = DateValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.date")
+        ExtId::new("vortex.date")
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

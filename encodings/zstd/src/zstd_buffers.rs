@@ -41,7 +41,7 @@ vtable!(ZstdBuffers);
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd_buffers");
+    pub const ID: ArrayId = ArrayId::new("vortex.zstd_buffers");
 }
 
 /// An encoding that ZSTD-compresses the buffers of any wrapped array.

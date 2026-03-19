@@ -173,7 +173,7 @@ impl AggregateFnVTable for MinMax {
     type Partial = MinMaxPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.min_max")
+        AggregateFnId::new("vortex.min_max")
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

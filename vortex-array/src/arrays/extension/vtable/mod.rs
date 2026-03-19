@@ -179,5 +179,5 @@ impl VTable for Extension {
 pub struct Extension;
 
 impl Extension {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
+    pub const ID: ArrayId = ArrayId::new("vortex.ext");
 }

@@ -129,7 +129,7 @@ impl VTable for CudaFlat {
     type Metadata = ProstMetadata<CudaFlatLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.cuda_flat")
+        LayoutId::new("vortex.cuda_flat")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

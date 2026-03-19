@@ -372,5 +372,5 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
+    pub const ID: ArrayId = ArrayId::new("fastlanes.bitpacked");
 }

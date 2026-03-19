@@ -45,7 +45,7 @@ vtable!(VarBinView);
 pub struct VarBinView;
 
 impl VarBinView {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
+    pub const ID: ArrayId = ArrayId::new("vortex.varbinview");
 }
 
 impl VTable for VarBinView {

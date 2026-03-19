@@ -184,5 +184,5 @@ impl VTable for FoR {
 pub struct FoR;
 
 impl FoR {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
+    pub const ID: ArrayId = ArrayId::new("fastlanes.for");
 }

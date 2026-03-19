@@ -44,7 +44,7 @@ vtable!(Masked);
 pub struct Masked;
 
 impl Masked {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
+    pub const ID: ArrayId = ArrayId::new("vortex.masked");
 }
 
 impl VTable for Masked {

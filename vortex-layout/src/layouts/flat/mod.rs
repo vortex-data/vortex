@@ -43,7 +43,7 @@ impl VTable for Flat {
     type Metadata = ProstMetadata<FlatLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.flat")
+        LayoutId::new("vortex.flat")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

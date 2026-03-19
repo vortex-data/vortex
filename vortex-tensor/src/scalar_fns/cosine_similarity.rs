@@ -50,7 +50,7 @@ impl ScalarFnVTable for CosineSimilarity {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.cosine_similarity")
+        ScalarFnId::new("vortex.cosine_similarity")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

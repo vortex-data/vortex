@@ -46,7 +46,7 @@ impl VTable for Zoned {
     type Metadata = ZonedMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.stats") // For legacy reasons, this is called stats
+        LayoutId::new("vortex.stats") // For legacy reasons, this is called stats
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

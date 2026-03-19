@@ -273,7 +273,7 @@ pub struct ALPArray {
 pub struct ALP;
 
 impl ALP {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
+    pub const ID: ArrayId = ArrayId::new("vortex.alp");
 }
 
 #[derive(Clone, prost::Message)]

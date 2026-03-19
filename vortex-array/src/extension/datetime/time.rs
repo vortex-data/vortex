@@ -80,7 +80,7 @@ impl ExtVTable for Time {
     type NativeValue<'a> = TimeValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.time")
+        ExtId::new("vortex.time")
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

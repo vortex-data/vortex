@@ -11,7 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
-use vortex_utils::Id;
+use vortex_session::registry::Id;
 
 use crate::ArrayAdapter;
 use crate::ArrayRef;

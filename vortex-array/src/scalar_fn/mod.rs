@@ -7,7 +7,7 @@
 //! implementations. Expressions ([`crate::expr::Expression`]) reference scalar functions
 //! at each node.
 
-use vortex_utils::Id;
+use vortex_session::registry::Id;
 
 mod vtable;
 pub use vtable::*;

@@ -174,7 +174,7 @@ pub struct NullArray {
 pub struct Null;
 
 impl Null {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
+    pub const ID: ArrayId = ArrayId::new("vortex.null");
 }
 
 impl NullArray {

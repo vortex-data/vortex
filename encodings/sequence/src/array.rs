@@ -422,7 +422,7 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
+    pub const ID: ArrayId = ArrayId::new("vortex.sequence");
 }
 
 #[cfg(test)]

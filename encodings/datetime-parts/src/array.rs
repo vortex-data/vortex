@@ -267,7 +267,7 @@ pub struct DateTimePartsArrayParts {
 pub struct DateTimeParts;
 
 impl DateTimeParts {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.datetimeparts");
+    pub const ID: ArrayId = ArrayId::new("vortex.datetimeparts");
 }
 
 impl DateTimePartsArray {

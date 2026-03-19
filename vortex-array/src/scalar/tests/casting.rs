@@ -32,7 +32,7 @@ mod tests {
         type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
-            ExtId::new_ref("apples")
+            ExtId::new("apples")
         }
 
         fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -248,7 +248,7 @@ mod tests {
             type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
-                ExtId::new_ref("f16_ext")
+                ExtId::new("f16_ext")
             }
 
             fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -306,7 +306,7 @@ mod tests {
             type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
-                ExtId::new_ref("struct_ext")
+                ExtId::new("struct_ext")
             }
 
             fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

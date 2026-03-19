@@ -213,7 +213,7 @@ pub struct ByteBoolArray {
 pub struct ByteBool;
 
 impl ByteBool {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
+    pub const ID: ArrayId = ArrayId::new("vortex.bytebool");
 }
 
 impl ByteBoolArray {

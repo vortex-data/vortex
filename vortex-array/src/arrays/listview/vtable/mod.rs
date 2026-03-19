@@ -43,7 +43,7 @@ vtable!(ListView);
 pub struct ListView;
 
 impl ListView {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
+    pub const ID: ArrayId = ArrayId::new("vortex.listview");
 }
 
 #[derive(Clone, prost::Message)]

@@ -6,7 +6,7 @@
 //! This module contains the [`AggregateFnVTable`] trait, the [`Accumulator`] trait, and the
 //! type-erasure infrastructure for aggregate functions.
 
-use vortex_utils::Id;
+use vortex_session::registry::Id;
 
 mod accumulator;
 pub use accumulator::*;

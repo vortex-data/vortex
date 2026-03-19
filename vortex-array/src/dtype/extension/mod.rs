@@ -29,7 +29,7 @@ mod matcher;
 pub use matcher::*;
 
 /// A unique identifier for an extension type
-pub type ExtId = vortex_utils::Id;
+pub type ExtId = vortex_session::registry::Id;
 
 /// Private module to seal [`typed::DynExtDType`].
 mod sealed {

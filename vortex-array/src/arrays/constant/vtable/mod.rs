@@ -48,7 +48,7 @@ vtable!(Constant);
 pub struct Constant;
 
 impl Constant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
+    pub const ID: ArrayId = ArrayId::new("vortex.constant");
 }
 
 impl VTable for Constant {
