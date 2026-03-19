@@ -172,7 +172,7 @@ memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 multiversion = "0.8.0"
-noodles-bgzf = "0.44.0"
+noodles-bgzf = "0.46.0"
 noodles-vcf = "0.82.0"
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
