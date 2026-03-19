@@ -165,6 +165,9 @@ pub trait DynArray:
 
     /// Replaces the children of the array with the given array references.
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
+
+    /// Replaces the buffers of the array with the given buffer handles.
+    fn with_buffers(&self, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef>;
 }
 
 impl DynArray for Arc<dyn DynArray> {
@@ -277,6 +280,10 @@ impl DynArray for Arc<dyn DynArray> {
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
+    }
+
+    fn with_buffers(&self, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
+        self.as_ref().with_buffers(buffers)
     }
 }
 
@@ -661,6 +668,12 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         let mut this = self.0.clone();
         V::with_children(&mut this, children)?;
+        Ok(this.into_array())
+    }
+
+    fn with_buffers(&self, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
+        let mut this = self.0.clone();
+        V::with_buffers(&mut this, buffers)?;
         Ok(this.into_array())
     }
 }

@@ -181,6 +181,23 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
+    /// Replaces the buffers in `array` with `buffers`.
+    ///
+    /// The default implementation rebuilds the array via [`build()`](VTable::build), which
+    /// re-runs all validation. This is correct for replacing lazy device buffers with
+    /// materialized host buffers.
+    fn with_buffers(array: &mut Self::Array, buffers: Vec<BufferHandle>) -> VortexResult<()> {
+        let metadata = Self::metadata(array)?;
+        let dtype = Self::dtype(array).clone();
+        let len = Self::len(array);
+        let children: Vec<ArrayRef> = (0..Self::nchildren(array))
+            .map(|i| Self::child(array, i))
+            .collect();
+        let children_slice: &[ArrayRef] = &children;
+        *array = Self::build(&dtype, len, &metadata, &buffers, &children_slice)?;
+        Ok(())
+    }
+
     /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
     /// do next.
     ///

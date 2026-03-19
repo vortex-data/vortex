@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use vortex_array::ArrayRef;
+use vortex_array::ArrayVisitor;
+use vortex_array::DynArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::buffer::DeviceBuffer;
+use vortex_array::serde::ArrayParts;
+use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -23,10 +36,11 @@ pub struct LazyBufferHandle {
     source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
     selection: Selection,
+    alignment: Alignment,
 }
 
 /// Byte selection within a segment buffer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 enum Selection {
     /// The entire segment is selected.
     All,
@@ -36,14 +50,46 @@ enum Selection {
     Ranges(Arc<[Range<usize>]>),
 }
 
+#[allow(clippy::same_name_method)]
 impl LazyBufferHandle {
     /// Create a new lazy handle selecting the entire segment.
-    pub fn new(source: Arc<dyn SegmentSource>, segment_id: SegmentId) -> Self {
+    pub fn new(
+        source: Arc<dyn SegmentSource>,
+        segment_id: SegmentId,
+        alignment: Alignment,
+    ) -> Self {
         Self {
             source,
             segment_id,
             selection: Selection::All,
+            alignment,
         }
+    }
+
+    /// Returns the length of the selected byte range(s).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the entire segment is selected ([`Selection::All`]) since the
+    /// length is not known without performing I/O.
+    pub fn len(&self) -> usize {
+        match &self.selection {
+            Selection::All => {
+                vortex_panic!("len() is not available for Selection::All; slice first")
+            }
+            Selection::Range(r) => r.len(),
+            Selection::Ranges(rs) => rs.iter().map(|r| r.len()).sum(),
+        }
+    }
+
+    /// Returns whether the buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the alignment of the buffer.
+    pub fn alignment(&self) -> Alignment {
+        self.alignment
     }
 
     /// Returns the segment ID.
@@ -92,6 +138,7 @@ impl LazyBufferHandle {
             source: Arc::clone(&self.source),
             segment_id: self.segment_id,
             selection,
+            alignment: self.alignment,
         }
     }
 
@@ -142,6 +189,7 @@ impl LazyBufferHandle {
             source: Arc::clone(&self.source),
             segment_id: self.segment_id,
             selection,
+            alignment: self.alignment,
         }
     }
 
@@ -166,8 +214,167 @@ impl Debug for LazyBufferHandle {
         f.debug_struct("LazyBufferHandle")
             .field("segment_id", &self.segment_id)
             .field("selection", &self.selection)
+            .field("alignment", &self.alignment)
             .finish()
     }
+}
+
+impl PartialEq for LazyBufferHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.segment_id == other.segment_id
+            && self.selection == other.selection
+            && self.alignment == other.alignment
+    }
+}
+
+impl Eq for LazyBufferHandle {}
+
+impl Hash for LazyBufferHandle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.segment_id.hash(state);
+        self.selection.hash(state);
+        self.alignment.hash(state);
+    }
+}
+
+impl DeviceBuffer for LazyBufferHandle {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+
+    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
+        futures::executor::block_on(async {
+            let handle = self.materialize().await?;
+            Ok(handle.try_into_host_sync()?.aligned(alignment))
+        })
+    }
+
+    fn copy_to_host(
+        &self,
+        alignment: Alignment,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        let this = self.clone();
+        Ok(async move {
+            let handle = this.materialize().await?;
+            Ok(handle.try_into_host_sync()?.aligned(alignment))
+        }
+        .boxed())
+    }
+
+    fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+        Arc::new(LazyBufferHandle::slice(self, range))
+    }
+
+    fn filter(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        Ok(Arc::new(LazyBufferHandle::filter(self, ranges)))
+    }
+
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        if self.alignment.is_aligned_to(alignment) {
+            Ok(self)
+        } else {
+            Ok(Arc::new(LazyBufferHandle {
+                source: Arc::clone(&self.source),
+                segment_id: self.segment_id,
+                selection: self.selection.clone(),
+                alignment,
+            }))
+        }
+    }
+}
+
+/// Build an [`ArrayParts`] with lazy device buffers that defer segment I/O.
+///
+/// Each buffer descriptor in the flatbuffer is turned into a [`LazyBufferHandle`]
+/// that records the segment source, segment ID, byte range, and alignment but
+/// does **not** perform any I/O. The returned [`ArrayParts`] can be decoded into
+/// an array tree and manipulated (sliced, filtered, optimized) before the lazy
+/// buffers are materialized with [`materialize_recursive`].
+pub fn create_lazy_array_parts(
+    array_tree: ByteBuffer,
+    source: Arc<dyn SegmentSource>,
+    segment_id: SegmentId,
+) -> VortexResult<ArrayParts> {
+    use flatbuffers::root;
+    use vortex_flatbuffers::FlatBuffer;
+    use vortex_flatbuffers::array as fba;
+
+    let fb_aligned = FlatBuffer::align_from(array_tree.clone());
+    let fb_array = root::<fba::Array>(fb_aligned.as_ref())?;
+
+    let mut offset: usize = 0;
+    let buffers: Vec<BufferHandle> = fb_array
+        .buffers()
+        .unwrap_or_default()
+        .iter()
+        .map(|fb_buf| {
+            offset += fb_buf.padding() as usize;
+            let buffer_len = fb_buf.length() as usize;
+            let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
+
+            let lazy = LazyBufferHandle::new(Arc::clone(&source), segment_id, alignment)
+                .slice(offset..offset + buffer_len);
+
+            offset += buffer_len;
+            BufferHandle::new_device(Arc::new(lazy))
+        })
+        .collect();
+
+    ArrayParts::from_flatbuffer_with_buffers(array_tree, buffers)
+}
+
+/// Recursively walk the array tree and materialize any [`LazyBufferHandle`]
+/// device buffers by performing I/O, returning a new tree with host-resident
+/// buffers.
+pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
+    // 1. Recursively materialize children.
+    let children = array.children();
+    let mut new_children = Vec::with_capacity(children.len());
+    let mut any_child_changed = false;
+    for child in &children {
+        let new_child = Box::pin(materialize_recursive(child)).await?;
+        any_child_changed |= !Arc::ptr_eq(child, &new_child);
+        new_children.push(new_child);
+    }
+    let current = if any_child_changed {
+        array.with_children(new_children)?
+    } else {
+        array.clone()
+    };
+
+    // 2. Check for lazy device buffers.
+    let handles = current.buffer_handles();
+    let any_lazy = handles.iter().any(|h| {
+        h.as_device_opt()
+            .and_then(|d| d.as_any().downcast_ref::<LazyBufferHandle>())
+            .is_some()
+    });
+    if !any_lazy {
+        return Ok(current);
+    }
+
+    // 3. Materialize lazy buffers, ensuring proper alignment.
+    let mut materialized = Vec::with_capacity(handles.len());
+    for handle in &handles {
+        if let Some(lazy) = handle
+            .as_device_opt()
+            .and_then(|d| d.as_any().downcast_ref::<LazyBufferHandle>())
+        {
+            let buf = lazy.materialize().await?;
+            materialized.push(buf.ensure_aligned(lazy.alignment())?);
+        } else {
+            materialized.push(handle.clone());
+        }
+    }
+    current.with_buffers(materialized)
 }
 
 /// Map a logical byte range into the given set of existing absolute ranges.
@@ -222,6 +429,7 @@ mod tests {
 
     use futures::FutureExt;
     use vortex_array::buffer::BufferHandle;
+    use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -243,7 +451,11 @@ mod tests {
 
     fn lazy(data: &[u8]) -> LazyBufferHandle {
         let buf = BufferHandle::new_host(ByteBuffer::copy_from(data));
-        LazyBufferHandle::new(Arc::new(SingleSegment(buf)), SegmentId::from(0u32))
+        LazyBufferHandle::new(
+            Arc::new(SingleSegment(buf)),
+            SegmentId::from(0u32),
+            Alignment::none(),
+        )
     }
 
     #[test]

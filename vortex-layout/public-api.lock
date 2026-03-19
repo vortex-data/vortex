@@ -12,13 +12,19 @@ pub struct vortex_layout::buffer::LazyBufferHandle
 
 impl vortex_layout::buffer::LazyBufferHandle
 
+pub fn vortex_layout::buffer::LazyBufferHandle::alignment(&self) -> vortex_buffer::alignment::Alignment
+
 pub fn vortex_layout::buffer::LazyBufferHandle::byte_ranges(&self) -> core::option::Option<&[core::ops::range::Range<usize>]>
 
 pub fn vortex_layout::buffer::LazyBufferHandle::filter(&self, ranges: &[core::ops::range::Range<usize>]) -> Self
 
+pub fn vortex_layout::buffer::LazyBufferHandle::is_empty(&self) -> bool
+
+pub fn vortex_layout::buffer::LazyBufferHandle::len(&self) -> usize
+
 pub async fn vortex_layout::buffer::LazyBufferHandle::materialize(&self) -> vortex_error::VortexResult<vortex_array::buffer::BufferHandle>
 
-pub fn vortex_layout::buffer::LazyBufferHandle::new(source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, segment_id: vortex_layout::segments::SegmentId) -> Self
+pub fn vortex_layout::buffer::LazyBufferHandle::new(source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, segment_id: vortex_layout::segments::SegmentId, alignment: vortex_buffer::alignment::Alignment) -> Self
 
 pub fn vortex_layout::buffer::LazyBufferHandle::segment_id(&self) -> vortex_layout::segments::SegmentId
 
@@ -28,9 +34,41 @@ impl core::clone::Clone for vortex_layout::buffer::LazyBufferHandle
 
 pub fn vortex_layout::buffer::LazyBufferHandle::clone(&self) -> vortex_layout::buffer::LazyBufferHandle
 
+impl core::cmp::Eq for vortex_layout::buffer::LazyBufferHandle
+
+impl core::cmp::PartialEq for vortex_layout::buffer::LazyBufferHandle
+
+pub fn vortex_layout::buffer::LazyBufferHandle::eq(&self, other: &Self) -> bool
+
 impl core::fmt::Debug for vortex_layout::buffer::LazyBufferHandle
 
 pub fn vortex_layout::buffer::LazyBufferHandle::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_layout::buffer::LazyBufferHandle
+
+pub fn vortex_layout::buffer::LazyBufferHandle::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+impl vortex_array::buffer::DeviceBuffer for vortex_layout::buffer::LazyBufferHandle
+
+pub fn vortex_layout::buffer::LazyBufferHandle::aligned(self: alloc::sync::Arc<Self>, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>>
+
+pub fn vortex_layout::buffer::LazyBufferHandle::alignment(&self) -> vortex_buffer::alignment::Alignment
+
+pub fn vortex_layout::buffer::LazyBufferHandle::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_layout::buffer::LazyBufferHandle::copy_to_host(&self, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_buffer::ByteBuffer>>>
+
+pub fn vortex_layout::buffer::LazyBufferHandle::copy_to_host_sync(&self, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_buffer::ByteBuffer>
+
+pub fn vortex_layout::buffer::LazyBufferHandle::filter(&self, ranges: &[core::ops::range::Range<usize>]) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>>
+
+pub fn vortex_layout::buffer::LazyBufferHandle::len(&self) -> usize
+
+pub fn vortex_layout::buffer::LazyBufferHandle::slice(&self, range: core::ops::range::Range<usize>) -> alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>
+
+pub fn vortex_layout::buffer::create_lazy_array_parts(array_tree: vortex_buffer::ByteBuffer, source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, segment_id: vortex_layout::segments::SegmentId) -> vortex_error::VortexResult<vortex_array::serde::ArrayParts>
+
+pub async fn vortex_layout::buffer::materialize_recursive(array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub mod vortex_layout::display
 

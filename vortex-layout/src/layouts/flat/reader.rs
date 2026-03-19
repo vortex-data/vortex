@@ -22,6 +22,8 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutReader;
+use crate::buffer::create_lazy_array_parts;
+use crate::buffer::materialize_recursive;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
@@ -60,30 +62,37 @@ impl FlatReader {
         let row_count =
             usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
-        // We create the segment_fut here to ensure we give the segment reader visibility into
-        // how to prioritize this segment, even if the `array` future has already been initialized.
-        // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
-
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
         let dtype = self.layout.dtype().clone();
         let array_tree = self.layout.array_tree().cloned();
-        async move {
-            let segment = segment_fut.await?;
-            let parts = if let Some(array_tree) = array_tree {
-                // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
-                ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
-            } else {
-                // Parse the flatbuffer from the segment itself.
-                ArrayParts::try_from(segment)?
-            };
-            parts
-                .decode(&dtype, row_count, &ctx, &session)
-                .map_err(Arc::new)
+
+        if let Some(array_tree) = array_tree {
+            // Build lazy — no segment I/O yet. Buffers are LazyBufferHandles wrapped as
+            // device buffers that will be materialized after slice/filter/optimize.
+            let source = Arc::clone(&self.segment_source);
+            let segment_id = self.layout.segment_id();
+            async move {
+                let parts = create_lazy_array_parts(array_tree, source, segment_id)?;
+                parts
+                    .decode(&dtype, row_count, &ctx, &session)
+                    .map_err(Arc::new)
+            }
+            .boxed()
+            .shared()
+        } else {
+            // Legacy path: segment contains both flatbuffer and data buffers.
+            let segment_fut = self.segment_source.request(self.layout.segment_id());
+            async move {
+                let segment = segment_fut.await?;
+                let parts = ArrayParts::try_from(segment)?;
+                parts
+                    .decode(&dtype, row_count, &ctx, &session)
+                    .map_err(Arc::new)
+            }
+            .boxed()
+            .shared()
         }
-        .boxed()
-        .shared()
     }
 }
 
@@ -152,6 +161,7 @@ impl LayoutReader for FlatReader {
                 // after this.
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
+                let array = materialize_recursive(&array).await?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
 
@@ -159,6 +169,7 @@ impl LayoutReader for FlatReader {
             } else {
                 // Run over the full array, with a simpler bitand at the end.
                 let array = array.apply(&expr)?;
+                let array = materialize_recursive(&array).await?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
 
@@ -212,6 +223,9 @@ impl LayoutReader for FlatReader {
 
             // Evaluate the projection expression.
             array = array.apply(&expr)?;
+
+            // Materialize any remaining lazy device buffers before returning.
+            array = materialize_recursive(&array).await?;
 
             Ok(array)
         }
