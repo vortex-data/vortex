@@ -83,7 +83,7 @@ impl FlatElements {
     #[must_use]
     pub fn row<T: NativePType>(&self, i: usize) -> &[T] {
         let slice = self.elems.as_slice::<T>();
-        &slice[i * self.stride..i * self.stride + self.list_size]
+        &slice[i * self.stride..][..self.list_size]
     }
 }
 
