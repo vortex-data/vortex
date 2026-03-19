@@ -10,8 +10,12 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::aggregate_fn::AccumulatorRef;
@@ -19,6 +23,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::aggregate_fn::options::AggregateFnOptions;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::typed::AggregateFnInner;
 use crate::aggregate_fn::typed::DynAggregateFn;
 use crate::dtype::DType;
@@ -34,6 +39,37 @@ use crate::dtype::DType;
 pub struct AggregateFnRef(pub(super) Arc<dyn DynAggregateFn>);
 
 impl AggregateFnRef {
+    /// Deserialize an aggregate function from its ID and serialized metadata bytes.
+    ///
+    /// Looks up the aggregate function plugin by ID in the session's registry
+    /// and delegates deserialization to it.
+    pub fn deserialize(id: &str, metadata: &[u8], session: &VortexSession) -> VortexResult<Self> {
+        let agg_fn_id: AggregateFnId = ArcRef::new_arc(Arc::from(id));
+        let plugin = session
+            .aggregate_fns()
+            .registry()
+            .find(&agg_fn_id)
+            .ok_or_else(|| vortex_err!("unknown aggregate function id: {}", id))?;
+        let agg_fn = plugin.deserialize(metadata, session)?;
+
+        if agg_fn.id() != agg_fn_id {
+            vortex_bail!(
+                "Aggregate function ID mismatch: expected {}, got {}",
+                agg_fn_id,
+                agg_fn.id()
+            );
+        }
+
+        Ok(agg_fn)
+    }
+
+    /// Serialize this aggregate function's options to bytes.
+    ///
+    /// Returns `Ok(None)` if the function is not serializable.
+    pub fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
+        self.0.options_serialize()
+    }
+
     /// Returns the ID of this aggregate function.
     pub fn id(&self) -> AggregateFnId {
         self.0.id()
