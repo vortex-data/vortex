@@ -6,6 +6,32 @@ pub mod vortex_layout::aliases::paste
 
 pub use vortex_layout::aliases::paste::paste
 
+pub mod vortex_layout::buffer
+
+pub struct vortex_layout::buffer::LazyBufferHandle
+
+impl vortex_layout::buffer::LazyBufferHandle
+
+pub fn vortex_layout::buffer::LazyBufferHandle::byte_ranges(&self) -> core::option::Option<&[core::ops::range::Range<usize>]>
+
+pub fn vortex_layout::buffer::LazyBufferHandle::filter(&self, ranges: &[core::ops::range::Range<usize>]) -> Self
+
+pub async fn vortex_layout::buffer::LazyBufferHandle::materialize(&self) -> vortex_error::VortexResult<vortex_array::buffer::BufferHandle>
+
+pub fn vortex_layout::buffer::LazyBufferHandle::new(source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, segment_id: vortex_layout::segments::SegmentId) -> Self
+
+pub fn vortex_layout::buffer::LazyBufferHandle::segment_id(&self) -> vortex_layout::segments::SegmentId
+
+pub fn vortex_layout::buffer::LazyBufferHandle::slice(&self, range: core::ops::range::Range<usize>) -> Self
+
+impl core::clone::Clone for vortex_layout::buffer::LazyBufferHandle
+
+pub fn vortex_layout::buffer::LazyBufferHandle::clone(&self) -> vortex_layout::buffer::LazyBufferHandle
+
+impl core::fmt::Debug for vortex_layout::buffer::LazyBufferHandle
+
+pub fn vortex_layout::buffer::LazyBufferHandle::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub mod vortex_layout::display
 
 pub struct vortex_layout::display::DisplayLayoutTree
