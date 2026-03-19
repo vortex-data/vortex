@@ -89,7 +89,9 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
 
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<Constant>() || array.is::<Null>() {
-        return Ok(!strict);
+        let result = !strict;
+        cache_is_sorted(array, strict, result);
+        return Ok(result);
     }
 
     // We don't support sorting struct arrays.
