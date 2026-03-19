@@ -210,12 +210,57 @@ pub fn gather_patches(
         _ => Validity::AllValid,
     };
 
+    let has_nulls = matches!(parray.validity(), Validity::AllInvalid | Validity::Array(_));
+
     let array_len = parray.len();
+
+    if !has_nulls {
+        // Fast path: skip validity mask construction and per-element validity checks.
+        let patches = if array_len < u8::MAX as usize {
+            match_each_integer_ptype!(parray.ptype(), |T| {
+                gather_patches_nonnull::<T, u8>(
+                    parray.as_slice::<T>(),
+                    bit_width,
+                    num_exceptions_hint,
+                    patch_validity,
+                )
+            })
+        } else if array_len < u16::MAX as usize {
+            match_each_integer_ptype!(parray.ptype(), |T| {
+                gather_patches_nonnull::<T, u16>(
+                    parray.as_slice::<T>(),
+                    bit_width,
+                    num_exceptions_hint,
+                    patch_validity,
+                )
+            })
+        } else if array_len < u32::MAX as usize {
+            match_each_integer_ptype!(parray.ptype(), |T| {
+                gather_patches_nonnull::<T, u32>(
+                    parray.as_slice::<T>(),
+                    bit_width,
+                    num_exceptions_hint,
+                    patch_validity,
+                )
+            })
+        } else {
+            match_each_integer_ptype!(parray.ptype(), |T| {
+                gather_patches_nonnull::<T, u64>(
+                    parray.as_slice::<T>(),
+                    bit_width,
+                    num_exceptions_hint,
+                    patch_validity,
+                )
+            })
+        };
+        return Ok(patches);
+    }
+
     let validity_mask = parray.validity_mask()?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
-            gather_patches_impl::<T, u8>(
+            gather_patches_nullable::<T, u8>(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
@@ -225,7 +270,7 @@ pub fn gather_patches(
         })
     } else if array_len < u16::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
-            gather_patches_impl::<T, u16>(
+            gather_patches_nullable::<T, u16>(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
@@ -235,7 +280,7 @@ pub fn gather_patches(
         })
     } else if array_len < u32::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
-            gather_patches_impl::<T, u32>(
+            gather_patches_nullable::<T, u32>(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
@@ -245,7 +290,7 @@ pub fn gather_patches(
         })
     } else {
         match_each_integer_ptype!(parray.ptype(), |T| {
-            gather_patches_impl::<T, u64>(
+            gather_patches_nullable::<T, u64>(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
@@ -258,7 +303,53 @@ pub fn gather_patches(
     Ok(patches)
 }
 
-fn gather_patches_impl<T, P>(
+/// Gather patches from a non-nullable array (no validity checks needed).
+fn gather_patches_nonnull<T, P>(
+    data: &[T],
+    bit_width: u8,
+    num_exceptions_hint: usize,
+    patch_validity: Validity,
+) -> Option<Patches>
+where
+    T: PrimInt + NativePType,
+    P: IntegerPType,
+{
+    let mut indices: BufferMut<P> = BufferMut::with_capacity(num_exceptions_hint);
+    let mut values: BufferMut<T> = BufferMut::with_capacity(num_exceptions_hint);
+
+    let total_chunks = data.len().div_ceil(1024);
+    let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
+    let threshold = T::PTYPE.bit_width() - bit_width as usize;
+
+    for (idx, value) in data.iter().enumerate() {
+        if (idx % 1024) == 0 {
+            chunk_offsets.push(values.len() as u64);
+        }
+
+        if (value.leading_zeros() as usize) < threshold {
+            indices.push(P::from(idx).vortex_expect("cast index from usize"));
+            values.push(*value);
+        }
+    }
+
+    if indices.is_empty() {
+        None
+    } else {
+        Some(
+            Patches::new(
+                data.len(),
+                0,
+                indices.into_array(),
+                PrimitiveArray::new(values, patch_validity).into_array(),
+                Some(chunk_offsets.into_array()),
+            )
+            .vortex_expect("valid patches"),
+        )
+    }
+}
+
+/// Gather patches from a nullable array (checks validity per element).
+fn gather_patches_nullable<T, P>(
     data: &[T],
     bit_width: u8,
     num_exceptions_hint: usize,
@@ -274,16 +365,14 @@ where
 
     let total_chunks = data.len().div_ceil(1024);
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
+    let threshold = T::PTYPE.bit_width() - bit_width as usize;
 
     for (idx, value) in data.iter().enumerate() {
         if (idx % 1024) == 0 {
-            // Record the patch index offset for each chunk.
             chunk_offsets.push(values.len() as u64);
         }
 
-        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
-            && validity_mask.value(idx)
-        {
+        if (value.leading_zeros() as usize) < threshold && validity_mask.value(idx) {
             indices.push(P::from(idx).vortex_expect("cast index from usize"));
             values.push(*value);
         }
@@ -313,19 +402,26 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
+
+    // Fast path: skip validity mask construction for non-nullable arrays.
+    let has_nulls = matches!(array.validity(), Validity::AllInvalid | Validity::Array(_));
+    if !has_nulls {
+        for v in array.as_slice::<T>() {
+            bit_widths[bit_width(*v)] += 1;
+        }
+        return Ok(bit_widths);
+    }
+
     match array.validity_mask()?.bit_buffer() {
         AllOr::All => {
-            // All values are valid.
             for v in array.as_slice::<T>() {
                 bit_widths[bit_width(*v)] += 1;
             }
         }
         AllOr::None => {
-            // All values are invalid
             bit_widths[0] = array.len();
         }
         AllOr::Some(buffer) => {
-            // Some values are valid
             for (is_valid, v) in buffer.iter().zip_eq(array.as_slice::<T>()) {
                 if is_valid {
                     bit_widths[bit_width(*v)] += 1;

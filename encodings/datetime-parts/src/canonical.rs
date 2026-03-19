@@ -52,20 +52,50 @@ pub fn decode_to_temporal(
     // Validity is carried by the days component. Capture it before consuming the buffer.
     let validity = days_buf.validity().clone();
 
-    // We start with the days component, which is always present.
-    // And then add the seconds and subseconds components.
-    // We split this into separate passes because often the seconds and/or subseconds components
-    // are constant.
     let seconds_per_day: i64 = 86_400;
-    let mut values: BufferMut<i64> = days_buf
-        .into_buffer_mut::<i64>()
-        .map_each_in_place(|d| d * seconds_per_day * divisor);
+    let ticks_per_day: i64 = seconds_per_day * divisor;
 
-    if let Some(seconds) = array.seconds().as_constant() {
-        let seconds = seconds
-            .as_primitive()
-            .as_::<i64>()
-            .vortex_expect("non-nullable");
+    let seconds_const = array
+        .seconds()
+        .as_constant()
+        .map(|s| s.as_primitive().as_::<i64>().vortex_expect("non-nullable"));
+    let subseconds_const = array
+        .subseconds()
+        .as_constant()
+        .map(|s| s.as_primitive().as_::<i64>().vortex_expect("non-nullable"));
+
+    // Fused single-pass when both seconds and subseconds are constant (common case).
+    let values: BufferMut<i64> =
+        if let (Some(sec), Some(subsec)) = (seconds_const, subseconds_const) {
+            let constant_offset = sec * divisor + subsec;
+            days_buf
+                .into_buffer_mut::<i64>()
+                .map_each_in_place(|d| d * ticks_per_day + constant_offset)
+        } else {
+            let mut vals = days_buf
+                .into_buffer_mut::<i64>()
+                .map_each_in_place(|d| d * ticks_per_day);
+            add_seconds_component(array, &mut vals, divisor, seconds_const, ctx)?;
+            add_subseconds_component(array, &mut vals, subseconds_const, ctx)?;
+            vals
+        };
+
+    Ok(TemporalArray::new_timestamp(
+        PrimitiveArray::new(values.freeze(), validity).into_array(),
+        options.unit,
+        options.tz.clone(),
+    ))
+}
+
+/// Add the seconds component to the values buffer.
+fn add_seconds_component(
+    array: &DateTimePartsArray,
+    values: &mut BufferMut<i64>,
+    divisor: i64,
+    seconds_const: Option<i64>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    if let Some(seconds) = seconds_const {
         let seconds = seconds * divisor;
         for v in values.iter_mut() {
             *v += seconds;
@@ -79,12 +109,17 @@ pub fn decode_to_temporal(
             }
         });
     }
+    Ok(())
+}
 
-    if let Some(subseconds) = array.subseconds().as_constant() {
-        let subseconds = subseconds
-            .as_primitive()
-            .as_::<i64>()
-            .vortex_expect("non-nullable");
+/// Add the subseconds component to the values buffer.
+fn add_subseconds_component(
+    array: &DateTimePartsArray,
+    values: &mut BufferMut<i64>,
+    subseconds_const: Option<i64>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    if let Some(subseconds) = subseconds_const {
         for v in values.iter_mut() {
             *v += subseconds;
         }
@@ -97,12 +132,7 @@ pub fn decode_to_temporal(
             }
         });
     }
-
-    Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(values.freeze(), validity).into_array(),
-        options.unit,
-        options.tz.clone(),
-    ))
+    Ok(())
 }
 
 #[cfg(test)]

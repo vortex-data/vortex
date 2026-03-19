@@ -60,9 +60,10 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let mut subseconds = BufferMut::with_capacity(length);
 
     for &ts in ts_slice {
+        let remainder = ts % ticks_per_day;
         days.push(ts / ticks_per_day);
-        seconds.push((ts % ticks_per_day) / divisor);
-        subseconds.push((ts % ticks_per_day) % divisor);
+        seconds.push(remainder / divisor);
+        subseconds.push(remainder % divisor);
     }
 
     Ok(TemporalParts {
