@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -11,6 +12,8 @@ use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
+use crate::arrays::filter::FilterReduce;
+use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
@@ -23,6 +26,7 @@ pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
     ParentRuleSet::lift(&MaskReduceAdaptor(Decimal)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Decimal)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(Decimal)),
 ]);
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
@@ -68,6 +72,31 @@ impl SliceReduce for Decimal {
             // SAFETY: Slicing preserves all DecimalArray invariants
             unsafe { DecimalArray::new_unchecked(sliced, array.decimal_dtype(), validity) }
                 .into_array()
+        });
+        Ok(Some(result))
+    }
+}
+
+impl FilterReduce for Decimal {
+    fn filter(array: &DecimalArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        let ranges: Vec<Range<usize>> = mask
+            .slices()
+            .unwrap_or_else(|| unreachable!(), || unreachable!())
+            .iter()
+            .map(|&(s, e)| s..e)
+            .collect();
+        let result = match_each_decimal_value_type!(array.values_type(), |D| {
+            // SAFETY: Filtering preserves all DecimalArray invariants — values within
+            // precision bounds remain valid, and we correctly filter the validity.
+            unsafe {
+                DecimalArray::new_unchecked_handle(
+                    array.buffer_handle().filter_typed::<D>(&ranges)?,
+                    array.values_type(),
+                    array.decimal_dtype(),
+                    array.validity().filter(mask)?,
+                )
+            }
+            .into_array()
         });
         Ok(Some(result))
     }

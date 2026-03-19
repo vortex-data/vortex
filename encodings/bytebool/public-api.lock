@@ -14,6 +14,10 @@ impl vortex_array::arrays::dict::take::TakeExecute for vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::take(array: &vortex_bytebool::ByteBoolArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
+impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_bytebool::ByteBool
+
+pub fn vortex_bytebool::ByteBool::filter(array: &vortex_bytebool::ByteBoolArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::arrays::slice::SliceReduce for vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::slice(array: &vortex_bytebool::ByteBoolArray, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

@@ -207,6 +207,7 @@ mod tests {
     use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
@@ -413,40 +414,42 @@ mod tests {
     }
 
     #[test]
-    fn flat_invalid_array_fails() -> VortexResult<()> {
+    fn flat_filter_array_reduces_to_primitive() -> VortexResult<()> {
         block_on(|handle| async {
             let prim: PrimitiveArray = (0..10).collect();
             let filter = prim.filter(Mask::from_indices(10, vec![2, 3]))?;
 
             let ctx = ArrayContext::empty();
 
-            // Write the array into a byte buffer.
-            let (layout, _segments) = {
-                let segments = Arc::new(TestSegments::default());
-                let (ptr, eof) = SequenceId::root().split();
-                // Only allow primitive encodings - filter arrays should fail.
-                let allowed = ArrayRegistry::default();
-                allowed.register(Primitive::ID, Primitive);
-                let layout = FlatLayoutStrategy::default()
-                    .with_allow_encodings(allowed)
-                    .write_stream(
-                        ctx,
-                        segments.clone(),
-                        filter.to_array_stream().sequenced(ptr),
-                        eof,
-                        handle,
-                    )
-                    .await;
+            // FilterReduce reduces FilterArray(PrimitiveArray) → PrimitiveArray during
+            // optimization, so the write should succeed even with only Primitive allowed.
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let allowed = ArrayRegistry::default();
+            allowed.register(Primitive::ID, Primitive);
+            let layout = FlatLayoutStrategy::default()
+                .with_allow_encodings(allowed)
+                .write_stream(
+                    ctx,
+                    segments.clone(),
+                    filter.to_array_stream().sequenced(ptr),
+                    eof,
+                    handle,
+                )
+                .await?;
 
-                (layout, segments)
-            };
+            let result = layout
+                .new_reader("".into(), segments, &SESSION)?
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into()?),
+                )?
+                .await?;
 
-            let err = layout.expect_err("expected error");
-            assert!(
-                err.to_string()
-                    .contains("normalize forbids encoding (vortex.filter)"),
-                "unexpected error: {err}"
-            );
+            let expected =
+                PrimitiveArray::new(buffer![2i32, 3], Validity::NonNullable).into_array();
+            assert_arrays_eq!(result, expected);
 
             Ok(())
         })

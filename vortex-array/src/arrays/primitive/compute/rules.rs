@@ -9,6 +9,7 @@ use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -19,6 +20,7 @@ pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
     ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(Primitive)),
 ]);
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
