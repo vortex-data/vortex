@@ -10212,10 +10212,14 @@ dependencies = [
 name = "vortex-fsst"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "bytes",
  "codspeed-divan-compat",
  "fsst-rs",
+ "parquet",
  "prost 0.14.3",
  "rand 0.10.0",
+ "reqwest 0.12.28",
  "rstest",
  "vortex-array",
  "vortex-buffer",

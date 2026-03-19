@@ -15,7 +15,9 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
-mod dfa;
+/// DFA-based LIKE pushdown for FSST-compressed strings.
+#[doc(hidden)]
+pub mod dfa;
 mod kernel;
 mod ops;
 mod rules;

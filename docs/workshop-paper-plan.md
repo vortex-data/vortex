@@ -4,8 +4,6 @@
 
 **"Scanning Compressed Strings: DFA-Based LIKE Pushdown for FSST-Encoded Columnar Data"**
 
-Alternative: *"Zero-Decompression Pattern Matching on FSST-Compressed Strings"*
-
 ---
 
 ## 1. Core Contribution (Thesis)
@@ -17,239 +15,318 @@ string-heavy analytical queries on columnar stores.
 
 ---
 
-## 2. Paper Outline
+## 2. Interesting Things to Include in the Paper
 
-### Abstract
-- FSST is a lightweight string compression scheme used in columnar databases
-- LIKE predicates are expensive because they typically require full decompression
-- We present a technique to compile LIKE patterns into DFAs over FSST symbol tables
-- Enables direct scanning of compressed code streams
-- Demonstrate X× speedup over decompress-then-match on real-world datasets
+Beyond just "we built a DFA and it's fast," here are the dimensions that make
+this technically interesting and give reviewers something to think about.
 
-### 2.1 Introduction & Motivation
-- String columns dominate many analytical workloads (logs, URLs, user agents, names)
-- FSST achieves good compression ratios with fast decompression
-- But LIKE predicates still force decompression → bottleneck
-- Opportunity: FSST's symbol table is a finite, known alphabet → amenable to DFA construction
-- Key insight: compile the pattern + symbol table into a flat transition table, scan codes directly
+### 2.1 The Multi-Byte Symbol Problem (core novelty)
 
-### 2.2 Background
-- **FSST compression**: symbol table of up to 255 multi-byte symbols (1-8 bytes each), code 255 = escape for literal bytes
-- **LIKE semantics**: SQL LIKE with `%` (any substring) and `_` (single char) wildcards
-- **KMP algorithm**: failure function for efficient substring search
-- **Predicate pushdown in columnar stores**: zone maps, dictionary pushdown, etc.
+This is not just "run a DFA on bytes." The hard part is that FSST symbols are
+1–8 bytes long, so a single code byte can advance the DFA by multiple byte-level
+states. The key insight:
 
-### 2.3 DFA Construction (Technical Core)
+- **Stage 3 (symbol simulation)**: For each `(state, symbol_code)` pair, we
+  feed the symbol's bytes one-at-a-time through the byte-level KMP table and
+  record the resulting state. This is the step that doesn't exist in standard
+  DFA literature.
 
-#### 2.3.1 Pattern Classification
-- `prefix%` → prefix DFA (accept state is sticky, mismatch → fail)
-- `%needle%` → contains DFA (KMP-based failure transitions, accept is sticky)
-- Unsupported shapes fall back to decompression
+- **Cross-symbol boundary matching**: The pattern "abcdef" might straddle a
+  3-byte symbol "abc" and a 3-byte symbol "def". Or it might straddle a 2-byte
+  symbol "ab", a 3-byte symbol "cde", and need the 'f' from the next symbol.
+  The multi-byte simulation handles this naturally.
 
-#### 2.3.2 Four-Stage Construction Pipeline
-1. **KMP failure function** over pattern bytes
-2. **Byte-level transition table**: `(state × byte) → state`
-3. **Symbol-level transition table**: simulate multi-byte symbols through byte table
-4. **Flat u8 table**: fused `transitions[state * 256 + code]` for branchless lookup
+- **KMP fallback across symbols**: Consider needle "abab" and a 4-byte symbol
+  "abac". Processing this symbol from state 0: a→1, b→2, a→3, c→? KMP failure
+  at state 3 falls back to state 1 (matched "a"), then c mismatches again → 0.
+  This is critical for correctness and happens transparently in stage 3.
 
-#### 2.3.3 Escape Handling
-- Code 255 (escape) maps to sentinel state
-- Separate `escape_transitions` table for literal byte fallback
-- Keeps hot path (non-escape codes) branch-free
+**Paper angle**: Walk through a worked example showing how the same pattern can
+be matched via different symbol decompositions, and why the staged construction
+is correct for all of them.
 
-#### 2.3.4 Correctness Argument
-- KMP guarantees no missed matches for patterns with internal repetition
-- Symbol simulation correctly handles cross-symbol pattern boundaries
-- Fuzzing validates bit-for-bit equivalence with decompress-then-match
+### 2.2 Escape Handling: The Sentinel Architecture
 
-### 2.4 Integration into Vortex
-- Brief description of Vortex's layout reader / predicate pushdown framework
-- How FSST LIKE pushdown fits as a `LikeKernel` implementation
-- Composability with zone-map pruning (prune zones first, then DFA scan survivors)
+The escape code (255) is FSST's way of encoding literal bytes that don't have
+a symbol. The DFA uses a **sentinel state** approach:
 
-### 2.5 Experimental Evaluation (see §3 below)
+- In the fused table, code 255 → sentinel value (not a real state)
+- Scanner detects sentinel, reads next byte, looks up in separate byte-level table
+- This keeps the **hot path** (symbol codes 0-254) branch-free: one table lookup
+- The **cold path** (escapes) adds one branch + one extra lookup
 
-### 2.6 Related Work
-- FSST (Boncz et al., VLDB 2020)
-- Predicate pushdown in Parquet, ORC, Delta Lake
-- Dictionary-based LIKE evaluation (e.g., DuckDB dict pushdown)
-- Compressed pattern matching literature (Navarro & Raffinot, compressed text indexing)
-- SIMDified string matching (Hyperscan, Teddy)
-- Column sketch approaches (approximate filtering)
+**Paper angle**: Quantify how escape frequency affects throughput. The sentinel
+architecture means the DFA gracefully degrades as escape rate increases, rather
+than failing entirely. Plot the throughput curve as a function of escape rate.
 
-### 2.7 Limitations & Future Work
-- Currently limited to prefix% and %needle% patterns
-- Suffix patterns (%suffix) possible with backward scan
-- Escape-folded DFAs for branchless execution on short patterns
-- SIMD-vectorized multi-row DFA evaluation
-- Extension to regex pushdown (finite pattern subset)
-- ILIKE (case-insensitive) support
+### 2.3 State Space Fits in u8
 
-### 2.8 Conclusion
+The DFA uses `u8` state IDs, so the flat table is exactly `n_states × 256`
+bytes. For a 10-byte needle, that's `12 × 256 = 3072 bytes` — fits in L1 cache.
+Even the maximum 254-byte needle only produces `65,536 bytes` = 64KB.
 
----
+**Paper angle**: Compare with general-purpose regex engines that use `u32` or
+pointer-based NFAs. The u8 constraint limits pattern length but gives guaranteed
+cache-resident execution.
 
-## 3. Experiments to Run
+### 2.4 Prefix vs Contains: Fundamentally Different DFA Shapes
 
-### 3.1 Micro-Benchmarks (DFA scan throughput)
+The prefix DFA is trivial — any mismatch goes to a sticky FAIL state (no
+backtracking). The contains DFA needs KMP failure transitions because the needle
+can start at any position in the string.
 
-**Goal**: Measure raw scanning speed of DFA vs. decompress-then-match.
+**Paper angle**: Show that prefix matching is ~free (almost always faster than
+checking a single byte in decompressed form), while contains matching is where
+the interesting performance tradeoffs live.
 
-| Variable               | Values                                                        |
-|------------------------|---------------------------------------------------------------|
-| Pattern type           | `prefix%`, `%needle%`                                         |
-| Pattern length (bytes) | 1, 4, 8, 16, 32, 64, 128, 253                                |
-| String length dist     | Short (10-20B), medium (50-100B), long (200-1000B)            |
-| Selectivity            | 0.01%, 1%, 10%, 50% (fraction of rows matching)              |
-| Dataset                | Synthetic random, English text, URLs, log lines, UUIDs        |
+### 2.5 The Compression–Pushdown Tradeoff
 
-**Metrics**: Throughput (GB/s of compressed data), speedup over baseline.
+Better FSST compression means:
+- Fewer codes per string → fewer DFA transitions → faster DFA
+- Fewer escape codes → fewer branches → faster DFA
+- But also: faster decompression (fewer symbols to emit bytes for)
+- The **speedup ratio** (DFA / decompress-then-match) may not be constant
 
-**Baseline**: Decompress all → run Arrow LIKE kernel.
+**Paper angle**: Is the DFA speedup multiplicative with compression ratio, or
+does it saturate? On very well-compressed data, decompression is already fast,
+so the DFA's advantage might shrink. On poorly compressed data, there are more
+codes to scan but also more escapes. Map out this tradeoff empirically.
 
-### 3.2 Symbol Table Quality Impact
+### 2.6 Interaction with Zone-Map Pruning
 
-**Goal**: Understand how FSST symbol table quality affects DFA performance.
+In the full Vortex pipeline, zone maps prune entire zones before the DFA runs.
+The DFA only scans zones that survive pruning. This means:
 
-| Variable                   | Values                                       |
-|----------------------------|----------------------------------------------|
-| Symbol table training size | 100, 1K, 10K, 100K rows                     |
-| Compression ratio achieved | Measure and correlate with DFA speedup       |
-| Escape byte frequency      | Low (<5%), medium (10-20%), high (>30%)      |
+- For **high-selectivity** queries (e.g., `url LIKE 'https://specific-domain%'`),
+  zone maps do most of the work and the DFA only scans a few zones
+- For **low-selectivity** queries (e.g., `text LIKE '%the%'`), zone maps can't
+  prune much and the DFA scans everything
 
-**Hypothesis**: Higher compression ratio → fewer codes per string → fewer DFA
-transitions → faster scan. High escape rates degrade performance due to
-sentinel branching.
+**Paper angle**: Show the combined benefit. Zone maps reduce the *volume* of
+data; the DFA reduces the *cost per byte* of scanning what remains.
 
-### 3.3 End-to-End Query Benchmarks
+### 2.7 What the DFA Avoids
 
-**Goal**: Measure impact on realistic analytical queries in the Vortex file reader.
+Beyond avoiding decompression, the DFA avoids:
+- **Memory allocation**: Decompression needs a buffer for the uncompressed
+  strings. The DFA scans in-place on the compressed codes buffer.
+- **Cache pollution**: Decompressed strings are typically 2-5x larger, evicting
+  other data from cache. The DFA works on the smaller compressed representation.
+- **Memcpy**: Even if decompression is fast, writing those bytes to a buffer
+  and then reading them back for matching costs bandwidth.
 
-**Queries** (on real/semi-real datasets):
-1. `SELECT count(*) FROM t WHERE url LIKE 'https://example.com%'` (prefix, high selectivity filter)
-2. `SELECT * FROM t WHERE message LIKE '%error%'` (contains on log data, low selectivity)
-3. `SELECT user_agent, count(*) FROM t WHERE user_agent LIKE '%Chrome%' GROUP BY user_agent` (contains + aggregation)
-4. `SELECT * FROM t WHERE path LIKE '/api/v2%' AND status > 400` (compound predicate with LIKE + numeric)
-
-**Datasets**:
-- **ClickBench** (hits table: URL, Title, SearchPhrase columns)
-- **GitHub Archive** event payloads
-- **Common Crawl** URL dataset
-- **Synthetic log data** (structured log lines with varying entropy)
-
-**Measurements**:
-- Wall-clock query time (with and without DFA pushdown)
-- Bytes read from storage (to show I/O reduction from zone pruning + DFA)
-- Decompression time saved
-
-### 3.4 Comparison with Alternative Approaches
-
-**Goal**: Position DFA pushdown against other string filtering strategies.
-
-| Approach                       | Description                                     |
-|--------------------------------|-------------------------------------------------|
-| **Baseline (decompress+match)**| FSST decompress → Arrow LIKE kernel             |
-| **DFA pushdown (this work)**   | Direct DFA scan on compressed codes             |
-| **Dictionary pushdown**        | Evaluate LIKE on dict values, map through codes  |
-| **Zone-map only**              | Prune zones using min/max string stats           |
-| **Uncompressed scan**          | No FSST at all, scan raw strings                 |
-
-Measure each on the same datasets. Dictionary pushdown is the closest
-competitor — it avoids per-row decompression but requires materialized
-dictionary. DFA pushdown works on FSST which doesn't have an explicit
-dictionary in the same way.
-
-### 3.5 Construction Cost Amortization
-
-**Goal**: Show that DFA construction is negligible relative to scan time.
-
-- Measure DFA construction time vs. number of rows scanned
-- Find break-even point (how many rows before construction cost is amortized)
-- Typical construction: O(pattern_len × 256) for symbol table, should be microseconds
-
-### 3.6 Scalability
-
-**Goal**: Show behavior at scale.
-
-- Vary number of rows: 1K, 10K, 100K, 1M, 10M, 100M
-- Measure throughput stability (should be constant GB/s)
-- Memory footprint of DFA (flat table = 256 × num_states bytes, always < 64KB)
+**Paper angle**: Measure cache miss rates and memory bandwidth usage, not just
+wall clock time. Use `perf stat` to show L1/L2/L3 cache misses and branch
+mispredictions.
 
 ---
 
-## 4. Datasets to Prepare
+## 3. Detailed Experiments
 
-| Dataset          | Source                        | String columns        | Approx size  |
-|------------------|-------------------------------|-----------------------|--------------|
-| ClickBench       | clickhouse.com/benchmark      | URL, Title, etc.      | ~75GB        |
-| GitHub Archive   | gharchive.org                 | repo name, event type | ~50GB/month  |
-| Common Crawl URLs| commoncrawl.org               | URL                   | Variable     |
-| Synthetic logs   | Generate with templates       | message, path, UA     | Configurable |
-| TPC-H            | Standard benchmark            | c_comment, o_comment  | Scale factor |
+### 3.1 Experiment A: Real-World Symbol Table Distributions
+
+**Motivation**: Understand what FSST symbol tables actually look like on real
+data, since this determines DFA performance characteristics.
+
+**Data sources** (use actual data, not synthetic combinations):
+- **ClickBench** `URL` column (~100M real web URLs from Yandex.Metrica)
+- **ClickBench** `Title` column (page titles, mixed languages)
+- **ClickBench** `SearchPhrase` column (real search queries, very diverse)
+- **FineWeb** `url` column (Common Crawl URLs)
+- **FineWeb** `text` column (web page content, English prose)
+- **TPC-H** `l_comment` column (synthetic but realistic business text)
+
+**Metrics per dataset**:
+- Number of active symbols (out of 255 max)
+- Symbol length distribution histogram (1-byte through 8-byte)
+- Mean symbol length (key predictor of DFA performance)
+- Escape rate (% of codes that are escape+literal pairs)
+- Code entropy (Shannon entropy of the code stream)
+- Effective alphabet size (2^entropy)
+- Symbol frequency skew (Gini coefficient or p50/p90/p99 coverage)
+- Compression ratio
+
+**Why this matters**: Reviewers will want to know if the DFA's assumptions hold
+on real data. Specifically: are escape rates low enough? Are symbol tables
+skewed enough that the DFA's cache behavior is good?
+
+### 3.2 Experiment B: DFA vs Decompress-then-Match Throughput
+
+**Motivation**: The core performance claim. Measure speedup across real datasets.
+
+**Method**: For each dataset, compress with FSST, then time:
+1. **DFA path**: Build DFA, scan compressed codes
+2. **Decompress path**: Decompress all strings, run Arrow LIKE kernel
+
+**Varying**:
+- Pattern type: `prefix%` vs `%needle%`
+- Pattern length: 4, 8, 16, 32, 64, 128 bytes
+- Selectivity: choose patterns that match ~0.01%, ~1%, ~10%, ~50% of rows
+
+**Use real patterns** on real data:
+- ClickBench URLs: `'https://www.google%'`, `'%yandex%'`, `'%utm_source=%'`
+- FineWeb URLs: `'https://en.wikipedia%'`, `'%github.com%'`
+- FineWeb text: `'%however%'`, `'%the%'`, `'%Artificial Intelligence%'`
+
+**Metrics**: GB/s of compressed data scanned, speedup ratio, ns per string.
+
+### 3.3 Experiment C: Escape Rate Sensitivity (Controlled Sweep)
+
+**Motivation**: Escape rate is the DFA's key weakness. Quantify the degradation.
+
+**Method**: Generate synthetic data with controlled escape rates by manipulating
+the FSST symbol table training process:
+1. Train on N rows, then compress N+M rows (the M extra rows introduce novel
+   byte patterns that become escapes)
+2. Alternatively: take a real dataset, corrupt K% of strings with random bytes
+   to force escapes
+3. Or: train symbol tables on progressively smaller subsets of the data
+
+**Sweep**: Escape rates from 0% to 50% in increments of 5%.
+
+**Metrics**: DFA throughput, decompress throughput, speedup ratio — all as a
+function of escape rate. Expect a roughly linear degradation in DFA throughput
+(each escape adds one branch + one table lookup).
+
+**Why continuous**: This gives us a clean curve, not just scattered bar charts.
+Lets us extrapolate to data regimes we haven't tested.
+
+### 3.4 Experiment D: Mean Symbol Length vs Throughput
+
+**Motivation**: Mean symbol length determines how many DFA transitions per
+string. Longer symbols → fewer transitions → faster scan.
+
+**Method**: Use the same sweep approach — train on subsets of varying size,
+or on data with different entropy levels. Measure mean symbol length and
+throughput simultaneously.
+
+**Plot**: Scatter of mean_sym_len (x) vs throughput_GB/s (y) for DFA and for
+decompress. Include real datasets as named points on the same plot.
+
+### 3.5 Experiment E: Pattern Length Scaling
+
+**Motivation**: DFA table size grows linearly with pattern length. Does this
+cause cache pressure for long patterns?
+
+**Method**: Fix a dataset (e.g., FineWeb text). Vary needle length from 1 to
+200 bytes using real substring extracts from the data.
+
+**Metrics**: DFA construction time (ns), scan throughput (GB/s).
+
+**Hypothesis**: Throughput should be roughly constant until the table exceeds
+L1 cache (~32KB), then degrade slightly. Construction time should be
+microseconds for all practical lengths.
+
+### 3.6 Experiment F: DFA Construction Cost
+
+**Motivation**: Show that one-time construction is cheap relative to scan.
+
+**Method**: Time DFA construction for various patterns and symbol tables.
+Compare against the scan time for 1K, 10K, 100K, 1M rows.
+
+**Expected result**: Construction is <10μs, scan of 10K rows is >100μs,
+so the construction cost is amortized after a few hundred rows.
+
+### 3.7 Experiment G: End-to-End File Scan with Zone Pruning
+
+**Motivation**: The DFA doesn't operate in isolation. Show the combined effect
+of zone-map pruning + DFA scan in the full Vortex file reader.
+
+**Method**: Write ClickBench/FineWeb data to Vortex files, then run LIKE
+queries through the full reader pipeline with instrumentation.
+
+**Queries**:
+```sql
+SELECT count(*) FROM clickbench WHERE URL LIKE 'https://www.google%'
+SELECT count(*) FROM clickbench WHERE URL LIKE '%yandex%'
+SELECT count(*) FROM fineweb WHERE url LIKE '%wikipedia%'
+SELECT count(*) FROM fineweb WHERE text LIKE '%machine learning%'
+```
+
+**Measure**: Total query time, zones pruned, zones scanned, bytes read, DFA
+scan time as a fraction of total.
+
+### 3.8 Experiment H: Comparison with DuckDB
+
+**Motivation**: DuckDB also uses FSST. Does it do LIKE pushdown on compressed
+data? If not, we can show the gap. If yes, we compare approaches.
+
+**Method**: Load the same ClickBench data in DuckDB. Run identical LIKE queries.
+Compare wall-clock times.
+
+**Note**: DuckDB may have other optimizations (SIMD, different scan strategy)
+that make this not an apples-to-apples comparison of the DFA technique alone.
+Frame carefully.
+
+### 3.9 Experiment I: perf counters (Micro-architectural Analysis)
+
+**Motivation**: Explain *why* the DFA is fast, not just *that* it's fast.
+
+**Method**: Run the DFA scan and decompress-then-match under `perf stat`.
+Compare:
+- L1/L2/L3 cache misses
+- Branch mispredictions
+- Instructions per cycle (IPC)
+- Memory bandwidth consumed
+
+**Expected**: DFA has dramatically fewer cache misses (working set is the
+transition table + compressed codes, both small) and fewer branch mispredictions
+(the hot path is branchless for non-escape codes).
 
 ---
 
-## 5. Key Figures to Produce
+## 4. Datasets
 
-1. **Bar chart**: Speedup of DFA pushdown vs. decompress-then-match, grouped by pattern type and dataset
-2. **Line chart**: Throughput (GB/s) vs. pattern length
-3. **Line chart**: Throughput vs. escape byte frequency
-4. **Stacked bar**: Query time breakdown (I/O, decompression, matching, other) with and without DFA pushdown
-5. **Table**: End-to-end query times on ClickBench queries
-6. **Scatter plot**: Compression ratio vs. DFA speedup (to show correlation)
-7. **Bar chart**: DFA construction time vs. scan time for various row counts
+| Dataset | Source | String columns | Why include |
+|---------|--------|----------------|-------------|
+| ClickBench `hits_0` | R2 bucket (112MB partition) | URL, Title, SearchPhrase, Referer | Real web traffic data, diverse URLs |
+| FineWeb sample | HuggingFace (parquet) | url, text | Real web crawl, long English prose |
+| TPC-H `lineitem` | dbgen SF=1 | l_comment | Standard benchmark, predictable |
+
+For controlled experiments (C, D), use **FineWeb text** as the base and
+perturb it rather than generating from scratch.
 
 ---
 
-## 6. What We Need to Build/Prepare
+## 5. Key Figures
 
-### Code
-- [x] Core DFA implementation (done)
-- [x] LikeKernel integration (done)
-- [x] Fuzzer for correctness validation (done)
-- [ ] Benchmark harness for micro-benchmarks (partially done in `encodings/fsst/benches/fsst_like.rs`)
-- [ ] End-to-end query benchmark scripts
-- [ ] Comparison benchmark with dictionary pushdown disabled/enabled
-- [ ] Benchmark with varying escape byte frequencies (synthetic symbol tables)
-- [ ] DFA construction time measurement
+1. **Summary table**: Symbol table characteristics across all real datasets
+2. **Bar chart**: DFA speedup vs decompress-then-match, per dataset and pattern type
+3. **Line chart**: DFA throughput (GB/s) vs escape rate (0-50%), smooth curve
+4. **Line chart**: DFA throughput vs mean symbol length, with real datasets overlaid
+5. **Line chart**: DFA throughput vs pattern length (1-200 bytes)
+6. **Stacked bar**: End-to-end query time breakdown (zone prune + DFA scan + other)
+7. **Table**: DFA construction time vs scan time at various row counts
+8. **perf counters table**: Cache misses, branch mispredicts, IPC for DFA vs decompress
 
-### Data
-- [ ] Download/prepare ClickBench dataset in Vortex format
-- [ ] Generate synthetic log datasets with controlled characteristics
-- [ ] Prepare Common Crawl URL sample
+---
 
-### Writing
-- [ ] Draft introduction and motivation
-- [ ] Technical section with algorithm description and diagrams
-- [ ] DFA transition table diagram (visual)
-- [ ] Experimental results and analysis
-- [ ] Related work survey
+## 6. Paper Outline (6-8 pages, double column)
+
+| Section | Pages | Content |
+|---------|-------|---------|
+| 1. Introduction | 1 | Motivation, FSST everywhere, LIKE is a bottleneck |
+| 2. Background | 0.75 | FSST encoding, LIKE semantics, KMP |
+| 3. DFA Construction | 1.5 | Four stages, worked example, escape handling, correctness |
+| 4. Integration | 0.5 | Vortex pushdown framework, zone-map composition |
+| 5. Evaluation | 2.5 | Experiments A-I, tables, figures |
+| 6. Related Work | 0.5 | FSST, compressed matching, dictionary pushdown |
+| 7. Conclusion | 0.25 | Summary, future work |
 
 ---
 
 ## 7. Target Venues
 
-- **VLDB Workshop** (e.g., ADMS - Accelerating Analytics and Data Management Systems)
-- **SIGMOD Workshop** (e.g., DAMON - Data Management on New Hardware)
-- **CIDR** (industry track, if expanded with more Vortex integration story)
-- **DaMoN** (standalone workshop at SIGMOD)
+- **DaMoN** (Data Management on New Hardware) @ SIGMOD — perfect fit, micro-architectural angle
+- **ADMS** (Accelerating Analytics) @ VLDB — good fit, systems focus
+- **CIDR** — if we expand to full Vortex pushdown story
+- **DBTest** — if we emphasize the fuzzing/correctness angle
 
 ---
 
-## 8. Timeline Estimate
+## 8. Open Questions
 
-| Phase                    | Tasks                                          |
-|--------------------------|-------------------------------------------------|
-| **Phase 1: Benchmarks**  | Build harness, run micro + e2e benchmarks       |
-| **Phase 2: Analysis**    | Analyze results, identify story                 |
-| **Phase 3: Writing**     | Draft paper, produce figures                    |
-| **Phase 4: Polish**      | Internal review, revise, submit                 |
-
----
-
-## 9. Open Questions
-
-1. Should we include Parquet LIKE performance as a baseline? (It doesn't have FSST, so it's apples-to-oranges, but readers may expect it)
-2. Do we want to benchmark against DuckDB's FSST LIKE handling (if any)?
-3. Should the paper scope include the broader Vortex pushdown framework, or focus narrowly on the DFA technique?
-4. Is there a compelling real-world query workload we can cite from production use?
+1. Should we compare against Parquet? (No FSST, but readers may expect it)
+2. Does DuckDB push LIKE into FSST? Need to check.
+3. Can we get access to a production ClickBench-scale dataset (100M rows)?
+4. Do we want to show the escape-folded DFA variant mentioned in the TODOs?
