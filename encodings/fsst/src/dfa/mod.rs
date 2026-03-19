@@ -191,7 +191,6 @@ impl FsstMatcher {
     }
 
     /// Run the matcher on a single FSST-compressed code sequence.
-    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         match &self.inner {
             MatcherInner::MatchAll => true,
@@ -233,7 +232,6 @@ impl<'a> LikeKind<'a> {
 // ---------------------------------------------------------------------------
 
 // TODO: add N-way ILP overrun scan for higher throughput on short strings.
-#[inline]
 pub(crate) fn dfa_scan_to_bitbuf<T, F>(
     n: usize,
     offsets: &[T],
