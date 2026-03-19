@@ -1,14 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
+use rstest::rstest;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::assert_arrays_eq;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::session::ArraySession;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::FsstMatcher;
 use super::LikeKind;
 use super::flat_contains::FlatContainsDfa;
 use super::prefix::FlatPrefixDfa;
+use crate::FSSTArray;
+use crate::fsst_compress;
+use crate::fsst_train_compressor;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 /// Helper: make a Symbol from a byte string (up to 8 bytes, zero-padded).
 fn sym(bytes: &[u8]) -> Symbol {
@@ -181,4 +203,77 @@ fn test_contains_pushdown_rejects_len_255() {
     let needle = "a".repeat(FlatContainsDfa::MAX_NEEDLE_LEN + 1);
     let pattern = format!("%{needle}%");
     assert!(FsstMatcher::try_new(&[], &[], &pattern).unwrap().is_none());
+}
+
+// ---------------------------------------------------------------------------
+// End-to-end edge cases: FSST compress → LIKE → compare booleans
+// ---------------------------------------------------------------------------
+
+fn make_fsst(strings: &[Option<&str>]) -> FSSTArray {
+    let varbin = VarBinArray::from_iter(
+        strings.iter().copied(),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let compressor = fsst_train_compressor(&varbin);
+    fsst_compress(varbin, &compressor)
+}
+
+fn run_like(array: FSSTArray, pattern: &str) -> VortexResult<BoolArray> {
+    use vortex_array::ArrayRef;
+    use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+
+    let len = array.len();
+    let arr: ArrayRef = array.into_array();
+    let pattern_arr = ConstantArray::new(pattern, len).into_array();
+    let result = Like
+        .try_new_array(len, LikeOptions::default(), [arr, pattern_arr])?
+        .into_array()
+        .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
+    Ok(result.into_bool())
+}
+
+#[rstest]
+// Empty strings
+#[case(&[""], "aaaa%", &[false])]
+#[case(&[""], "%aaaa%", &[false])]
+#[case(&[""], "%", &[true])]
+#[case(&["", "", ""], "%", &[true, true, true])]
+// Single-char patterns
+#[case(&["a", "b", ""], "a%", &[true, false, false])]
+#[case(&["a", "b", ""], "%a%", &[true, false, false])]
+// Needle longer than every input string
+#[case(&["ab", "abc", ""], "%abcd%", &[false, false, false])]
+#[case(&["ab", "abc", ""], "abcd%", &[false, false, false])]
+// Exact match (prefix pattern = entire string + %)
+#[case(&["abc", "abcd", "ab"], "abc%", &[true, true, false])]
+#[case(&["abc", "abcd", "ab"], "%abc%", &[true, true, false])]
+// Repeated characters — KMP overlap
+#[case(&["aa", "aaa", "aaaa", "aba"], "%aaa%", &[false, true, true, false])]
+#[case(&["aab", "aaab", "a"], "aaa%", &[false, true, false])]
+// Needle at different positions
+#[case(&["xxabcyy", "abcyy", "xxabc", "abc", "xabx"], "%abc%", &[true, true, true, true, false])]
+// All identical strings
+#[case(&["aaa", "aaa", "aaa"], "%aaa%", &[true, true, true])]
+#[case(&["aaa", "aaa", "aaa"], "bbb%", &[false, false, false])]
+// Single element arrays
+#[case(&["hello"], "hello%", &[true])]
+#[case(&["hello"], "hellx%", &[false])]
+#[case(&["hello"], "%ello%", &[true])]
+#[case(&["hello"], "%ellx%", &[false])]
+// Overlapping KMP pattern "abab"
+#[case(&["ababab", "abab", "aba", "xababx"], "%abab%", &[true, true, false, true])]
+// Prefix that shares chars with rest of string
+#[case(&["abab", "abba", "abcd"], "ab%", &[true, true, true])]
+#[case(&["abab", "abba", "abcd", "ba"], "ab%", &[true, true, true, false])]
+fn test_like_edge_cases(
+    #[case] strings: &[&str],
+    #[case] pattern: &str,
+    #[case] expected: &[bool],
+) -> VortexResult<()> {
+    let opts: Vec<Option<&str>> = strings.iter().map(|s| Some(*s)).collect();
+    let fsst = make_fsst(&opts);
+    let result = run_like(fsst, pattern)?;
+    let expected_arr = BoolArray::from_iter(expected.iter().copied());
+    assert_arrays_eq!(&result, &expected_arr);
+    Ok(())
 }

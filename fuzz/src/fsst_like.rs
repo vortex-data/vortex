@@ -133,10 +133,15 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
         let expected_val = expected_bits.value(idx);
         let actual_val = actual_bits.value(idx);
         if expected_val != actual_val {
-            return Err(VortexFuzzError::ScalarMismatch(
-                expected_val.into(),
-                actual_val.into(),
-                idx,
+            return Err(VortexFuzzError::VortexError(
+                vortex_error::vortex_err!(
+                    "FSST LIKE mismatch at index {idx}:\n  \
+                     pattern:  {pattern:?}\n  \
+                     string:   {:?}\n  \
+                     expected: {expected_val}\n  \
+                     actual:   {actual_val}",
+                    &strings[idx],
+                ),
                 Backtrace::capture(),
             ));
         }

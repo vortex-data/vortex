@@ -225,7 +225,7 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
-        let values_eval = self.values_eval(root());
+        let values_eval = self.values_array();
         let codes_eval = self
             .codes
             .projection_evaluation(row_range, &root(), mask)

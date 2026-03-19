@@ -170,7 +170,7 @@ impl FsstMatcher {
         };
 
         let inner = match like_kind {
-            LikeKind::Prefix("") => MatcherInner::MatchAll,
+            LikeKind::Prefix("") | LikeKind::Contains("") => MatcherInner::MatchAll,
             LikeKind::Prefix(prefix) => {
                 let prefix = prefix.as_bytes();
                 if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
