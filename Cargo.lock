@@ -755,12 +755,6 @@ dependencies = [
 
 [[package]]
 name = "bit-vec"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
-
-[[package]]
-name = "bit-vec"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51"
@@ -5990,6 +5984,7 @@ dependencies = [
 [[package]]
 name = "noodles-bgzf"
 version = "0.46.0"
+<<<<<<< HEAD
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37290f565045fd2775b549e62dffca7e1afadc70d8d5a3a2ef19609eb3d8193b"
 dependencies = [
@@ -6005,34 +6000,62 @@ dependencies = [
 [[package]]
 name = "noodles-core"
 version = "0.18.0"
+=======
+>>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ebfc6396fb51059c98a35bb81b96422ac41ea1bc60b6c8e9c6b2550212e9493"
+checksum = "37290f565045fd2775b549e62dffca7e1afadc70d8d5a3a2ef19609eb3d8193b"
+dependencies = [
+ "bytes",
+ "crossbeam-channel",
+ "flate2",
+ "futures",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "noodles-core"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53e1e8a419dbba0e4000b0e60830b124138c7f2277ad556463506f1a81d32d17"
 dependencies = [
  "bstr",
 ]
 
 [[package]]
 name = "noodles-csi"
-version = "0.52.0"
+version = "0.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d09e31153abd7996f22a50d70f43af6c2ebf96a44ee250326ed15d4e183744c9"
+checksum = "c9c846d8128bd80b18d891b13cb9e0bc1d364429d6ab3ec3c83939f3d32ba105"
 dependencies = [
- "bit-vec 0.8.0",
+ "bit-vec",
  "bstr",
+ "futures",
  "indexmap",
+<<<<<<< HEAD
  "noodles-bgzf 0.44.0",
+=======
+ "noodles-bgzf 0.46.0",
+>>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
  "noodles-core",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
 name = "noodles-tabix"
-version = "0.58.0"
+version = "0.61.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dd8ed06bbf341ce64649717ce0fa1723bf60547eb7d61bd271b79130016dfa4"
+checksum = "2443d0852c9618cd4aa8d11bc7c1884285e46aa4466cf5c1e49f3d9756ca7ced"
 dependencies = [
  "bstr",
  "indexmap",
+<<<<<<< HEAD
  "noodles-bgzf 0.44.0",
+=======
+ "noodles-bgzf 0.46.0",
+>>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -6040,14 +6063,18 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.82.0"
+version = "0.86.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d46b26eb1873883e5e6b738c75d4e44c9e1edcc1c6454fc5c25b56202e510bc"
+checksum = "0131147080a5aeadcd6c2ab43e7ca1f9e8018cdd482eed797d081c40e8f0a3c7"
 dependencies = [
  "futures",
  "indexmap",
  "memchr",
+<<<<<<< HEAD
  "noodles-bgzf 0.44.0",
+=======
+ "noodles-bgzf 0.46.0",
+>>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
@@ -9826,7 +9853,11 @@ dependencies = [
  "indicatif",
  "itertools 0.14.0",
  "mimalloc",
+<<<<<<< HEAD
  "noodles-bgzf 0.46.0",
+=======
+ "noodles-bgzf 0.44.0",
+>>>>>>> ddf8d96ac (chore(deps): update rust crate noodles-vcf to 0.86.0)
  "noodles-vcf",
  "parking_lot",
  "parquet",
@@ -10457,7 +10488,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "async-trait",
- "bit-vec 0.9.1",
+ "bit-vec",
  "futures",
  "itertools 0.14.0",
  "parking_lot",
