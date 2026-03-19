@@ -280,5 +280,8 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
+        DType::Variant(_) => {
+            unimplemented!()
+        }
     }
 }

@@ -1597,7 +1597,7 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 }
 
 #[tokio::test]
-async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
+async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     // Write file with MILLISECONDS timestamps
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
@@ -1621,6 +1621,62 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
         )),
     );
 
+    let mut stream = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .with_filter(filter_expr)
+        .into_array_stream()?;
+
+    let result = stream.try_next().await;
+
+    assert!(result.is_err());
+
+    Ok(())
+}
+
+/// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
+/// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
+///
+/// This test forces `ConstantArray` encoding for the seconds/subseconds children by using a
+/// compressor with Dict excluded (which triggers distinct-value computation, letting
+/// `ConstantScheme` win for `[0, 0, 0]`). The scanner should still detect the time unit
+/// mismatch and error, not silently return wrong results.
+#[tokio::test]
+async fn timestamp_unit_mismatch_errors_with_constant_children()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Build a compressor where ConstantScheme wins for [0, 0, 0] by including Dict
+    // (which enables distinct-value computation).
+    let compressor = vortex_btrblocks::BtrBlocksCompressor::default();
+
+    // Write file with MILLISECONDS timestamps using this compressor.
+    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
+        .into_array();
+    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
+
+    let strategy = crate::strategy::WriteStrategyBuilder::default()
+        .with_compressor(compressor)
+        .build();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, temporal.into_array().to_array_stream())
+        .await?;
+
+    // Read with SECONDS filter scalar — should error due to time unit mismatch.
+    let filter_expr = gt(
+        root(),
+        lit(Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: None,
+            },
+            Scalar::from(1704153600i64),
+        )),
+    );
+
     let stream = SESSION
         .open_options()
         .open_buffer(buf)?
@@ -1630,7 +1686,13 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
 
     let results = stream.try_collect::<Vec<_>>().await;
 
-    assert!(results.is_err());
+    assert!(
+        results.is_err(),
+        "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
+         This indicates the scanner silently applied the filter incorrectly when \
+         DateTimePartsArray children use ConstantArray encoding.",
+        results.unwrap().len()
+    );
 
     Ok(())
 }

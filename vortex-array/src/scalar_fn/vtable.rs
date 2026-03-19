@@ -93,6 +93,15 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     }
 
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
+    ///
+    /// # Preconditions
+    ///
+    /// The length of `args` must match the [`Arity`] of this function. Callers are responsible
+    /// for validating this (e.g., [`Expression::try_new`] checks arity at construction time).
+    /// Implementations may assume correct arity and will panic or return nonsensical results if
+    /// violated.
+    ///
+    /// [`Expression::try_new`]: crate::expr::Expression::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Execute the expression over the input arguments.
@@ -218,12 +227,25 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         true
     }
 
-    /// Returns whether this expression itself is fallible. Conservatively default to *true*.
+    /// Returns whether this expression is semantically fallible. Conservatively defaults to
+    /// `true`.
     ///
-    /// An expression is runtime fallible is there is an input set that causes the expression to
-    /// panic or return an error, for example checked_add is fallible if there is overflow.
+    /// An expression is semantically fallible if there exists a set of well-typed inputs that
+    /// causes the expression to produce an error as part of its _defined behavior_. For example,
+    /// `checked_add` is fallible because integer overflow is a domain error, and division is
+    /// fallible because of division by zero.
     ///
-    /// Note: this is only applicable to expressions that pass type-checking
+    /// This does **not** include execution errors that are incidental to the implementation, such
+    /// as canonicalization failures, memory allocation errors, or encoding mismatches. Those can
+    /// happen to any expression and are not what this method captures.
+    ///
+    /// This property is used by optimizations that speculatively evaluate an expression over values
+    /// that may not appear in the actual input. For example, pushing a scalar function down to a
+    /// dictionary's values array is only safe when the function is infallible or all values are
+    /// referenced, since a fallible function might error on a value left unreferenced after
+    /// slicing that would never be encountered during normal evaluation.
+    ///
+    /// Note: this is only applicable to expressions that pass type-checking via
     /// [`ScalarFnVTable::return_dtype`].
     fn is_fallible(&self, options: &Self::Options) -> bool {
         _ = options;

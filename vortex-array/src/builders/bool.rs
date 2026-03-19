@@ -143,7 +143,7 @@ impl ArrayBuilder for BoolBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
+    use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_error::VortexResult;

@@ -6,7 +6,7 @@ mod cast;
 mod compare;
 mod filter;
 mod mask;
-mod nan_count;
+pub(crate) mod nan_count;
 mod slice;
 mod take;
 

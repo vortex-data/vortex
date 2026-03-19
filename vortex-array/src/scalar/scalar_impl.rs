@@ -190,6 +190,7 @@ impl Scalar {
             DType::FixedSizeList(_, list_size, _) => value.as_list().len() == *list_size as usize,
             DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
             DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
+            DType::Variant(_) => self.as_variant().is_zero()?,
         };
 
         Some(is_zero)
@@ -257,12 +258,17 @@ impl Scalar {
                 .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
                 .unwrap_or_default(),
             DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
+            DType::Variant(_) => self.as_variant().value().map_or(0, Scalar::approx_nbytes),
         }
     }
 }
 
 /// We implement `PartialEq` manually because we want to ignore nullability when comparing scalars.
 /// Two scalars with the same value but different nullability should be considered equal.
+///
+/// Note that this has **different** behavior than the [`PartialOrd`] implementation since the
+/// [`PartialOrd`] returns `None` if the types are different, whereas this `PartialEq`
+/// implementation simply returns `false`.
 impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
         self.dtype.eq_ignore_nullability(&other.dtype) && self.value == other.value

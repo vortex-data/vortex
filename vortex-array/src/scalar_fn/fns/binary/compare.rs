@@ -9,6 +9,7 @@ use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -131,7 +132,7 @@ pub(crate) fn execute_compare(
     // Constant-constant fast path
     if let (Some(lhs_const), Some(rhs_const)) = (lhs.as_opt::<Constant>(), rhs.as_opt::<Constant>())
     {
-        let result = scalar_cmp(lhs_const.scalar(), rhs_const.scalar(), op);
+        let result = scalar_cmp(lhs_const.scalar(), rhs_const.scalar(), op)?;
         return Ok(ConstantArray::new(result, lhs.len()).into_array());
     }
 
@@ -150,7 +151,7 @@ fn arrow_compare_arrays(
 
     // Arrow's vectorized comparison kernels don't support nested types.
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
-    let array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
+    let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
         let rhs = right.to_array().into_arrow_preferred()?;
         let lhs = left.to_array().into_arrow(rhs.data_type())?;
 
@@ -176,24 +177,36 @@ fn arrow_compare_arrays(
             CompareOperator::Lte => cmp::lt_eq(&lhs, &rhs)?,
         }
     };
-    from_arrow_array_with_len(&array, left.len(), nullable)
+
+    from_arrow_array_with_len(&arrow_array, left.len(), nullable)
 }
 
-pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Scalar {
+pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> VortexResult<Scalar> {
     if lhs.is_null() | rhs.is_null() {
-        Scalar::null(DType::Bool(Nullability::Nullable))
-    } else {
-        let b = match operator {
-            CompareOperator::Eq => lhs == rhs,
-            CompareOperator::NotEq => lhs != rhs,
-            CompareOperator::Gt => lhs > rhs,
-            CompareOperator::Gte => lhs >= rhs,
-            CompareOperator::Lt => lhs < rhs,
-            CompareOperator::Lte => lhs <= rhs,
-        };
-
-        Scalar::bool(b, lhs.dtype().nullability() | rhs.dtype().nullability())
+        return Ok(Scalar::null(DType::Bool(Nullability::Nullable)));
     }
+
+    let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
+
+    // We use `partial_cmp` to ensure we do not lose a type mismatch error.
+    let ordering = lhs.partial_cmp(rhs).ok_or_else(|| {
+        vortex_err!(
+            "Cannot compare scalars with incompatible types: {} and {}",
+            lhs.dtype(),
+            rhs.dtype()
+        )
+    })?;
+
+    let b = match operator {
+        CompareOperator::Eq => ordering.is_eq(),
+        CompareOperator::NotEq => ordering.is_ne(),
+        CompareOperator::Gt => ordering.is_gt(),
+        CompareOperator::Gte => ordering.is_ge(),
+        CompareOperator::Lt => ordering.is_lt(),
+        CompareOperator::Lte => ordering.is_le(),
+    };
+
+    Ok(Scalar::bool(b, nullability))
 }
 
 /// Compare two Arrow arrays element-wise using [`make_comparator`].
@@ -251,8 +264,13 @@ mod tests {
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::extension::datetime::TimestampOptions;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::binary::compare::ConstantArray;
+    use crate::scalar_fn::fns::binary::scalar_cmp;
+    use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
@@ -477,6 +495,35 @@ mod tests {
             .unwrap();
         let expected = BoolArray::from_iter([true, true, true, true, true]);
         assert_arrays_eq!(result, expected);
+    }
+
+    /// Regression test: `scalar_cmp` must error when comparing scalars with incompatible
+    /// extension types (e.g., timestamps with different time units) rather than silently
+    /// returning a wrong result.
+    #[test]
+    fn scalar_cmp_incompatible_extension_types_errors() {
+        let ms_scalar = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            Scalar::from(1704067200000i64),
+        );
+        let s_scalar = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: None,
+            },
+            Scalar::from(1704067200i64),
+        );
+
+        // Ordering comparisons must error on incompatible types.
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Gt).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Lt).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Gte).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Lte).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::Eq).is_err());
+        assert!(scalar_cmp(&ms_scalar, &s_scalar, CompareOperator::NotEq).is_err());
     }
 
     #[test]

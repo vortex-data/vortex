@@ -101,6 +101,9 @@ pub enum DType {
     ///
     /// See [`ExtDTypeRef`] for more information.
     Extension(ExtDTypeRef),
+
+    /// Variant type.
+    Variant(Nullability),
 }
 
 pub use bigint::*;

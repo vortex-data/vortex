@@ -207,7 +207,6 @@ impl RLEArray {
         self.offset
     }
 
-    #[inline]
     pub(crate) fn stats_set(&self) -> &ArrayStats {
         &self.stats_set
     }

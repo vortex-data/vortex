@@ -118,22 +118,35 @@ fn build_run_array<R: RunEndIndexType>(
 where
     R::Native: std::ops::Sub<Output = R::Native> + Ord,
 {
-    if offset == 0 {
-        return Ok(
-            Arc::new(RunArray::<R>::try_new(ends.as_primitive::<R>(), values)?) as ArrowArrayRef,
-        );
-    }
-
     let offset_native = R::Native::from_usize(offset)
         .ok_or_else(|| vortex_err!("Offset {offset} exceeds run-end index capacity"))?;
     let length_native = R::Native::from_usize(length)
         .ok_or_else(|| vortex_err!("Length {length} exceeds run-end index capacity"))?;
 
-    let adjusted = ends
+    let ends_prim = ends.as_primitive::<R>();
+    if offset == 0 && ends_prim.values().last() == Some(&length_native) {
+        // Fast path: no trimming or adjustment needed.
+        return Ok(Arc::new(RunArray::<R>::try_new(ends_prim, values)?) as ArrowArrayRef);
+    }
+
+    // Trim to only include runs covering the [offset, offset+length) range.
+    // Runs beyond this would produce duplicate adjusted ends, violating
+    // Arrow's strict-ordering requirement for RunArray.
+    // Run ends are strictly increasing, so we can binary search.
+    let num_runs = (ends_prim
+        .values()
+        .partition_point(|&e| e - offset_native < length_native)
+        + 1)
+    .min(ends_prim.len());
+
+    let trimmed_ends = ends.slice(0, num_runs);
+    let trimmed_values = values.slice(0, num_runs);
+
+    let adjusted = trimmed_ends
         .as_primitive::<R>()
         .unary(|end| (end - offset_native).min(length_native));
 
-    Ok(Arc::new(RunArray::<R>::try_new(&adjusted, values)?) as ArrowArrayRef)
+    Ok(Arc::new(RunArray::<R>::try_new(&adjusted, &trimmed_values)?) as ArrowArrayRef)
 }
 
 /// Convert a constant array to a run-end encoded array with a single run.
@@ -273,6 +286,36 @@ mod tests {
             &Int32Array::from(vec![10, 20]),
         )?;
         assert_eq!(result.as_ref(), &expected);
+        Ok(())
+    }
+
+    /// Regression: build_run_array must trim excess trailing runs and
+    /// respect the `length` parameter. This happens when a vortex
+    /// RunEndArray is sliced to fewer rows than the physical run_ends cover.
+    #[rstest]
+    #[case::offset_zero(0, 5, &[3, 5], &[100, 200])]
+    #[case::nonzero_offset(2, 3, &[1, 3], &[100, 200])]
+    #[case::all_runs_needed_but_last_exceeds(0, 8, &[3, 5, 8], &[100, 200, 300])]
+    fn build_run_array_trims_excess_runs(
+        #[case] offset: usize,
+        #[case] length: usize,
+        #[case] expected_ends: &[i32],
+        #[case] expected_values: &[i64],
+    ) -> VortexResult<()> {
+        // 3 runs covering 10 rows: [0..3), [3..5), [5..10)
+        let ends: arrow_array::ArrayRef = Arc::new(Int32Array::from(vec![3i32, 5, 10]));
+        let values: arrow_array::ArrayRef = Arc::new(Int64Array::from(vec![100i64, 200, 300]));
+
+        let result = super::build_run_array::<Int32Type>(&ends, &values, offset, length)?;
+        assert_eq!(result.len(), length);
+
+        let ree = result
+            .as_any()
+            .downcast_ref::<RunArray<Int32Type>>()
+            .unwrap();
+        assert_eq!(ree.run_ends().values(), expected_ends);
+        let values = ree.values().as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(values.values(), expected_values);
         Ok(())
     }
 }

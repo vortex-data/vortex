@@ -8,7 +8,9 @@ use futures::StreamExt;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical as _;
+use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
@@ -108,6 +110,7 @@ impl FileStatsAccumulator {
     }
 
     pub fn stats_sets(&self) -> Vec<StatsSet> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.accumulators
             .lock()
             .iter_mut()
@@ -116,7 +119,7 @@ impl FileStatsAccumulator {
                     .vortex_expect("as_stats_table should not fail")
                     .map(|table| {
                         table
-                            .to_stats_set(&self.stats)
+                            .to_stats_set(&self.stats, &mut ctx)
                             .vortex_expect("shouldn't fail to convert table we just created")
                     })
                     .unwrap_or_default()

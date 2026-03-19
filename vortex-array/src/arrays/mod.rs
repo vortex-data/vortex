@@ -94,5 +94,9 @@ pub mod varbinview;
 pub use varbinview::VarBinView;
 pub use varbinview::VarBinViewArray;
 
+pub mod variant;
+pub use variant::Variant;
+pub use variant::VariantArray;
+
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;

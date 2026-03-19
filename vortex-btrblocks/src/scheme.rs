@@ -1,7 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compression scheme traits.
+//! Compression scheme traits. This is the interface each encoding implements to participate in
+//! compression.
+//!
+//! [`Scheme`] is the core trait. Each encoding (e.g. BitPacking, ALP, Dict) implements it with
+//! two key methods: [`Scheme::expected_compression_ratio`] to estimate how well it compresses
+//! the data, and [`Scheme::compress`] to apply the encoding. Type-specific sub-traits
+//! ([`IntegerScheme`], [`FloatScheme`], [`StringScheme`]) bind schemes to the appropriate stats
+//! and code types.
+//!
+//! [`SchemeExt`] provides the default ratio estimation strategy. It samples ~1% of the array
+//! (minimum [`SAMPLE_SIZE`] values), compresses the sample, and returns the before/after byte
+//! ratio. Schemes can override [`Scheme::expected_compression_ratio`] if they have a cheaper
+//! heuristic.
+//!
+//! [`IntegerScheme`]: crate::compressor::integer::IntegerScheme
+//! [`FloatScheme`]: crate::compressor::float::FloatScheme
+//! [`StringScheme`]: crate::compressor::string::StringScheme
+//! [`SAMPLE_SIZE`]: crate::stats::SAMPLE_SIZE
 
 use std::fmt::Debug;
 use std::hash::Hash;

@@ -63,7 +63,8 @@ impl DType {
             | Binary(null)
             | Struct(_, null)
             | List(_, null)
-            | FixedSizeList(_, _, null) => matches!(null, Nullability::Nullable),
+            | FixedSizeList(_, _, null)
+            | Variant(null) => matches!(null, Nullability::Nullable),
         }
     }
 
@@ -90,6 +91,7 @@ impl DType {
             List(edt, _) => List(edt.clone(), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(edt.clone(), *size, nullability),
             Extension(ext) => Extension(ext.with_nullability(nullability)),
+            Variant(_) => Variant(nullability),
         }
     }
 
@@ -122,6 +124,7 @@ impl DType {
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
             }
+            (Variant(_), Variant(_)) => true,
             _ => false,
         }
     }
@@ -246,11 +249,16 @@ impl DType {
         matches!(self, Extension(_))
     }
 
+    /// Check if `self` is a [`DType::Variant`] type
+    pub fn is_variant(&self) -> bool {
+        matches!(self, Variant(_))
+    }
+
     /// Check if `self` is a nested type, i.e. list, fixed size list, struct, or extension of a
     /// recursive type.
     pub fn is_nested(&self) -> bool {
         match self {
-            List(..) | FixedSizeList(..) | Struct(..) => true,
+            List(..) | FixedSizeList(..) | Struct(..) | Variant(..) => true,
             Extension(ext) => ext.storage_dtype().is_nested(),
             _ => false,
         }
@@ -284,6 +292,7 @@ impl DType {
                 Some(sum)
             }
             Extension(ext) => ext.storage_dtype().element_size(),
+            Variant(_) => None,
         }
     }
 
@@ -459,6 +468,7 @@ impl Display for DType {
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Extension(ext) => write!(f, "{}", ext),
+            Variant(null) => write!(f, "variant{null}"),
         }
     }
 }

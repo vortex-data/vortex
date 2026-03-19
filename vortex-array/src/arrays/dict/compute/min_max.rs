@@ -2,73 +2,92 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
-use super::Dict;
-use super::DictArray;
-use crate::DynArray as _;
-use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::builtins::ArrayBuiltins;
-use crate::compute::MinMaxKernel;
-use crate::compute::MinMaxKernelAdapter;
-use crate::compute::MinMaxResult;
-use crate::compute::min_max;
-use crate::register_kernel;
-use crate::validity::Validity;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
+use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::Dict;
+use crate::scalar::Scalar;
 
-impl MinMaxKernel for Dict {
-    fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
-        let codes_validity = array.codes().validity_mask()?;
-        if codes_validity.all_false() {
+/// Dict-specific min/max kernel.
+///
+/// When all dictionary values are referenced, min/max can be computed directly on the values
+/// array. Otherwise, unreferenced values are filtered out first.
+#[derive(Debug)]
+pub(crate) struct DictMinMaxKernel;
+
+impl DynAggregateKernel for DictMinMaxKernel {
+    fn aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<MinMax>() {
             return Ok(None);
         }
 
-        // Fast path: if all values are referenced, directly compute min/max on values
-        if array.has_all_values_referenced() {
-            return min_max(array.values());
+        let Some(dict) = batch.as_opt::<Dict>() else {
+            return Ok(None);
+        };
+
+        let struct_dtype = make_minmax_dtype(batch.dtype());
+
+        let result = if dict.has_all_values_referenced() {
+            // All values are referenced, compute min/max directly on the values array.
+            min_max(dict.values(), ctx)?
+        } else {
+            // Filter to only referenced values, then compute min/max.
+            let referenced_mask = dict.compute_referenced_values_mask(true)?;
+            let mask = Mask::from(referenced_mask);
+            let filtered_values = dict.values().filter(mask)?;
+            min_max(&filtered_values, ctx)?
+        };
+
+        match result {
+            Some(r) => Ok(Some(Scalar::struct_(struct_dtype, vec![r.min, r.max]))),
+            None => Ok(Some(Scalar::null(struct_dtype))),
         }
-
-        // Slow path: compute which values are unreferenced and mask them out
-        let unreferenced_mask = BoolArray::new(
-            array.compute_referenced_values_mask(true)?,
-            Validity::NonNullable,
-        )
-        .into_array();
-
-        min_max(&array.values().clone().mask(unreferenced_mask)?)
     }
 }
-
-register_kernel!(MinMaxKernelAdapter(Dict).lift());
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
-    use super::DictArray;
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::min_max::min_max;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::builders::dict::dict_encode;
-    use crate::compute::min_max;
 
-    fn assert_min_max(array: &ArrayRef, expected: Option<(i32, i32)>) {
-        match (min_max(array).unwrap(), expected) {
+    fn assert_min_max(array: &ArrayRef, expected: Option<(i32, i32)>) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        match (min_max(array, &mut ctx)?, expected) {
             (Some(result), Some((expected_min, expected_max))) => {
-                assert_eq!(i32::try_from(&result.min).unwrap(), expected_min);
-                assert_eq!(i32::try_from(&result.max).unwrap(), expected_max);
+                assert_eq!(i32::try_from(&result.min)?, expected_min);
+                assert_eq!(i32::try_from(&result.max)?, expected_max);
             }
             (None, None) => {}
             (got, expected) => panic!(
-                "min_max mismatch: expected {:?}, got {:?}",
-                expected,
+                "min_max mismatch: expected {expected:?}, got {:?}",
                 got.as_ref().map(|r| (
                     i32::try_from(&r.min.clone()).ok(),
                     i32::try_from(&r.max.clone()).ok()
                 ))
             ),
         }
+        Ok(())
     }
 
     #[rstest]
@@ -86,7 +105,6 @@ mod tests {
         ).unwrap(),
         (2, 4)
     )]
-    // Non-covering: codes with gaps
     #[case::non_covering_gaps(
         DictArray::try_new(
             buffer![0u32, 2, 4].into_array(),
@@ -108,16 +126,16 @@ mod tests {
         ).unwrap(),
         (1, 2)
     )]
-    fn test_min_max(#[case] dict: DictArray, #[case] expected: (i32, i32)) {
-        assert_min_max(&dict.into_array(), Some(expected));
+    fn test_min_max(#[case] dict: DictArray, #[case] expected: (i32, i32)) -> VortexResult<()> {
+        assert_min_max(&dict.into_array(), Some(expected))
     }
 
     #[test]
-    fn test_sliced_dict() {
+    fn test_sliced_dict() -> VortexResult<()> {
         let reference = PrimitiveArray::from_iter([1, 5, 10, 50, 100]);
-        let dict = dict_encode(&reference.into_array()).unwrap();
-        let sliced = dict.slice(1..3).unwrap();
-        assert_min_max(&sliced, Some((5, 10)));
+        let dict = dict_encode(&reference.into_array())?;
+        let sliced = dict.slice(1..3)?;
+        assert_min_max(&sliced, Some((5, 10)))
     }
 
     #[rstest]
@@ -133,7 +151,7 @@ mod tests {
             buffer![10i32, 20, 30].into_array(),
         ).unwrap()
     )]
-    fn test_min_max_none(#[case] dict: DictArray) {
-        assert_min_max(&dict.into_array(), None);
+    fn test_min_max_none(#[case] dict: DictArray) -> VortexResult<()> {
+        assert_min_max(&dict.into_array(), None)
     }
 }

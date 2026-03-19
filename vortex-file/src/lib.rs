@@ -109,20 +109,11 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::ALP;
-use vortex_alp::ALPRD;
 use vortex_array::arrays::Dict;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
-use vortex_datetime_parts::DateTimeParts;
-use vortex_decimal_byte_parts::DecimalByteParts;
-use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::Delta;
-use vortex_fastlanes::FoR;
-use vortex_fastlanes::RLE;
 use vortex_fsst::FSST;
 use vortex_pco::Pco;
-use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 use vortex_zigzag::ZigZag;
@@ -167,19 +158,10 @@ mod forever_constant {
 pub fn register_default_encodings(session: &mut VortexSession) {
     {
         let arrays = session.arrays();
-        arrays.register(ALP::ID, ALP);
-        arrays.register(ALPRD::ID, ALPRD);
-        arrays.register(BitPacked::ID, BitPacked);
         arrays.register(ByteBool::ID, ByteBool);
-        arrays.register(DateTimeParts::ID, DateTimeParts);
-        arrays.register(DecimalByteParts::ID, DecimalByteParts);
-        arrays.register(Delta::ID, Delta);
         arrays.register(Dict::ID, Dict);
         arrays.register(FSST::ID, FSST);
-        arrays.register(FoR::ID, FoR);
         arrays.register(Pco::ID, Pco);
-        arrays.register(RLE::ID, RLE);
-        arrays.register(Sequence::ID, Sequence);
         arrays.register(Sparse::ID, Sparse);
         arrays.register(ZigZag::ID, ZigZag);
         #[cfg(feature = "zstd")]
@@ -190,5 +172,10 @@ pub fn register_default_encodings(session: &mut VortexSession) {
 
     // Eventually all encodings crates should expose an initialize function. For now it's only
     // a few of them.
-    vortex_runend::initialize(session)
+    vortex_alp::initialize(session);
+    vortex_datetime_parts::initialize(session);
+    vortex_decimal_byte_parts::initialize(session);
+    vortex_fastlanes::initialize(session);
+    vortex_runend::initialize(session);
+    vortex_sequence::initialize(session);
 }

@@ -92,7 +92,6 @@ pub fn chunk_range(chunk_idx: usize, offset: usize, array_len: usize) -> Range<u
 /// * `chunk_offsets_slice` - Slice containing offsets for each chunk
 /// * `chunk_idx` - Index of the chunk to patch
 /// * `offset_within_chunk` - Number of patches to skip at the start of the first chunk
-#[inline]
 pub fn patch_chunk<T, I, C>(
     decoded_values: &mut [T],
     patches_indices: &[I],
