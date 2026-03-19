@@ -33,6 +33,21 @@ use crate::error::VortexFuzzResult;
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
+/// A random string from a small alphabet (`a..=h`) with bounded length.
+#[derive(Debug)]
+struct SmallAlphabetString {
+    max_len: usize,
+}
+
+impl SmallAlphabetString {
+    fn generate(&self, u: &mut Unstructured<'_>) -> arbitrary::Result<String> {
+        let len: usize = u.int_in_range(0..=self.max_len)?;
+        Ok((0..len)
+            .map(|_| u.int_in_range(b'a'..=b'h').expect("cannot make char") as char)
+            .collect())
+    }
+}
+
 /// Fuzz input: a set of strings and a LIKE pattern.
 #[derive(Debug)]
 pub struct FuzzFsstLike {
@@ -43,34 +58,19 @@ pub struct FuzzFsstLike {
 
 impl<'a> Arbitrary<'a> for FuzzFsstLike {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        // Generate 1-200 strings, each 0-100 bytes from a small alphabet
-        // to increase FSST symbol reuse and substring hits.
         let n_strings: usize = u.int_in_range(1..=200)?;
-        let mut strings = Vec::with_capacity(n_strings);
-        for _ in 0..n_strings {
-            let len: usize = u.int_in_range(0..=100)?;
-            let s: String = (0..len)
-                .map(|_| {
-                    let b = u.int_in_range(b'a'..=b'h').unwrap_or(b'a');
-                    b as char
-                })
-                .collect();
-            strings.push(s);
-        }
+        let str_gen = SmallAlphabetString { max_len: 512 };
+        let strings: Vec<String> = (0..n_strings)
+            .map(|_| str_gen.generate(u))
+            .collect::<arbitrary::Result<_>>()?;
 
-        // Generate a pattern: pick a shape then fill in the literal part.
-        let needle_len: usize = u.int_in_range(0..=30)?;
-        let needle: String = (0..needle_len)
-            .map(|_| {
-                let b = u.int_in_range(b'a'..=b'h').unwrap_or(b'a');
-                b as char
-            })
-            .collect();
+        let needle = SmallAlphabetString { max_len: 254 }.generate(u)?;
 
         let pattern = match u.int_in_range(0..=2)? {
             0 => format!("{needle}%"),  // prefix
             1 => format!("%{needle}%"), // contains
-            _ => format!("%{needle}"),  // suffix (should fall back, still correct)
+            2 => format!("%{needle}"),  // suffix (should fall back, still correct)
+            _ => unreachable!(""),
         };
 
         let negated: bool = u.arbitrary()?;
