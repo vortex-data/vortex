@@ -247,7 +247,7 @@ uuid = { version = "1.19", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
 xshell = "0.2.6"
 zigzag = "0.1.0"
-zip = "6.0.0"
+zip = "8.0.0"
 zstd = { version = "0.13.3", default-features = false, features = [
     "zdict_builder",
 ] }
