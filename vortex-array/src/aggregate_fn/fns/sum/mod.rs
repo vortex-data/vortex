@@ -203,11 +203,11 @@ impl AggregateFnVTable for Sum {
 
     #[inline]
     fn is_saturated(&self, partial: &Self::Partial) -> bool {
-        partial.current.is_none()
-            || partial.current.as_ref().is_some_and(|s| match s {
-                SumState::Float(v) => v.is_nan(),
-                _ => false,
-            })
+        match partial.current.as_ref() {
+            None => true,
+            Some(SumState::Float(v)) => v.is_nan(),
+            Some(_) => false,
+        }
     }
 
     fn accumulate(
