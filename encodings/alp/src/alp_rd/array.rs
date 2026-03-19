@@ -310,7 +310,7 @@ impl VTable for ALPRD {
                     array.left_parts_patches(),
                     ctx,
                 )?,
-                array.left_parts().validity()?.clone(),
+                array.left_parts().validity()?,
             )
         } else {
             PrimitiveArray::new(
@@ -322,7 +322,7 @@ impl VTable for ALPRD {
                     array.left_parts_patches(),
                     ctx,
                 )?,
-                array.left_parts().validity()?.clone(),
+                array.left_parts().validity()?,
             )
         };
 
