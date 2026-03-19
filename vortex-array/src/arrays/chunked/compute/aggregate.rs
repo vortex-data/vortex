@@ -28,7 +28,9 @@ impl DynAggregateKernel for ChunkedArrayAggregate {
         for chunk in chunked.chunks() {
             acc.accumulate(chunk, ctx)?;
         }
-        Ok(Some(acc.finish()?))
+        // Return the partial (not finalized) result, since the outer accumulator
+        // will call combine_partials() on this value.
+        Ok(Some(acc.flush()?))
     }
 }
 

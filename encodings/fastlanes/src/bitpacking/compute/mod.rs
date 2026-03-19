@@ -3,7 +3,7 @@
 
 mod cast;
 mod filter;
-mod is_constant;
+pub(crate) mod is_constant;
 mod slice;
 mod take;
 

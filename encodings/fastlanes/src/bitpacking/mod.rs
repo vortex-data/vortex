@@ -8,7 +8,7 @@ pub use array::bitpack_compress;
 pub use array::bitpack_decompress;
 pub use array::unpack_iter;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::BitPacked;

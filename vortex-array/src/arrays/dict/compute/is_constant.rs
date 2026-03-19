@@ -2,23 +2,55 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
-use super::Dict;
-use super::DictArray;
-use crate::compute::IsConstantKernel;
-use crate::compute::IsConstantKernelAdapter;
-use crate::compute::IsConstantOpts;
-use crate::compute::is_constant_opts;
-use crate::register_kernel;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::Dict;
+use crate::scalar::Scalar;
 
-impl IsConstantKernel for Dict {
-    fn is_constant(&self, array: &DictArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
-        if is_constant_opts(array.codes(), opts)? == Some(true) {
-            return Ok(Some(true));
+/// Dict-specific is_constant kernel.
+///
+/// If codes are constant, the whole array is constant.
+/// When all dictionary values are referenced, is_constant can be computed directly on the values
+/// array. Otherwise, unreferenced values are filtered out first.
+#[derive(Debug)]
+pub(crate) struct DictIsConstantKernel;
+
+impl DynAggregateKernel for DictIsConstantKernel {
+    fn aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<IsConstant>() {
+            return Ok(None);
         }
 
-        is_constant_opts(array.values(), opts)
+        let Some(dict) = batch.as_opt::<Dict>() else {
+            return Ok(None);
+        };
+
+        // If codes are constant, only one dictionary value is referenced → constant.
+        if is_constant(dict.codes(), ctx)? {
+            return Ok(Some(IsConstant::make_partial(batch, true)?));
+        }
+
+        // Otherwise, check the values array. Filter to only referenced values if needed.
+        let result = if dict.has_all_values_referenced() {
+            is_constant(dict.values(), ctx)?
+        } else {
+            let referenced_mask = dict.compute_referenced_values_mask(true)?;
+            let mask = Mask::from(referenced_mask);
+            let filtered_values = dict.values().filter(mask)?;
+            is_constant(&filtered_values, ctx)?
+        };
+
+        Ok(Some(IsConstant::make_partial(batch, result)?))
     }
 }
-
-register_kernel!(IsConstantKernelAdapter(Dict).lift());

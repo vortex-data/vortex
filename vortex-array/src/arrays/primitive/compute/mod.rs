@@ -4,14 +4,11 @@
 mod between;
 mod cast;
 mod fill_null;
-mod is_constant;
 mod is_sorted;
 mod mask;
 pub(crate) mod rules;
 mod slice;
 mod take;
-
-pub use is_constant::*;
 
 #[cfg(test)]
 mod tests {

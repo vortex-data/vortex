@@ -3,6 +3,7 @@
 
 mod decimal_byte_parts;
 
+use decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
 /// This encoding allow compression of decimals using integer compression schemes.
 /// Decimals can be compressed by narrowing the signed decimal value into the smallest signed value,
 /// then integer compression if that is a value `ptype`, otherwise the decimal can be split into
@@ -12,3 +13,21 @@ mod decimal_byte_parts;
 /// an i128 decimal could be converted into a [i64, u64] with further narrowing applied to either
 /// value.
 pub use decimal_byte_parts::*;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
+/// Initialize decimal-byte-parts encoding in the given session.
+pub fn initialize(session: &mut VortexSession) {
+    session
+        .arrays()
+        .register(DecimalByteParts::ID, DecimalByteParts);
+
+    session.aggregate_fns().register_aggregate_kernel(
+        DecimalByteParts::ID,
+        Some(IsConstant.id()),
+        &DecimalBytePartsIsConstantKernel,
+    );
+}

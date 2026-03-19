@@ -5,7 +5,7 @@ mod cast;
 mod compare;
 mod fill_null;
 pub(crate) mod filter;
-mod is_constant;
+pub(crate) mod is_constant;
 mod is_sorted;
 pub(crate) mod min_max;
 pub(crate) mod take;
