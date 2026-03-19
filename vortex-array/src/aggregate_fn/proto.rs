@@ -14,16 +14,11 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 
-/// Extension trait for serializing an [`AggregateFnRef`] to protobuf.
-///
-/// Note: the serialization format is not stable and may change between versions.
-pub trait AggregateFnSerializeProtoExt {
+impl AggregateFnRef {
     /// Serialize this aggregate function to its protobuf representation.
-    fn serialize_proto(&self) -> VortexResult<pb::AggregateFn>;
-}
-
-impl AggregateFnSerializeProtoExt for AggregateFnRef {
-    fn serialize_proto(&self) -> VortexResult<pb::AggregateFn> {
+    ///
+    /// Note: the serialization format is not stable and may change between versions.
+    pub fn serialize_proto(&self) -> VortexResult<pb::AggregateFn> {
         let metadata = self
             .options()
             .serialize()?
@@ -34,9 +29,7 @@ impl AggregateFnSerializeProtoExt for AggregateFnRef {
             metadata: Some(metadata),
         })
     }
-}
 
-impl AggregateFnRef {
     /// Deserialize an aggregate function from its protobuf representation.
     ///
     /// Looks up the aggregate function plugin by ID in the session's registry
@@ -70,7 +63,6 @@ mod tests {
     use vortex_proto::expr as pb;
     use vortex_session::VortexSession;
 
-    use super::AggregateFnSerializeProtoExt;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions;

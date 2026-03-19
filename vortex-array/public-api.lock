@@ -82,7 +82,7 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::reset(&self, pa
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -120,7 +120,7 @@ pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::coerce_args(&self, 
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
 
@@ -228,7 +228,7 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::reset(&self, partial: &
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -306,7 +306,7 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::reset(&self, partia
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -389,14 +389,6 @@ pub fn vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel::grouped_a
 pub fn vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel::grouped_aggregate_fixed_size(&self, aggregate_fn: &vortex_array::aggregate_fn::AggregateFnRef, groups: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::aggregate_fn::proto
-
-pub trait vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt
-
-pub fn vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt::serialize_proto(&self) -> vortex_error::VortexResult<vortex_proto::expr::AggregateFn>
-
-impl vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt for vortex_array::aggregate_fn::AggregateFnRef
-
-pub fn vortex_array::aggregate_fn::AggregateFnRef::serialize_proto(&self) -> vortex_error::VortexResult<vortex_proto::expr::AggregateFn>
 
 pub mod vortex_array::aggregate_fn::session
 
@@ -514,6 +506,8 @@ impl vortex_array::aggregate_fn::AggregateFnRef
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::from_proto(proto: &vortex_proto::expr::AggregateFn, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::aggregate_fn::AggregateFnRef::serialize_proto(&self) -> vortex_error::VortexResult<vortex_proto::expr::AggregateFn>
+
 impl core::clone::Clone for vortex_array::aggregate_fn::AggregateFnRef
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::clone(&self) -> vortex_array::aggregate_fn::AggregateFnRef
@@ -535,10 +529,6 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::fmt(&self, f: &mut core::fmt:
 impl core::hash::Hash for vortex_array::aggregate_fn::AggregateFnRef
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
-
-impl vortex_array::aggregate_fn::proto::AggregateFnSerializeProtoExt for vortex_array::aggregate_fn::AggregateFnRef
-
-pub fn vortex_array::aggregate_fn::AggregateFnRef::serialize_proto(&self) -> vortex_error::VortexResult<vortex_proto::expr::AggregateFn>
 
 pub struct vortex_array::aggregate_fn::EmptyOptions
 
@@ -656,7 +646,7 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::reset(&self, pa
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -672,7 +662,7 @@ pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::coerce_args(&self, 
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
 
@@ -724,7 +714,7 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::reset(&self, partial: &
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -758,7 +748,7 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::reset(&self, partia
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
