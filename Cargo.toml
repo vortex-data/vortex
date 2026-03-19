@@ -114,7 +114,7 @@ cc = "1.2"
 cfg-if = "1.0.1"
 chrono = "0.4.42"
 clap = "4.5"
-criterion = "0.7"
+criterion = "0.8"
 crossterm = "0.29"
 cudarc = { version = "0.18.2", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
