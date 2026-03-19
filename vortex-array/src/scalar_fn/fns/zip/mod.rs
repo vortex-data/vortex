@@ -46,7 +46,7 @@ impl ScalarFnVTable for Zip {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.zip")
+        ScalarFnId::new("vortex.zip")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -67,9 +67,9 @@ impl ScalarFnVTable for Zip {
 
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("if_true"),
-            1 => ChildName::from("if_false"),
-            2 => ChildName::from("mask"),
+            0 => ChildName::new("if_true"),
+            1 => ChildName::new("if_false"),
+            2 => ChildName::new("mask"),
             _ => unreachable!("Invalid child index {} for Zip expression", child_idx),
         }
     }

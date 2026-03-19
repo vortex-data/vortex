@@ -27,7 +27,7 @@ impl FlatLayoutFixture for StructNestedFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Struct::ID]
+        vec![Struct::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

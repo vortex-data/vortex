@@ -26,7 +26,7 @@ impl FlatLayoutFixture for PrimitivesFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Primitive::ID]
+        vec![Primitive::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

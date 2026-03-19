@@ -93,7 +93,7 @@ impl VTable for Pco {
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &PcoArray) -> usize {
@@ -312,7 +312,13 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 pub struct Pco;
 
 impl Pco {
-    pub const ID: ArrayId = ArrayId::new("vortex.pco");
+    pub const ID: &'static str = "vortex.pco";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 #[derive(Clone, Debug)]

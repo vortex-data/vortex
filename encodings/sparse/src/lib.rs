@@ -81,7 +81,7 @@ impl VTable for Sparse {
     type ValidityVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &SparseArray) -> usize {
@@ -272,7 +272,13 @@ pub struct SparseArray {
 pub struct Sparse;
 
 impl Sparse {
-    pub const ID: ArrayId = ArrayId::new("vortex.sparse");
+    pub const ID: &'static str = "vortex.sparse";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl SparseArray {

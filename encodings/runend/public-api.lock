@@ -20,7 +20,9 @@ pub struct vortex_runend::RunEnd
 
 impl vortex_runend::RunEnd
 
-pub const vortex_runend::RunEnd::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_runend::RunEnd::ID: &'static str
+
+pub fn vortex_runend::RunEnd::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_runend::RunEnd
 

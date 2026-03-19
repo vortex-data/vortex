@@ -4,7 +4,9 @@ pub struct vortex_datetime_parts::DateTimeParts
 
 impl vortex_datetime_parts::DateTimeParts
 
-pub const vortex_datetime_parts::DateTimeParts::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_datetime_parts::DateTimeParts::ID: &'static str
+
+pub fn vortex_datetime_parts::DateTimeParts::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_datetime_parts::DateTimeParts
 

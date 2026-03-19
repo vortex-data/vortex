@@ -44,7 +44,7 @@ impl VTable for Extension {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &ExtensionArray) -> usize {
@@ -179,5 +179,11 @@ impl VTable for Extension {
 pub struct Extension;
 
 impl Extension {
-    pub const ID: ArrayId = ArrayId::new("vortex.ext");
+    pub const ID: &'static str = "vortex.ext";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }

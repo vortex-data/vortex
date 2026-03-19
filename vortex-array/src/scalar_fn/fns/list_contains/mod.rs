@@ -60,7 +60,7 @@ impl ScalarFnVTable for ListContains {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.list.contains")
+        ScalarFnId::new("vortex.list.contains")
     }
 
     fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -81,8 +81,8 @@ impl ScalarFnVTable for ListContains {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("list"),
-            1 => ChildName::from("needle"),
+            0 => ChildName::new("list"),
+            1 => ChildName::new("needle"),
             _ => unreachable!(
                 "Invalid child index {} for ListContains expression",
                 child_idx

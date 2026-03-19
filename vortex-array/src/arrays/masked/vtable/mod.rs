@@ -44,7 +44,13 @@ vtable!(Masked);
 pub struct Masked;
 
 impl Masked {
-    pub const ID: ArrayId = ArrayId::new("vortex.masked");
+    pub const ID: &'static str = "vortex.masked";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl VTable for Masked {
@@ -55,7 +61,7 @@ impl VTable for Masked {
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &MaskedArray) -> usize {

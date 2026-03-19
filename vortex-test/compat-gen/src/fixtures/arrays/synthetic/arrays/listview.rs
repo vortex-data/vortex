@@ -28,7 +28,7 @@ impl FlatLayoutFixture for ListViewFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ListView::ID]
+        vec![ListView::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

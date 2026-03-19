@@ -35,7 +35,7 @@ impl FlatLayoutFixture for ConstantFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Constant::ID]
+        vec![Constant::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

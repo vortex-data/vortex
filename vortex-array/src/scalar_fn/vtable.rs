@@ -411,4 +411,4 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
 impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}
 
 /// A reference to the name of a child expression.
-pub type ChildName = vortex_utils::Id;
+pub type ChildName = vortex_session::registry::Id;

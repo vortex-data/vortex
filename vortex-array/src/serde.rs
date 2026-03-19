@@ -341,7 +341,7 @@ impl ArrayParts {
         let buffers = self.collect_buffers()?;
 
         let decoded = vtable.build(
-            encoding_id.clone(),
+            encoding_id,
             dtype,
             len,
             self.metadata(),

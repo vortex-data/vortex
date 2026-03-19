@@ -30,7 +30,7 @@ impl FlatLayoutFixture for RunEndFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![RunEnd::ID]
+        vec![RunEnd::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

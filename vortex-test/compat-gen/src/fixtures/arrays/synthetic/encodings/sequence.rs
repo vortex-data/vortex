@@ -27,7 +27,7 @@ impl FlatLayoutFixture for SequenceFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Sequence::ID]
+        vec![Sequence::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

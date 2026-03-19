@@ -4,7 +4,9 @@ pub struct vortex_fsst::FSST
 
 impl vortex_fsst::FSST
 
-pub const vortex_fsst::FSST::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_fsst::FSST::ID: &'static str
+
+pub fn vortex_fsst::FSST::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_fsst::FSST
 

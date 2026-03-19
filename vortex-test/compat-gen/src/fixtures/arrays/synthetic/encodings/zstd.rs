@@ -28,7 +28,7 @@ impl FlatLayoutFixture for ZstdFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Zstd::ID]
+        vec![Zstd::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

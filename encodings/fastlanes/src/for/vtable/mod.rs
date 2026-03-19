@@ -49,7 +49,7 @@ impl VTable for FoR {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &FoRArray) -> usize {
@@ -184,5 +184,11 @@ impl VTable for FoR {
 pub struct FoR;
 
 impl FoR {
-    pub const ID: ArrayId = ArrayId::new("fastlanes.for");
+    pub const ID: &'static str = "fastlanes.for";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }

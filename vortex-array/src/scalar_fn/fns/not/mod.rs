@@ -36,7 +36,7 @@ impl ScalarFnVTable for Not {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.not")
+        ScalarFnId::new("vortex.not")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -57,7 +57,7 @@ impl ScalarFnVTable for Not {
 
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("input"),
+            0 => ChildName::new("input"),
             _ => unreachable!("Invalid child index {} for Not expression", child_idx),
         }
     }

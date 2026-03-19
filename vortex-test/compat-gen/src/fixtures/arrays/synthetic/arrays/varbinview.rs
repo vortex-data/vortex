@@ -25,7 +25,7 @@ impl FlatLayoutFixture for VarBinViewFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![VarBinView::ID]
+        vec![VarBinView::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

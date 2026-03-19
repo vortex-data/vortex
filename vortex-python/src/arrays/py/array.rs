@@ -35,7 +35,7 @@ impl<'py> FromPyObject<'_, 'py> for PythonArray {
         let ob_cast = ob.cast::<PyPythonArray>()?;
         let python_array = ob_cast.get();
         Ok(Self {
-            id: python_array.id.clone(),
+            id: python_array.id,
             object: Arc::new(ob.to_owned().unbind()),
             len: python_array.len,
             dtype: python_array.dtype.clone(),

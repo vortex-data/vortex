@@ -24,7 +24,9 @@ pub struct vortex_sparse::Sparse
 
 impl vortex_sparse::Sparse
 
-pub const vortex_sparse::Sparse::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_sparse::Sparse::ID: &'static str
+
+pub fn vortex_sparse::Sparse::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_sparse::Sparse
 

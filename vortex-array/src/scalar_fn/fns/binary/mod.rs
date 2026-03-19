@@ -52,7 +52,7 @@ impl ScalarFnVTable for Binary {
     type Options = Operator;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.binary")
+        ScalarFnId::new("vortex.binary")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -79,8 +79,8 @@ impl ScalarFnVTable for Binary {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("lhs"),
-            1 => ChildName::from("rhs"),
+            0 => ChildName::new("lhs"),
+            1 => ChildName::new("rhs"),
             _ => unreachable!("Binary has only two children"),
         }
     }

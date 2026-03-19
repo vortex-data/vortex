@@ -27,7 +27,7 @@ impl FlatLayoutFixture for ZigZagFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ZigZag::ID]
+        vec![ZigZag::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

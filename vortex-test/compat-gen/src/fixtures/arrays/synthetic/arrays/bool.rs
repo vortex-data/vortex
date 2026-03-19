@@ -25,7 +25,7 @@ impl FlatLayoutFixture for BooleansFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Bool::ID]
+        vec![Bool::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

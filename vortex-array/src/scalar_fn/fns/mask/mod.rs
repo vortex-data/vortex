@@ -45,7 +45,7 @@ impl ScalarFnVTable for Mask {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.mask")
+        ScalarFnId::new("vortex.mask")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -66,8 +66,8 @@ impl ScalarFnVTable for Mask {
 
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("input"),
-            1 => ChildName::from("mask"),
+            0 => ChildName::new("input"),
+            1 => ChildName::new("mask"),
             _ => unreachable!("Invalid child index {} for Mask expression", child_idx),
         }
     }

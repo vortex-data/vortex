@@ -570,7 +570,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
                 }
 
                 let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
-                let id = ExtId::new_arc(id);
+                let id = ExtId::new(&id);
                 let vtable = self.session.dtypes().registry().find(&id).ok_or_else(|| {
                     de::Error::custom(format!("unknown extension dtype id: {}", id))
                 })?;

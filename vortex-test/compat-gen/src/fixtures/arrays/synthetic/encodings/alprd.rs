@@ -41,7 +41,7 @@ impl FlatLayoutFixture for AlprdFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ALPRD::ID]
+        vec![ALPRD::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

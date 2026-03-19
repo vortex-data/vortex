@@ -28,7 +28,7 @@ impl FlatLayoutFixture for DictFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Dict::ID]
+        vec![Dict::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

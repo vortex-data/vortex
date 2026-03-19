@@ -79,7 +79,7 @@ impl VTable for DateTimeParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &DateTimePartsArray) -> usize {
@@ -267,7 +267,13 @@ pub struct DateTimePartsArrayParts {
 pub struct DateTimeParts;
 
 impl DateTimeParts {
-    pub const ID: ArrayId = ArrayId::new("vortex.datetimeparts");
+    pub const ID: &'static str = "vortex.datetimeparts";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl DateTimePartsArray {

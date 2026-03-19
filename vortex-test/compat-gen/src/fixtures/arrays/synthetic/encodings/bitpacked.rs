@@ -27,7 +27,7 @@ impl FlatLayoutFixture for BitPackedFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![BitPacked::ID]
+        vec![BitPacked::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

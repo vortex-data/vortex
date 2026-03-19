@@ -55,7 +55,7 @@ impl FlatLayoutFixture for AlpFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ALP::ID]
+        vec![ALP::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

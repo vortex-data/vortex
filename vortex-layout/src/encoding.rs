@@ -12,8 +12,8 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_session::registry::ReadContext;
 use vortex_session::registry::Id;
+use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
 use crate::LayoutChildren;

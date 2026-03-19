@@ -39,7 +39,7 @@ impl ScalarFnVTable for FillNull {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.fill_null")
+        ScalarFnId::new("vortex.fill_null")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -60,8 +60,8 @@ impl ScalarFnVTable for FillNull {
 
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("input"),
-            1 => ChildName::from("fill_value"),
+            0 => ChildName::new("input"),
+            1 => ChildName::new("fill_value"),
             _ => unreachable!("Invalid child index {} for FillNull expression", child_idx),
         }
     }

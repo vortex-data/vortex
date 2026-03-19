@@ -40,7 +40,7 @@ impl VTable for Null {
     type ValidityVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &NullArray) -> usize {
@@ -174,7 +174,13 @@ pub struct NullArray {
 pub struct Null;
 
 impl Null {
-    pub const ID: ArrayId = ArrayId::new("vortex.null");
+    pub const ID: &'static str = "vortex.null";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl NullArray {

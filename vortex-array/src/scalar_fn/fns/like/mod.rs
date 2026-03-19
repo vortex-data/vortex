@@ -63,7 +63,7 @@ impl ScalarFnVTable for Like {
     type Options = LikeOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.like")
+        ScalarFnId::new("vortex.like")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -94,8 +94,8 @@ impl ScalarFnVTable for Like {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("child"),
-            1 => ChildName::from("pattern"),
+            0 => ChildName::new("child"),
+            1 => ChildName::new("pattern"),
             _ => unreachable!("Invalid child index {} for Like expression", child_idx),
         }
     }

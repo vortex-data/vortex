@@ -41,7 +41,13 @@ vtable!(ZstdBuffers);
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
-    pub const ID: ArrayId = ArrayId::new("vortex.zstd_buffers");
+    pub const ID: &'static str = "vortex.zstd_buffers";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 /// An encoding that ZSTD-compresses the buffers of any wrapped array.
@@ -250,7 +256,7 @@ impl ZstdBuffersArray {
 
         let children = self.children.as_slice();
         inner_vtable.build(
-            self.inner_encoding_id.clone(),
+            self.inner_encoding_id,
             &self.dtype,
             self.len,
             &self.inner_metadata,
@@ -320,7 +326,7 @@ fn compute_output_layout(
 }
 
 fn array_id_from_string(s: &str) -> ArrayId {
-    ArrayId::new_arc(Arc::from(s))
+    ArrayId::new(s)
 }
 
 impl VTable for ZstdBuffers {
@@ -331,7 +337,7 @@ impl VTable for ZstdBuffers {
     type ValidityVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &ZstdBuffersArray) -> usize {

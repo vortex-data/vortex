@@ -40,7 +40,13 @@ vtable!(FixedSizeList);
 pub struct FixedSizeList;
 
 impl FixedSizeList {
-    pub const ID: ArrayId = ArrayId::new("vortex.fixed_size_list");
+    pub const ID: &'static str = "vortex.fixed_size_list";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl VTable for FixedSizeList {
@@ -50,7 +56,7 @@ impl VTable for FixedSizeList {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &FixedSizeListArray) -> usize {

@@ -4,7 +4,9 @@ pub struct vortex_sequence::Sequence
 
 impl vortex_sequence::Sequence
 
-pub const vortex_sequence::Sequence::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_sequence::Sequence::ID: &'static str
+
+pub fn vortex_sequence::Sequence::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_sequence::Sequence
 

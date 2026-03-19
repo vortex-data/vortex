@@ -4,7 +4,9 @@ pub struct vortex_decimal_byte_parts::DecimalByteParts
 
 impl vortex_decimal_byte_parts::DecimalByteParts
 
-pub const vortex_decimal_byte_parts::DecimalByteParts::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_decimal_byte_parts::DecimalByteParts::ID: &'static str
+
+pub fn vortex_decimal_byte_parts::DecimalByteParts::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_decimal_byte_parts::DecimalByteParts
 

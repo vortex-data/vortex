@@ -71,7 +71,7 @@ impl VTable for BitPacked {
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &BitPackedArray) -> usize {
@@ -372,5 +372,11 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
-    pub const ID: ArrayId = ArrayId::new("fastlanes.bitpacked");
+    pub const ID: &'static str = "fastlanes.bitpacked";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }

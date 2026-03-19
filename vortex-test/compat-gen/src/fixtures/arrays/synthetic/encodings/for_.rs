@@ -27,7 +27,7 @@ impl FlatLayoutFixture for FoRFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![FoR::ID]
+        vec![FoR::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

@@ -53,7 +53,7 @@ impl ScalarFnVTable for Cast {
     type Options = DType;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.cast")
+        ScalarFnId::new("vortex.cast")
     }
 
     fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
@@ -85,7 +85,7 @@ impl ScalarFnVTable for Cast {
 
     fn child_name(&self, _instance: &DType, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("input"),
+            0 => ChildName::new("input"),
             _ => unreachable!("Invalid child index {} for Cast expression", child_idx),
         }
     }

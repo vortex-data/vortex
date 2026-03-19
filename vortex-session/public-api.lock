@@ -28,6 +28,64 @@ impl<T> core::default::Default for vortex_session::registry::Context<T>
 
 pub fn vortex_session::registry::Context<T>::default() -> Self
 
+pub struct vortex_session::registry::Id(_)
+
+impl vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::as_str(&self) -> &str
+
+pub fn vortex_session::registry::Id::new(s: &str) -> Self
+
+impl core::clone::Clone for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::clone(&self) -> vortex_session::registry::Id
+
+impl core::cmp::Eq for vortex_session::registry::Id
+
+impl core::cmp::Ord for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::cmp(&self, other: &Self) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::eq(&self, other: &vortex_session::registry::Id) -> bool
+
+impl core::cmp::PartialEq<&str> for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::eq(&self, other: &&str) -> bool
+
+impl core::cmp::PartialEq<str> for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::eq(&self, other: &str) -> bool
+
+impl core::cmp::PartialOrd for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::AsRef<str> for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::as_ref(&self) -> &str
+
+impl core::convert::From<&str> for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::from(s: &str) -> Self
+
+impl core::fmt::Debug for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_session::registry::Id
+
+impl core::marker::StructuralPartialEq for vortex_session::registry::Id
+
 pub struct vortex_session::registry::ReadContext
 
 impl vortex_session::registry::ReadContext
@@ -75,8 +133,6 @@ pub fn vortex_session::registry::Registry<T>::fmt(&self, f: &mut core::fmt::Form
 impl<T> core::default::Default for vortex_session::registry::Registry<T>
 
 pub fn vortex_session::registry::Registry<T>::default() -> Self
-
-pub type vortex_session::registry::Id = arcref::ArcRef<str>
 
 pub struct vortex_session::Ref<'a, T>(_)
 

@@ -116,7 +116,9 @@ pub struct vortex_fastlanes::BitPacked
 
 impl vortex_fastlanes::BitPacked
 
-pub const vortex_fastlanes::BitPacked::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_fastlanes::BitPacked::ID: &'static str
+
+pub fn vortex_fastlanes::BitPacked::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_fastlanes::BitPacked
 
@@ -274,7 +276,9 @@ pub struct vortex_fastlanes::Delta
 
 impl vortex_fastlanes::Delta
 
-pub const vortex_fastlanes::Delta::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_fastlanes::Delta::ID: &'static str
+
+pub fn vortex_fastlanes::Delta::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_fastlanes::Delta
 
@@ -402,7 +406,9 @@ pub struct vortex_fastlanes::FoR
 
 impl vortex_fastlanes::FoR
 
-pub const vortex_fastlanes::FoR::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_fastlanes::FoR::ID: &'static str
+
+pub fn vortex_fastlanes::FoR::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_fastlanes::FoR
 
@@ -536,7 +542,9 @@ pub struct vortex_fastlanes::RLE
 
 impl vortex_fastlanes::RLE
 
-pub const vortex_fastlanes::RLE::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_fastlanes::RLE::ID: &'static str
+
+pub fn vortex_fastlanes::RLE::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_fastlanes::RLE
 

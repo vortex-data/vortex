@@ -4,7 +4,9 @@ pub struct vortex_bytebool::ByteBool
 
 impl vortex_bytebool::ByteBool
 
-pub const vortex_bytebool::ByteBool::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_bytebool::ByteBool::ID: &'static str
+
+pub fn vortex_bytebool::ByteBool::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_bytebool::ByteBool
 

@@ -86,7 +86,7 @@ impl DType {
                 ))
             }
             DtypeType::Extension(e) => {
-                let id = ExtId::new_arc(e.id.as_str().to_string().into());
+                let id = ExtId::new(e.id.as_str());
                 let vtable = session.dtypes().registry().find(&id).ok_or_else(
                     || vortex_err!(Serde: "Unregistered extension type ID: {}", e.id),
                 )?;

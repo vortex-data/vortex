@@ -4,7 +4,9 @@ pub struct vortex_zstd::Zstd
 
 impl vortex_zstd::Zstd
 
-pub const vortex_zstd::Zstd::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_zstd::Zstd::ID: &'static str
+
+pub fn vortex_zstd::Zstd::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_zstd::Zstd
 

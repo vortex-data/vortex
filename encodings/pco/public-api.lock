@@ -4,7 +4,9 @@ pub struct vortex_pco::Pco
 
 impl vortex_pco::Pco
 
-pub const vortex_pco::Pco::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_pco::Pco::ID: &'static str
+
+pub fn vortex_pco::Pco::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_pco::Pco
 

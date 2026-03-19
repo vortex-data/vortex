@@ -28,7 +28,7 @@ impl FlatLayoutFixture for FsstFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![FSST::ID]
+        vec![FSST::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

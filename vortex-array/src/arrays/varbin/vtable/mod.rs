@@ -58,7 +58,7 @@ impl VTable for VarBin {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &VarBinArray) -> usize {
@@ -230,5 +230,11 @@ impl VTable for VarBin {
 pub struct VarBin;
 
 impl VarBin {
-    pub const ID: ArrayId = ArrayId::new("vortex.varbin");
+    pub const ID: &'static str = "vortex.varbin";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }

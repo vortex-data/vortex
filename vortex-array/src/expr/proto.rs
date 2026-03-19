@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -40,7 +38,7 @@ impl ExprSerializeProtoExt for Expression {
 
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
-        let expr_id = ScalarFnId::new_arc(Arc::from(expr.id.to_string()));
+        let expr_id = ScalarFnId::new(expr.id.as_str());
         let vtable = session
             .scalar_fns()
             .registry()

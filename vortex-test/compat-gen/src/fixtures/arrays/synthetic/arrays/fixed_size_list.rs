@@ -27,7 +27,7 @@ impl FlatLayoutFixture for FixedSizeListFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![FixedSizeList::ID]
+        vec![FixedSizeList::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

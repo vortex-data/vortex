@@ -324,7 +324,7 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.array")
+        ScalarFnId::new("vortex.array")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

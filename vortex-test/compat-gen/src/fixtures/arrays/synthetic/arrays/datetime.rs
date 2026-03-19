@@ -30,7 +30,7 @@ impl FlatLayoutFixture for DateTimeFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Extension::ID]
+        vec![Extension::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

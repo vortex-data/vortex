@@ -125,7 +125,7 @@ impl MessageDecoder {
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
-                                .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
+                                .map(ArrayId::new)
                                 .collect();
 
                             let ctx = ReadContext::new(encoding_ids);

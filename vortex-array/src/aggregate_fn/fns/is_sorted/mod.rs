@@ -228,7 +228,7 @@ impl AggregateFnVTable for IsSorted {
     type Partial = IsSortedPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.is_sorted")
+        AggregateFnId::new("vortex.is_sorted")
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

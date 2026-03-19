@@ -66,7 +66,7 @@ impl VTable for RunEnd {
     type ValidityVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &RunEndArray) -> usize {
@@ -226,7 +226,13 @@ pub struct RunEndArrayParts {
 pub struct RunEnd;
 
 impl RunEnd {
-    pub const ID: ArrayId = ArrayId::new("vortex.runend");
+    pub const ID: &'static str = "vortex.runend";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl RunEndArray {

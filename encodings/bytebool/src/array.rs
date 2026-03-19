@@ -49,7 +49,7 @@ impl VTable for ByteBool {
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &ByteBoolArray) -> usize {
@@ -213,7 +213,13 @@ pub struct ByteBoolArray {
 pub struct ByteBool;
 
 impl ByteBool {
-    pub const ID: ArrayId = ArrayId::new("vortex.bytebool");
+    pub const ID: &'static str = "vortex.bytebool";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl ByteBoolArray {

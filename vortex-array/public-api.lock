@@ -396,7 +396,7 @@ impl vortex_array::aggregate_fn::session::AggregateFnSession
 
 pub fn vortex_array::aggregate_fn::session::AggregateFnSession::register<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self, vtable: V)
 
-pub fn vortex_array::aggregate_fn::session::AggregateFnSession::register_aggregate_kernel(&self, array_id: vortex_array::vtable::ArrayId, agg_fn_id: core::option::Option<vortex_array::aggregate_fn::AggregateFnId>, kernel: &'static dyn vortex_array::aggregate_fn::kernels::DynAggregateKernel)
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::register_aggregate_kernel(&self, array_id: impl core::convert::Into<vortex_array::vtable::ArrayId>, agg_fn_id: core::option::Option<impl core::convert::Into<vortex_array::aggregate_fn::AggregateFnId>>, kernel: &'static dyn vortex_array::aggregate_fn::kernels::DynAggregateKernel)
 
 pub fn vortex_array::aggregate_fn::session::AggregateFnSession::registry(&self) -> &vortex_array::aggregate_fn::session::AggregateFnRegistry
 
@@ -572,7 +572,7 @@ impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_f
 
 pub fn V::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::aggregate_fn::AggregateFnRef, vortex_error::VortexError>
 
-pub fn V::id(&self) -> arcref::ArcRef<str>
+pub fn V::id(&self) -> vortex_session::registry::Id
 
 pub trait vortex_array::aggregate_fn::AggregateFnVTable: 'static + core::marker::Sized + core::clone::Clone + core::marker::Send + core::marker::Sync
 
@@ -824,7 +824,7 @@ pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::flush(&mut self) -> vo
 
 pub type vortex_array::aggregate_fn::AccumulatorRef = alloc::boxed::Box<dyn vortex_array::aggregate_fn::DynAccumulator>
 
-pub type vortex_array::aggregate_fn::AggregateFnId = arcref::ArcRef<str>
+pub type vortex_array::aggregate_fn::AggregateFnId = vortex_session::registry::Id
 
 pub type vortex_array::aggregate_fn::AggregateFnPluginRef = alloc::sync::Arc<dyn vortex_array::aggregate_fn::AggregateFnPlugin>
 
@@ -838,7 +838,9 @@ pub struct vortex_array::arrays::bool::Bool
 
 impl vortex_array::arrays::Bool
 
-pub const vortex_array::arrays::Bool::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Bool::ID: &'static str
+
+pub fn vortex_array::arrays::Bool::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Bool
 
@@ -1048,7 +1050,9 @@ pub struct vortex_array::arrays::chunked::Chunked
 
 impl vortex_array::arrays::Chunked
 
-pub const vortex_array::arrays::Chunked::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Chunked::ID: &'static str
+
+pub fn vortex_array::arrays::Chunked::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Chunked
 
@@ -1210,7 +1214,9 @@ pub struct vortex_array::arrays::constant::Constant
 
 impl vortex_array::arrays::Constant
 
-pub const vortex_array::arrays::Constant::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Constant::ID: &'static str
+
+pub fn vortex_array::arrays::Constant::array_id() -> vortex_array::vtable::ArrayId
 
 impl vortex_array::arrays::Constant
 
@@ -1418,7 +1424,9 @@ pub struct vortex_array::arrays::decimal::Decimal
 
 impl vortex_array::arrays::Decimal
 
-pub const vortex_array::arrays::Decimal::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Decimal::ID: &'static str
+
+pub fn vortex_array::arrays::Decimal::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Decimal
 
@@ -1624,7 +1632,9 @@ pub struct vortex_array::arrays::dict::vtable::Dict
 
 impl vortex_array::arrays::dict::Dict
 
-pub const vortex_array::arrays::dict::Dict::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::dict::Dict::ID: &'static str
+
+pub fn vortex_array::arrays::dict::Dict::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::dict::Dict
 
@@ -1728,7 +1738,9 @@ pub struct vortex_array::arrays::dict::Dict
 
 impl vortex_array::arrays::dict::Dict
 
-pub const vortex_array::arrays::dict::Dict::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::dict::Dict::ID: &'static str
+
+pub fn vortex_array::arrays::dict::Dict::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::dict::Dict
 
@@ -2032,7 +2044,9 @@ pub struct vortex_array::arrays::extension::Extension
 
 impl vortex_array::arrays::Extension
 
-pub const vortex_array::arrays::Extension::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Extension::ID: &'static str
+
+pub fn vortex_array::arrays::Extension::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Extension
 
@@ -2192,7 +2206,9 @@ pub struct vortex_array::arrays::filter::Filter
 
 impl vortex_array::arrays::Filter
 
-pub const vortex_array::arrays::Filter::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Filter::ID: &'static str
+
+pub fn vortex_array::arrays::Filter::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Filter
 
@@ -2392,7 +2408,9 @@ pub struct vortex_array::arrays::fixed_size_list::FixedSizeList
 
 impl vortex_array::arrays::FixedSizeList
 
-pub const vortex_array::arrays::FixedSizeList::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::FixedSizeList::ID: &'static str
+
+pub fn vortex_array::arrays::FixedSizeList::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::FixedSizeList
 
@@ -2536,7 +2554,9 @@ pub struct vortex_array::arrays::list::List
 
 impl vortex_array::arrays::List
 
-pub const vortex_array::arrays::List::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::List::ID: &'static str
+
+pub fn vortex_array::arrays::List::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::List
 
@@ -2708,7 +2728,9 @@ pub struct vortex_array::arrays::listview::ListView
 
 impl vortex_array::arrays::ListView
 
-pub const vortex_array::arrays::ListView::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::ListView::ID: &'static str
+
+pub fn vortex_array::arrays::ListView::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::ListView
 
@@ -2886,7 +2908,9 @@ pub struct vortex_array::arrays::masked::Masked
 
 impl vortex_array::arrays::Masked
 
-pub const vortex_array::arrays::Masked::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Masked::ID: &'static str
+
+pub fn vortex_array::arrays::Masked::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Masked
 
@@ -3016,7 +3040,9 @@ pub struct vortex_array::arrays::null::Null
 
 impl vortex_array::arrays::null::Null
 
-pub const vortex_array::arrays::null::Null::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::null::Null::ID: &'static str
+
+pub fn vortex_array::arrays::null::Null::array_id() -> vortex_array::vtable::ArrayId
 
 impl vortex_array::arrays::null::Null
 
@@ -3220,7 +3246,9 @@ pub struct vortex_array::arrays::primitive::Primitive
 
 impl vortex_array::arrays::Primitive
 
-pub const vortex_array::arrays::Primitive::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Primitive::ID: &'static str
+
+pub fn vortex_array::arrays::Primitive::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Primitive
 
@@ -3640,7 +3668,9 @@ pub struct vortex_array::arrays::shared::Shared
 
 impl vortex_array::arrays::Shared
 
-pub const vortex_array::arrays::Shared::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Shared::ID: &'static str
+
+pub fn vortex_array::arrays::Shared::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Shared
 
@@ -3754,7 +3784,9 @@ pub struct vortex_array::arrays::slice::Slice
 
 impl vortex_array::arrays::slice::Slice
 
-pub const vortex_array::arrays::slice::Slice::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::slice::Slice::ID: &'static str
+
+pub fn vortex_array::arrays::slice::Slice::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::slice::Slice
 
@@ -3996,7 +4028,9 @@ pub struct vortex_array::arrays::struct_::Struct
 
 impl vortex_array::arrays::Struct
 
-pub const vortex_array::arrays::Struct::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Struct::ID: &'static str
+
+pub fn vortex_array::arrays::Struct::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Struct
 
@@ -4204,7 +4238,9 @@ pub struct vortex_array::arrays::varbin::VarBin
 
 impl vortex_array::arrays::VarBin
 
-pub const vortex_array::arrays::VarBin::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::VarBin::ID: &'static str
+
+pub fn vortex_array::arrays::VarBin::array_id() -> vortex_array::vtable::ArrayId
 
 impl vortex_array::arrays::VarBin
 
@@ -4614,7 +4650,9 @@ pub struct vortex_array::arrays::varbinview::VarBinView
 
 impl vortex_array::arrays::VarBinView
 
-pub const vortex_array::arrays::VarBinView::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::VarBinView::ID: &'static str
+
+pub fn vortex_array::arrays::VarBinView::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::VarBinView
 
@@ -4822,7 +4860,9 @@ pub struct vortex_array::arrays::Bool
 
 impl vortex_array::arrays::Bool
 
-pub const vortex_array::arrays::Bool::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Bool::ID: &'static str
+
+pub fn vortex_array::arrays::Bool::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Bool
 
@@ -5004,7 +5044,9 @@ pub struct vortex_array::arrays::Chunked
 
 impl vortex_array::arrays::Chunked
 
-pub const vortex_array::arrays::Chunked::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Chunked::ID: &'static str
+
+pub fn vortex_array::arrays::Chunked::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Chunked
 
@@ -5164,7 +5206,9 @@ pub struct vortex_array::arrays::Constant
 
 impl vortex_array::arrays::Constant
 
-pub const vortex_array::arrays::Constant::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Constant::ID: &'static str
+
+pub fn vortex_array::arrays::Constant::array_id() -> vortex_array::vtable::ArrayId
 
 impl vortex_array::arrays::Constant
 
@@ -5308,7 +5352,9 @@ pub struct vortex_array::arrays::Decimal
 
 impl vortex_array::arrays::Decimal
 
-pub const vortex_array::arrays::Decimal::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Decimal::ID: &'static str
+
+pub fn vortex_array::arrays::Decimal::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Decimal
 
@@ -5482,7 +5528,9 @@ pub struct vortex_array::arrays::Dict
 
 impl vortex_array::arrays::dict::Dict
 
-pub const vortex_array::arrays::dict::Dict::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::dict::Dict::ID: &'static str
+
+pub fn vortex_array::arrays::dict::Dict::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::dict::Dict
 
@@ -5644,7 +5692,9 @@ pub struct vortex_array::arrays::Extension
 
 impl vortex_array::arrays::Extension
 
-pub const vortex_array::arrays::Extension::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Extension::ID: &'static str
+
+pub fn vortex_array::arrays::Extension::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Extension
 
@@ -5802,7 +5852,9 @@ pub struct vortex_array::arrays::Filter
 
 impl vortex_array::arrays::Filter
 
-pub const vortex_array::arrays::Filter::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Filter::ID: &'static str
+
+pub fn vortex_array::arrays::Filter::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Filter
 
@@ -5918,7 +5970,9 @@ pub struct vortex_array::arrays::FixedSizeList
 
 impl vortex_array::arrays::FixedSizeList
 
-pub const vortex_array::arrays::FixedSizeList::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::FixedSizeList::ID: &'static str
+
+pub fn vortex_array::arrays::FixedSizeList::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::FixedSizeList
 
@@ -6060,7 +6114,9 @@ pub struct vortex_array::arrays::List
 
 impl vortex_array::arrays::List
 
-pub const vortex_array::arrays::List::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::List::ID: &'static str
+
+pub fn vortex_array::arrays::List::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::List
 
@@ -6210,7 +6266,9 @@ pub struct vortex_array::arrays::ListView
 
 impl vortex_array::arrays::ListView
 
-pub const vortex_array::arrays::ListView::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::ListView::ID: &'static str
+
+pub fn vortex_array::arrays::ListView::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::ListView
 
@@ -6368,7 +6426,9 @@ pub struct vortex_array::arrays::Masked
 
 impl vortex_array::arrays::Masked
 
-pub const vortex_array::arrays::Masked::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Masked::ID: &'static str
+
+pub fn vortex_array::arrays::Masked::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Masked
 
@@ -6494,7 +6554,9 @@ pub struct vortex_array::arrays::Null
 
 impl vortex_array::arrays::null::Null
 
-pub const vortex_array::arrays::null::Null::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::null::Null::ID: &'static str
+
+pub fn vortex_array::arrays::null::Null::array_id() -> vortex_array::vtable::ArrayId
 
 impl vortex_array::arrays::null::Null
 
@@ -6630,7 +6692,9 @@ pub struct vortex_array::arrays::Primitive
 
 impl vortex_array::arrays::Primitive
 
-pub const vortex_array::arrays::Primitive::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Primitive::ID: &'static str
+
+pub fn vortex_array::arrays::Primitive::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Primitive
 
@@ -6966,7 +7030,9 @@ pub struct vortex_array::arrays::Shared
 
 impl vortex_array::arrays::Shared
 
-pub const vortex_array::arrays::Shared::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Shared::ID: &'static str
+
+pub fn vortex_array::arrays::Shared::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Shared
 
@@ -7078,7 +7144,9 @@ pub struct vortex_array::arrays::Slice
 
 impl vortex_array::arrays::slice::Slice
 
-pub const vortex_array::arrays::slice::Slice::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::slice::Slice::ID: &'static str
+
+pub fn vortex_array::arrays::slice::Slice::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::slice::Slice
 
@@ -7198,7 +7266,9 @@ pub struct vortex_array::arrays::Struct
 
 impl vortex_array::arrays::Struct
 
-pub const vortex_array::arrays::Struct::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::Struct::ID: &'static str
+
+pub fn vortex_array::arrays::Struct::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::Struct
 
@@ -7430,7 +7500,9 @@ pub struct vortex_array::arrays::VarBin
 
 impl vortex_array::arrays::VarBin
 
-pub const vortex_array::arrays::VarBin::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::VarBin::ID: &'static str
+
+pub fn vortex_array::arrays::VarBin::array_id() -> vortex_array::vtable::ArrayId
 
 impl vortex_array::arrays::VarBin
 
@@ -7654,7 +7726,9 @@ pub struct vortex_array::arrays::VarBinView
 
 impl vortex_array::arrays::VarBinView
 
-pub const vortex_array::arrays::VarBinView::ID: vortex_array::vtable::ArrayId
+pub const vortex_array::arrays::VarBinView::ID: &'static str
+
+pub fn vortex_array::arrays::VarBinView::array_id() -> vortex_array::vtable::ArrayId
 
 impl core::fmt::Debug for vortex_array::arrays::VarBinView
 
@@ -9542,7 +9616,7 @@ pub struct vortex_array::compute::ComputeFn
 
 impl vortex_array::compute::ComputeFn
 
-pub fn vortex_array::compute::ComputeFn::id(&self) -> &arcref::ArcRef<str>
+pub fn vortex_array::compute::ComputeFn::id(&self) -> vortex_session::registry::Id
 
 pub fn vortex_array::compute::ComputeFn::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_array::compute::Output>
 
@@ -9550,7 +9624,7 @@ pub fn vortex_array::compute::ComputeFn::is_elementwise(&self) -> bool
 
 pub fn vortex_array::compute::ComputeFn::kernels(&self) -> alloc::vec::Vec<arcref::ArcRef<dyn vortex_array::compute::Kernel>>
 
-pub fn vortex_array::compute::ComputeFn::new(id: arcref::ArcRef<str>, vtable: arcref::ArcRef<dyn vortex_array::compute::ComputeFnVTable>) -> Self
+pub fn vortex_array::compute::ComputeFn::new(id: vortex_session::registry::Id, vtable: arcref::ArcRef<dyn vortex_array::compute::ComputeFnVTable>) -> Self
 
 pub fn vortex_array::compute::ComputeFn::register_kernel(&self, kernel: arcref::ArcRef<dyn vortex_array::compute::Kernel>)
 
@@ -9868,7 +9942,7 @@ impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extensio
 
 pub fn V::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> core::result::Result<vortex_array::dtype::extension::ExtDTypeRef, vortex_error::VortexError>
 
-pub fn V::id(&self) -> arcref::ArcRef<str>
+pub fn V::id(&self) -> vortex_session::registry::Id
 
 pub trait vortex_array::dtype::extension::ExtVTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::cmp::Eq + core::hash::Hash
 
@@ -10016,7 +10090,7 @@ pub fn V::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -
 
 pub type vortex_array::dtype::extension::ExtDTypePluginRef = alloc::sync::Arc<dyn vortex_array::dtype::extension::ExtDTypePlugin>
 
-pub type vortex_array::dtype::extension::ExtId = arcref::ArcRef<str>
+pub type vortex_array::dtype::extension::ExtId = vortex_session::registry::Id
 
 pub mod vortex_array::dtype::flatbuffers
 
@@ -18642,7 +18716,7 @@ impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::Scalar
 
 pub fn V::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::scalar_fn::ScalarFnRef, vortex_error::VortexError>
 
-pub fn V::id(&self) -> arcref::ArcRef<str>
+pub fn V::id(&self) -> vortex_session::registry::Id
 
 pub trait vortex_array::scalar_fn::ScalarFnVTable: 'static + core::marker::Sized + core::clone::Clone + core::marker::Send + core::marker::Sync
 
@@ -19386,11 +19460,11 @@ pub trait vortex_array::scalar_fn::SimplifyCtx
 
 pub fn vortex_array::scalar_fn::SimplifyCtx::return_dtype(&self, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub type vortex_array::scalar_fn::ChildName = arcref::ArcRef<str>
+pub type vortex_array::scalar_fn::ChildName = vortex_session::registry::Id
 
 pub type vortex_array::scalar_fn::ReduceNodeRef = alloc::sync::Arc<dyn vortex_array::scalar_fn::ReduceNode>
 
-pub type vortex_array::scalar_fn::ScalarFnId = arcref::ArcRef<str>
+pub type vortex_array::scalar_fn::ScalarFnId = vortex_session::registry::Id
 
 pub type vortex_array::scalar_fn::ScalarFnPluginRef = alloc::sync::Arc<dyn vortex_array::scalar_fn::ScalarFnPlugin>
 
@@ -21462,7 +21536,7 @@ pub fn vortex_array::vtable::validity_nchildren(validity: &vortex_array::validit
 
 pub fn vortex_array::vtable::validity_to_child(validity: &vortex_array::validity::Validity, len: usize) -> core::option::Option<vortex_array::ArrayRef>
 
-pub type vortex_array::vtable::ArrayId = arcref::ArcRef<str>
+pub type vortex_array::vtable::ArrayId = vortex_session::registry::Id
 
 pub macro vortex_array::field_path!
 

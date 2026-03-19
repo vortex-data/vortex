@@ -27,7 +27,7 @@ impl FlatLayoutFixture for NullFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Null::ID]
+        vec![Null::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

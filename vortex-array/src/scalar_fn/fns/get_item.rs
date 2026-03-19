@@ -43,7 +43,7 @@ impl ScalarFnVTable for GetItem {
     type Options = FieldName;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.get_item")
+        ScalarFnId::new("vortex.get_item")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -70,7 +70,7 @@ impl ScalarFnVTable for GetItem {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("input"),
+            0 => ChildName::new("input"),
             _ => unreachable!("Invalid child index {} for GetItem expression", child_idx),
         }
     }

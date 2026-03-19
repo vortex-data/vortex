@@ -27,7 +27,7 @@ impl FlatLayoutFixture for ByteBoolFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ByteBool::ID]
+        vec![ByteBool::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

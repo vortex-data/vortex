@@ -27,7 +27,7 @@ impl FlatLayoutFixture for DecimalFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Decimal::ID]
+        vec![Decimal::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

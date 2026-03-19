@@ -25,7 +25,7 @@ impl ScalarFnVTable for RowIdx {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.row_idx")
+        ScalarFnId::new("vortex.row_idx")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

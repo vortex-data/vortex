@@ -23,5 +23,6 @@ workspace = true
 arcref = { workspace = true }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
+string-interner = { workspace = true }
 vortex-error = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }

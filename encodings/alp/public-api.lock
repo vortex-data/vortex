@@ -6,7 +6,9 @@ pub struct vortex_alp::ALP
 
 impl vortex_alp::ALP
 
-pub const vortex_alp::ALP::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_alp::ALP::ID: &'static str
+
+pub fn vortex_alp::ALP::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_alp::ALP
 
@@ -174,7 +176,9 @@ pub struct vortex_alp::ALPRD
 
 impl vortex_alp::ALPRD
 
-pub const vortex_alp::ALPRD::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_alp::ALPRD::ID: &'static str
+
+pub fn vortex_alp::ALPRD::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_alp::ALPRD
 

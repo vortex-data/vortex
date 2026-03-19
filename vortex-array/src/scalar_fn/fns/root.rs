@@ -30,7 +30,7 @@ impl ScalarFnVTable for Root {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.root")
+        ScalarFnId::new("vortex.root")
     }
 
     fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

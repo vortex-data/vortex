@@ -43,7 +43,13 @@ vtable!(Slice);
 pub struct Slice;
 
 impl Slice {
-    pub const ID: ArrayId = ArrayId::new("vortex.slice");
+    pub const ID: &'static str = "vortex.slice";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl VTable for Slice {
@@ -52,7 +58,7 @@ impl VTable for Slice {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(_array: &Self::Array) -> ArrayId {
-        Slice::ID
+        Slice::array_id()
     }
 
     fn len(array: &SliceArray) -> usize {

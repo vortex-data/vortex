@@ -194,7 +194,7 @@ impl ScalarFnVTable for Between {
     type Options = BetweenOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.between")
+        ScalarFnId::new("vortex.between")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -233,9 +233,9 @@ impl ScalarFnVTable for Between {
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::from("array"),
-            1 => ChildName::from("lower"),
-            2 => ChildName::from("upper"),
+            0 => ChildName::new("array"),
+            1 => ChildName::new("lower"),
+            2 => ChildName::new("upper"),
             _ => unreachable!("Invalid child index {} for Between expression", child_idx),
         }
     }

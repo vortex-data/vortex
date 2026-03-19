@@ -4,7 +4,9 @@ pub struct vortex_zigzag::ZigZag
 
 impl vortex_zigzag::ZigZag
 
-pub const vortex_zigzag::ZigZag::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_zigzag::ZigZag::ID: &'static str
+
+pub fn vortex_zigzag::ZigZag::array_id() -> vortex_array::vtable::dyn_::ArrayId
 
 impl core::fmt::Debug for vortex_zigzag::ZigZag
 

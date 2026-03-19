@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_error::VortexExpect;
@@ -80,7 +79,7 @@ impl ScalarFnVTable for Merge {
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
-        ChildName::from(Arc::from(format!("{}", child_idx)))
+        ChildName::new(&format!("{child_idx}"))
     }
 
     fn fmt_sql(

@@ -27,7 +27,7 @@ impl FlatLayoutFixture for DeltaFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Delta::ID]
+        vec![Delta::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

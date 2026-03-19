@@ -66,7 +66,7 @@ impl VTable for DecimalByteParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &DecimalBytePartsArray) -> usize {
@@ -274,7 +274,13 @@ impl DecimalBytePartsArray {
 pub struct DecimalByteParts;
 
 impl DecimalByteParts {
-    pub const ID: ArrayId = ArrayId::new("vortex.decimal_byte_parts");
+    pub const ID: &'static str = "vortex.decimal_byte_parts";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 /// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.

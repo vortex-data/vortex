@@ -82,7 +82,7 @@ impl VTable for FSST {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &FSSTArray) -> usize {
@@ -393,7 +393,13 @@ impl Debug for FSSTArray {
 pub struct FSST;
 
 impl FSST {
-    pub const ID: ArrayId = ArrayId::new("vortex.fsst");
+    pub const ID: &'static str = "vortex.fsst";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 impl FSSTArray {

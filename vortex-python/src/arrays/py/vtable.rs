@@ -46,7 +46,7 @@ impl VTable for Python {
     type ValidityVTable = Self;
 
     fn id(array: &Self::Array) -> ArrayId {
-        array.id.clone()
+        array.id
     }
 
     fn len(array: &PythonArray) -> usize {

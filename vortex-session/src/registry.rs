@@ -11,39 +11,61 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use parking_lot::RwLock;
+use string_interner::DefaultBackend;
+use string_interner::DefaultSymbol;
+use string_interner::StringInterner;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
-/// A lightweight, copyable identifier backed by a `&'static str`.
+/// Global string interner for [`Id`] values.
+static INTERNER: LazyLock<RwLock<StringInterner<DefaultBackend>>> = LazyLock::new(Default::default);
+
+/// A lightweight, copyable identifier backed by a global string interner.
 ///
 /// Used for array encoding IDs, scalar function IDs, layout IDs, and similar
-/// globally-unique string identifiers throughout Vortex.
+/// globally-unique string identifiers throughout Vortex. Equality and hashing
+/// are O(1) symbol comparisons.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(&'static str);
+pub struct Id(DefaultSymbol);
 
 impl Id {
-    /// Create a new `Id` from a static string.
-    pub const fn new(s: &'static str) -> Self {
-        Self(s)
+    /// Intern a string and return its `Id`.
+    pub fn new(s: &str) -> Self {
+        Self(INTERNER.write().get_or_intern(s))
     }
 
-    /// Returns the underlying string.
-    pub const fn as_str(&self) -> &'static str {
-        self.0
+    /// Returns the interned string.
+    pub fn as_str(&self) -> &str {
+        // SAFETY: The interner is append-only (symbols are never removed), so the resolved
+        // string reference is valid for the lifetime of this borrow.
+        let interner = INTERNER.read();
+        let s = interner
+            .resolve(self.0)
+            .vortex_expect("Id symbol not found in interner");
+        // SAFETY: The interner is append-only and lives for 'static, so the &str is valid
+        // for the program's lifetime. We just can't express that through the RwLock borrow.
+        unsafe { &*(s as *const str) }
+    }
+}
+
+impl From<&str> for Id {
+    fn from(s: &str) -> Self {
+        Self::new(s)
     }
 }
 
 impl Display for Id {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(self.0)
+        f.write_str(self.as_str())
     }
 }
 
 impl Debug for Id {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Id(\"{}\")", self.0)
+        write!(f, "Id(\"{}\")", self.as_str())
     }
 }
 
@@ -55,19 +77,25 @@ impl PartialOrd for Id {
 
 impl Ord for Id {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(other.0)
+        self.as_str().cmp(other.as_str())
     }
 }
 
 impl PartialEq<str> for Id {
     fn eq(&self, other: &str) -> bool {
-        self.0 == other
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for Id {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
     }
 }
 
 impl AsRef<str> for Id {
     fn as_ref(&self) -> &str {
-        self.0
+        self.as_str()
     }
 }
 
@@ -88,7 +116,7 @@ impl<T: Clone> Registry<T> {
 
     /// List the IDs in the registry.
     pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
-        self.0.iter().map(|i| i.key().clone())
+        self.0.iter().map(|i| *i.key())
     }
 
     /// List the items in the registry.
@@ -211,7 +239,7 @@ impl<T: Clone> Context<T> {
             idx < u16::MAX as usize,
             "Cannot have more than u16::MAX items"
         );
-        ids.push(id.clone());
+        ids.push(*id);
         Some(u16::try_from(idx).vortex_expect("checked already"))
     }
 

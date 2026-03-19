@@ -243,7 +243,7 @@ impl VTable for Sequence {
     type ValidityVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID
+        Self::array_id()
     }
 
     fn len(array: &SequenceArray) -> usize {
@@ -422,7 +422,13 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    pub const ID: ArrayId = ArrayId::new("vortex.sequence");
+    pub const ID: &'static str = "vortex.sequence";
+
+    /// Returns the cached [`ArrayId`] for this encoding.
+    pub fn array_id() -> ArrayId {
+        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
+        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+    }
 }
 
 #[cfg(test)]

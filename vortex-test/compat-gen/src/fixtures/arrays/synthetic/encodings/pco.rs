@@ -27,7 +27,7 @@ impl FlatLayoutFixture for PcoFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Pco::ID]
+        vec![Pco::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

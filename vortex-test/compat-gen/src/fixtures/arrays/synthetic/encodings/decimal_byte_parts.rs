@@ -28,7 +28,7 @@ impl FlatLayoutFixture for DecimalBytePartsFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![DecimalByteParts::ID]
+        vec![DecimalByteParts::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

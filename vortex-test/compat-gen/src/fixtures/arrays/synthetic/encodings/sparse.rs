@@ -32,7 +32,7 @@ impl FlatLayoutFixture for SparseFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse::ID]
+        vec![Sparse::array_id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
