@@ -6,6 +6,7 @@
 //! Uses an escape-sentinel strategy: the FSST escape code maps to a sentinel
 //! state, and the next literal byte is looked up in a separate byte-level
 //! transition table.
+//! This is to support needles up to u8::MAX long.
 //!
 //! ## Construction (needle = `"aba"`, symbols = `[0:"ab", 1:"ba"]`)
 //!
@@ -122,7 +123,6 @@ impl FlatContainsDfa {
         })
     }
 
-    #[inline(never)]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
         let mut pos = 0;

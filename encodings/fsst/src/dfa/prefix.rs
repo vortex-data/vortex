@@ -9,7 +9,7 @@
 //! TODO(joe): for short prefixes (≤13 bytes), a shift-packed `[u64; 256]`
 //! representation would be simpler and easier to read — all state transitions
 //! for one input byte fit in a single `u64`. Benchmarks showed no meaningful
-//! perf difference (see `benches/BENCH_RESULTS.md`), so we use flat-only for
+//! perf difference, so we use flat-only for
 //! now to keep the code simple and support long prefixes.
 
 use fsst::Symbol;
@@ -97,7 +97,6 @@ impl FlatPrefixDfa {
         })
     }
 
-    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
         let mut pos = 0;
