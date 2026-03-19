@@ -8,13 +8,10 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use parking_lot::RwLock;
 use vortex_error::VortexExpect;
+use vortex_utils::Id;
 use vortex_utils::aliases::dash_map::DashMap;
-
-/// An identifier for an item in a registry.
-pub type Id = ArcRef<str>;
 
 /// A registry of items that are keyed by a string identifier.
 #[derive(Clone, Debug)]

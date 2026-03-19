@@ -9,7 +9,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -412,4 +411,4 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
 impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}
 
 /// A reference to the name of a child expression.
-pub type ChildName = ArcRef<str>;
+pub type ChildName = vortex_utils::Id;

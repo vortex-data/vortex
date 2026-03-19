@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_utils::Id;
 
 use crate::ArrayRef;
 use crate::DynArray;
@@ -47,7 +48,7 @@ mod sum;
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.
 pub struct ComputeFn {
-    id: ArcRef<str>,
+    id: Id,
     vtable: ArcRef<dyn ComputeFnVTable>,
     kernels: RwLock<Vec<ArcRef<dyn Kernel>>>,
 }
@@ -62,7 +63,7 @@ pub fn warm_up_vtables() {
 
 impl ComputeFn {
     /// Create a new compute function from the given [`ComputeFnVTable`].
-    pub fn new(id: ArcRef<str>, vtable: ArcRef<dyn ComputeFnVTable>) -> Self {
+    pub fn new(id: Id, vtable: ArcRef<dyn ComputeFnVTable>) -> Self {
         Self {
             id,
             vtable,
@@ -71,8 +72,8 @@ impl ComputeFn {
     }
 
     /// Returns the string identifier of the compute function.
-    pub fn id(&self) -> &ArcRef<str> {
-        &self.id
+    pub fn id(&self) -> Id {
+        self.id
     }
 
     /// Register a kernel for the compute function.

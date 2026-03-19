@@ -7,11 +7,11 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
-use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_utils::Id;
 
 use crate::ArrayAdapter;
 use crate::ArrayRef;
@@ -25,7 +25,7 @@ use crate::serde::ArrayChildren;
 use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
-pub type ArrayId = ArcRef<str>;
+pub type ArrayId = Id;
 
 /// Dynamically typed vtable trait.
 ///
