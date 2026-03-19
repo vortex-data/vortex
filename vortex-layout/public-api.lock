@@ -836,7 +836,7 @@ pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::present_stats(&self) ->
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::prune(&self, predicate: &vortex_array::expr::expression::Expression, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::to_stats_set(&self, stats: &[vortex_array::expr::stats::Stat]) -> vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>
+pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::to_stats_set(&self, stats: &[vortex_array::expr::stats::Stat], ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::try_new(column_dtype: vortex_array::dtype::DType, array: vortex_array::arrays::struct_::array::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>) -> vortex_error::VortexResult<Self>
 

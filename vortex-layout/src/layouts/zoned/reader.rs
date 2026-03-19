@@ -93,7 +93,6 @@ impl ZonedReader {
         })
     }
 
-    #[inline]
     fn data_child(&self) -> VortexResult<&LayoutReaderRef> {
         self.lazy_children.get(0)
     }

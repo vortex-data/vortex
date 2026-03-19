@@ -8,14 +8,12 @@ use std::fmt;
 use divan::Bencher;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_runend::decompress_bool::runend_decode_bools;
 
 fn main() {
-    warm_up_vtables();
     divan::main();
 }
 

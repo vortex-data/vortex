@@ -380,7 +380,7 @@ fn bytes_per_exception(ptype: PType) -> usize {
 
 #[cfg(feature = "_test-harness")]
 pub mod test_harness {
-    use rand::Rng as _;
+    use rand::RngExt;
     use rand::rngs::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;

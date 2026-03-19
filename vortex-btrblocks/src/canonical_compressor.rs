@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -19,9 +20,6 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::listview::list_from_list_view;
-use vortex_array::compute::Cost;
-use vortex_array::compute::IsConstantOpts;
-use vortex_array::compute::is_constant_opts;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TemporalMetadata;
@@ -281,14 +279,8 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 if let Ok(temporal_array) = TemporalArray::try_from(ext_array.clone().into_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
-                    if is_constant_opts(
-                        &ext_array.clone().into_array(),
-                        &IsConstantOpts {
-                            cost: Cost::Canonicalize,
-                        },
-                    )?
-                    .unwrap_or_default()
-                    {
+                    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                    if is_constant(&ext_array.clone().into_array(), &mut ctx)? {
                         return Ok(ConstantArray::new(
                             temporal_array.as_ref().scalar_at(0)?,
                             ext_array.len(),

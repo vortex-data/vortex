@@ -114,7 +114,6 @@ static SCATTER_8X8_NEON: [[u8; 16]; 4] = [
 
 /// Perform 8x8 bit transpose on two u64s packed in a `uint64x2_t`.
 #[allow(unsafe_op_in_unsafe_fn)]
-#[inline]
 unsafe fn bit_transpose_8x8_neon(mut v: uint64x2_t) -> uint64x2_t {
     let mask1 = vdupq_n_u64(TRANSPOSE_2X2);
     let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<7>(v)), mask1);

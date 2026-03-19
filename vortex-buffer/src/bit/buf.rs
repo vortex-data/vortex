@@ -21,6 +21,7 @@ use crate::bit::BitIndexIterator;
 use crate::bit::BitIterator;
 use crate::bit::BitSliceIterator;
 use crate::bit::UnalignedBitChunk;
+use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
@@ -316,7 +317,7 @@ impl BitBuffer {
 
     /// Get the number of set bits in the buffer.
     pub fn true_count(&self) -> usize {
-        self.unaligned_chunks().count_ones()
+        count_ones(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Get the number of unset bits in the buffer.
@@ -404,6 +405,7 @@ impl FromIterator<bool> for BitBuffer {
 impl BitOr for BitBuffer {
     type Output = Self;
 
+    #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
         BitOr::bitor(&self, &rhs)
     }
@@ -412,6 +414,7 @@ impl BitOr for BitBuffer {
 impl BitOr for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
         bitwise_binary_op(self, rhs, |a, b| a | b)
     }
@@ -420,6 +423,7 @@ impl BitOr for &BitBuffer {
 impl BitOr<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitor(self, rhs: &BitBuffer) -> Self::Output {
         (&self).bitor(rhs)
     }
@@ -428,6 +432,7 @@ impl BitOr<&BitBuffer> for BitBuffer {
 impl BitAnd for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitand(self, rhs: Self) -> Self::Output {
         bitwise_binary_op(self, rhs, |a, b| a & b)
     }
@@ -436,6 +441,7 @@ impl BitAnd for &BitBuffer {
 impl BitAnd<BitBuffer> for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitand(self, rhs: BitBuffer) -> Self::Output {
         self.bitand(&rhs)
     }
@@ -444,6 +450,7 @@ impl BitAnd<BitBuffer> for &BitBuffer {
 impl BitAnd<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitand(self, rhs: &BitBuffer) -> Self::Output {
         (&self).bitand(rhs)
     }
@@ -452,6 +459,7 @@ impl BitAnd<&BitBuffer> for BitBuffer {
 impl BitAnd<BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitand(self, rhs: BitBuffer) -> Self::Output {
         (&self).bitand(&rhs)
     }
@@ -460,6 +468,7 @@ impl BitAnd<BitBuffer> for BitBuffer {
 impl Not for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn not(self) -> Self::Output {
         bitwise_unary_op(self, |a| !a)
     }
@@ -468,6 +477,7 @@ impl Not for &BitBuffer {
 impl Not for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn not(self) -> Self::Output {
         (&self).not()
     }
@@ -476,6 +486,7 @@ impl Not for BitBuffer {
 impl BitXor for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitxor(self, rhs: Self) -> Self::Output {
         bitwise_binary_op(self, rhs, |a, b| a ^ b)
     }
@@ -484,6 +495,7 @@ impl BitXor for &BitBuffer {
 impl BitXor<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitxor(self, rhs: &BitBuffer) -> Self::Output {
         (&self).bitxor(rhs)
     }

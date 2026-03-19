@@ -12,7 +12,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::warm_up_vtables;
 use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
@@ -28,7 +27,6 @@ use vortex_fsst::test_utils::generate_url_data;
 use vortex_session::VortexSession;
 
 fn main() {
-    warm_up_vtables();
     divan::main();
 }
 

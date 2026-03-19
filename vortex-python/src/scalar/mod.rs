@@ -20,6 +20,7 @@ mod struct_;
 mod utf8;
 
 use pyo3::PyClass;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
@@ -62,7 +63,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 /// Base class for Vortex scalar types.
-#[pyclass(name = "Scalar", module = "vortex", subclass, frozen, eq, hash)]
+#[pyclass(
+    name = "Scalar",
+    module = "vortex",
+    subclass,
+    frozen,
+    eq,
+    hash,
+    from_py_object
+)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyScalar(Scalar);
 
@@ -109,6 +118,9 @@ impl PyScalar {
                 Self::with_subclass(py, scalar, PyListScalar)
             }
             DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
+            DType::Variant(_) => Err(PyValueError::new_err(
+                "Variant scalars are not supported in Python yet",
+            )),
         }
     }
 

@@ -4,7 +4,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::ArrayRef;

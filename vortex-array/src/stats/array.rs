@@ -15,14 +15,16 @@ use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::DynArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
+use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
+use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::nan_count::nan_count;
+use crate::aggregate_fn::fns::sum::sum;
 use crate::builders::builder_with_capacity;
-use crate::compute::MinMaxResult;
-use crate::compute::is_constant;
-use crate::compute::is_sorted;
-use crate::compute::is_strict_sorted;
-use crate::compute::min_max;
-use crate::compute::nan_count;
-use crate::compute::sum;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -142,6 +144,8 @@ impl StatsSetRef<'_> {
     }
 
     pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<Scalar>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
         // If it's already computed and exact, we can return it.
         if let Some(Precision::Exact(s)) = self.get(stat) {
             return Ok(Some(s));
@@ -149,15 +153,15 @@ impl StatsSetRef<'_> {
 
         let array_ref = self.dyn_array_ref.to_array();
         Ok(match stat {
-            Stat::Min => min_max(&array_ref)?.map(|MinMaxResult { min, max: _ }| min),
-            Stat::Max => min_max(&array_ref)?.map(|MinMaxResult { min: _, max }| max),
+            Stat::Min => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min, max: _ }| min),
+            Stat::Max => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min: _, max }| max),
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())
                     .is_some()
                     .then(|| {
                         // Sum is supported for this dtype.
-                        sum(&array_ref)
+                        sum(&array_ref, &mut ctx)
                     })
                     .transpose()?
             }
@@ -166,11 +170,11 @@ impl StatsSetRef<'_> {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    is_constant(&array_ref)?.map(|v| v.into())
+                    Some(is_constant(&array_ref, &mut ctx)?.into())
                 }
             }
-            Stat::IsSorted => is_sorted(&array_ref)?.map(|v| v.into()),
-            Stat::IsStrictSorted => is_strict_sorted(&array_ref)?.map(|v| v.into()),
+            Stat::IsSorted => Some(is_sorted(&array_ref, &mut ctx)?.into()),
+            Stat::IsStrictSorted => Some(is_strict_sorted(&array_ref, &mut ctx)?.into()),
             Stat::UncompressedSizeInBytes => {
                 let mut builder =
                     builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
@@ -187,7 +191,7 @@ impl StatsSetRef<'_> {
                     .is_some()
                     .then(|| {
                         // NaNCount is supported for this dtype.
-                        nan_count(&array_ref)
+                        nan_count(&array_ref, &mut ctx)
                     })
                     .transpose()?
                     .map(|s| s.into())

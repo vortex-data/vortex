@@ -44,11 +44,11 @@ mod tests {
 
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::Cost;
-    use vortex_array::compute::IsConstantOpts;
-    use vortex_array::compute::is_constant_opts;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -137,16 +137,8 @@ mod tests {
 
         let sliced_array = re_array.slice(2..5).unwrap();
 
-        assert!(
-            is_constant_opts(
-                &sliced_array,
-                &IsConstantOpts {
-                    cost: Cost::Canonicalize
-                }
-            )
-            .unwrap()
-            .unwrap_or_default()
-        )
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert!(is_constant(&sliced_array, &mut ctx).unwrap())
     }
 
     #[test]

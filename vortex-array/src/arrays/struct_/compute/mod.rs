@@ -2,9 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
-mod is_constant;
 mod mask;
-mod min_max;
 pub(crate) mod rules;
 mod slice;
 mod take;
@@ -24,6 +22,7 @@ mod tests {
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::is_constant::is_constant;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -33,7 +32,6 @@ mod tests {
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::is_constant;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
@@ -252,9 +250,10 @@ mod tests {
     #[test]
     fn test_empty_struct_is_constant() {
         let array = StructArray::new_fieldless_with_len(2);
-        let is_constant =
-            is_constant(&array.into_array()).vortex_expect("operation should succeed in test");
-        assert_eq!(is_constant, Some(true));
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = is_constant(&array.into_array(), &mut ctx)
+            .vortex_expect("operation should succeed in test");
+        assert!(result);
     }
 
     #[test]

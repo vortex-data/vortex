@@ -98,6 +98,7 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }
+        DType::Variant(_) => todo!(),
     })
 }
 

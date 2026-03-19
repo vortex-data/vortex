@@ -24,10 +24,6 @@ impl vortex_array::arrays::slice::SliceKernel for vortex_alp::ALP
 
 pub fn vortex_alp::ALP::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::compute::nan_count::NaNCountKernel for vortex_alp::ALP
-
-pub fn vortex_alp::ALP::nan_count(&self, array: &vortex_alp::ALPArray) -> vortex_error::VortexResult<usize>
-
 impl vortex_array::scalar_fn::fns::between::kernel::BetweenReduce for vortex_alp::ALP
 
 pub fn vortex_alp::ALP::between(array: &vortex_alp::ALPArray, lower: &vortex_array::array::ArrayRef, upper: &vortex_array::array::ArrayRef, options: &vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
@@ -559,3 +555,5 @@ pub fn vortex_alp::alp_encode(parray: &vortex_array::arrays::primitive::array::P
 pub fn vortex_alp::alp_rd_decode<T: vortex_alp::ALPRDFloat>(left_parts: vortex_buffer::buffer::Buffer<u16>, left_parts_dict: &[u16], right_bit_width: u8, right_parts: vortex_buffer::buffer_mut::BufferMut<<T as vortex_alp::ALPRDFloat>::UINT>, left_parts_patches: core::option::Option<&vortex_array::patches::Patches>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_buffer::buffer::Buffer<T>>
 
 pub fn vortex_alp::decompress_into_array(array: vortex_alp::ALPArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>
+
+pub fn vortex_alp::initialize(session: &mut vortex_session::VortexSession)

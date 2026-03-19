@@ -12,7 +12,10 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListView;
@@ -21,7 +24,6 @@ use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;
-use crate::compute::is_constant;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -408,7 +410,8 @@ fn test_is_constant_basic(
     )
     .into_array();
 
-    assert_eq!(is_constant(&listview).unwrap(), Some(expected));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert_eq!(is_constant(&listview, &mut ctx).unwrap(), expected);
 }
 
 #[test]
@@ -426,7 +429,8 @@ fn test_constant_with_constant_elements() {
     .into_array();
 
     // All lists contain [42, 42] so should be constant.
-    assert_eq!(is_constant(&listview).unwrap(), Some(true));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
 #[test]
@@ -449,7 +453,8 @@ fn test_constant_with_nulls() {
         .with_zero_copy_to_list(true)
     }
     .into_array();
-    assert_eq!(is_constant(&listview_mixed).unwrap(), Some(false));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(!is_constant(&listview_mixed, &mut ctx).unwrap());
 
     // Case 2: All nulls - should be constant.
     let validity_all_null = Validity::AllInvalid;
@@ -463,7 +468,8 @@ fn test_constant_with_nulls() {
         .with_zero_copy_to_list(true)
     }
     .into_array();
-    assert_eq!(is_constant(&listview_all_null).unwrap(), Some(true));
+    let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
+    assert!(is_constant(&listview_all_null, &mut ctx2).unwrap());
 }
 
 #[test]
@@ -477,7 +483,8 @@ fn test_constant_repeated_same_lists() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // All lists are [10, 20, 30] so should be constant.
-    assert_eq!(is_constant(&listview).unwrap(), Some(true));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

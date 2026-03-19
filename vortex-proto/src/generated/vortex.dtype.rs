@@ -66,9 +66,14 @@ pub struct Extension {
     #[prost(bytes = "vec", optional, tag = "3")]
     pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Variant {
+    #[prost(bool, tag = "1")]
+    pub nullable: bool,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
-    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub dtype_type: ::core::option::Option<d_type::DtypeType>,
 }
 /// Nested message and enum types in `DType`.
@@ -96,6 +101,8 @@ pub mod d_type {
         /// This is after `Extension` for backwards compatibility.
         #[prost(message, tag = "10")]
         FixedSizeList(::prost::alloc::boxed::Box<super::FixedSizeList>),
+        #[prost(message, tag = "11")]
+        Variant(super::Variant),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
