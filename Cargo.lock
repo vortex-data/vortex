@@ -8307,6 +8307,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sketches-ddsketch"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05e40b6cf54d988dc1a2223531b969c9a9e30906ad90ef64890c27b4bfbb46ea"
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8758,7 +8764,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
- "sketches-ddsketch",
+ "sketches-ddsketch 0.3.1",
  "smallvec",
  "tantivy-bitpacker",
  "tantivy-columnar",
@@ -10371,7 +10377,7 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "parking_lot",
- "sketches-ddsketch",
+ "sketches-ddsketch 0.4.0",
 ]
 
 [[package]]
@@ -10462,7 +10468,7 @@ dependencies = [
  "itertools 0.14.0",
  "parking_lot",
  "roaring 0.11.3",
- "sketches-ddsketch",
+ "sketches-ddsketch 0.4.0",
  "tracing",
  "vortex-array",
  "vortex-buffer",
