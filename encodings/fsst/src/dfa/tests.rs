@@ -237,7 +237,9 @@ fn run_like(array: FSSTArray, pattern: &str) -> VortexResult<BoolArray> {
 #[case(&[""], "aaaa%", &[false])]
 #[case(&[""], "%aaaa%", &[false])]
 #[case(&[""], "%", &[true])]
+#[case(&[""], "%%", &[true])]
 #[case(&["", "", ""], "%", &[true, true, true])]
+#[case(&["", "abc", ""], "%%", &[true, true, true])]
 // Single-char patterns
 #[case(&["a", "b", ""], "a%", &[true, false, false])]
 #[case(&["a", "b", ""], "%a%", &[true, false, false])]
