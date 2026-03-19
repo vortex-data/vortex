@@ -232,7 +232,7 @@ tar = "0.4"
 target-lexicon = "0.13"
 tempfile = "3"
 termtree = { version = "0.5" }
-test-with = "0.14"
+test-with = "0.15"
 thiserror = "2.0.3"
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"
