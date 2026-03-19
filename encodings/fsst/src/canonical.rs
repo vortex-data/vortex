@@ -62,19 +62,19 @@ pub(crate) fn fsst_decode_views(
             .execute::<PrimitiveArray>(ctx)?
     };
 
-    // Skip the O(n) length summation by using the decompressor's upper-bound
-    // capacity estimate. After decompress, split off the unused portion so the
-    // frozen buffer only holds the actual decompressed data.
-    let max_cap = decompressor.max_decompression_capacity(compressed.as_slice());
+    // Sum the uncompressed lengths to allocate an exact-sized buffer.
+    // This is cheap (a contiguous i32 slice sum) since we already have the lens array.
+    #[allow(clippy::cast_possible_truncation)]
+    let total_size: usize = match_each_integer_ptype!(lens_array.ptype(), |P| {
+        lens_array.as_slice::<P>().iter().map(|&x| x as usize).sum()
+    });
 
-    let mut uncompressed_bytes = ByteBufferMut::with_capacity(max_cap + 7);
+    let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
     let len = decompressor.decompress_into(
         compressed.as_slice(),
         uncompressed_bytes.spare_capacity_mut(),
     );
     unsafe { uncompressed_bytes.set_len(len) };
-    // Split off unused capacity so the frozen buffer is right-sized.
-    let _unused = uncompressed_bytes.split_off(len);
 
     match_each_integer_ptype!(lens_array.ptype(), |P| {
         let lens = lens_array.as_slice::<P>();
