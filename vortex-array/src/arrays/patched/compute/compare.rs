@@ -12,6 +12,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayParts;
 use crate::arrays::patched::patch_lanes;
 use crate::arrays::primitive::NativeValue;
@@ -28,6 +29,12 @@ impl CompareKernel for Patched {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // We only accelerate comparisons for primitives
+        if !lhs.dtype().is_primitive() {
+            return Ok(None);
+        }
+
+        // We only accelerate comparisons against constants
         let Some(constant) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -87,9 +94,10 @@ impl CompareKernel for Patched {
 
         let lane_offsets = lhs.lane_offsets.as_host().reinterpret::<u32>();
         let indices = lhs.indices.as_host().reinterpret::<u16>();
+        let values = lhs.values.clone().execute::<PrimitiveArray>(ctx)?;
 
-        match_each_native_ptype!(lhs.values_ptype, |V| {
-            let values = lhs.values.as_host().reinterpret::<V>();
+        match_each_native_ptype!(values.ptype(), |V| {
+            let values = values.as_slice::<V>();
             let constant = constant
                 .as_primitive()
                 .as_::<V>()

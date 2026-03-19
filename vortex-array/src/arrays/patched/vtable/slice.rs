@@ -45,7 +45,6 @@ impl SliceReduce for Patched {
                 lane_offsets: sliced_lane_offsets,
                 indices: array.indices.clone(),
                 values: array.values.clone(),
-                values_ptype: array.values_ptype,
                 stats_set: ArrayStats::default(),
             }
             .into_array(),
@@ -93,6 +92,7 @@ mod tests {
             @r#"
             root: vortex.patched(u16, len=9)
               inner: vortex.primitive(u16, len=512)
+              patch_values: vortex.primitive(u16, len=3)
             "#);
 
         let executed = sliced.execute::<Canonical>(&mut ctx)?.into_primitive();
