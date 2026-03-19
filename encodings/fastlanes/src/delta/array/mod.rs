@@ -3,6 +3,7 @@
 
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -12,7 +13,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 pub mod delta_compress;
 pub mod delta_decompress;
@@ -90,50 +91,37 @@ impl DeltaArray {
         offset: usize,
         logical_len: usize,
     ) -> VortexResult<Self> {
-        if offset >= 1024 {
-            vortex_bail!("offset must be less than 1024: {}", offset);
-        }
-        if offset + logical_len > deltas.len() {
-            vortex_bail!(
-                "offset + logical_len, {} + {}, must be less than or equal to the size of deltas: {}",
-                offset,
-                logical_len,
-                deltas.len()
-            )
-        }
-        if !bases.dtype().eq_ignore_nullability(deltas.dtype()) {
-            vortex_bail!(
-                "DeltaArray: bases and deltas must have the same dtype, got {:?} and {:?}",
-                bases.dtype(),
-                deltas.dtype()
-            );
-        }
-        let DType::Primitive(ptype, _) = bases.dtype().clone() else {
-            vortex_bail!(
-                "DeltaArray: dtype must be an integer, got {}",
-                bases.dtype()
-            );
-        };
+        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
+        vortex_ensure!(
+            offset + logical_len <= deltas.len(),
+            "offset + logical_len, {offset} + {logical_len}, must be less than or equal to the size of deltas: {}",
+            deltas.len()
+        );
+        vortex_ensure!(
+            bases.dtype().eq_ignore_nullability(deltas.dtype()),
+            "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
+            bases.dtype(),
+            deltas.dtype()
+        );
 
-        if !ptype.is_int() {
-            vortex_bail!("DeltaArray: ptype must be an integer, got {}", ptype);
-        }
+        vortex_ensure!(
+            bases.dtype().is_int(),
+            "DeltaArray: dtype must be an integer, got {}",
+            bases.dtype()
+        );
 
-        let lanes = lane_count(ptype);
+        let lanes = lane_count(bases.dtype().as_ptype());
 
-        if !deltas.len().is_multiple_of(1024) {
-            vortex_bail!(
-                "deltas length ({}) must be a multiple of 1024",
-                deltas.len(),
-            );
-        }
-        if !bases.len().is_multiple_of(lanes) {
-            vortex_bail!(
-                "bases length ({}) must be a multiple of LANES ({})",
-                bases.len(),
-                lanes,
-            );
-        }
+        vortex_ensure!(
+            deltas.len().is_multiple_of(1024),
+            "deltas length ({}) must be a multiple of 1024",
+            deltas.len(),
+        );
+        vortex_ensure!(
+            bases.len().is_multiple_of(lanes),
+            "bases length ({}) must be a multiple of LANES ({lanes})",
+            bases.len(),
+        );
 
         // SAFETY: validation done above
         Ok(unsafe { Self::new_unchecked(bases, deltas, offset, logical_len) })
@@ -166,9 +154,7 @@ impl DeltaArray {
     }
 
     pub(crate) fn lanes(&self) -> usize {
-        let ptype =
-            PType::try_from(self.dtype()).vortex_expect("DeltaArray DType must be primitive");
-        lane_count(ptype)
+        lane_count(self.dtype().as_ptype())
     }
 
     #[inline]
