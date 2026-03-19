@@ -16,7 +16,7 @@ checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
 dependencies = [
  "cfg-if",
  "cipher",
- "cpufeatures",
+ "cpufeatures 0.2.17",
 ]
 
 [[package]]
@@ -827,8 +827,13 @@ dependencies = [
  "arrayvec",
  "cc",
  "cfg-if",
+<<<<<<< HEAD
  "constant_time_eq",
  "cpufeatures",
+=======
+ "constant_time_eq 0.4.2",
+ "cpufeatures 0.2.17",
+>>>>>>> b256ccfb7 (imports)
 ]
 
 [[package]]
@@ -1123,6 +1128,17 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "chacha20"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "rand_core 0.10.0",
+]
 
 [[package]]
 name = "chrono"
@@ -1583,6 +1599,33 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "cpufeatures"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "crc"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d"
+dependencies = [
+ "crc-catalog",
+]
+
+[[package]]
+name = "crc-catalog"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
+
+[[package]]
+>>>>>>> b256ccfb7 (imports)
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4041,6 +4084,7 @@ dependencies = [
  "js-sys",
  "libc",
  "r-efi 6.0.0",
+ "rand_core 0.10.0",
  "wasip2",
  "wasip3",
  "wasm-bindgen",
@@ -7142,6 +7186,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc266eb313df6c5c09c1c7b1fbe2510961e5bcd3add930c1e31f7ed9da0feff8"
 dependencies = [
+ "chacha20",
  "getrandom 0.4.2",
  "rand_core 0.10.0",
 ]
@@ -7246,7 +7291,7 @@ dependencies = [
  "clap",
  "indicatif",
  "lance-bench",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rand_distr 0.6.0",
  "tokio",
  "vortex-bench",
@@ -8187,7 +8232,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest",
 ]
 
@@ -8198,7 +8243,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest",
 ]
 
@@ -9681,7 +9726,7 @@ dependencies = [
  "fastlanes",
  "mimalloc",
  "parquet",
- "rand 0.9.2",
+ "rand 0.10.0",
  "serde_json",
  "tokio",
  "tracing",
@@ -9724,7 +9769,7 @@ dependencies = [
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rstest",
  "rustc-hash",
  "vortex-array",
@@ -9759,7 +9804,7 @@ dependencies = [
  "enum-iterator",
  "flatbuffers",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "goldenfile",
  "half",
  "humansize",
@@ -9775,7 +9820,7 @@ dependencies = [
  "pin-project-lite",
  "primitive-types",
  "prost 0.14.3",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rand_distr 0.6.0",
  "rstest",
  "rstest_reuse",
@@ -9822,7 +9867,7 @@ dependencies = [
  "noodles-vcf",
  "parking_lot",
  "parquet",
- "rand 0.9.2",
+ "rand 0.10.0",
  "regex",
  "reqwest 0.12.28",
  "serde",
@@ -9849,11 +9894,11 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "enum-iterator",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "itertools 0.14.0",
  "num-traits",
  "pco",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rstest",
  "rustc-hash",
  "test-with",
@@ -10113,7 +10158,7 @@ dependencies = [
  "lending-iterator",
  "num-traits",
  "prost 0.14.3",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rstest",
  "vortex-alp",
  "vortex-array",
@@ -10151,7 +10196,7 @@ dependencies = [
  "bytes",
  "flatbuffers",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "itertools 0.14.0",
  "kanal",
  "moka",
@@ -10204,7 +10249,7 @@ dependencies = [
  "codspeed-divan-compat",
  "fsst-rs",
  "prost 0.14.3",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rstest",
  "vortex-array",
  "vortex-buffer",
@@ -10249,7 +10294,7 @@ dependencies = [
  "bytes",
  "custom-labels",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "glob",
  "handle",
  "itertools 0.14.0",
@@ -10361,7 +10406,7 @@ dependencies = [
 name = "vortex-metrics"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "parking_lot",
  "sketches-ddsketch 0.4.0",
 ]
@@ -10433,7 +10478,7 @@ dependencies = [
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rstest",
  "vortex-array",
  "vortex-buffer",

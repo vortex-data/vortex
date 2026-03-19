@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::ArrayRef;

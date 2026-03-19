@@ -3,7 +3,7 @@
 #![expect(clippy::unwrap_used)]
 
 use num_traits::NumCast;
-use rand::Rng;
+use rand::RngExt;
 use rand::rngs::StdRng;
 use vortex_alp::ALPArray;
 use vortex_alp::alp_encode;

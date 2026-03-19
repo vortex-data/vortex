@@ -88,7 +88,7 @@ pub(crate) fn fsst_decode_views(
 mod tests {
     use std::sync::LazyLock;
 
-    use rand::Rng;
+    use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;

@@ -886,7 +886,7 @@ mod tests {
     use std::iter;
 
     use itertools::Itertools;
-    use rand::RngCore;
+    use rand::Rng;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex_array::DynArray;
@@ -1074,6 +1074,9 @@ mod tests {
 mod scheme_selection_tests {
     use std::iter;
 
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
@@ -1148,10 +1151,6 @@ mod scheme_selection_tests {
 
     #[test]
     fn test_dict_compressed() -> VortexResult<()> {
-        use rand::RngCore;
-        use rand::SeedableRng;
-        use rand::rngs::StdRng;
-
         let mut codes = Vec::with_capacity(65_535);
         let numbers: Vec<i32> = [0, 10, 50, 100, 1000, 3000]
             .into_iter()
