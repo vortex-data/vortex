@@ -10,7 +10,7 @@ mod benchmarks {
     use divan::Bencher;
     use divan::counter::BytesCount;
     use divan::counter::ItemsCount;
-    use rand::Rng;
+    use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;

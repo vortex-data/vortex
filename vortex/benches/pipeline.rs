@@ -116,7 +116,7 @@
 
 use divan::Bencher;
 use fastlanes::BitPacking;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_alp::ALPFloat;

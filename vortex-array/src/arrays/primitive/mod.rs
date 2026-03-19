@@ -8,8 +8,6 @@ pub use array::chunk_range;
 pub use array::patch_chunk;
 
 pub(crate) mod compute;
-pub use compute::IS_CONST_LANE_WIDTH;
-pub use compute::compute_is_constant;
 
 mod vtable;
 pub use compute::rules::PrimitiveMaskedValidityRule;

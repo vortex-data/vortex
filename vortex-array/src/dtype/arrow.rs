@@ -210,6 +210,14 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
 
 impl FromArrowType<&Field> for DType {
     fn from_arrow(field: &Field) -> Self {
+        if field
+            .metadata()
+            .get("ARROW:extension:name")
+            .map(|s| s.as_str())
+            == Some("arrow.parquet.variant")
+        {
+            return DType::Variant(field.is_nullable().into());
+        }
         Self::from_arrow((field.data_type(), field.is_nullable().into()))
     }
 }
@@ -227,11 +235,23 @@ impl DType {
 
         let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
         for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-            builder.push(FieldRef::from(Field::new(
-                field_name.as_ref(),
-                field_dtype.to_arrow_dtype()?,
-                field_dtype.is_nullable(),
-            )));
+            let field = if field_dtype.is_variant() {
+                let storage = DataType::Struct(variant_storage_fields_minimal());
+                Field::new(field_name.as_ref(), storage, field_dtype.is_nullable()).with_metadata(
+                    [(
+                        "ARROW:extension:name".to_owned(),
+                        "arrow.parquet.variant".to_owned(),
+                    )]
+                    .into(),
+                )
+            } else {
+                Field::new(
+                    field_name.as_ref(),
+                    field_dtype.to_arrow_dtype()?,
+                    field_dtype.is_nullable(),
+                )
+            };
+            builder.push(field);
         }
 
         Ok(builder.finish())
@@ -300,6 +320,9 @@ impl DType {
 
                 DataType::Struct(Fields::from(fields))
             }
+            DType::Variant(_) => vortex_bail!(
+                "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
+            ),
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
                 if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
@@ -330,6 +353,13 @@ impl DType {
             }
         })
     }
+}
+
+fn variant_storage_fields_minimal() -> Fields {
+    Fields::from(vec![
+        Field::new("metadata", DataType::Binary, false),
+        Field::new("value", DataType::Binary, true),
+    ])
 }
 
 #[cfg(test)]
@@ -400,6 +430,15 @@ mod test {
     }
 
     #[test]
+    fn test_variant_dtype_to_arrow_dtype_errors() {
+        let err = DType::Variant(Nullability::NonNullable)
+            .to_arrow_dtype()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Variant"));
+    }
+
+    #[test]
     fn infer_nullable_list_element() {
         let list_non_nullable = DType::List(
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
@@ -453,6 +492,25 @@ mod test {
                 Field::new("field_c", DataType::Int32, true),
             ]))
         );
+    }
+
+    #[test]
+    fn test_schema_variant_field_metadata() {
+        let dtype = DType::struct_(
+            [("v", DType::Variant(Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+        let schema = dtype.to_arrow_schema().unwrap();
+        let field = schema.field(0);
+        assert_eq!(
+            field
+                .metadata()
+                .get("ARROW:extension:name")
+                .map(|s| s.as_str()),
+            Some("arrow.parquet.variant")
+        );
+        assert!(matches!(field.data_type(), DataType::Struct(_)));
+        assert!(!field.is_nullable());
     }
 
     #[rstest]

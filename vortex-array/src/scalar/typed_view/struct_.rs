@@ -114,7 +114,6 @@ impl Hash for StructScalar<'_> {
 
 impl<'a> StructScalar<'a> {
     /// Creates a new [`StructScalar`] from a [`DType`] and optional [`ScalarValue`].
-    #[inline]
     pub(crate) fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Struct(..)) {
             vortex_bail!("Expected struct scalar, found {}", dtype)
@@ -324,8 +323,7 @@ impl Scalar {
         children: impl IntoIterator<Item = Scalar>,
     ) -> Self {
         let value_children: Vec<_> = children.into_iter().map(|s| s.into_value()).collect();
-        Self::try_new(dtype, Some(ScalarValue::List(value_children)))
-            .vortex_expect("unable to construct a struct `Scalar`")
+        unsafe { Self::new_unchecked(dtype, Some(ScalarValue::List(value_children))) }
     }
 }
 

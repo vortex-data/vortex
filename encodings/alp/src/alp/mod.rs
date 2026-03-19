@@ -15,7 +15,7 @@ use num_traits::ToPrimitive;
 
 mod array;
 mod compress;
-mod compute;
+pub(crate) mod compute;
 mod decompress;
 mod ops;
 mod rules;

@@ -97,7 +97,7 @@ jobs:
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1

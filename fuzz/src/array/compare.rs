@@ -134,14 +134,15 @@ pub fn compare_canonical_array(
             let scalar_vals: Vec<Scalar> = (0..array.len())
                 .map(|i| array.scalar_at(i).vortex_expect("scalar_at"))
                 .collect();
-            BoolArray::from_iter(
-                scalar_vals
-                    .iter()
-                    .map(|v| scalar_cmp(v, value, operator).as_bool().value()),
-            )
+            BoolArray::from_iter(scalar_vals.iter().map(|v| {
+                scalar_cmp(v, value, operator)
+                    .vortex_expect("tried to compare different typed scalars")
+                    .as_bool()
+                    .value()
+            }))
             .into_array()
         }
-        d @ (DType::Null | DType::Extension(_)) => {
+        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

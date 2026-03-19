@@ -20,6 +20,7 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::StructScalar;
 use crate::scalar::Utf8Scalar;
+use crate::scalar::VariantScalar;
 
 impl Scalar {
     /// Returns a view of the scalar as a boolean scalar.
@@ -153,6 +154,21 @@ impl Scalar {
         // for this extension type.
         Some(ExtScalar::new_unchecked(self.dtype(), self.value()))
     }
+
+    /// Returns a view of the scalar as a variant scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar does not have a [`Variant`](crate::dtype::DType::Variant) type.
+    pub fn as_variant(&self) -> VariantScalar<'_> {
+        self.as_variant_opt()
+            .vortex_expect("Failed to convert scalar to variant")
+    }
+
+    /// Returns a view of the scalar as a variant scalar if it has a variant type.
+    pub fn as_variant_opt(&self) -> Option<VariantScalar<'_>> {
+        VariantScalar::try_new(self.dtype(), self.value()).ok()
+    }
 }
 
 impl ScalarValue {
@@ -253,6 +269,24 @@ impl ScalarValue {
         match self {
             ScalarValue::List(elements) => elements,
             _ => vortex_panic!("ScalarValue is not a List"),
+        }
+    }
+
+    /// Returns the row-specific scalar wrapped by a variant, panicking if the value is not a
+    /// variant.
+    pub fn as_variant(&self) -> &Scalar {
+        match self {
+            ScalarValue::Variant(value) => value,
+            _ => vortex_panic!("ScalarValue is not a Variant"),
+        }
+    }
+
+    /// Returns the row-specific scalar wrapped by a variant, panicking if the value is not a
+    /// variant.
+    pub fn into_variant(self) -> Scalar {
+        match self {
+            ScalarValue::Variant(value) => *value,
+            _ => vortex_panic!("ScalarValue is not a Variant"),
         }
     }
 }

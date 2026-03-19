@@ -6,10 +6,11 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::StructArray;
-use vortex_array::compute::sum;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -79,6 +80,15 @@ impl ZoneMap {
                     .iter()
                     .filter_map(|stat| {
                         stat.dtype(column_dtype)
+                            .or_else(|| {
+                                // Backward compat: older files may have stored stats (e.g. Sum)
+                                // for extension types by resolving through the storage dtype.
+                                if let DType::Extension(ext) = column_dtype {
+                                    stat.dtype(ext.storage_dtype())
+                                } else {
+                                    None
+                                }
+                            })
                             .map(|dtype| (stat, dtype.as_nullable()))
                     })
                     .flat_map(|(s, dt)| match s {
@@ -108,7 +118,7 @@ impl ZoneMap {
     }
 
     /// Returns an aggregated stats set for the table.
-    pub fn to_stats_set(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
+    pub fn to_stats_set(&self, stats: &[Stat], ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
             let Some(array) = self.get_stat(stat)? else {
@@ -127,7 +137,7 @@ impl ZoneMap {
                 }
                 // These stats sum up
                 Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
-                    if let Some(sum_value) = sum(&array)?
+                    if let Some(sum_value) = sum(&array, ctx)?
                         .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
                         .into_value()
                     {

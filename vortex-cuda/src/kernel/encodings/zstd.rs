@@ -17,6 +17,7 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
+use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
@@ -325,13 +326,14 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         .indices()
     {
         AllOr::All => {
-            let all_views = vortex::encodings::zstd::reconstruct_views(&host_buffer);
+            let (buffers, all_views) =
+                vortex::encodings::zstd::reconstruct_views(&host_buffer, MAX_BUFFER_LEN);
             let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
 
             Ok(Canonical::VarBinView(unsafe {
                 VarBinViewArray::new_unchecked(
                     sliced_views,
-                    Arc::from([host_buffer]),
+                    Arc::from(buffers),
                     dtype,
                     sliced_validity,
                 )

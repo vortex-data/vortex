@@ -64,6 +64,7 @@ mod tests {
     use arrow_array::types::Int64Type;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use rstest::rstest;
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
@@ -251,19 +252,37 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_sliced_runend_to_arrow_ree() -> VortexResult<()> {
-        let array = RunEndArray::encode(
-            PrimitiveArray::from_iter(vec![10i32, 10, 20, 20, 20, 30, 30]).into_array(),
-        )?;
-        // Slicing from index 1 produces a non-zero offset in the RunEndArray.
-        let sliced = array.into_array().slice(1..5)?;
+    /// Slicing a RunEndArray and converting to Arrow REE must produce
+    /// correctly trimmed and adjusted run ends for both zero and non-zero offsets.
+    #[rstest]
+    #[case::nonzero_offset(
+        &[10i32, 10, 20, 20, 20, 30, 30],
+        1..5usize,
+        &[1i32, 4],
+        &[10i32, 20],
+    )]
+    #[case::zero_offset_excess_runs(
+        &[10i32, 10, 10, 20, 20, 30, 30, 30, 30, 30],
+        0..4usize,
+        &[3i32, 4],
+        &[10i32, 20],
+    )]
+    fn sliced_runend_to_arrow_ree(
+        #[case] input: &[i32],
+        #[case] slice_range: std::ops::Range<usize>,
+        #[case] expected_ends: &[i32],
+        #[case] expected_values: &[i32],
+    ) -> VortexResult<()> {
+        let array =
+            RunEndArray::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
+        let sliced = array.into_array().slice(slice_range.clone())?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(sliced, &target)?;
 
+        assert_eq!(result.len(), slice_range.len());
         let expected = RunArray::<Int32Type>::try_new(
-            &Int32Array::from(vec![1, 4]),
-            &Int32Array::from(vec![10, 20]),
+            &Int32Array::from(expected_ends.to_vec()),
+            &Int32Array::from(expected_values.to_vec()),
         )?;
         assert_eq!(result.as_ref(), &expected);
         Ok(())

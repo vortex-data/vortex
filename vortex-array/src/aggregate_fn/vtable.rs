@@ -60,14 +60,27 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         vortex_bail!("Aggregate function {} is not deserializable", self.id());
     }
 
+    /// Coerce the input type for this aggregate function.
+    ///
+    /// This is optionally used by Vortex users when performing type coercion over a Vortex
+    /// expression. The default implementation returns the input type unchanged.
+    fn coerce_args(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
+        let _ = options;
+        Ok(input_dtype.clone())
+    }
+
     /// The return [`DType`] of the aggregate.
-    fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
+    ///
+    /// Returns `None` if the aggregate function cannot be applied to the input dtype.
+    fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
 
     /// DType of the intermediate partial accumulator state.
     ///
     /// Use a struct dtype when multiple fields are needed
     /// (e.g., Mean: `Struct { sum: f64, count: u64 }`).
-    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
+    ///
+    /// Returns `None` if the aggregate function cannot be applied to the input dtype.
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
 
     /// Return the partial accumulator state for an empty group.
     fn empty_partial(
@@ -79,13 +92,14 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Combine partial scalar state into the accumulator.
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()>;
 
-    /// Flush the partial aggregate for the given accumulator state.
+    /// Convert the partial state into a partial scalar.
     ///
-    /// The returned scalar must have the same DType as specified by `state_dtype` for the
+    /// The returned scalar must have the same DType as specified by `partial_dtype` for the
     /// options and input dtype used to construct the state.
-    ///
-    /// The internal state of the accumulator is reset to the empty state after flushing.
-    fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar>;
+    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar>;
+
+    /// Reset the state of the accumulator to an empty group.
+    fn reset(&self, partial: &mut Self::Partial);
 
     /// Is the partial accumulator state is "saturated", i.e. has it reached a state where the
     /// final result is fully determined.
@@ -109,8 +123,9 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// The provided `state` has dtype as specified by `state_dtype`, the result scalar must have
     /// dtype as specified by `return_dtype`.
-    fn finalize_scalar(&self, state: Scalar) -> VortexResult<Scalar> {
-        let array = ConstantArray::new(state, 1).into_array();
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        let scalar = self.to_scalar(partial)?;
+        let array = ConstantArray::new(scalar, 1).into_array();
         let result = self.finalize(array)?;
         result.scalar_at(0)
     }

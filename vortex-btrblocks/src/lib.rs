@@ -18,6 +18,22 @@
 //! - **Statistical Analysis**: Uses data sampling and statistics to predict compression ratios
 //! - **Recursive Structure Handling**: Compresses nested structures like structs and lists
 //!
+//! # How It Works
+//!
+//! [`BtrBlocksCompressor::compress()`] takes an `&ArrayRef` and returns an `ArrayRef` that may
+//! use a different encoding. It first canonicalizes the input, then dispatches by type.
+//! Primitives go to a type-specific `Compressor` (integer, float, or string). Compound types
+//! like structs and lists recurse into their fields and elements.
+//!
+//! Each type-specific compressor holds a static list of `Scheme` implementations (e.g.
+//! BitPacking, ALP, Dict). There is no dynamic registry. The compressor evaluates each scheme by
+//! compressing a ~1% sample and measuring the ratio, then picks the best. See `SchemeExt` for
+//! details on how sampling works.
+//!
+//! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
+//! up to `MAX_CASCADE` (3) layers deep. An `Excludes` set prevents the same scheme from being
+//! applied twice in a chain.
+//!
 //! # Example
 //!
 //! ```rust

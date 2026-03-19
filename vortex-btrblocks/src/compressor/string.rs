@@ -8,7 +8,10 @@ use enum_iterator::Sequence;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MaskedArray;
@@ -16,7 +19,6 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::dict::dict_encode;
-use vortex_array::compute::is_constant;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
@@ -413,8 +415,9 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         if stats.estimated_distinct_count > 1
-            || !is_constant(&stats.src.clone().into_array())?.unwrap_or(false)
+            || !is_constant(&stats.src.clone().into_array(), &mut ctx)?
         {
             return Ok(0.0);
         }

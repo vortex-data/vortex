@@ -167,7 +167,7 @@ impl SegmentSource for FileSegmentSource {
 
         let fut = ReadFuture {
             id,
-            recv,
+            recv: recv.into_future(),
             polled: false,
             finished: false,
             events: self.events.clone(),
@@ -184,7 +184,7 @@ impl SegmentSource for FileSegmentSource {
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,
-    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
+    recv: oneshot::AsyncReceiver<VortexResult<BufferHandle>>,
     polled: bool,
     finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
