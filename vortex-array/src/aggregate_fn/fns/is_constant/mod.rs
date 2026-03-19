@@ -10,6 +10,7 @@ pub mod primitive;
 mod struct_;
 mod varbin;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -234,9 +235,10 @@ impl IsConstantPartial {
     }
 }
 
+static NAMES: std::sync::LazyLock<FieldNames> =
+    std::sync::LazyLock::new(|| FieldNames::from(["is_constant", "value"]));
+
 pub fn make_is_constant_partial_dtype(element_dtype: &DType) -> DType {
-    static NAMES: std::sync::LazyLock<FieldNames> =
-        std::sync::LazyLock::new(|| FieldNames::from(["is_constant", "value"]));
     DType::Struct(
         StructFields::new(
             NAMES.clone(),
@@ -409,8 +411,7 @@ impl AggregateFnVTable for IsConstant {
     }
 
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
-        // TODO: extract is_constant field from struct array
-        Ok(partials)
+        partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
     }
 
     fn finalize_scalar(&self, partial: Scalar) -> VortexResult<Scalar> {
