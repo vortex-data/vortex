@@ -15,7 +15,7 @@ use arrow_schema::Fields;
 use arrow_schema::Schema;
 use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 

@@ -198,8 +198,8 @@ pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
 pyo3-object_store = "0.10.0"
 quote = "1.0.41"
-rand = "0.9.0"
-rand_distr = "0.5"
+rand = "0.10.0"
+rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
 regex-automata = "0.4"
@@ -299,7 +299,7 @@ vortex-tui = { path = "./vortex-tui" }
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
 package = "getrandom"
-version = "0.3.1"
+version = "0.4.0"
 
 [workspace.lints.rust]
 let_underscore_drop = "deny"

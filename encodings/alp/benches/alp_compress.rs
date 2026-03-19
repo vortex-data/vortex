@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng as _;
 use rand::rngs::StdRng;
 use vortex_alp::ALPFloat;
