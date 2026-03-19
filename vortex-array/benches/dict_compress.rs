@@ -12,7 +12,6 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
-
 use vortex_array::dtype::NativePType;
 
 fn main() {

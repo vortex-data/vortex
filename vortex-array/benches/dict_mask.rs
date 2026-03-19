@@ -13,7 +13,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
-
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 

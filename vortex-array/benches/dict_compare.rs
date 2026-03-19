@@ -17,7 +17,6 @@ use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::builtins::ArrayBuiltins;
-
 use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;

@@ -11,7 +11,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 
-
 fn main() {
     divan::main();
 }
