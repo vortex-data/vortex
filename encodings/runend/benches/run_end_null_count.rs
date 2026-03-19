@@ -10,12 +10,10 @@ use rand::rngs::StdRng;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::warm_up_vtables;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
 
 fn main() {
-    warm_up_vtables();
     divan::main();
 }
 

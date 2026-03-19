@@ -19,7 +19,6 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
@@ -30,7 +29,6 @@ use vortex_fsst::fsst_train_compressor;
 use vortex_session::VortexSession;
 
 fn main() {
-    warm_up_vtables();
     divan::main();
 }
 

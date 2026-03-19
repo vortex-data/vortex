@@ -9686,8 +9686,6 @@ pub fn vortex_array::compute::nan_count(array: &vortex_array::ArrayRef) -> vorte
 
 pub fn vortex_array::compute::sum(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::compute::warm_up_vtables()
-
 pub mod vortex_array::display
 
 pub enum vortex_array::display::DisplayOptions

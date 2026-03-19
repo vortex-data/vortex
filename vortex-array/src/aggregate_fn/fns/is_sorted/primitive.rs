@@ -7,38 +7,9 @@ use vortex_mask::Mask;
 
 use super::IsSortedIteratorExt;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
-
-#[derive(Copy, Clone)]
-pub(super) struct ComparablePrimitive<T: NativePType>(T);
-
-impl<T> From<&T> for ComparablePrimitive<T>
-where
-    T: NativePType,
-{
-    fn from(value: &T) -> Self {
-        Self(*value)
-    }
-}
-
-impl<T> PartialOrd for ComparablePrimitive<T>
-where
-    T: NativePType,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.0.total_compare(other.0))
-    }
-}
-
-impl<T> PartialEq for ComparablePrimitive<T>
-where
-    T: NativePType,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.0.is_eq(other.0)
-    }
-}
 
 pub(super) fn check_primitive_sorted(array: &PrimitiveArray, strict: bool) -> VortexResult<bool> {
     match_each_native_ptype!(array.ptype(), |P| { compute_is_sorted::<P>(array, strict) })
@@ -49,7 +20,7 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let slice = array.as_slice::<T>();
-            let iter = slice.iter().map(ComparablePrimitive::from);
+            let iter = slice.iter().copied().map(NativeValue);
 
             Ok(if strict {
                 iter.is_strict_sorted()
@@ -62,7 +33,7 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
                 .bit_buffer()
                 .iter()
                 .zip_eq(array.as_slice::<T>())
-                .map(|(is_valid, value)| is_valid.then_some(ComparablePrimitive::from(value)));
+                .map(|(is_valid, value)| is_valid.then_some(NativeValue(*value)));
 
             Ok(if strict {
                 iter.is_strict_sorted()
