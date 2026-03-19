@@ -6,12 +6,14 @@ use std::sync::LazyLock;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use rstest::rstest;
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -51,17 +53,17 @@ fn escaped(bytes: &[u8]) -> Vec<u8> {
 #[test]
 fn test_like_kind_parse() {
     assert!(matches!(
-        LikeKind::parse("http%"),
-        Some(LikeKind::Prefix("http"))
+        LikeKind::parse(b"http%"),
+        Some(LikeKind::Prefix(b"http"))
     ));
     assert!(matches!(
-        LikeKind::parse("%needle%"),
-        Some(LikeKind::Contains("needle"))
+        LikeKind::parse(b"%needle%"),
+        Some(LikeKind::Contains(b"needle"))
     ));
-    assert!(matches!(LikeKind::parse("%"), Some(LikeKind::Prefix(""))));
+    assert!(matches!(LikeKind::parse(b"%"), Some(LikeKind::Prefix(b""))));
     // Suffix and underscore patterns are not supported.
-    assert!(LikeKind::parse("%suffix").is_none());
-    assert!(LikeKind::parse("a_c").is_none());
+    assert!(LikeKind::parse(b"%suffix").is_none());
+    assert!(LikeKind::parse(b"a_c").is_none());
 }
 
 /// No symbols — all bytes escaped. Simplest case to see the two tables.
@@ -144,7 +146,7 @@ fn test_prefix_dfa_longer() -> VortexResult<()> {
 
 #[test]
 fn test_prefix_pushdown_len_13_with_escapes() {
-    let matcher = FsstMatcher::try_new(&[], &[], "abcdefghijklm%")
+    let matcher = FsstMatcher::try_new(&[], &[], b"abcdefghijklm%")
         .unwrap()
         .unwrap();
 
@@ -156,7 +158,7 @@ fn test_prefix_pushdown_len_13_with_escapes() {
 fn test_prefix_pushdown_len_14_now_handled() {
     // 14-byte prefix is now handled by FlatPrefixDfa (was rejected by shift-packed).
     assert!(
-        FsstMatcher::try_new(&[], &[], "abcdefghijklmn%")
+        FsstMatcher::try_new(&[], &[], b"abcdefghijklmn%")
             .unwrap()
             .is_some()
     );
@@ -166,7 +168,7 @@ fn test_prefix_pushdown_len_14_now_handled() {
 fn test_prefix_pushdown_long_prefix() -> VortexResult<()> {
     let prefix = "a".repeat(FlatPrefixDfa::MAX_PREFIX_LEN);
     let pattern = format!("{prefix}%");
-    let matcher = FsstMatcher::try_new(&[], &[], &pattern)?.unwrap();
+    let matcher = FsstMatcher::try_new(&[], &[], pattern.as_bytes())?.unwrap();
 
     assert!(matcher.matches(&escaped(prefix.as_bytes())));
 
@@ -182,14 +184,20 @@ fn test_prefix_pushdown_rejects_len_254() {
     debug_assert_eq!(FlatPrefixDfa::MAX_PREFIX_LEN, 253);
     let prefix = "a".repeat(254);
     let pattern = format!("{prefix}%");
-    assert!(FsstMatcher::try_new(&[], &[], &pattern).unwrap().is_none());
+    assert!(
+        FsstMatcher::try_new(&[], &[], pattern.as_bytes())
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
 fn test_contains_pushdown_len_254_with_escapes() {
     let needle = "a".repeat(FlatContainsDfa::MAX_NEEDLE_LEN);
     let pattern = format!("%{needle}%");
-    let matcher = FsstMatcher::try_new(&[], &[], &pattern).unwrap().unwrap();
+    let matcher = FsstMatcher::try_new(&[], &[], pattern.as_bytes())
+        .unwrap()
+        .unwrap();
 
     assert!(matcher.matches(&escaped(needle.as_bytes())));
 
@@ -202,14 +210,18 @@ fn test_contains_pushdown_len_254_with_escapes() {
 fn test_contains_pushdown_rejects_len_255() {
     let needle = "a".repeat(FlatContainsDfa::MAX_NEEDLE_LEN + 1);
     let pattern = format!("%{needle}%");
-    assert!(FsstMatcher::try_new(&[], &[], &pattern).unwrap().is_none());
+    assert!(
+        FsstMatcher::try_new(&[], &[], pattern.as_bytes())
+            .unwrap()
+            .is_none()
+    );
 }
 
 // ---------------------------------------------------------------------------
 // End-to-end edge cases: FSST compress → LIKE → compare booleans
 // ---------------------------------------------------------------------------
 
-fn make_fsst(strings: &[Option<&str>]) -> FSSTArray {
+fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
     let varbin = VarBinArray::from_iter(
         strings.iter().copied(),
         DType::Utf8(Nullability::NonNullable),
@@ -218,13 +230,9 @@ fn make_fsst(strings: &[Option<&str>]) -> FSSTArray {
     fsst_compress(varbin, &compressor)
 }
 
-fn run_like(array: FSSTArray, pattern: &str) -> VortexResult<BoolArray> {
-    use vortex_array::ArrayRef;
-    use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-
+fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {
     let len = array.len();
     let arr: ArrayRef = array.into_array();
-    let pattern_arr = ConstantArray::new(pattern, len).into_array();
     let result = Like
         .try_new_array(len, LikeOptions::default(), [arr, pattern_arr])?
         .into_array()
@@ -267,14 +275,42 @@ fn run_like(array: FSSTArray, pattern: &str) -> VortexResult<BoolArray> {
 // Prefix that shares chars with rest of string
 #[case(&["abab", "abba", "abcd"], "ab%", &[true, true, true])]
 #[case(&["abab", "abba", "abcd", "ba"], "ab%", &[true, true, true, false])]
+// The string "aabaabaabaab" requires multi-level KMP fallback at the 'a' after "aabaabaab"
+#[case(&["aabaabaabaab", "aabaabaax", "xaabaabaab"], "%aabaabaab%", &[true, false, true])]
+#[case(&["café latte", "naïve approach", "café noir"], "café%", &[true, false, true])]
+#[case(&["日本語テスト", "日本語データ", "英語テスト"], "%日本語%", &[true, true, false])]
+// 10-byte needle, contains: match at start, middle, end, exact, and near-miss
+#[case(
+    &["abcdefghijxxx", "xxxabcdefghij", "xxabcdefghijxx", "abcdefghij", "abcdefghxx"],
+    "%abcdefghij%",
+    &[true, true, true, true, false]
+)]
+// 10-byte prefix: same needle but anchored at the start of the string
+#[case(
+    &["abcdefghijxxx", "abcdefghij", "xabcdefghij", "abcdefghxx"],
+    "abcdefghij%",
+    &[true, true, false, false]
+)]
+// 9-byte needle with KMP-relevant overlap ("abcabcabc"):
+// failure table = [0,0,0,1,2,3,4,5,6], so a partial match of "abcabcab"
+// followed by a mismatch must fall back to state 5 ("abcab"), not restart.
+// This exercises multi-level KMP backtracking across symbol boundaries.
+#[case(
+    &["xxabcabcabcxx", "abcabcabc", "abcabcabx", "abcabcxx"],
+    "%abcabcabc%",
+    &[true, true, false, false]
+)]
 fn test_like_edge_cases(
     #[case] strings: &[&str],
     #[case] pattern: &str,
     #[case] expected: &[bool],
 ) -> VortexResult<()> {
     let opts: Vec<Option<&str>> = strings.iter().map(|s| Some(*s)).collect();
-    let fsst = make_fsst(&opts);
-    let result = run_like(fsst, pattern)?;
+    let fsst_arr = make_fsst_str(&opts);
+    let result = run_like(
+        fsst_arr,
+        ConstantArray::new(pattern, opts.len()).into_array(),
+    )?;
     let expected_arr = BoolArray::from_iter(expected.iter().copied());
     assert_arrays_eq!(&result, &expected_arr);
     Ok(())

@@ -33,7 +33,17 @@ impl LikeKernel for FSST {
             return Ok(None);
         }
 
-        let Some(pattern_str) = pattern_scalar.as_utf8().value() else {
+        let pattern_bytes: &[u8] = if let Some(s) = pattern_scalar.as_utf8_opt() {
+            let Some(v) = s.value() else {
+                return Ok(None);
+            };
+            v.as_ref()
+        } else if let Some(b) = pattern_scalar.as_binary_opt() {
+            let Some(v) = b.value() else {
+                return Ok(None);
+            };
+            v
+        } else {
             return Ok(None);
         };
 
@@ -41,7 +51,7 @@ impl LikeKernel for FSST {
         let symbol_lengths = array.symbol_lengths();
 
         let Some(matcher) =
-            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_str)?
+            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
         else {
             return Ok(None);
         };
@@ -73,9 +83,6 @@ impl LikeKernel for FSST {
 mod tests {
     use std::sync::LazyLock;
 
-    use rand::Rng;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;

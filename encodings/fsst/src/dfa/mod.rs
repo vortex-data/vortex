@@ -163,23 +163,21 @@ impl FsstMatcher {
     pub(crate) fn try_new(
         symbols: &[Symbol],
         symbol_lengths: &[u8],
-        pattern: &str,
+        pattern: &[u8],
     ) -> VortexResult<Option<Self>> {
         let Some(like_kind) = LikeKind::parse(pattern) else {
             return Ok(None);
         };
 
         let inner = match like_kind {
-            LikeKind::Prefix("") | LikeKind::Contains("") => MatcherInner::MatchAll,
+            LikeKind::Prefix(b"") | LikeKind::Contains(b"") => MatcherInner::MatchAll,
             LikeKind::Prefix(prefix) => {
-                let prefix = prefix.as_bytes();
                 if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
                     return Ok(None);
                 }
                 MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix)?)
             }
             LikeKind::Contains(needle) => {
-                let needle = needle.as_bytes();
                 if needle.len() > FlatContainsDfa::MAX_NEEDLE_LEN {
                     return Ok(None);
                 }
@@ -203,23 +201,24 @@ impl FsstMatcher {
 /// The subset of LIKE patterns we can handle without decompression.
 enum LikeKind<'a> {
     /// `prefix%`
-    Prefix(&'a str),
+    Prefix(&'a [u8]),
     /// `%needle%`
-    Contains(&'a str),
+    Contains(&'a [u8]),
 }
 
 impl<'a> LikeKind<'a> {
-    fn parse(pattern: &'a str) -> Option<Self> {
+    fn parse(pattern: &'a [u8]) -> Option<Self> {
         // `prefix%` (including just `%` where prefix is empty)
-        if let Some(prefix) = pattern.strip_suffix('%')
-            && !prefix.contains(['%', '_'])
+        if let Some(prefix) = pattern.strip_suffix(&[b'%'])
+            && !prefix.contains(&b'%')
+            && !prefix.contains(&b'_')
         {
             return Some(LikeKind::Prefix(prefix));
         }
 
         // `%needle%`
-        let inner = pattern.strip_prefix('%')?.strip_suffix('%')?;
-        if !inner.contains(['%', '_']) {
+        let inner = pattern.strip_prefix(&[b'%'])?.strip_suffix(&[b'%'])?;
+        if !inner.contains(&b'%') && !inner.contains(&b'_') {
             return Some(LikeKind::Contains(inner));
         }
 

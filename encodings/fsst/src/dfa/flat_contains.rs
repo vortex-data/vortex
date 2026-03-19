@@ -12,7 +12,7 @@
 //!
 //! ### Step 1: KMP (Knuth–Morris–Pratt) byte-level transition table
 //!
-//! See: https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm
+//! See: <https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm>
 //!
 //! Build a `(state × byte) → state` table using the KMP failure function.
 //! States 0..2 track match progress, state 3 is accept (sticky).
