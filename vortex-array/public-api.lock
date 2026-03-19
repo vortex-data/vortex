@@ -2398,6 +2398,10 @@ impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Extens
 
 pub fn vortex_array::arrays::Extension::filter(array: &vortex_array::arrays::ExtensionArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::FixedSizeList
+
+pub fn vortex_array::arrays::FixedSizeList::filter(array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::filter(array: &vortex_array::arrays::MaskedArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2433,6 +2437,10 @@ pub fn vortex_array::arrays::FixedSizeList::fmt(&self, f: &mut core::fmt::Format
 impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::take(array: &vortex_array::arrays::FixedSizeListArray, indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::FixedSizeList
+
+pub fn vortex_array::arrays::FixedSizeList::filter(array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::FixedSizeList
 
@@ -6123,6 +6131,10 @@ pub fn vortex_array::arrays::FixedSizeList::fmt(&self, f: &mut core::fmt::Format
 impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::take(array: &vortex_array::arrays::FixedSizeListArray, indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::FixedSizeList
+
+pub fn vortex_array::arrays::FixedSizeList::filter(array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::FixedSizeList
 
