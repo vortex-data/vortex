@@ -433,13 +433,14 @@ impl Scheme for DictScheme {
         let has_all_values_referenced = dict.has_all_values_referenced();
         let DictArrayParts { codes, values, .. } = dict.into_parts();
 
+        // TODO(connor): This should probably be extending the `excludes` list.
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(codes.to_primitive()),
             ctx.descend(),
             Excludes::int_only(&[IntCode::Dict, IntCode::Sequence]),
         )?;
 
-        assert!(values.is_canonical());
+        // TODO(connor): This should probably be extending the `excludes` list.
         let compressed_values = compressor.compress_canonical(
             Canonical::Primitive(values.to_primitive()),
             ctx.descend(),

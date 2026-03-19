@@ -703,21 +703,32 @@ impl Scheme for DictScheme {
 
         let dict = dictionary_encode(stats);
 
-        // Cascade the codes child
-        // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.
-        let mut new_excludes = vec![IntCode::Dict, IntCode::Sequence];
-        new_excludes.extend_from_slice(excludes);
+        // Cascade the codes child.
+        // Don't allow SequenceArray as the codes child as it merely adds extra indirection without
+        // actually compressing data.
+        let mut codes_excludes = vec![IntCode::Dict, IntCode::Sequence];
+        codes_excludes.extend_from_slice(excludes);
 
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(dict.codes().to_primitive().narrow()?),
             ctx.descend(),
-            Excludes::int_only(&new_excludes),
+            Excludes::int_only(&codes_excludes),
         )?;
 
-        // SAFETY: compressing codes does not change their values
+        // Cascade the values child.
+        let mut values_excludes = vec![IntCode::Dict];
+        values_excludes.extend_from_slice(excludes);
+
+        let compressed_values = compressor.compress_canonical(
+            Canonical::Primitive(dict.values().to_primitive()),
+            ctx.descend(),
+            Excludes::int_only(&values_excludes),
+        )?;
+
+        // SAFETY: Compressing the arrays does not change their logical values.
         unsafe {
             Ok(
-                DictArray::new_unchecked(compressed_codes, dict.values().clone())
+                DictArray::new_unchecked(compressed_codes, compressed_values)
                     .set_all_values_referenced(dict.has_all_values_referenced())
                     .into_array(),
             )
