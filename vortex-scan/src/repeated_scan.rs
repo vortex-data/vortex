@@ -278,15 +278,12 @@ impl<A: 'static + Send> RepeatedScan<A> {
     ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
         let ctx = self.task_context();
         let concurrency = concurrency.max(1);
-        if matches!(self.materialization_plan, MaterializationPlan::Monolithic { .. }) {
+        if matches!(
+            self.materialization_plan,
+            MaterializationPlan::Monolithic { .. }
+        ) {
             let split_ranges = self.split_ranges(row_range)?.collect::<Vec<_>>();
-            return self.legacy_stream_from_ranges(
-                ctx,
-                split_ranges,
-                concurrency,
-                ordered,
-                handle,
-            );
+            return self.legacy_stream_from_ranges(ctx, split_ranges, concurrency, ordered, handle);
         }
 
         let filter_ahead = filter_ahead_for(concurrency, self.filter.is_some());

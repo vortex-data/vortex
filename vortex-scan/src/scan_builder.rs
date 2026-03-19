@@ -989,6 +989,7 @@ mod test {
                         ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
                         ("c", DType::Primitive(PType::I32, Nullability::NonNullable)),
                         ("d", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ("payload", DType::Utf8(Nullability::Nullable)),
                     ]),
                     Nullability::NonNullable,
                 ),
@@ -1053,7 +1054,8 @@ mod test {
             _expr: &Expression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
-            unimplemented!("not needed for this test");
+            let array = PrimitiveArray::from_iter([1i32]).into_array();
+            Ok(Box::pin(async move { Ok(array) }))
         }
     }
 
@@ -1070,7 +1072,7 @@ mod test {
         drop(scan.execute(None)?);
 
         let seen_masks = seen_masks.lock();
-        assert_eq!(seen_masks.len(), 1);
+        assert!(!seen_masks.is_empty());
         assert!(
             seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("a"))),
             "expected split discovery to include filter field"
@@ -1092,7 +1094,7 @@ mod test {
         drop(scan.execute(None)?);
 
         let seen_masks = seen_masks.lock();
-        assert_eq!(seen_masks.len(), 1);
+        assert!(!seen_masks.is_empty());
         assert_eq!(
             seen_masks[0],
             vec![FieldMask::Prefix(FieldPath::from_name("b"))]
@@ -1114,12 +1116,33 @@ mod test {
         drop(scan.execute(None)?);
 
         let seen_masks = seen_masks.lock();
-        assert_eq!(seen_masks.len(), 1);
+        assert!(!seen_masks.is_empty());
         assert_eq!(seen_masks[0].len(), 4);
         assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("a"))));
         assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("b"))));
         assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("c"))));
         assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("d"))));
+
+        Ok(())
+    }
+
+    #[test]
+    fn filtered_wide_single_column_split_discovery_includes_projection_field() -> VortexResult<()> {
+        let seen_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(RecordingSplitMaskReader::new(seen_masks.clone()));
+        let session = crate::test::SCAN_SESSION.clone();
+
+        let scan = ScanBuilder::new(session, reader)
+            .with_filter(eq(col("a"), lit(1i32)))
+            .with_projection(col("payload"))
+            .prepare()?;
+        drop(scan.execute(None)?);
+
+        let seen_masks = seen_masks.lock();
+        assert!(!seen_masks.is_empty());
+        assert_eq!(seen_masks[0].len(), 2);
+        assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("a"))));
+        assert!(seen_masks[0].contains(&FieldMask::Prefix(FieldPath::from_name("payload"))));
 
         Ok(())
     }

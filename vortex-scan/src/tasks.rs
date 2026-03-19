@@ -244,7 +244,10 @@ pub(super) fn split_exec<A: 'static + Send>(
     split: Range<u64>,
     limit: Option<&mut u64>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
-    if matches!(ctx.materialization_plan, MaterializationPlan::Monolithic { .. }) {
+    if matches!(
+        ctx.materialization_plan,
+        MaterializationPlan::Monolithic { .. }
+    ) {
         return split_exec_monolithic(ctx, split, limit);
     }
 
@@ -346,9 +349,11 @@ fn split_exec_monolithic<A: 'static + Send>(
         }
     };
 
-    let projection_fetch_hints =
-        ctx.materialization_plan
-            .fetch_hints(ctx.reader.as_ref(), &ctx.projection_field_mask, &row_range)?;
+    let projection_fetch_hints = ctx.materialization_plan.fetch_hints(
+        ctx.reader.as_ref(),
+        &ctx.projection_field_mask,
+        &row_range,
+    )?;
     let projection_field_count = projection_field_count(&ctx.materialization_plan, &ctx);
     let (projection_future, segment_request_count) = with_request_count_scope(|| {
         ctx.reader
@@ -372,7 +377,9 @@ fn split_exec_monolithic<A: 'static + Send>(
             metrics
                 .projection_fetch_hints
                 .update(projection_fetch_hints.len() as f64);
-            metrics.projection_fields.update(projection_field_count as f64);
+            metrics
+                .projection_fields
+                .update(projection_field_count as f64);
         }
 
         let array = projection_future.await?;
@@ -757,7 +764,7 @@ mod tests {
             segment_source: None,
         });
 
-        let _future = filter_split(ctx, 0..4, None).unwrap();
+        let _future = filter_split(ctx.clone(), 0..4, None).unwrap();
         assert_eq!(projection_calls.load(Ordering::Relaxed), 0);
 
         let result = block_on(split_exec(ctx, 0..4, None).unwrap()).unwrap();

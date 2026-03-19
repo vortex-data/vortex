@@ -57,6 +57,8 @@ impl MaterializationPlan {
         filter_field_names: &BTreeSet<FieldName>,
     ) -> Self {
         let projected_row_bytes = estimate_field_mask_row_bytes(dtype, projection_field_mask);
+        let projection_aligned_splits =
+            filter_present && projection_masks_include_wide_fields(dtype, projection_field_mask);
         if !filter_present {
             return Self::Monolithic {
                 projected_row_bytes,
@@ -67,20 +69,20 @@ impl MaterializationPlan {
         let Some(final_fields) = simple_root_projection_fields(projection, dtype) else {
             return Self::Monolithic {
                 projected_row_bytes,
-                projection_aligned_splits: false,
+                projection_aligned_splits,
             };
         };
         if final_fields.is_empty() || !final_fields.iter().all_unique() {
             return Self::Monolithic {
                 projected_row_bytes,
-                projection_aligned_splits: false,
+                projection_aligned_splits,
             };
         }
 
         let Some(struct_fields) = dtype.as_struct_fields_opt() else {
             return Self::Monolithic {
                 projected_row_bytes,
-                projection_aligned_splits: false,
+                projection_aligned_splits,
             };
         };
         if final_fields.len() == struct_fields.nfields()
@@ -101,7 +103,7 @@ impl MaterializationPlan {
             let Some(field_dtype) = struct_fields.field(name) else {
                 return Self::Monolithic {
                     projected_row_bytes,
-                    projection_aligned_splits: false,
+                    projection_aligned_splits,
                 };
             };
 
@@ -133,7 +135,7 @@ impl MaterializationPlan {
         if deferred_groups.is_empty() {
             return Self::Monolithic {
                 projected_row_bytes,
-                projection_aligned_splits: false,
+                projection_aligned_splits,
             };
         }
 
@@ -141,7 +143,7 @@ impl MaterializationPlan {
         if total_carry_cost == 0 || deferred_carry_cost.saturating_mul(2) < total_carry_cost {
             return Self::Monolithic {
                 projected_row_bytes,
-                projection_aligned_splits: false,
+                projection_aligned_splits,
             };
         }
 
@@ -220,6 +222,38 @@ impl DeferredFieldGroup {
     }
 }
 
+fn projection_masks_include_wide_fields(dtype: &DType, field_masks: &[FieldMask]) -> bool {
+    field_masks
+        .iter()
+        .any(|mask| mask_targets_wide_field(dtype, mask))
+}
+
+fn mask_targets_wide_field(dtype: &DType, field_mask: &FieldMask) -> bool {
+    match field_mask {
+        FieldMask::All => true,
+        FieldMask::Prefix(path) | FieldMask::Exact(path) => {
+            if path.is_root() {
+                return true;
+            }
+
+            path.resolve(dtype.clone())
+                .map(|target| is_wide_projection_dtype(&target))
+                .unwrap_or_else(|| is_wide_projection_dtype(dtype))
+        }
+    }
+}
+
+fn is_wide_projection_dtype(dtype: &DType) -> bool {
+    matches!(
+        dtype,
+        DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::List(..)
+            | DType::FixedSizeList(..)
+            | DType::Struct(..)
+    )
+}
+
 fn simple_root_projection_fields(projection: &Expression, dtype: &DType) -> Option<FieldNames> {
     let struct_fields = dtype.as_struct_fields_opt()?;
     if projection.is::<Root>() {
@@ -237,14 +271,7 @@ fn simple_root_projection_fields(projection: &Expression, dtype: &DType) -> Opti
 }
 
 fn should_defer_field(dtype: &DType, row_cost_bytes: usize) -> bool {
-    matches!(
-        dtype,
-        DType::Utf8(_)
-            | DType::Binary(_)
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Struct(..)
-    ) || row_cost_bytes > IMMEDIATE_FIELD_ROW_BYTES_THRESHOLD
+    is_wide_projection_dtype(dtype) || row_cost_bytes > IMMEDIATE_FIELD_ROW_BYTES_THRESHOLD
 }
 
 pub(crate) fn estimate_field_mask_row_bytes(dtype: &DType, field_masks: &[FieldMask]) -> usize {
