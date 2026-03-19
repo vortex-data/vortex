@@ -106,6 +106,25 @@ impl DictReader {
             .clone()
     }
 
+    // This is the dict values array without canonicalization, if not already canonical
+    fn values_array_uncanonical(&self) -> SharedArrayFuture {
+        // We capture the name, so it may be wrong if we re-use the same reader within multiple
+        // different parent readers. But that's rare...
+        let values_len = self.values_len;
+        self.values_array.get().cloned().unwrap_or_else(|| {
+            self.values
+                .projection_evaluation(
+                    &(0..values_len as u64),
+                    &root(),
+                    MaskFuture::new_true(values_len),
+                )
+                .vortex_expect("must construct dict values array evaluation")
+                .map_err(Arc::new)
+                .boxed()
+                .shared()
+        })
+    }
+
     fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
@@ -120,7 +139,7 @@ impl DictReader {
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
-                self.values_array()
+                self.values_array_uncanonical()
                     .map(move |array| {
                         let array = array?.apply(&expr)?;
                         Ok(SharedArray::new(array).into_array())
@@ -206,7 +225,7 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
-        let values_eval = self.values_eval(root());
+        let values_eval = self.values_array();
         let codes_eval = self
             .codes
             .projection_evaluation(row_range, &root(), mask)

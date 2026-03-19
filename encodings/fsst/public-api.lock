@@ -30,6 +30,10 @@ impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fsst::FSS
 
 pub fn vortex_fsst::FSST::cast(array: &vortex_fsst::FSSTArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
+impl vortex_array::scalar_fn::fns::like::kernel::LikeKernel for vortex_fsst::FSST
+
+pub fn vortex_fsst::FSST::like(array: &vortex_fsst::FSSTArray, pattern: &vortex_array::array::ArrayRef, options: vortex_array::scalar_fn::fns::like::LikeOptions, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::vtable::VTable for vortex_fsst::FSST
 
 pub type vortex_fsst::FSST::Array = vortex_fsst::FSSTArray

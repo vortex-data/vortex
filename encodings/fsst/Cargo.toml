@@ -41,7 +41,7 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
-name = "fsst_contains"
+name = "fsst_like"
 harness = false
 required-features = ["_test-harness"]
 
