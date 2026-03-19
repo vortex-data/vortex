@@ -6263,6 +6263,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
 
 [[package]]
+name = "oneshot"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe21416a02c693fb9f980befcb230ecc70b0b3d1cc4abf88b9675c4c1457f0c"
+
+[[package]]
 name = "oorandom"
 version = "11.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8745,7 +8751,7 @@ dependencies = [
  "measure_time",
  "memmap2",
  "once_cell",
- "oneshot",
+ "oneshot 0.1.13",
  "rayon",
  "regex",
  "rust-stemmers",
@@ -10158,7 +10164,7 @@ dependencies = [
  "kanal",
  "moka",
  "object_store",
- "oneshot",
+ "oneshot 0.2.1",
  "parking_lot",
  "pin-project-lite",
  "tokio",
@@ -10257,7 +10263,7 @@ dependencies = [
  "itertools 0.14.0",
  "kanal",
  "object_store",
- "oneshot",
+ "oneshot 0.2.1",
  "parking_lot",
  "pin-project-lite",
  "rstest",
@@ -10323,7 +10329,7 @@ dependencies = [
  "kanal",
  "moka",
  "once_cell",
- "oneshot",
+ "oneshot 0.2.1",
  "parking_lot",
  "paste",
  "pin-project-lite",
