@@ -23,6 +23,7 @@ use crate::Engine;
 use crate::Format;
 use crate::Target;
 use crate::validation::rows_to_normalized_tsv;
+use crate::validation::rows_to_slt;
 
 /// Controls whether queries are benchmarked or explained.
 pub enum BenchmarkMode {
@@ -52,6 +53,15 @@ pub trait BenchmarkQueryResult {
     /// sqllogictest conventions (floats rounded to 12 decimal places, etc.)
     /// via [`crate::validation`].
     fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>);
+    /// Column type string for sqllogictest format.
+    ///
+    /// Returns a string of single-character type codes:
+    /// - `I` for integer types
+    /// - `R` for real/float/decimal types
+    /// - `T` for text/string types
+    /// - `B` for boolean
+    /// - `P` for timestamp/date types
+    fn column_types(&self) -> String;
 }
 use crate::display::DisplayFormat;
 use crate::display::print_measurements_json;
@@ -267,15 +277,18 @@ impl SqlBenchmarkRunner {
         }
     }
 
-    /// Get the path for a reference result file.
-    ///
-    /// Reference files are stored per-engine as TSV at
-    /// `{dir}/{engine}/q{idx:02}.tsv`.
+    /// Get the path for a reference result file (TSV format, for validation).
     fn reference_path(&self, query_idx: usize) -> Option<PathBuf> {
-        self.expected_results_dir.as_ref().map(|dir| {
-            dir.join(self.engine.to_string())
-                .join(format!("q{query_idx:02}.tsv"))
-        })
+        self.expected_results_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("q{query_idx:02}.tsv")))
+    }
+
+    /// Get the path for a generated `.slt.no` reference file.
+    fn slt_reference_path(&self, query_idx: usize) -> Option<PathBuf> {
+        self.expected_results_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("q{query_idx:02}.slt.no")))
     }
 
     /// Validate a query result against its reference file.
@@ -322,7 +335,7 @@ impl SqlBenchmarkRunner {
         false
     }
 
-    /// Write a query result as a new reference file.
+    /// Write a query result as a new reference file (TSV format).
     fn write_reference_result(&self, query_idx: usize, result: &str) {
         let Some(path) = self.reference_path(query_idx) else {
             eprintln!(
@@ -342,6 +355,28 @@ impl SqlBenchmarkRunner {
         });
 
         eprintln!("Wrote reference for q{query_idx} to {}", path.display());
+    }
+
+    /// Write a query result as a `.slt.no` sqllogictest reference file.
+    fn write_slt_reference_result(&self, query_idx: usize, result: &str) {
+        let Some(path) = self.slt_reference_path(query_idx) else {
+            eprintln!(
+                "No expected_results_dir configured, cannot generate slt reference for q{query_idx}"
+            );
+            return;
+        };
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|e| {
+                vortex_panic!("Failed to create directory {}: {e}", parent.display());
+            });
+        }
+
+        fs::write(&path, result).unwrap_or_else(|e| {
+            vortex_panic!("Failed to write slt reference file {}: {e}", path.display());
+        });
+
+        eprintln!("Wrote slt reference for q{query_idx} to {}", path.display());
     }
 
     /// Run (or explain) all queries for all formats synchronously.
@@ -468,9 +503,13 @@ impl SqlBenchmarkRunner {
 
                 for (query_idx, query) in queries.iter() {
                     let (_, result) = execute(&mut ctx, *query_idx, format, query.as_str())?;
+                    let col_types = result.column_types();
                     let (cols, mut rows) = result.normalized_result();
                     let tsv = rows_to_normalized_tsv(&cols, &mut rows);
                     self.write_reference_result(*query_idx, &tsv);
+
+                    let slt = rows_to_slt(query, &col_types, &mut rows);
+                    self.write_slt_reference_result(*query_idx, &slt);
                 }
             }
         }
@@ -617,9 +656,13 @@ impl SqlBenchmarkRunner {
 
                 for (query_idx, query) in queries.iter() {
                     let (_, result) = execute(*query_idx, &ctx, query.as_str()).await?;
+                    let col_types = result.column_types();
                     let (cols, mut rows) = result.normalized_result();
                     let tsv = rows_to_normalized_tsv(&cols, &mut rows);
                     self.write_reference_result(*query_idx, &tsv);
+
+                    let slt = rows_to_slt(query, &col_types, &mut rows);
+                    self.write_slt_reference_result(*query_idx, &slt);
                 }
             }
         }

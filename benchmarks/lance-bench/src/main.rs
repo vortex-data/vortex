@@ -170,6 +170,10 @@ impl BenchmarkQueryResult for LanceQueryResult {
     fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
         unimplemented!("Lance benchmarks do not support result validation")
     }
+
+    fn column_types(&self) -> String {
+        unimplemented!("Lance benchmarks do not support result validation")
+    }
 }
 
 pub async fn execute_query(

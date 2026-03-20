@@ -190,6 +190,41 @@ impl LogicalTypeRef {
         matches!(self.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL)
     }
 
+    /// Map this type to a sqllogictest single-character type code.
+    ///
+    /// - `I` for integer types
+    /// - `R` for real/float/decimal types
+    /// - `T` for text/string types
+    /// - `B` for boolean
+    /// - `P` for timestamp/date types
+    pub fn slt_type_char(&self) -> char {
+        match self.as_type_id() {
+            DUCKDB_TYPE::DUCKDB_TYPE_TINYINT
+            | DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT
+            | DUCKDB_TYPE::DUCKDB_TYPE_INTEGER
+            | DUCKDB_TYPE::DUCKDB_TYPE_BIGINT
+            | DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT
+            | DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT
+            | DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT
+            | DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER
+            | DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT
+            | DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT => 'I',
+            DUCKDB_TYPE::DUCKDB_TYPE_FLOAT
+            | DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE
+            | DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => 'R',
+            DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => 'B',
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
+            | DUCKDB_TYPE::DUCKDB_TYPE_DATE
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIME
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => 'P',
+            _ => 'T',
+        }
+    }
+
     pub fn array_child_type(&self) -> LogicalType {
         unsafe { LogicalType::own(duckdb_array_type_child_type(self.as_ptr())) }
     }

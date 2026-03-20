@@ -420,6 +420,47 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
     fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
         normalize_record_batches(&self.0)
     }
+
+    fn column_types(&self) -> String {
+        arrow_schema_to_slt_types(&self.0)
+    }
+}
+
+/// Map Arrow schema fields to sqllogictest type characters.
+fn arrow_schema_to_slt_types(batches: &[RecordBatch]) -> String {
+    use datafusion::arrow::datatypes::DataType;
+
+    let Some(batch) = batches.first() else {
+        return String::new();
+    };
+
+    batch
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| match f.data_type() {
+            DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64 => 'I',
+            DataType::Float16
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Decimal128(..)
+            | DataType::Decimal256(..) => 'R',
+            DataType::Boolean => 'B',
+            DataType::Timestamp(..)
+            | DataType::Date32
+            | DataType::Date64
+            | DataType::Time32(..)
+            | DataType::Time64(..) => 'P',
+            _ => 'T',
+        })
+        .collect()
 }
 
 /// Convert Arrow `RecordBatch`es into normalized column names and row values.
@@ -429,9 +470,11 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
 fn normalize_record_batches(batches: &[RecordBatch]) -> (Vec<String>, Vec<Vec<String>>) {
     use datafusion::arrow::datatypes::DataType;
     use vortex::error::VortexExpect;
+    use vortex_bench::validation::normalize_decimal;
     use vortex_bench::validation::normalize_f32;
     use vortex_bench::validation::normalize_f64;
     use vortex_bench::validation::normalize_string;
+    use vortex_bench::validation::normalize_timestamp;
 
     let column_names = batches
         .first()
@@ -478,9 +521,22 @@ fn normalize_record_batches(batches: &[RecordBatch]) -> (Vec<String>, Vec<Vec<St
                                 .vortex_expect("Float64 downcast");
                             normalize_f64(arr.value(row_idx))
                         }
-                        DataType::Utf8 | DataType::LargeUtf8 => {
+                        DataType::Decimal128(_, scale) => {
+                            let arr = col
+                                .as_any()
+                                .downcast_ref::<datafusion::arrow::array::Decimal128Array>()
+                                .vortex_expect("Decimal128 downcast");
+                            normalize_decimal(arr.value(row_idx), *scale)
+                        }
+                        DataType::Utf8
+                        | DataType::LargeUtf8
+                        | DataType::Utf8View
+                        | DataType::Dictionary(..) => {
                             let s = formatter.value(row_idx).to_string();
                             normalize_string(&s)
+                        }
+                        DataType::Timestamp(..) | DataType::Date32 | DataType::Date64 => {
+                            normalize_timestamp(&formatter.value(row_idx).to_string())
                         }
                         _ => formatter.value(row_idx).to_string(),
                     };

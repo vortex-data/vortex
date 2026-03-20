@@ -1,0 +1,64 @@
+query II rowsort
+select
+    c_count,
+    count(*) as custdist
+from
+    (
+        select
+            c_custkey,
+            count(o_orderkey)
+        from
+            customer left outer join orders on
+                        c_custkey = o_custkey
+                    and o_comment not like '%special%requests%'
+        group by
+            c_custkey
+    ) as c_orders (c_custkey, c_count)
+group by
+    c_count
+order by
+    custdist desc,
+    c_count desc;
+----
+0 50005
+1 17
+10 6532
+11 6014
+12 5639
+13 5024
+14 4446
+15 4505
+16 4273
+17 4587
+18 4529
+19 4793
+2 134
+20 4516
+21 4190
+22 3623
+23 3225
+24 2742
+25 2086
+26 1612
+27 1179
+28 893
+29 593
+3 415
+30 376
+31 226
+32 148
+33 75
+34 50
+35 37
+36 14
+37 5
+38 5
+39 1
+4 1007
+40 4
+41 2
+5 1948
+6 3265
+7 4687
+8 5937
+9 6641

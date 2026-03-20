@@ -1,0 +1,27 @@
+query TTRRRRRRRI rowsort
+select
+    l_returnflag,
+    l_linestatus,
+    sum(l_quantity) as sum_qty,
+    sum(l_extendedprice) as sum_base_price,
+    sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
+    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
+    avg(l_quantity) as avg_qty,
+    avg(l_extendedprice) as avg_price,
+    avg(l_discount) as avg_disc,
+    count(*) as count_order
+from
+    lineitem
+where
+        l_shipdate <= date '1998-09-02'
+group by
+    l_returnflag,
+    l_linestatus
+order by
+    l_returnflag,
+    l_linestatus;
+----
+A F 37734107 56586554400.73 53758257134.87 55909065222.827692 25.522005 38273.129734 0.049985 1478493
+N F 991417 1487504710.38 1413082168.0541 1469649223.194375 25.516471 38284.46776 0.050093 38854
+N O 74476040 111701729697.74 106118230307.6056 110367043872.49701 25.502226 38249.117988 0.049996 2920374
+R F 37719753 56568041380.9 53741292684.604 55889619119.831932 25.505793 38250.854626 0.050009 1478870

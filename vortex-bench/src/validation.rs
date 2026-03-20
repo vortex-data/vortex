@@ -59,22 +59,193 @@ pub fn normalize_string(value: &str) -> String {
     }
 }
 
+/// Normalize a column name for cross-engine comparison.
+///
+/// Applies the following transformations:
+/// - Lowercase the name
+/// - Strip table-qualifier prefixes (e.g. `sum(hits.AdvEngineID)` → `sum(advengineid)`)
+/// - Map DuckDB's `count_star()` to `count(*)`
+pub fn normalize_column_name(name: &str) -> String {
+    let mut n = name.to_lowercase();
+    // DuckDB uses count_star() where DataFusion uses count(*)
+    n = n.replace("count_star()", "count(*)");
+    // Strip DuckDB type-cast functions: int64(1) → 1, int32(x) → x, etc.
+    for cast_fn in &["int64(", "int32(", "int16(", "int8(", "uint64(", "uint32("] {
+        while let Some(start) = n.find(cast_fn) {
+            let after = start + cast_fn.len();
+            // Find the matching closing paren
+            if let Some(close) = find_matching_paren(&n[after..]) {
+                let inner = &n[after..after + close];
+                n = format!("{}{}{}", &n[..start], inner, &n[after + close + 1..]);
+            } else {
+                break;
+            }
+        }
+    }
+    // Collapse redundant parentheses: ((expr)) → (expr)
+    while n.contains("((") {
+        let prev = n.clone();
+        n = collapse_double_parens(&n);
+        if n == prev {
+            break;
+        }
+    }
+    // Strip table-qualifier prefixes like "hits." or "lineitem."
+    // These appear as an identifier (alphanumeric/underscore) followed by a dot
+    // before another identifier, e.g. "sum(hits.col)" → "sum(col)".
+    loop {
+        let bytes = n.as_bytes();
+        let dot_pos = match n.find('.') {
+            Some(p) => p,
+            None => break,
+        };
+        // Check there's an identifier char before the dot
+        if dot_pos == 0 || !bytes[dot_pos - 1].is_ascii_alphanumeric() {
+            break;
+        }
+        // Check there's an identifier char after the dot
+        if dot_pos + 1 >= bytes.len() || !bytes[dot_pos + 1].is_ascii_alphanumeric() {
+            break;
+        }
+        // Find the start of the table-name word before the dot
+        let word_start = n[..dot_pos]
+            .rfind(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .map(|p| p + 1)
+            .unwrap_or(0);
+        // Remove "tablename."
+        n = format!("{}{}", &n[..word_start], &n[dot_pos + 1..]);
+    }
+    // Strip outer parentheses wrapping the entire name, e.g. "(clientip - 1)" → "clientip - 1"
+    while n.starts_with('(') && n.ends_with(')') {
+        if let Some(close) = find_matching_paren(&n[1..]) {
+            if close + 1 == n.len() - 1 {
+                n = n[1..n.len() - 1].to_string();
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    n
+}
+
+/// Find the position of the matching closing paren (relative to input start).
+/// Input starts right after the opening paren.
+fn find_matching_paren(s: &str) -> Option<usize> {
+    let mut depth = 1u32;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Collapse `((expr))` → `(expr)` for the outermost double-paren pair.
+fn collapse_double_parens(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    let mut result = String::with_capacity(s.len());
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'(' && bytes[i + 1] == b'(' {
+            // Find the matching close for the outer paren
+            if let Some(outer_close) = find_matching_paren(&s[i + 1..]) {
+                let outer_close = i + 1 + outer_close;
+                // Check if the char before outer_close is also ')'
+                if outer_close > 0 && bytes[outer_close - 1] == b')' {
+                    // Collapse: skip outer ( and outer )
+                    result.push_str(&s[i + 1..outer_close]);
+                    i = outer_close + 1;
+                    continue;
+                }
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
+/// Normalize a timestamp string to a canonical format.
+///
+/// Replaces the ISO 8601 `T` separator with a space so that
+/// `2013-07-02T00:00:00` and `2013-07-02 00:00:00` produce the same output.
+pub fn normalize_timestamp(value: &str) -> String {
+    // Only replace T that sits between a date and time pattern to avoid
+    // mangling unrelated strings.
+    if let Some(t_pos) = value.find('T')
+        && t_pos >= 10
+        && value.len() > t_pos + 1
+    {
+        let before = &value[t_pos - 1..t_pos];
+        let after = &value[t_pos + 1..t_pos + 2];
+        if before.as_bytes()[0].is_ascii_digit() && after.as_bytes()[0].is_ascii_digit() {
+            let mut s = value.to_string();
+            s.replace_range(t_pos..t_pos + 1, " ");
+            return s;
+        }
+    }
+    value.to_string()
+}
+
 fn big_decimal_to_str(value: BigDecimal) -> String {
     value.round(12).normalized().to_plain_string()
 }
 
 /// Serialize a set of column names and rows into a normalized TSV string.
 ///
-/// Rows are sorted lexicographically before serialization so that the output
-/// is deterministic regardless of query execution order.
+/// Column names are normalized via [`normalize_column_name`] so that
+/// engine-specific differences (casing, table prefixes, function names)
+/// are eliminated. Rows are sorted lexicographically before serialization
+/// so that the output is deterministic regardless of query execution order.
 pub fn rows_to_normalized_tsv(column_names: &[String], rows: &mut Vec<Vec<String>>) -> String {
     rows.sort();
 
+    let normalized_names: Vec<String> = column_names
+        .iter()
+        .map(|n| normalize_column_name(n))
+        .collect();
+
     let mut out = String::new();
-    out.push_str(&column_names.join("\t"));
+    out.push_str(&normalized_names.join("\t"));
     out.push('\n');
     for row in rows {
         out.push_str(&row.join("\t"));
+        out.push('\n');
+    }
+    out
+}
+
+/// Serialize query results into sqllogictest `.slt.no` format.
+///
+/// Produces a complete sqllogictest record with the form:
+/// ```text
+/// query {types} rowsort
+/// {sql}
+/// ----
+/// {value1} {value2} ...
+/// ```
+///
+/// Rows are sorted lexicographically (via `rowsort`) so that output is
+/// deterministic regardless of query execution order.
+pub fn rows_to_slt(query_sql: &str, column_types: &str, rows: &mut Vec<Vec<String>>) -> String {
+    rows.sort();
+
+    let mut out = String::new();
+    out.push_str(&format!("query {column_types} rowsort\n"));
+    out.push_str(query_sql.trim());
+    out.push('\n');
+    out.push_str("----\n");
+    for row in rows {
+        out.push_str(&row.join(" "));
         out.push('\n');
     }
     out
