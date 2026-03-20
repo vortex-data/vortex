@@ -62,6 +62,10 @@ impl VTable for RLE {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &RLE
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

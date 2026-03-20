@@ -65,6 +65,10 @@ impl VTable for DecimalByteParts {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &DecimalByteParts
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

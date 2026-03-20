@@ -47,6 +47,10 @@ impl VTable for Struct {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Struct
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

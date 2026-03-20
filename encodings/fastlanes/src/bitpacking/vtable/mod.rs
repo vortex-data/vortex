@@ -70,6 +70,10 @@ impl VTable for BitPacked {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &BitPacked
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

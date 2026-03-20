@@ -54,6 +54,10 @@ impl VTable for VarBinView {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &VarBinView
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

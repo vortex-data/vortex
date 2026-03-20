@@ -81,6 +81,10 @@ impl VTable for FSST {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &FSST
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

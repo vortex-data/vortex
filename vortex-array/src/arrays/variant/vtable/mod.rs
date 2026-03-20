@@ -46,6 +46,10 @@ impl VTable for Variant {
 
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Variant
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

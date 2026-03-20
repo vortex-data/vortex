@@ -58,6 +58,10 @@ impl VTable for Constant {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Constant
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

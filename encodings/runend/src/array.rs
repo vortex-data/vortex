@@ -65,6 +65,10 @@ impl VTable for RunEnd {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &RunEnd
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

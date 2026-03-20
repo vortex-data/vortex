@@ -55,6 +55,10 @@ impl VTable for Chunked {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Chunked
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

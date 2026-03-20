@@ -58,6 +58,10 @@ impl VTable for Decimal {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Decimal
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

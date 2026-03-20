@@ -58,6 +58,10 @@ impl VTable for Dict {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Dict
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

@@ -330,6 +330,10 @@ impl VTable for ZstdBuffers {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ZstdBuffers
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

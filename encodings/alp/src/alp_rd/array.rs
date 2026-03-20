@@ -71,6 +71,10 @@ impl VTable for ALPRD {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ALPRD
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

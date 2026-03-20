@@ -55,6 +55,10 @@ impl VTable for Delta {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Delta
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

@@ -52,6 +52,10 @@ impl VTable for Filter {
     type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Filter
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

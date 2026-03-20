@@ -45,6 +45,10 @@ impl VTable for Python {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Python
+    }
+
     fn id(array: &Self::Array) -> ArrayId {
         array.id.clone()
     }

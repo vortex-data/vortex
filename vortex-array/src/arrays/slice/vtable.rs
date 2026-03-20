@@ -51,6 +51,10 @@ impl VTable for Slice {
     type Metadata = SliceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Slice
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Slice::ID
     }

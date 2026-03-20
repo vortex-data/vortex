@@ -91,6 +91,10 @@ impl VTable for Zstd {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Zstd
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

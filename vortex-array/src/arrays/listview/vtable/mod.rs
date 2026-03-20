@@ -62,6 +62,10 @@ impl VTable for ListView {
     type Metadata = ProstMetadata<ListViewMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ListView
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

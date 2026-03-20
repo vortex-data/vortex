@@ -48,6 +48,10 @@ impl VTable for ZigZag {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ZigZag
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

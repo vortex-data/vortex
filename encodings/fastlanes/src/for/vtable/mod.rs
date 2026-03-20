@@ -48,6 +48,10 @@ impl VTable for FoR {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    fn vtable(_array: &Self::Array) -> &Self {
+        &FoR
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }

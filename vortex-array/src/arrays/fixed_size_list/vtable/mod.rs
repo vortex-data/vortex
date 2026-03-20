@@ -49,6 +49,10 @@ impl VTable for FixedSizeList {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &FixedSizeList
+    }
+
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
