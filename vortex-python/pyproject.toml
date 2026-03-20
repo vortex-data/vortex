@@ -59,7 +59,7 @@ managed = true
 [tool.maturin]
 python-source = "python"
 module-name = "vortex._lib"
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "mimalloc"]
 compatibility = "manylinux2014"
 include = [
     { path = "rust-toolchain.toml", format = "sdist" },
