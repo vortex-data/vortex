@@ -29,8 +29,8 @@ EXAMPLES:\n\
   Generate fixtures into a directory:\n\
     vortex-compat generate --output /tmp/fixtures\n\
 \n\
-  Check fixtures (allow extra files from older versions):\n\
-    vortex-compat check --dir /tmp/v0.62.0 --mode subset\n\
+  Check fixtures (default, old dir may be missing new fixtures):\n\
+    vortex-compat check --dir /tmp/v0.62.0\n\
 \n\
   Check fixtures (strict, must match exactly):\n\
     vortex-compat check --dir /tmp/v0.63.0 --mode exact\n\
@@ -78,11 +78,11 @@ enum Commands {
 
         /// How to handle mismatches between directory contents and known fixtures.
         ///
-        /// subset  — directory may have extra files (skipped), all known must be present.
-        ///           Best for checking old versions that may have since-removed fixtures.
-        /// exact   — directory must match current fixtures 1:1. No extras, no missing.
         /// superset — directory may be missing files (skipped), no unknown files allowed.
-        #[arg(long, default_value = "subset", value_name = "MODE")]
+        ///            Best for checking old versions that predate newly-added fixtures.
+        /// exact    — directory must match current fixtures 1:1. No extras, no missing.
+        /// subset   — directory may have extra files (skipped), all known must be present.
+        #[arg(long, default_value = "superset", value_name = "MODE")]
         mode: check::Mode,
 
         /// Fixture name substrings to exclude from checking (comma-separated).

@@ -89,12 +89,12 @@ Check modes:
 
 | Mode | Extra files in dir | Missing fixtures |
 |------|--------------------|------------------|
-| `subset` (default) | Skipped | Error |
+| `superset` (default) | Error | Skipped |
 | `exact` | Error | Error |
-| `superset` | Error | Skipped |
+| `subset` | Skipped | Error |
 
-Use `subset` when checking old versions (they may have extra fixtures not in
-current code). Use `exact` for the current version.
+Use `superset` when checking old versions (they may be missing newly-added
+fixtures). Use `exact` for the current version.
 
 ## Python Orchestrator: `compat.py`
 
