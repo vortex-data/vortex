@@ -7,21 +7,17 @@ use std::mem::MaybeUninit;
 use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
-use crate::bit_transpose::{transpose_bitbuffer, transpose_validity};
+use crate::bit_transpose::transpose_validity;
 
 pub fn delta_compress(
     array: &PrimitiveArray,
@@ -30,6 +26,7 @@ pub fn delta_compress(
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
         const LANES: usize = T::LANES;
         let (bases, deltas) = compress_primitive::<T, LANES>(array.as_slice::<T>());
+        // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
         let validity = transpose_validity(array.validity(), ctx)?;
         (
             PrimitiveArray::new(bases, array.dtype().nullability().into()),
