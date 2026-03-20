@@ -52,8 +52,8 @@ pub enum BenchmarkDataset {
     Fineweb,
     #[serde(rename = "gharchive")]
     GhArchive,
-    #[serde(rename = "alp-compress")]
-    AlpCompress { n_rows: usize },
+    #[serde(rename = "synthetic")]
+    Synthetic { name: String, n_rows: usize },
 }
 
 impl BenchmarkDataset {
@@ -67,7 +67,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
             BenchmarkDataset::GhArchive => "gharchive",
-            BenchmarkDataset::AlpCompress { .. } => "alp-compress",
+            BenchmarkDataset::Synthetic { name, .. } => name,
         }
     }
 }
@@ -88,8 +88,8 @@ impl Display for BenchmarkDataset {
             }
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
             BenchmarkDataset::GhArchive => write!(f, "gharchive"),
-            BenchmarkDataset::AlpCompress { n_rows } => {
-                write!(f, "alp-compress(n_rows={n_rows})")
+            BenchmarkDataset::Synthetic { name, n_rows } => {
+                write!(f, "{name}(n_rows={n_rows})")
             }
         }
     }
@@ -133,7 +133,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],
             BenchmarkDataset::GhArchive => &["events"],
-            BenchmarkDataset::AlpCompress { .. } => &["alp_floats"],
+            BenchmarkDataset::Synthetic { .. } => &[],
         }
     }
 }

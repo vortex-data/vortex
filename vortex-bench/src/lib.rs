@@ -9,7 +9,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
-use alp_compress::AlpCompressBenchmark;
+use alp_compress::alp_compress_benchmark;
 use anyhow::bail;
 use clap::ValueEnum;
 use clickbench::ClickBenchBenchmark;
@@ -35,6 +35,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 pub mod alp_compress;
 pub mod benchmark;
+
 pub mod clickbench;
 pub mod compress;
 pub mod conversions;
@@ -51,6 +52,7 @@ pub mod random_access;
 pub mod realnest;
 pub mod runner;
 pub mod statpopgen;
+pub mod synthetic;
 pub mod tpcds;
 pub mod tpch;
 pub mod utils;
@@ -320,7 +322,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::AlpCompress => {
             let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
-            let benchmark = AlpCompressBenchmark::new(scale_factor)?;
+            let benchmark = alp_compress_benchmark(scale_factor)?;
             Ok(Box::new(benchmark) as _)
         }
     }
