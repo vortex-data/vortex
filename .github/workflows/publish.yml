@@ -117,3 +117,6 @@ jobs:
       git_ref: ${{ github.event.release.tag_name }}
       confirm_upload: "yes"
     secrets: inherit
+    permissions:
+      id-token: write
+      contents: read
