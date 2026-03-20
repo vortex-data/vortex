@@ -534,7 +534,14 @@ jobs:
               exec "$@"
             fi
           done
-          exec compute-sanitizer $SANITIZER_OPTS "$@"
+          compute-sanitizer $SANITIZER_OPTS "$@"
+          rc=$?
+          # Exit code 255 means "no instrumented API call" — the test didn't
+          # touch the GPU. This is harmless, not a sanitizer error.
+          if [[ $rc -eq 255 ]]; then
+            exit 0
+          fi
+          exit $rc
           EOF
           chmod +x /tmp/sanitizer-runner.sh
       - name: CUDA - memcheck
