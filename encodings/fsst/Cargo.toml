@@ -56,6 +56,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "fsst_like_vs_arrow"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["_test-harness"]
