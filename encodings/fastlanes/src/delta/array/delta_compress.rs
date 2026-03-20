@@ -8,7 +8,6 @@ use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -24,8 +23,7 @@ pub fn delta_compress(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-        const LANES: usize = T::LANES;
-        let (bases, deltas) = compress_primitive::<T, LANES>(array.as_slice::<T>());
+        let (bases, deltas) = compress_primitive::<T, { T::LANES }>(array.as_slice::<T>());
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
         let validity = transpose_validity(array.validity(), ctx)?;
         (
