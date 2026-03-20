@@ -35,7 +35,8 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
-use crate::Format;
+use crate::BenchmarkDescriptor;
+use crate::FilePattern;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::TableSpec;
@@ -488,10 +489,8 @@ impl Dataset for PBIBenchmark {
 
 /// Public BI benchmark implementation that conforms to the `Benchmark` trait.
 pub struct PublicBiBenchmark {
+    descriptor: BenchmarkDescriptor,
     pub dataset: PBIDataset,
-    pub data_url: Url,
-    /// Cached table names from the dataset
-    table_names: Vec<String>,
 }
 
 impl PublicBiBenchmark {
@@ -508,10 +507,32 @@ impl PublicBiBenchmark {
                 .ok_or_else(|| anyhow!("path not utf8"))?
         ))?;
 
-        Ok(Self {
-            dataset,
+        // Public BI datasets have dynamic schemas parsed from SQL files at runtime,
+        // so we return table specs without static Arrow schemas.
+        let tables: Vec<TableSpec> = table_names
+            .iter()
+            .map(|name| {
+                // Leak the string to get a &'static str - this is fine since benchmarks
+                // are long-lived and we only create a small number of them.
+                let static_name: &'static str = Box::leak(name.clone().into_boxed_str());
+                TableSpec::new(static_name, None)
+            })
+            .collect();
+
+        let desc = BenchmarkDescriptor::new(
+            "public-bi",
             data_url,
-            table_names,
+            BenchmarkDataset::PublicBi {
+                name: pbi_benchmark.name.clone(),
+            },
+        )
+        .with_display(format!("public-bi({})", pbi_benchmark.name))
+        .with_tables(tables)
+        .with_file_pattern(FilePattern::TableExact);
+
+        Ok(Self {
+            descriptor: desc,
+            dataset,
         })
     }
 
@@ -522,51 +543,17 @@ impl PublicBiBenchmark {
 
 #[async_trait]
 impl Benchmark for PublicBiBenchmark {
+    fn descriptor(&self) -> &BenchmarkDescriptor {
+        &self.descriptor
+    }
+
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
+        // PublicBI has its own query loading from numbered SQL files per dataset
         self.pbi_benchmark().queries()
     }
 
     async fn generate_base_data(&self) -> anyhow::Result<()> {
         let pbi_data = self.pbi_benchmark().dataset()?;
         pbi_data.write_as_parquet().await
-    }
-
-    fn dataset(&self) -> BenchmarkDataset {
-        BenchmarkDataset::PublicBi {
-            name: self.pbi_benchmark().name.clone(),
-        }
-    }
-
-    fn dataset_name(&self) -> &str {
-        "public-bi"
-    }
-
-    fn dataset_display(&self) -> String {
-        format!("public-bi({})", self.pbi_benchmark().name)
-    }
-
-    fn data_url(&self) -> &Url {
-        &self.data_url
-    }
-
-    fn table_specs(&self) -> Vec<TableSpec> {
-        // Public BI datasets have dynamic schemas parsed from SQL files at runtime,
-        // so we return table specs without static Arrow schemas.
-        // The schema will be inferred from the data files.
-        self.table_names
-            .iter()
-            .map(|name| {
-                // Leak the string to get a &'static str - this is fine since benchmarks
-                // are long-lived and we only create a small number of them.
-                let static_name: &'static str = Box::leak(name.clone().into_boxed_str());
-                TableSpec::new(static_name, None)
-            })
-            .collect()
-    }
-
-    fn pattern(&self, table_name: &str, format: Format) -> Option<glob::Pattern> {
-        // Each table is a single file named {table_name}.{ext}
-        let pattern_str = format!("{}.{}", table_name, format.ext());
-        glob::Pattern::new(&pattern_str).ok()
     }
 }

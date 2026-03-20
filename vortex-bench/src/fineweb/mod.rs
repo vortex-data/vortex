@@ -5,13 +5,13 @@ use std::path::PathBuf;
 
 use tokio::io::AsyncWriteExt;
 use tracing::info;
-use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
-use crate::IdempotentPath;
-use crate::TableSpec;
+use crate::BenchmarkDescriptor;
+use crate::QuerySource;
 use crate::idempotent_async;
+use crate::resolve_data_url;
 
 /// URL to the sample file
 const SAMPLE_URL: &str = "https://huggingface.co/datasets/HuggingFaceFW/fineweb/resolve/v1.4.0/sample/10BT/001_00000.parquet";
@@ -42,50 +42,23 @@ const QUERIES: &[&str] = &[
 ///
 /// The queries for this benchmark are hand-crafted to showcase just how many of these we have here.
 pub struct FinewebBenchmark {
-    data_url: Url,
+    descriptor: BenchmarkDescriptor,
 }
 
 impl FinewebBenchmark {
-    pub fn new(data_url: Url) -> Self {
-        Self { data_url }
-    }
-
     pub fn with_remote_data_dir(use_remote_data_dir: Option<String>) -> anyhow::Result<Self> {
-        let data_url = Self::create_data_url(&use_remote_data_dir)?;
-        Ok(Self { data_url })
+        let data_url = resolve_data_url("fineweb", use_remote_data_dir.as_deref())?;
+
+        Ok(Self {
+            descriptor: BenchmarkDescriptor::new("fineweb", data_url, BenchmarkDataset::Fineweb)
+                .with_queries(QuerySource::Inline(QUERIES.to_vec()))
+                .with_table("fineweb", None),
+        })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>) -> anyhow::Result<Url> {
-        match remote_data_dir {
-            None => {
-                let data_dir = "fineweb".to_data_path();
-                Url::from_directory_path(&data_dir).map_err(|_| {
-                    anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
-                })
-            }
-            Some(remote_data_dir) => {
-                if !remote_data_dir.ends_with("/") {
-                    tracing::warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/develop/12345/fineweb/"
-                    );
-                }
-                tracing::info!(
-                    concat!(
-                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                        "If it does not, you should kill this command, locally generate the files (by running without\n",
-                        "--use-remote-data-dir) and upload data/fineweb/ to some remote location.",
-                    ),
-                    remote_data_dir,
-                );
-                Ok(Url::parse(remote_data_dir)?)
-            }
-        }
-    }
-}
-
-impl FinewebBenchmark {
     fn parquet_path(&self) -> anyhow::Result<PathBuf> {
-        self.data_url
+        self.descriptor
+            .data_url
             .join("parquet/")?
             .join("sample.parquet")?
             .to_file_path()
@@ -95,12 +68,12 @@ impl FinewebBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for FinewebBenchmark {
-    fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
-        Ok(QUERIES.iter().map(|s| s.to_string()).enumerate().collect())
+    fn descriptor(&self) -> &BenchmarkDescriptor {
+        &self.descriptor
     }
 
     async fn generate_base_data(&self) -> anyhow::Result<()> {
-        if self.data_url.scheme() != "file" {
+        if self.descriptor.data_url.scheme() != "file" {
             return Ok(());
         }
 
@@ -128,25 +101,5 @@ impl Benchmark for FinewebBenchmark {
         info!("fineweb base data generated in {}", parquet.display());
 
         Ok(())
-    }
-
-    fn dataset(&self) -> BenchmarkDataset {
-        BenchmarkDataset::Fineweb
-    }
-
-    fn dataset_name(&self) -> &str {
-        "fineweb"
-    }
-
-    fn dataset_display(&self) -> String {
-        "fineweb".to_owned()
-    }
-
-    fn data_url(&self) -> &Url {
-        &self.data_url
-    }
-
-    fn table_specs(&self) -> Vec<TableSpec> {
-        vec![TableSpec::new("fineweb", None)]
     }
 }

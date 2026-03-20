@@ -10,14 +10,14 @@ use std::process::Command;
 
 use tokio::io::AsyncWriteExt;
 use tracing::info;
-use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
-use crate::IdempotentPath;
-use crate::TableSpec;
+use crate::BenchmarkDescriptor;
+use crate::QuerySource;
 use crate::idempotent;
 use crate::idempotent_async;
+use crate::resolve_data_url;
 
 /// Template URL for raw JSON dataset
 fn raw_json_url(hour: usize) -> String {
@@ -34,50 +34,28 @@ const QUERIES: &[&str] = &[
 ];
 
 pub struct GithubArchiveBenchmark {
-    data_url: Url,
+    descriptor: BenchmarkDescriptor,
 }
 
 impl GithubArchiveBenchmark {
-    pub fn new(data_url: Url) -> Self {
-        Self { data_url }
-    }
-
     pub fn with_remote_data_dir(use_remote_data_dir: Option<String>) -> anyhow::Result<Self> {
-        let data_url = Self::create_data_url(&use_remote_data_dir)?;
-        Ok(Self { data_url })
+        let data_url = resolve_data_url("gharchive", use_remote_data_dir.as_deref())?;
+
+        Ok(Self {
+            descriptor: BenchmarkDescriptor::new(
+                "gharchive",
+                data_url,
+                BenchmarkDataset::GhArchive,
+            )
+            .with_queries(QuerySource::Inline(QUERIES.to_vec()))
+            .with_table("events", None)
+            .with_expected_row_counts(vec![1, 2, 100, 10, 82468]),
+        })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>) -> anyhow::Result<Url> {
-        match remote_data_dir {
-            None => {
-                let data_dir = "gharchive".to_data_path();
-                Url::from_directory_path(&data_dir).map_err(|_| {
-                    anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
-                })
-            }
-            Some(remote_data_dir) => {
-                if !remote_data_dir.ends_with("/") {
-                    tracing::warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/develop/12345/gharchive/"
-                    );
-                }
-                tracing::info!(
-                    concat!(
-                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                        "If it does not, you should kill this command, locally generate the files (by running without\n",
-                        "--use-remote-data-dir) and upload data/gharchive/ to some remote location.",
-                    ),
-                    remote_data_dir,
-                );
-                Ok(Url::parse(remote_data_dir)?)
-            }
-        }
-    }
-}
-
-impl GithubArchiveBenchmark {
     fn json_path(&self) -> anyhow::Result<PathBuf> {
-        self.data_url
+        self.descriptor
+            .data_url
             .join("json/")?
             .join("events.json.gz")?
             .to_file_path()
@@ -85,7 +63,8 @@ impl GithubArchiveBenchmark {
     }
 
     fn parquet_path(&self) -> anyhow::Result<PathBuf> {
-        self.data_url
+        self.descriptor
+            .data_url
             .join("parquet/")?
             .join("events.parquet")?
             .to_file_path()
@@ -95,12 +74,12 @@ impl GithubArchiveBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for GithubArchiveBenchmark {
-    fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
-        Ok(QUERIES.iter().map(|s| s.to_string()).enumerate().collect())
+    fn descriptor(&self) -> &BenchmarkDescriptor {
+        &self.descriptor
     }
 
     async fn generate_base_data(&self) -> anyhow::Result<()> {
-        if self.data_url.scheme() != "file" {
+        if self.descriptor.data_url.scheme() != "file" {
             return Ok(());
         }
 
@@ -157,29 +136,5 @@ impl Benchmark for GithubArchiveBenchmark {
         info!("gharchive base data generated in {}", parquet.display());
 
         Ok(())
-    }
-
-    fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        Some(vec![1, 2, 100, 10, 82468])
-    }
-
-    fn dataset(&self) -> BenchmarkDataset {
-        BenchmarkDataset::GhArchive
-    }
-
-    fn dataset_name(&self) -> &str {
-        "gharchive"
-    }
-
-    fn dataset_display(&self) -> String {
-        "gharchive".to_owned()
-    }
-
-    fn data_url(&self) -> &Url {
-        &self.data_url
-    }
-
-    fn table_specs(&self) -> Vec<TableSpec> {
-        vec![TableSpec::new("events", None)]
     }
 }
