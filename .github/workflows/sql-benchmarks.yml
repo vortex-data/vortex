@@ -276,6 +276,14 @@ jobs:
         run: |
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
+      - name: Upload results artifact
+        if: always() && inputs.mode == 'develop'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ matrix.id }}
+          path: results.json
+          retention-days: 7
+
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'
         uses: ./.github/actions/alert-incident-io

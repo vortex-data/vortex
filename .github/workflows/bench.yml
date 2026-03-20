@@ -102,6 +102,14 @@ jobs:
         run: |
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ matrix.benchmark.id }}
+          path: results.json
+          retention-days: 7
+
       - name: Alert incident.io
         if: failure()
         uses: ./.github/actions/alert-incident-io
@@ -195,3 +203,86 @@ jobs:
             "scale_factor": "1"
           },
         ]
+
+  monitor:
+    needs: [commit-metadata, bench, sql]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: "arn:aws:iam::245040174862:role/GitHubBenchmarkRole"
+          aws-region: us-east-1
+
+      - name: Download commits and history
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+          aws s3 cp s3://vortex-ci-benchmark-results/commits.json commits.json
+          mkdir -p benchmark-history
+          aws s3 sync \
+            s3://vortex-ci-benchmark-results/monitor-history/ \
+            benchmark-history/ \
+            || echo "No existing history — starting fresh."
+
+      - name: Download all result artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bench-results-*
+          path: results/
+
+      - name: Run regression checks
+        id: check
+        shell: bash
+        run: |
+          set -Eeu -o pipefail
+
+          # Each artifact lands in results/<artifact-name>/results.json.
+          # Run check per benchmark, collect all alerts into one stream.
+          alerts_file="all-alerts.ndjson"
+          touch "$alerts_file"
+          exit_code=0
+
+          for dir in results/bench-results-*/; do
+            benchmark_id="$(basename "$dir" | sed 's/^bench-results-//')"
+            results_file="$dir/results.json"
+            if [[ ! -f "$results_file" ]]; then
+              echo "Skipping $benchmark_id — no results.json" >&2
+              continue
+            fi
+            echo "Checking $benchmark_id..." >&2
+            uv run --no-project scripts/benchmark_check.py \
+              --history-dir ./benchmark-history \
+              --commits commits.json \
+              --results "$results_file" \
+              --benchmark-id "$benchmark_id" \
+              --current-commit "${{ github.sha }}" \
+              >> "$alerts_file" \
+            || exit_code=1
+          done
+
+          echo "alert_count=$(wc -l < "$alerts_file" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "has_alerts=$( [ -s "$alerts_file" ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
+
+      - name: Send alerts
+        if: steps.check.outputs.has_alerts == 'true'
+        shell: bash
+        run: |
+          set -Eeu -o pipefail
+          uv run --no-project scripts/benchmark_alert.py \
+            --webhook-url "${{ secrets.INCIDENT_IO_WEBHOOK_URL }}" \
+            --alerts-file all-alerts.ndjson \
+          || true
+
+      - name: Upload updated history
+        if: always()
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+          aws s3 sync \
+            benchmark-history/ \
+            s3://vortex-ci-benchmark-results/monitor-history/
