@@ -477,20 +477,30 @@ impl dyn DynArray + '_ {
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
-                write!(f, "{}", if f.alternate() { "[\n" } else { "[" })?;
+                let opening_brace = if f.alternate() { "[\n" } else { "[" };
+                let closing_brace = if f.alternate() { "\n]" } else { "]" };
+
                 let sep = if *omit_comma_after_space { "," } else { ", " };
                 let sep = if f.alternate() { ",\n" } else { sep };
-                let limit = std::cmp::min(self.len(), f.precision().unwrap_or(DISPLAY_LIMIT));
+                let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
+                let is_truncated = self.len() > limit;
+
+                let fmt_scalar = |i| {
+                    self.scalar_at(i)
+                        .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
+                };
                 write!(
                     f,
-                    "{}",
-                    (0..limit)
-                        .map(|i| self
-                            .scalar_at(i)
-                            .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string()))
+                    "{opening_brace}{}{closing_brace}",
+                    (0..limit.saturating_sub(3))
+                        .map(fmt_scalar)
+                        .chain(std::iter::repeat_n(
+                            "...".to_string(),
+                            is_truncated as usize
+                        ))
+                        .chain((self.len().saturating_sub(3)..self.len()).map(fmt_scalar))
                         .format(sep)
-                )?;
-                write!(f, "{}", if f.alternate() { "\n]" } else { "]" })
+                )
             }
             DisplayOptions::TreeDisplay {
                 buffers,
@@ -583,6 +593,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
+    use crate::display::DISPLAY_LIMIT;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
@@ -596,6 +607,15 @@ mod test {
 
         let x = buffer![1, 2, 3, 4].into_array();
         assert_eq!(x.display_values().to_string(), "[1i32, 2i32, 3i32, 4i32]");
+
+        let x = crate::arrays::PrimitiveArray::from_iter(
+            0i32..i32::try_from(DISPLAY_LIMIT).unwrap() + 1,
+        )
+        .into_array();
+        assert_eq!(
+            x.display_values().to_string(),
+            "[0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32, 11i32, 12i32, ..., 14i32, 15i32, 16i32]"
+        );
     }
 
     #[test]

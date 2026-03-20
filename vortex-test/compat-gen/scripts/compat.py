@@ -598,7 +598,7 @@ def cmd_check(args: argparse.Namespace) -> None:
                 total_failed += 1
 
             _info(f"  checking v{version}...")
-            result = _run_rust_check(tmppath, mode="subset", profile=args.profile)
+            result = _run_rust_check(tmppath, mode="superset", profile=args.profile)
 
             passed = len(result.get("passed", []))
             failed_list = result.get("failed", [])
@@ -822,7 +822,7 @@ def _run_rust_generate(output: Path, profile: str = "release") -> None:
     _run_cmd([bin_path, "generate", "--output", str(output)], check=True)
 
 
-def _run_rust_check(dir: Path, mode: str = "subset", profile: str = "release") -> dict:
+def _run_rust_check(dir: Path, mode: str = "superset", profile: str = "release") -> dict:
     """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
     bin_path = _build_compat_bin(profile)
     cmd = [bin_path, "check", "--dir", str(dir), "--mode", mode]

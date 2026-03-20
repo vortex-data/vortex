@@ -2,9 +2,17 @@ pub mod vortex_fastlanes
 
 pub mod vortex_fastlanes::bit_transpose
 
+pub fn vortex_fastlanes::bit_transpose::transpose_bitbuffer(bits: vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_fastlanes::bit_transpose::transpose_bits(input: &[u8; 128], output: &mut [u8; 128])
 
+pub fn vortex_fastlanes::bit_transpose::transpose_validity(validity: &vortex_array::validity::Validity, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+pub fn vortex_fastlanes::bit_transpose::untranspose_bitbuffer(bits: vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_fastlanes::bit_transpose::untranspose_bits(input: &[u8; 128], output: &mut [u8; 128])
+
+pub fn vortex_fastlanes::bit_transpose::untranspose_validity(validity: &vortex_array::validity::Validity, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub mod vortex_fastlanes::bitpack_compress
 
@@ -294,7 +302,7 @@ pub type vortex_fastlanes::Delta::Metadata = vortex_array::metadata::ProstMetada
 
 pub type vortex_fastlanes::Delta::OperationsVTable = vortex_fastlanes::Delta
 
-pub type vortex_fastlanes::Delta::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChildSliceHelper
+pub type vortex_fastlanes::Delta::ValidityVTable = vortex_fastlanes::Delta
 
 pub fn vortex_fastlanes::Delta::array_eq(array: &vortex_fastlanes::DeltaArray, other: &vortex_fastlanes::DeltaArray, precision: vortex_array::hash::Precision) -> bool
 
@@ -336,6 +344,10 @@ impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::Delta>
 
 pub fn vortex_fastlanes::Delta::scalar_at(array: &vortex_fastlanes::DeltaArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
+impl vortex_array::vtable::validity::ValidityVTable<vortex_fastlanes::Delta> for vortex_fastlanes::Delta
+
+pub fn vortex_fastlanes::Delta::validity(array: &vortex_fastlanes::DeltaArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_fastlanes::DeltaArray
 
 impl vortex_fastlanes::DeltaArray
@@ -354,9 +366,7 @@ pub fn vortex_fastlanes::DeltaArray::offset(&self) -> usize
 
 pub fn vortex_fastlanes::DeltaArray::try_from_delta_compress_parts(bases: vortex_array::array::ArrayRef, deltas: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_fastlanes::DeltaArray::try_from_primitive_array(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_fastlanes::DeltaArray::try_from_vec<T: vortex_array::dtype::ptype::NativePType>(vec: alloc::vec::Vec<T>) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::DeltaArray::try_from_primitive_array(array: &vortex_array::arrays::primitive::array::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fastlanes::DeltaArray::try_new(bases: vortex_array::array::ArrayRef, deltas: vortex_array::array::ArrayRef, offset: usize, logical_len: usize) -> vortex_error::VortexResult<Self>
 
@@ -389,10 +399,6 @@ pub fn vortex_fastlanes::DeltaArray::deref(&self) -> &Self::Target
 impl vortex_array::array::IntoArray for vortex_fastlanes::DeltaArray
 
 pub fn vortex_fastlanes::DeltaArray::into_array(self) -> vortex_array::array::ArrayRef
-
-impl vortex_array::vtable::validity::ValidityChildSliceHelper for vortex_fastlanes::DeltaArray
-
-pub fn vortex_fastlanes::DeltaArray::unsliced_child_and_slice(&self) -> (&vortex_array::array::ArrayRef, usize, usize)
 
 pub struct vortex_fastlanes::FoR
 
@@ -660,6 +666,6 @@ impl vortex_array::vtable::validity::ValidityChildSliceHelper for vortex_fastlan
 
 pub fn vortex_fastlanes::RLEArray::unsliced_child_and_slice(&self) -> (&vortex_array::array::ArrayRef, usize, usize)
 
-pub fn vortex_fastlanes::delta_compress(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<(vortex_array::arrays::primitive::array::PrimitiveArray, vortex_array::arrays::primitive::array::PrimitiveArray)>
+pub fn vortex_fastlanes::delta_compress(array: &vortex_array::arrays::primitive::array::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<(vortex_array::arrays::primitive::array::PrimitiveArray, vortex_array::arrays::primitive::array::PrimitiveArray)>
 
 pub fn vortex_fastlanes::initialize(session: &mut vortex_session::VortexSession)

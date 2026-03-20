@@ -49,9 +49,9 @@ macro_rules! assert_nth_scalar_is_null {
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
-       let left = $left.clone();
-       let right = $right.clone();
-       if left.dtype() != right.dtype() {
+        let left = $left.clone();
+        let right = $right.clone();
+        if left.dtype() != right.dtype() {
             panic!(
                 "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
                 left.dtype(),
@@ -70,6 +70,7 @@ macro_rules! assert_arrays_eq {
                 right.display_values()
             )
         }
+
         let n = left.len();
         let mismatched_indices = (0..n)
             .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())

@@ -379,7 +379,6 @@ impl BitBuffer {
     /// The second value of the tuple is a bit_offset of the first value in the first byte
     pub fn into_mut(self) -> BitBufferMut {
         let (offset, len, inner) = self.into_inner();
-        // TODO(robert): if we are copying here we could strip offset bits
         BitBufferMut::from_buffer(inner.into_mut(), offset, len)
     }
 }
