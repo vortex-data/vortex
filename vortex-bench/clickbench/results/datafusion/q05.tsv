@@ -1,2 +1,0 @@
-count(DISTINCT hits.SearchPhrase)
-6019103

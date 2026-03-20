@@ -1,0 +1,13 @@
+query TT rowsort
+SELECT "SearchPhrase", COUNT(DISTINCT "UserID") AS u FROM hits WHERE "SearchPhrase" <> '' GROUP BY "SearchPhrase" ORDER BY u DESC LIMIT 10
+----
+албатрутдин 18394
+дружке помещение 8792
+карелки 23673
+комбинирование смотреть 7572
+мангу в зарабей грама 14198
+сколько мытищи 9007
+смотреть 14603
+смотреть онлайн 19747
+смотреть онлайн бесплатно 17553
+экзоидные 14529

@@ -1,0 +1,4 @@
+query T rowsort
+SELECT COUNT(*) FROM hits
+----
+99997497

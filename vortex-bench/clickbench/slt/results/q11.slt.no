@@ -1,0 +1,13 @@
+query TTT rowsort
+SELECT "MobilePhone", "MobilePhoneModel", COUNT(DISTINCT "UserID") AS u FROM hits WHERE "MobilePhoneModel" <> '' GROUP BY "MobilePhone", "MobilePhoneModel" ORDER BY u DESC LIMIT 10
+----
+1 iPad 931038
+10 iPad 11433
+118 A500 16005
+13 iPad 9417
+26 iPhone 13566
+32 iPad 9503
+5 iPad 48385
+6 iPad 29710
+6 iPhone 14516
+7 iPad 28391

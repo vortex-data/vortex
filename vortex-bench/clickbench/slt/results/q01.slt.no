@@ -1,0 +1,4 @@
+query T rowsort
+SELECT COUNT(*) FROM hits WHERE "AdvEngineID" <> 0
+----
+630500

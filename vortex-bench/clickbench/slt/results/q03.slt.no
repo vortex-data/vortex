@@ -1,0 +1,4 @@
+query T rowsort
+SELECT AVG("UserID") FROM hits
+----
+2528953029789716000

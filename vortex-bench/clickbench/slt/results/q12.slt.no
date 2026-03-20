@@ -1,0 +1,13 @@
+query TT rowsort
+SELECT "SearchPhrase", COUNT(*) AS c FROM hits WHERE "SearchPhrase" <> '' GROUP BY "SearchPhrase" ORDER BY c DESC LIMIT 10
+----
+galaxy table 16746
+албатрутдин 34675
+дружке помещение 17284
+карелки 70263
+мангу в зарабей грама 19195
+сколько мытищи 12317
+смотреть 19707
+смотреть онлайн 24580
+смотреть онлайн бесплатно 21647
+экзоидные 16620
