@@ -28,10 +28,10 @@ use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::utils::extension_element_ptype;
-use crate::scalar_fns::utils::extension_list_size;
-use crate::scalar_fns::utils::extension_storage;
-use crate::scalar_fns::utils::extract_flat_elements;
+use crate::utils::extension_element_ptype;
+use crate::utils::extension_list_size;
+use crate::utils::extension_storage;
+use crate::utils::extract_flat_elements;
 
 /// Cosine similarity between two columns.
 ///
@@ -196,11 +196,11 @@ mod tests {
     use vortex::scalar_fn::ScalarFn;
 
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
-    use crate::scalar_fns::utils::test_helpers::assert_close;
-    use crate::scalar_fns::utils::test_helpers::constant_tensor_array;
-    use crate::scalar_fns::utils::test_helpers::constant_vector_array;
-    use crate::scalar_fns::utils::test_helpers::tensor_array;
-    use crate::scalar_fns::utils::test_helpers::vector_array;
+    use crate::utils::test_helpers::assert_close;
+    use crate::utils::test_helpers::constant_tensor_array;
+    use crate::utils::test_helpers::constant_vector_array;
+    use crate::utils::test_helpers::tensor_array;
+    use crate::utils::test_helpers::vector_array;
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {

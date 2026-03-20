@@ -10,6 +10,6 @@ use crate::encodings::norm::vtable::NormVector;
 
 impl OperationsVTable<NormVector> for NormVector {
     fn scalar_at(array: &NormVectorArray, index: usize) -> VortexResult<Scalar> {
-        todo!()
+        array.vector_array().scalar_at(index)
     }
 }

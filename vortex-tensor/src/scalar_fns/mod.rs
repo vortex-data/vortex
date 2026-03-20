@@ -5,5 +5,3 @@
 
 pub mod cosine_similarity;
 pub mod l2_norm;
-
-mod utils;
