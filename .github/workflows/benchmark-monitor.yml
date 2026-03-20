@@ -34,11 +34,7 @@ jobs:
         shell: bash
         run: |
           set -Eeu -o pipefail -x
-
-          # Download commit ordering
           aws s3 cp s3://vortex-ci-benchmark-results/commits.json commits.json
-
-          # Download existing history for this benchmark suite (may not exist yet)
           mkdir -p benchmark-history
           aws s3 cp \
             "s3://vortex-ci-benchmark-results/monitor-history/${{ inputs.benchmark_id }}.json" \
@@ -50,14 +46,13 @@ jobs:
         shell: bash
         run: |
           set -Eeu -o pipefail -x
-
           uv run --no-project scripts/benchmark_monitor.py \
             --history-dir ./benchmark-history \
             --commits commits.json \
             --results "${{ inputs.results_path }}" \
             --benchmark-id "${{ inputs.benchmark_id }}" \
             --current-commit "${{ github.sha }}" \
-            --dry-run \
+            --webhook-url "${{ secrets.INCIDENT_IO_WEBHOOK_URL }}" \
           || echo "monitor_exit_code=$?" >> "$GITHUB_OUTPUT"
 
       - name: Upload updated history
@@ -65,16 +60,6 @@ jobs:
         shell: bash
         run: |
           set -Eeu -o pipefail -x
-
           aws s3 cp \
             "benchmark-history/${{ inputs.benchmark_id }}.json" \
             "s3://vortex-ci-benchmark-results/monitor-history/${{ inputs.benchmark_id }}.json"
-
-      - name: Alert incident.io on regression
-        if: steps.monitor.outputs.has_alerts == 'true'
-        uses: ./.github/actions/alert-incident-io
-        with:
-          api-key: "${{ secrets.INCIDENT_IO_ALERT_TOKEN }}"
-          alert-title: "Benchmark regression detected in ${{ inputs.benchmark_id }}"
-          alert-description: "The benchmark monitor detected a statistical regression. Check the workflow summary for details."
-          deduplication-key: "bench-monitor-${{ inputs.benchmark_id }}-${{ github.sha }}"
