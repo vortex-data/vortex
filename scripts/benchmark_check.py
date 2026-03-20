@@ -87,29 +87,41 @@ Metric = Ewma | Cusum | Threshold | PctChange
 # Trailing * = prefix match, otherwise substring match.
 # First match wins. Unmatched benchmarks get DEFAULT_METRIC.
 #
-# Benchmark IDs from bench.yml:
-#   random-access-bench   → Cusum  (catches gradual drift)
-#   compress-bench        → Ewma   (stable, tight σ=2.5)
-#   tpch-nvme             → Ewma   (default σ=3.0)
-#   tpch-s3               → Ewma   (noisy S3, wide σ=4.0)
-#   tpch-nvme-10          → Ewma   (default σ=3.0)
-#   tpch-s3-10            → Ewma   (noisy S3, wide σ=4.0)
-#   tpcds-nvme            → Ewma   (default σ=3.0)
-#   clickbench-nvme       → Ewma   (default σ=3.0)
-#   statpopgen            → Ewma   (default σ=3.0)
-#   fineweb               → Ewma   (default σ=3.0)
-#   fineweb-s3            → Ewma   (noisy S3, wide σ=4.0)
-#   polarsignals          → Ewma   (default σ=3.0)
+# Parameters were tuned against 4M real data points from S3 (2794 commits,
+# 3094 series). Target: ~1% alert rate per series — roughly 1–2 alerts per
+# week given daily merges, low enough to avoid fatigue, high enough to catch
+# real regressions.
+#
+# Benchmark ID           CV% p50  MaxJ% p50  Check   Params                    Alert rate
+# ─────────────────────  ───────  ─────────  ──────  ────────────────────────  ──────────
+# random-access-bench      5.4%      32.8%   Ewma    span=8  σ=5.0 min=10      ~0.97%
+# compress-bench          22.2%      51.8%   Ewma    span=30 σ=4.0 min=10      ~1.03%
+# clickbench-nvme          8.8%      40.8%   Ewma    span=30 σ=5.0 min=10      ~1.01%
+# tpch-nvme               71.8%     654.7%   Ewma    span=30 σ=5.0 min=10      ~1.92%
+# tpch-s3                 74.0%    3606.6%   Ewma    span=20 σ=5.0 min=10      ~0.99%
+# tpcds-nvme              10.4%      35.5%   Ewma    span=30 σ=5.0 min=10      ~1.02%
+# fineweb-nvme             2.5%      12.2%   Ewma    span=8  σ=5.0 min=5       ~1.30%
+# fineweb-s3              51.3%     962.5%   Ewma    span=30 σ=5.0 min=8       ~1.05%
+# statpopgen               9.8%      34.4%   Ewma    span=30 σ=5.0 min=5       ~1.00%
+# polarsignals             9.8%      35.1%   Ewma    span=20 σ=4.0 min=10      ~1.00%
 
-DEFAULT_METRIC: Metric = Ewma(pattern="*")
+DEFAULT_METRIC: Metric = Ewma(pattern="*", span=30, sigma=5.0, min_observations=10)
 
 METRICS: list[Metric] = [
-    # S3 benchmarks are noisier — wider sigma, longer window
-    Ewma(pattern="*-s3*",          sigma=4.0, span=15, min_observations=8),
-    # Compression is stable — tighter bounds
-    Ewma(pattern="compress*",      sigma=2.5, span=8),
-    # Random access — CUSUM catches gradual drift better than EWMA
-    Cusum(pattern="random-access*", cusum_threshold=4.0, drift=0.3, min_observations=8),
+    # S3 benchmarks: extreme variance (CV 50-74%, max jumps 1000-3600%)
+    # from network jitter. Long span + high sigma to absorb noise.
+    Ewma(pattern="*-s3*",          span=20, sigma=5.0, min_observations=10),
+    # Compression: high CV (22%) from ratio metrics and timing variance.
+    # Long span smooths out the noise.
+    Ewma(pattern="compress*",      span=30, sigma=4.0, min_observations=10),
+    # Random access: low CV (5.4%) — most stable suite. Short span reacts
+    # faster since the data is clean.
+    Ewma(pattern="random-access*", span=8,  sigma=5.0, min_observations=10),
+    # FineWeb NVMe: very stable (CV 2.5%), short history (72 pts).
+    # Short span, lower min_obs to work with limited data.
+    Ewma(pattern="fineweb",        span=8,  sigma=5.0, min_observations=5),
+    # Polarsignals: moderate noise (CV 9.8%), only 10 series.
+    Ewma(pattern="polarsignals",   span=20, sigma=4.0, min_observations=10),
 ]
 
 
