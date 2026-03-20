@@ -131,5 +131,9 @@ fn bits_op_with_copy<F: Fn(&[u8; 128], &mut [u8; 128])>(
     }
 
     unsafe { output.set_len(output_len) };
-    BitBuffer::new_with_offset(output.freeze().into_byte_buffer(), len.next_multiple_of(1024), offset)
+    BitBuffer::new_with_offset(
+        output.freeze().into_byte_buffer(),
+        len.next_multiple_of(1024),
+        offset,
+    )
 }
