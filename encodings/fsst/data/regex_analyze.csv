@@ -1,0 +1,4 @@
+pattern,byte_mean_ns,byte_stddev_ns,fused_mean_ns,fused_stddev_ns,speedup,matches,dfa_states
+https?://,25.72,0.11,11.69,0.24,2.200,50000,11
+google|facebook,73.69,0.33,17.99,0.48,4.096,12574,16
+search\?q=,80.01,0.37,18.92,0.29,4.229,6367,12

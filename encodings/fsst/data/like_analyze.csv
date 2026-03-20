@@ -1,0 +1,4 @@
+pattern,arrow_mean_us,arrow_stddev_us,fsst_mean_us,fsst_stddev_us,speedup
+https%,447.72,10.26,458.68,5.58,0.976
+%google%,666.40,9.20,690.72,12.28,0.965
+%search%,648.80,8.70,728.58,16.90,0.890
