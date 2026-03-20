@@ -51,7 +51,7 @@ impl VTable for Struct {
         &Struct
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

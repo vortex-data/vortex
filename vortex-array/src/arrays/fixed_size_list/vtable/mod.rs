@@ -53,7 +53,7 @@ impl VTable for FixedSizeList {
         &FixedSizeList
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

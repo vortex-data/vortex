@@ -82,7 +82,7 @@ impl VTable for DateTimeParts {
         &DateTimeParts
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

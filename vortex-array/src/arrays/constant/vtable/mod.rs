@@ -62,7 +62,7 @@ impl VTable for Constant {
         &Constant
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

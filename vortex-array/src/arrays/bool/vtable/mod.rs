@@ -60,7 +60,7 @@ impl VTable for Bool {
         &Bool
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

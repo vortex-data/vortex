@@ -74,7 +74,7 @@ impl VTable for BitPacked {
         &BitPacked
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

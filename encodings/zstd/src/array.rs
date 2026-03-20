@@ -95,7 +95,7 @@ impl VTable for Zstd {
         &Zstd
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

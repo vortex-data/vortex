@@ -43,7 +43,7 @@ impl VTable for Null {
         &Null
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

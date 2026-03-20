@@ -48,7 +48,7 @@ impl VTable for Shared {
         &Shared
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

@@ -246,7 +246,7 @@ impl VTable for Sequence {
         &Sequence
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

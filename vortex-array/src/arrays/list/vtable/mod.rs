@@ -60,7 +60,7 @@ impl VTable for List {
         &List
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

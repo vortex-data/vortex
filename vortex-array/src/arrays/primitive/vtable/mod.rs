@@ -54,7 +54,7 @@ impl VTable for Primitive {
         &Primitive
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

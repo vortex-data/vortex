@@ -52,7 +52,7 @@ impl VTable for FoR {
         &FoR
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

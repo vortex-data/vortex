@@ -58,7 +58,7 @@ impl VTable for ALP {
         &ALP
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

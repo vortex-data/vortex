@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::type_name;
-use std::fmt;
 use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::marker::PhantomData;
+use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_error::VortexExpect;
@@ -27,15 +24,14 @@ use crate::vtable::VTable;
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
 
+/// Reference-counted DynVTable
+pub type DynVTableRef = Arc<dyn DynVTable>;
+
 /// Dynamically typed vtable trait.
-///
-/// This trait is sealed, therefore users should implement the strongly typed [`VTable`] trait
-/// instead. The [`ArrayVTableExt::vtable`] function can be used to lift the implementation into
-/// this object-safe form.
 ///
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`DynArray`] trait API to a minimum.
-pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
+pub trait DynVTable: 'static + Send + Sync + Debug {
     #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
@@ -73,11 +69,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
-/// implementation.
-struct ArrayVTableAdapter<V: VTable>(PhantomData<V>);
-
-impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
+impl<V: VTable> DynVTable for V {
     fn build(
         &self,
         _id: ArrayId,
@@ -205,35 +197,4 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
         .downcast_ref::<ArrayAdapter<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
         .as_inner()
-}
-
-impl<V: VTable> Debug for ArrayVTableAdapter<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Encoding<{}>", type_name::<V>())
-    }
-}
-
-impl<V: VTable> From<V> for &'static dyn DynVTable {
-    fn from(_vtable: V) -> Self {
-        const { &ArrayVTableAdapter::<V>(PhantomData) }
-    }
-}
-
-pub trait ArrayVTableExt {
-    /// Wraps the vtable into an [`DynVTable`] by static reference.
-    fn vtable() -> &'static dyn DynVTable;
-}
-
-impl<V: VTable> ArrayVTableExt for V {
-    fn vtable() -> &'static dyn DynVTable {
-        const { &ArrayVTableAdapter::<V>(PhantomData) }
-    }
-}
-
-mod private {
-    use super::ArrayVTableAdapter;
-    use crate::vtable::VTable;
-
-    pub trait Sealed {}
-    impl<V: VTable> Sealed for ArrayVTableAdapter<V> {}
 }

@@ -69,7 +69,7 @@ impl VTable for RunEnd {
         &RunEnd
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

@@ -55,7 +55,7 @@ impl VTable for Slice {
         &Slice
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Slice::ID
     }
 

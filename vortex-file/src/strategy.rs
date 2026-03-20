@@ -27,6 +27,7 @@ use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
+use vortex_array::session::ArraySession;
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 #[cfg(feature = "zstd")]
@@ -74,48 +75,48 @@ const ONE_MEG: u64 = 1 << 20;
 /// This includes all canonical encodings from vortex-array plus all compressed
 /// encodings from the various encoding crates.
 pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
-    let registry = ArrayRegistry::default();
+    let session = ArraySession::empty();
 
     // Canonical encodings from vortex-array
-    registry.register(Null::ID, Null);
-    registry.register(Bool::ID, Bool);
-    registry.register(Primitive::ID, Primitive);
-    registry.register(Decimal::ID, Decimal);
-    registry.register(VarBin::ID, VarBin);
-    registry.register(VarBinView::ID, VarBinView);
-    registry.register(List::ID, List);
-    registry.register(ListView::ID, ListView);
-    registry.register(FixedSizeList::ID, FixedSizeList);
-    registry.register(Struct::ID, Struct);
-    registry.register(Extension::ID, Extension);
-    registry.register(Chunked::ID, Chunked);
-    registry.register(Constant::ID, Constant);
-    registry.register(Masked::ID, Masked);
-    registry.register(Dict::ID, Dict);
+    session.register(Null);
+    session.register(Bool);
+    session.register(Primitive);
+    session.register(Decimal);
+    session.register(VarBin);
+    session.register(VarBinView);
+    session.register(List);
+    session.register(ListView);
+    session.register(FixedSizeList);
+    session.register(Struct);
+    session.register(Extension);
+    session.register(Chunked);
+    session.register(Constant);
+    session.register(Masked);
+    session.register(Dict);
 
     // Compressed encodings from encoding crates
-    registry.register(ALP::ID, ALP);
-    registry.register(ALPRD::ID, ALPRD);
-    registry.register(BitPacked::ID, BitPacked);
-    registry.register(ByteBool::ID, ByteBool);
-    registry.register(DateTimeParts::ID, DateTimeParts);
-    registry.register(DecimalByteParts::ID, DecimalByteParts);
-    registry.register(Delta::ID, Delta);
-    registry.register(FoR::ID, FoR);
-    registry.register(FSST::ID, FSST);
-    registry.register(Pco::ID, Pco);
-    registry.register(RLE::ID, RLE);
-    registry.register(RunEnd::ID, RunEnd);
-    registry.register(Sequence::ID, Sequence);
-    registry.register(Sparse::ID, Sparse);
-    registry.register(ZigZag::ID, ZigZag);
+    session.register(ALP);
+    session.register(ALPRD);
+    session.register(BitPacked);
+    session.register(ByteBool);
+    session.register(DateTimeParts);
+    session.register(DecimalByteParts);
+    session.register(Delta);
+    session.register(FoR);
+    session.register(FSST);
+    session.register(Pco);
+    session.register(RLE);
+    session.register(RunEnd);
+    session.register(Sequence);
+    session.register(Sparse);
+    session.register(ZigZag);
 
     #[cfg(feature = "zstd")]
-    registry.register(Zstd::ID, Zstd);
+    session.register(Zstd);
     #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    registry.register(ZstdBuffers::ID, ZstdBuffers);
+    session.register(ZstdBuffers);
 
-    registry
+    session.registry().clone()
 });
 
 /// Build a new [writer strategy][LayoutStrategy] to compress and reorganize chunks of a Vortex file.

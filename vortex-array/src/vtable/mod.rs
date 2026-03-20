@@ -61,7 +61,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn vtable(array: &Self::Array) -> &Self;
 
     /// Returns the ID of the array.
-    fn id(array: &Self::Array) -> ArrayId;
+    fn id(&self) -> ArrayId;
 
     /// Returns the length of the array.
     fn len(array: &Self::Array) -> usize;

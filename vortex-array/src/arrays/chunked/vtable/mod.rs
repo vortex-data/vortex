@@ -59,7 +59,7 @@ impl VTable for Chunked {
         &Chunked
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

@@ -62,7 +62,7 @@ impl VTable for Dict {
         &Dict
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

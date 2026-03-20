@@ -52,7 +52,7 @@ impl VTable for ZigZag {
         &ZigZag
     }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

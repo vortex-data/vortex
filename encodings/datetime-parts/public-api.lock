@@ -66,7 +66,7 @@ pub fn vortex_datetime_parts::DateTimeParts::execute(array: &Self::Array, ctx: &
 
 pub fn vortex_datetime_parts::DateTimeParts::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_datetime_parts::DateTimeParts::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_datetime_parts::DateTimeParts::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_datetime_parts::DateTimeParts::len(array: &vortex_datetime_parts::DateTimePartsArray) -> usize
 
@@ -81,6 +81,8 @@ pub fn vortex_datetime_parts::DateTimeParts::reduce_parent(array: &Self::Array, 
 pub fn vortex_datetime_parts::DateTimeParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_datetime_parts::DateTimeParts::stats(array: &vortex_datetime_parts::DateTimePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_datetime_parts::DateTimeParts::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_datetime_parts::DateTimeParts::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
