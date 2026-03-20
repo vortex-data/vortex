@@ -1,0 +1,130 @@
+name: CI / Python
+
+# Concurrency control:
+# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - Push to develop: runs queue sequentially, never cancelled.
+# - `workflow_dispatch`: groups by branch and queues if run on develop.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: auto
+  RUST_BACKTRACE: 1
+
+jobs:
+  python-lint:
+    name: "Python (lint)"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=python-lint', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 40
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+      # Use uvx for ruff to avoid building the Rust extension (saves ~4.5 min)
+      - name: Python Lint - Format
+        run: uvx ruff format --check .
+      - name: Python Lint - Ruff
+        run: uvx ruff check .
+      # PyRight needs the project for type information, so use uv run
+      - name: Python Lint - PyRight
+        env:
+          MATURIN_PEP517_ARGS: "--profile dev"
+        run: uv run basedpyright vortex-python
+
+  python-test:
+    name: "Python (test)"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=python-test', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 40
+    env:
+      RUST_LOG: "info,uv=debug"
+      MATURIN_PEP517_ARGS: "--profile dev"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+
+      - name: Pytest - Vortex
+        run: |
+          uv run --all-packages pytest --benchmark-disable -n auto test/
+        working-directory: vortex-python/
+
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+
+      - name: Pytest Benchmarks - Vortex
+        run: |
+          bash ../scripts/bench-taskset.sh uv run --all-packages pytest --benchmark-only benchmark/
+        working-directory: vortex-python/
+
+      - name: Doctest - PyVortex
+        run: |
+          uv run --all-packages make doctest
+        working-directory: docs/
+
+      - name: Ensure docs build - PyVortex
+        run: |
+          uv run --all-packages make html
+        working-directory: docs/
+
+  python-wheel-build:
+    name: "Python (wheel build)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust Dependency Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+      - uses: mlugg/setup-zig@v2.2.1
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+          prune-cache: false
+      - name: Ensure wheel and sdist can be built on Linux - PyVortex
+        shell: bash
+        run: |
+          echo "Clearing wheel target directory"
+          rm -rf ../target/wheels/
+
+          uv venv
+          uv tool run maturin@1.10 build --interpreter python3.11 --zig
+          uv tool run maturin@1.10 build --interpreter python3.11 --zig --sdist
+
+          file_count=$(ls -1 ../target/wheels/ | wc -l)
+
+          if [[ $file_count -ne 2 ]]; then
+            echo "Unexpected number of files detected ${file_count}:"
+            ls ../target/wheels/
+            exit 1
+          else
+            echo "Generated two files"
+          fi
+        working-directory: vortex-python/
