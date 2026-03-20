@@ -13,6 +13,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[[bin]]
+name = "vortex-footer-analyze"
+path = "src/bin/vortex-footer-analyze.rs"
+
 [package.metadata.docs.rs]
 all-features = true
 

@@ -100,7 +100,10 @@ mod read;
 pub mod segments;
 mod strategy;
 #[cfg(test)]
+mod footer_size_analysis;
+#[cfg(test)]
 mod tests;
+
 pub mod v2;
 mod writer;
 
