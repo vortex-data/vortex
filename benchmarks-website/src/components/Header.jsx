@@ -1,5 +1,11 @@
 import React, { useMemo } from 'react';
-import { FILTER_DIMENSIONS, collectFilterValues } from '../lib/config';
+import {
+  FILTER_DIMENSIONS,
+  collectFilterValues,
+  GROUP_FILTER_DIMENSIONS,
+  collectGroupFilterValues,
+  WORKLOAD_LABELS,
+} from '../lib/config';
 
 export default function Header({
   sidebarOpen,
@@ -17,12 +23,23 @@ export default function Header({
   hasActiveGlobalFilters,
   onClearGlobalFilters,
   allSeriesNames,
+  groupFilters,
+  onGroupFilterChange,
+  hasActiveGroupFilters,
+  onClearGroupFilters,
+  allGroupNames,
 }) {
   // Compute available options for each global filter dimension
   const filterOptions = useMemo(() => {
     if (!allSeriesNames?.length) return {};
     return collectFilterValues(allSeriesNames);
   }, [allSeriesNames]);
+
+  // Compute available options for each group filter dimension
+  const groupFilterOptions = useMemo(() => {
+    if (!allGroupNames?.length) return {};
+    return collectGroupFilterValues(allGroupNames);
+  }, [allGroupNames]);
 
   return (
     <header className="sticky-header">
@@ -54,23 +71,6 @@ export default function Header({
             <button className="control-btn" onClick={onCollapseAll}>
               Collapse All
             </button>
-            <select
-              className="category-filter"
-              value={categoryFilter}
-              onChange={(e) => onCategoryChange(e.target.value)}
-              aria-label="Filter benchmarks by category"
-            >
-              <option value="all">All Benchmarks</option>
-              <option value="Read/Write">Read/Write</option>
-              <option value="Queries (NVMe)">Queries (NVMe)</option>
-              <option value="Queries (S3)">Queries (S3)</option>
-              <option value="TPC-H (SF=1)">TPC-H (SF=1)</option>
-              <option value="TPC-H (SF=10)">TPC-H (SF=10)</option>
-              <option value="TPC-H (SF=100)">TPC-H (SF=100)</option>
-              <option value="TPC-H (SF=1000)">TPC-H (SF=1000)</option>
-              <option value="TPC-DS (SF=1)">TPC-DS (SF=1)</option>
-              <option value="TPC-DS (SF=10)">TPC-DS (SF=10)</option>
-            </select>
             <input
               type="text"
               className="search-filter"
@@ -118,11 +118,37 @@ export default function Header({
         </div>
       </div>
 
-      {/* Global filter bar — applies to all sections */}
-      {globalFilters && allSeriesNames?.length > 0 && (
+      {/* Group-level filter bar — workload, storage, scale factor */}
+      {allGroupNames?.length > 0 && (
         <div className="global-filter-bar">
-          <span className="global-filter-label">Global filters:</span>
-          {FILTER_DIMENSIONS.map(dim => {
+          {GROUP_FILTER_DIMENSIONS.map(dim => {
+            const options = groupFilterOptions[dim.key] || [];
+            if (options.length <= 1) return null;
+            return (
+              <div key={dim.key} className="global-filter-group">
+                <span className="global-filter-dim-label">{dim.label}</span>
+                <div className="global-filter-buttons">
+                  <button
+                    className={`global-filter-btn ${groupFilters?.[dim.key] === 'all' ? 'active' : ''}`}
+                    onClick={() => onGroupFilterChange(dim.key, 'all')}
+                  >
+                    All
+                  </button>
+                  {options.map(val => (
+                    <button
+                      key={val}
+                      className={`global-filter-btn ${groupFilters?.[dim.key] === val ? 'active' : ''}`}
+                      onClick={() => onGroupFilterChange(dim.key, val)}
+                    >
+                      {WORKLOAD_LABELS[val] || val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {/* Series-level filters (Engine, Format) inline */}
+          {globalFilters && allSeriesNames?.length > 0 && FILTER_DIMENSIONS.map(dim => {
             const options = filterOptions[dim.key] || [];
             if (options.length <= 1) return null;
             return (
@@ -148,9 +174,12 @@ export default function Header({
               </div>
             );
           })}
-          {hasActiveGlobalFilters && (
-            <button className="global-filter-clear" onClick={onClearGlobalFilters}>
-              Clear
+          {(hasActiveGroupFilters || hasActiveGlobalFilters) && (
+            <button className="global-filter-clear" onClick={() => {
+              onClearGroupFilters();
+              onClearGlobalFilters();
+            }}>
+              Clear All
             </button>
           )}
         </div>

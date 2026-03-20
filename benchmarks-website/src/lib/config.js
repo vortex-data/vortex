@@ -211,6 +211,100 @@ for (const g of FAN_OUT_GROUPS) {
   ];
 }
 
+// =============================================================================
+// Top-level group filters — filter which benchmark groups are visible.
+// These operate on group names (not series names like FILTER_DIMENSIONS).
+// =============================================================================
+
+/** Parse the workload/suite from a group name. */
+export function parseWorkload(groupName) {
+  if (["Random Access", "Compression", "Compression Size"].includes(groupName)) {
+    return "Read/Write";
+  }
+  for (const s of QUERY_SUITES) {
+    if (s.skip) continue;
+    if (groupName === s.displayName || groupName.startsWith(s.displayName + " (")) {
+      return s.displayName;
+    }
+  }
+  return null;
+}
+
+/** Parse the storage type from a group name (NVMe or S3). */
+export function parseStorage(groupName) {
+  const m = groupName.match(/\((NVMe|S3)\)/);
+  if (m) return m[1];
+  // Non-fan-out query suites and read/write are NVMe by default
+  if (["Random Access", "Compression", "Compression Size"].includes(groupName)) return "NVMe";
+  for (const s of QUERY_SUITES) {
+    if (!s.skip && !s.fanOut && groupName === s.displayName) return "NVMe";
+  }
+  return null;
+}
+
+/** Parse the scale factor from a group name. */
+export function parseScaleFactor(groupName) {
+  const m = groupName.match(/SF=(\d+)/);
+  return m ? `SF=${m[1]}` : null;
+}
+
+/**
+ * Top-level group filter dimensions. Each has:
+ *   - key:    unique identifier
+ *   - label:  display label
+ *   - parse:  function(groupName) → string|null
+ */
+export const GROUP_FILTER_DIMENSIONS = [
+  { key: 'workload', label: 'Workload', parse: parseWorkload },
+  { key: 'storage', label: 'Storage', parse: parseStorage },
+  { key: 'scaleFactor', label: 'Scale Factor', parse: parseScaleFactor },
+];
+
+/** Build default group filters (all dimensions set to 'all'). */
+export function defaultGroupFilters() {
+  return Object.fromEntries(GROUP_FILTER_DIMENSIONS.map(d => [d.key, 'all']));
+}
+
+/**
+ * Test whether a group name passes a set of group-level filters.
+ */
+export function groupMatchesFilters(groupName, filters) {
+  for (const dim of GROUP_FILTER_DIMENSIONS) {
+    const filterVal = filters[dim.key];
+    if (!filterVal || filterVal === 'all') continue;
+    const parsed = dim.parse(groupName);
+    if (parsed === null) continue; // can't determine → don't filter out
+    if (parsed !== filterVal) return false;
+  }
+  return true;
+}
+
+/**
+ * Collect unique values for each group filter dimension from a list of group names.
+ */
+export function collectGroupFilterValues(groupNames) {
+  const result = {};
+  for (const dim of GROUP_FILTER_DIMENSIONS) {
+    const values = new Set();
+    for (const name of groupNames) {
+      const val = dim.parse(name);
+      if (val) values.add(val);
+    }
+    result[dim.key] = [...values].sort();
+  }
+  return result;
+}
+
+/** Display labels for workload values. */
+export const WORKLOAD_LABELS = {
+  'Read/Write': 'Read/Write',
+  'Clickbench': 'Clickbench',
+  'TPC-H': 'TPC-H',
+  'TPC-DS': 'TPC-DS',
+  'Statistical and Population Genetics': 'StatPopGen',
+  'PolarSignals Profiling': 'PolarSignals',
+};
+
 // Benchmark descriptions
 export const BENCHMARK_DESCRIPTIONS = {
   "Random Access":

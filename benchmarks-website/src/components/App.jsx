@@ -4,7 +4,13 @@ import Sidebar from './Sidebar';
 import BenchmarkSection from './BenchmarkSection';
 import Modal from './Modal';
 import { fetchMetadata } from '../lib/api';
-import { BENCHMARK_CONFIGS, CATEGORY_TAGS, defaultFilters } from '../lib/config';
+import {
+  BENCHMARK_CONFIGS,
+  CATEGORY_TAGS,
+  defaultFilters,
+  defaultGroupFilters,
+  groupMatchesFilters,
+} from '../lib/config';
 
 export default function App() {
   const [metadata, setMetadata] = useState(null);
@@ -18,6 +24,7 @@ export default function App() {
   const [modalChart, setModalChart] = useState(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [globalFilters, setGlobalFilters] = useState(defaultFilters);
+  const [groupFilters, setGroupFilters] = useState(defaultGroupFilters);
   const metadataFetched = useRef(false);
 
   useEffect(() => {
@@ -83,6 +90,9 @@ export default function App() {
     if (!metadata?.groups) return [];
 
     return Object.keys(metadata.groups).filter(groupName => {
+      // Apply group-level filters (workload, storage, scale factor)
+      if (!groupMatchesFilters(groupName, groupFilters)) return false;
+
       if (categoryFilter !== 'all') {
         const tags = CATEGORY_TAGS[groupName] || [];
         if (!tags.includes(categoryFilter)) return false;
@@ -101,7 +111,7 @@ export default function App() {
 
       return true;
     });
-  }, [metadata, categoryFilter, searchFilter]);
+  }, [metadata, categoryFilter, searchFilter, groupFilters]);
 
   // Collect all series names across all groups for global filter options
   const allSeriesNames = useMemo(() => {
@@ -128,6 +138,24 @@ export default function App() {
   const clearGlobalFilters = useCallback(() => {
     setGlobalFilters(defaultFilters());
   }, []);
+
+  const handleGroupFilterChange = useCallback((key, value) => {
+    setGroupFilters(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const hasActiveGroupFilters = useMemo(() => {
+    return Object.values(groupFilters).some(v => v !== 'all');
+  }, [groupFilters]);
+
+  const clearGroupFilters = useCallback(() => {
+    setGroupFilters(defaultGroupFilters());
+  }, []);
+
+  // All group names for computing group filter options
+  const allGroupNames = useMemo(() => {
+    if (!metadata?.groups) return [];
+    return Object.keys(metadata.groups);
+  }, [metadata]);
 
   const toggleGroup = useCallback((groupName) => {
     setExpandedGroups(prev => {
@@ -189,6 +217,11 @@ export default function App() {
     hasActiveGlobalFilters,
     onClearGlobalFilters: clearGlobalFilters,
     allSeriesNames,
+    groupFilters,
+    onGroupFilterChange: handleGroupFilterChange,
+    hasActiveGroupFilters,
+    onClearGroupFilters: clearGroupFilters,
+    allGroupNames,
   };
 
   if (loading) {
