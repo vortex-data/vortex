@@ -233,7 +233,8 @@ function readLocalJsonl(fp) {
   });
 }
 
-// Stream benchmark data from a single gzipped JSONL file
+// Stream benchmark data from a single gzipped JSONL file.
+// Returns true if data was found, false if the file was missing (404/403).
 function streamDataFile(url, callback) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -242,7 +243,7 @@ function streamDataFile(url, callback) {
         // File may not exist yet (new benchmark), skip gracefully
         if (res.status === 404 || res.status === 403) {
           console.log(`Skipping ${url} (${res.status})`);
-          return resolve();
+          return resolve(false);
         }
         throw new Error(`Fetch failed: ${url} ${res.status}`);
       }
@@ -257,7 +258,7 @@ function streamDataFile(url, callback) {
             callback(JSON.parse(l));
           } catch {}
       });
-      rl.on("close", resolve);
+      rl.on("close", () => resolve(true));
       rl.on("error", reject);
     } catch (e) {
       reject(e);
@@ -288,11 +289,20 @@ async function forEachBenchmark(callback) {
   }
 
   // Fetch all per-benchmark data files in parallel
-  await Promise.all(
+  const results = await Promise.all(
     DATA_FILES.map((id) =>
       streamDataFile(`${DATA_BASE_URL}/data/${id}.data.json.gz`, callback),
     ),
   );
+
+  // Fallback: if no split files were found, try the legacy monolithic file.
+  // This keeps the website working before the migration script is run.
+  if (!results.some(Boolean)) {
+    console.log(
+      "No split data files found, falling back to legacy data.json.gz",
+    );
+    await streamDataFile(`${DATA_BASE_URL}/data.json.gz`, callback);
+  }
 }
 
 // Main data processing
