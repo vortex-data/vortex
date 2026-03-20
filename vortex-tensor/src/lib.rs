@@ -5,8 +5,12 @@
 //! including unit vectors, spherical coordinates, and similarity measures such as cosine
 //! similarity.
 
+pub mod matcher;
+pub mod scalar_fns;
+
 pub mod fixed_shape;
 pub mod vector;
 
-pub mod matcher;
-pub mod scalar_fns;
+pub mod encodings;
+
+mod utils;

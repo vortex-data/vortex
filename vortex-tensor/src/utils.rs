@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::Extension;
+use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
@@ -19,7 +21,7 @@ use vortex::error::vortex_err;
 /// Extracts the list size from a tensor-like extension dtype.
 ///
 /// The storage dtype must be a `FixedSizeList`.
-pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<usize> {
+pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
     let DType::FixedSizeList(_, list_size, _) = ext.storage_dtype() else {
         vortex_bail!(
             "expected FixedSizeList storage dtype, got {}",
@@ -27,7 +29,7 @@ pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<usize> {
         );
     };
 
-    Ok(*list_size as usize)
+    Ok(*list_size)
 }
 
 /// Extracts the float element [`PType`] from a tensor-like extension dtype.
@@ -91,13 +93,17 @@ impl FlatElements {
 ///
 /// When the input is a [`ConstantArray`] (e.g., a literal query vector), only a single row is
 /// materialized to avoid expanding it to the full column length.
-pub fn extract_flat_elements(storage: &ArrayRef, list_size: usize) -> VortexResult<FlatElements> {
+pub fn extract_flat_elements(
+    storage: &ArrayRef,
+    list_size: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FlatElements> {
     if let Some(constant) = storage.as_opt::<Constant>() {
         // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a huge
         // amount of data.
         let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();
-        let fsl = single.to_canonical()?.into_fixed_size_list();
-        let elems = fsl.elements().to_canonical()?.into_primitive();
+        let fsl: FixedSizeListArray = single.execute(ctx)?;
+        let elems: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
         return Ok(FlatElements {
             elems,
             stride: 0,
@@ -106,8 +112,8 @@ pub fn extract_flat_elements(storage: &ArrayRef, list_size: usize) -> VortexResu
     }
 
     // Otherwise we have to fully expand all of the data.
-    let fsl = storage.to_canonical()?.into_fixed_size_list();
-    let elems = fsl.elements().to_canonical()?.into_primitive();
+    let fsl: FixedSizeListArray = storage.clone().execute(ctx)?;
+    let elems: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
     Ok(FlatElements {
         elems,
         stride: list_size,
@@ -118,6 +124,7 @@ pub fn extract_flat_elements(storage: &ArrayRef, list_size: usize) -> VortexResu
 #[cfg(test)]
 pub mod test_helpers {
     use vortex::array::ArrayRef;
+    use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::ExtensionArray;
@@ -128,9 +135,13 @@ pub mod test_helpers {
     use vortex::dtype::Nullability;
     use vortex::dtype::extension::ExtDType;
     use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
     use vortex::extension::EmptyMetadata;
     use vortex::scalar::Scalar;
 
+    use super::extension_list_size;
+    use super::extension_storage;
+    use super::extract_flat_elements;
     use crate::fixed_shape::FixedShapeTensor;
     use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::vector::Vector;
@@ -208,6 +219,26 @@ pub mod test_helpers {
             ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
 
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    }
+
+    #[expect(dead_code, reason = "TODO(connor): Use this!")]
+    /// Extracts the f64 rows from a [`Vector`] extension array.
+    ///
+    /// Returns a `Vec<Vec<f64>>` where each inner vec is one vector's elements.
+    pub fn extract_vector_rows(
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<Vec<f64>>> {
+        let ext = array
+            .dtype()
+            .as_extension_opt()
+            .ok_or_else(|| vortex_err!("expected Vector extension dtype, got {}", array.dtype()))?;
+        let list_size = extension_list_size(ext)? as usize;
+        let storage = extension_storage(array)?;
+        let flat = extract_flat_elements(&storage, list_size, ctx)?;
+        Ok((0..array.len())
+            .map(|i| flat.row::<f64>(i).to_vec())
+            .collect())
     }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`

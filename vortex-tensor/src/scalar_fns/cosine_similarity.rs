@@ -28,10 +28,10 @@ use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::utils::extension_element_ptype;
-use crate::scalar_fns::utils::extension_list_size;
-use crate::scalar_fns::utils::extension_storage;
-use crate::scalar_fns::utils::extract_flat_elements;
+use crate::utils::extension_element_ptype;
+use crate::utils::extension_list_size;
+use crate::utils::extension_storage;
+use crate::utils::extract_flat_elements;
 
 /// Cosine similarity between two columns.
 ///
@@ -115,7 +115,7 @@ impl ScalarFnVTable for CosineSimilarity {
         &self,
         _options: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let lhs = args.get(0)?;
         let rhs = args.get(1)?;
@@ -128,15 +128,15 @@ impl ScalarFnVTable for CosineSimilarity {
                 lhs.dtype()
             )
         })?;
-        let list_size = extension_list_size(ext)?;
+        let list_size = extension_list_size(ext)? as usize;
 
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.
         let lhs_storage = extension_storage(&lhs)?;
         let rhs_storage = extension_storage(&rhs)?;
 
-        let lhs_flat = extract_flat_elements(&lhs_storage, list_size)?;
-        let rhs_flat = extract_flat_elements(&rhs_storage, list_size)?;
+        let lhs_flat = extract_flat_elements(&lhs_storage, list_size, ctx)?;
+        let rhs_flat = extract_flat_elements(&rhs_storage, list_size, ctx)?;
 
         match_each_float_ptype!(lhs_flat.ptype(), |T| {
             let result: PrimitiveArray = (0..row_count)
@@ -196,11 +196,11 @@ mod tests {
     use vortex::scalar_fn::ScalarFn;
 
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
-    use crate::scalar_fns::utils::test_helpers::assert_close;
-    use crate::scalar_fns::utils::test_helpers::constant_tensor_array;
-    use crate::scalar_fns::utils::test_helpers::constant_vector_array;
-    use crate::scalar_fns::utils::test_helpers::tensor_array;
-    use crate::scalar_fns::utils::test_helpers::vector_array;
+    use crate::utils::test_helpers::assert_close;
+    use crate::utils::test_helpers::constant_tensor_array;
+    use crate::utils::test_helpers::constant_vector_array;
+    use crate::utils::test_helpers::tensor_array;
+    use crate::utils::test_helpers::vector_array;
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {

@@ -28,10 +28,10 @@ use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::utils::extension_element_ptype;
-use crate::scalar_fns::utils::extension_list_size;
-use crate::scalar_fns::utils::extension_storage;
-use crate::scalar_fns::utils::extract_flat_elements;
+use crate::utils::extension_element_ptype;
+use crate::utils::extension_list_size;
+use crate::utils::extension_storage;
+use crate::utils::extract_flat_elements;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
 ///
@@ -98,7 +98,7 @@ impl ScalarFnVTable for L2Norm {
         &self,
         _options: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         let row_count = args.row_count();
@@ -110,10 +110,10 @@ impl ScalarFnVTable for L2Norm {
                 input.dtype()
             )
         })?;
-        let list_size = extension_list_size(ext)?;
+        let list_size = extension_list_size(ext)? as usize;
 
         let storage = extension_storage(&input)?;
-        let flat = extract_flat_elements(&storage, list_size)?;
+        let flat = extract_flat_elements(&storage, list_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {
             let result: PrimitiveArray = (0..row_count)
@@ -163,9 +163,9 @@ mod tests {
     use vortex::scalar_fn::ScalarFn;
 
     use crate::scalar_fns::l2_norm::L2Norm;
-    use crate::scalar_fns::utils::test_helpers::assert_close;
-    use crate::scalar_fns::utils::test_helpers::tensor_array;
-    use crate::scalar_fns::utils::test_helpers::vector_array;
+    use crate::utils::test_helpers::assert_close;
+    use crate::utils::test_helpers::tensor_array;
+    use crate::utils::test_helpers::vector_array;
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
     fn eval_l2_norm(input: vortex::array::ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
