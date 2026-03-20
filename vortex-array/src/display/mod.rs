@@ -445,7 +445,7 @@ impl dyn DynArray + '_ {
     /// Create a tree display with all built-in extractors (nbytes, stats, metadata, buffers).
     ///
     /// This is the default, fully-detailed tree display. Use
-    /// [`tree_display_builder()`][Self::tree_display_builder] for a blank slate.
+    /// `tree_display_builder()` for a blank slate.
     ///
     /// # Examples
     /// ```

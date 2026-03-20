@@ -16,9 +16,8 @@ use crate::display::node::DisplayNode;
 
 /// Composable tree display builder.
 ///
-/// Use [`tree_display()`][crate::DynArray::tree_display] for the default display with all
-/// built-in extractors, or [`tree_display_builder()`][crate::DynArray::tree_display_builder]
-/// to start with a blank slate and compose your own:
+/// Use `tree_display()` for the default display with all built-in extractors,
+/// or `tree_display_builder()` to start with a blank slate and compose your own:
 ///
 /// ```
 /// # use vortex_array::IntoArray;
