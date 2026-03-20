@@ -601,6 +601,28 @@ mod tests {
         assert_eq!(all_nulls_result.len(), 4);
     }
 
+    #[test]
+    fn test_unpack_to_primitive_preserves_nulls_for_patched_null_slots() -> VortexResult<()> {
+        let values = Buffer::from_iter([3u16, 2000, 7, 12]);
+        let validity = Validity::from_iter([true, false, true, true]);
+        let array = PrimitiveArray::new(values, validity);
+
+        let bitpacked = bitpack_encode(&array, 4, None)?;
+        assert!(
+            bitpacked.patches().is_some(),
+            "null payload wider than bit width should create a patch"
+        );
+
+        let primitive_result = unpack_to_primitive(&bitpacked);
+        assert!(primitive_result.scalar_at(1)?.is_null());
+        assert_arrays_eq!(primitive_result, array);
+
+        let builder_result = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(builder_result, array);
+
+        Ok(())
+    }
+
     /// Test that the execute method produces consistent results with other unpacking methods.
     #[test]
     fn test_execute_method_consistency() -> VortexResult<()> {
@@ -768,6 +790,54 @@ mod tests {
         let single_bp = bitpack_encode(&single, 6, None).unwrap();
         let single_result = unpack_to_primitive(&single_bp);
         assert_eq!(single_result.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_u8_bitpack_roundtrip_with_patches() -> VortexResult<()> {
+        let data: Vec<u8> = (0..2048)
+            .map(|i| if i == 176 { 242u8 } else { (i % 5) as u8 })
+            .collect();
+        let array = PrimitiveArray::from_iter(data);
+
+        for bit_width in [3u8, 5, 7] {
+            let encoded = bitpack_encode(&array, bit_width, None)?;
+            assert!(
+                encoded.patches().is_some(),
+                "bit_width={bit_width} should have patches"
+            );
+            let decoded = unpack_array(&encoded, &mut SESSION.create_execution_ctx())?;
+            assert_arrays_eq!(decoded, array);
+        }
+        Ok(())
+    }
+
+    /// Regression: u8 values mostly 0/1 with outlier must roundtrip through bitpacking.
+    #[test]
+    fn test_u8_bitpack_mostly_zeros_with_outlier() -> VortexResult<()> {
+        let mut data = vec![0u8; 1024];
+        data[176] = 242;
+        data[180] = 1;
+        data[500] = 1;
+
+        let array = PrimitiveArray::from_iter(data);
+
+        let encoded = bitpack_encode(&array, 1, None)?;
+        assert!(
+            encoded.patches().is_some(),
+            "should have patches for value 242"
+        );
+        let decoded = unpack_array(&encoded, &mut SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(decoded, array);
+
+        let encoded_best = crate::bitpack_compress::bitpack_to_best_bit_width(&array)?;
+        let decoded_best = unpack_array(&encoded_best, &mut SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(decoded_best, array);
+
+        let encoded_zero = bitpack_encode(&array, 0, None)?;
+        let decoded_zero = unpack_array(&encoded_zero, &mut SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(decoded_zero, array);
+
         Ok(())
     }
 }

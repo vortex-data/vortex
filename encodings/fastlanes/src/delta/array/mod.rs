@@ -79,8 +79,11 @@ impl DeltaArray {
 
     /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays.
     /// Note the `deltas` might be nullable
-    pub fn try_from_delta_compress_parts(bases: ArrayRef, deltas: ArrayRef) -> VortexResult<Self> {
-        let logical_len = deltas.len();
+    pub fn try_from_delta_compress_parts(
+        bases: ArrayRef,
+        deltas: ArrayRef,
+        logical_len: usize,
+    ) -> VortexResult<Self> {
         Self::try_new(bases, deltas, 0, logical_len)
     }
 

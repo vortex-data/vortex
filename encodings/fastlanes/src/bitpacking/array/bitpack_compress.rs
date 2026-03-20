@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -22,7 +21,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
-use vortex_mask::Mask;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
@@ -211,7 +209,6 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.validity_mask()?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -220,7 +217,6 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
             )?
         })
     } else if array_len < u16::MAX as usize {
@@ -230,7 +226,6 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
             )?
         })
     } else if array_len < u32::MAX as usize {
@@ -240,7 +235,6 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
             )?
         })
     } else {
@@ -250,7 +244,6 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
             )?
         })
     };
@@ -263,7 +256,6 @@ fn gather_patches_impl<T, P>(
     bit_width: u8,
     num_exceptions_hint: usize,
     patch_validity: Validity,
-    validity_mask: Mask,
 ) -> VortexResult<Option<Patches>>
 where
     T: PrimInt + NativePType,
@@ -281,9 +273,7 @@ where
             chunk_offsets.push(values.len() as u64);
         }
 
-        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
-            && validity_mask.value(idx)
-        {
+        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize {
             indices.push(P::from(idx).vortex_expect("cast index from usize"));
             values.push(*value);
         }
@@ -324,14 +314,12 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
             // All values are invalid
             bit_widths[0] = array.len();
         }
-        AllOr::Some(buffer) => {
-            // Some values are valid
-            for (is_valid, v) in buffer.iter().zip_eq(array.as_slice::<T>()) {
-                if is_valid {
-                    bit_widths[bit_width(*v)] += 1;
-                } else {
-                    bit_widths[0] += 1;
-                }
+        AllOr::Some(_) => {
+            // Count actual bit widths for all values regardless of validity.
+            // This ensures patches are created for values at null positions that
+            // exceed the chosen bit width, preserving byte-level data integrity.
+            for v in array.as_slice::<T>() {
+                bit_widths[bit_width(*v)] += 1;
             }
         }
     }
@@ -462,7 +450,8 @@ mod test {
         );
         assert!(values.ptype().is_unsigned_int());
         let compressed = BitPackedArray::encode(&values.into_array(), 4).unwrap();
-        assert!(compressed.patches().is_none());
+        // Values 16-23 at null positions still get patches to preserve byte-level integrity.
+        assert!(compressed.patches().is_some());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed

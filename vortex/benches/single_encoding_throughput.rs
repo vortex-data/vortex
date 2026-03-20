@@ -151,8 +151,9 @@ fn bench_delta_compress_u32(bencher: Bencher) {
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &uint_array)
         .bench_refs(|a| {
+            let len = a.len();
             let (bases, deltas) = delta_compress(a, &mut SESSION.create_execution_ctx()).unwrap();
-            DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array())
+            DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array(), len)
                 .unwrap()
         });
 }
@@ -160,9 +161,11 @@ fn bench_delta_compress_u32(bencher: Bencher) {
 #[divan::bench(name = "delta_decompress_u32")]
 fn bench_delta_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
+    let len = uint_array.len();
     let (bases, deltas) = delta_compress(&uint_array, &mut SESSION.create_execution_ctx()).unwrap();
     let compressed =
-        DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array()).unwrap();
+        DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array(), len)
+            .unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
