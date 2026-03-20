@@ -12,6 +12,7 @@ use arrow_array::types::*;
 use arrow_buffer::ArrowNativeType;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use kernel::PARENT_KERNELS;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -51,6 +52,7 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
+mod kernel;
 mod operations;
 mod validity;
 
@@ -190,23 +192,13 @@ impl VTable for Constant {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn to_arrow_array(
-        array: &ConstantArray,
-        data_type: &DataType,
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrowArrayRef>> {
-        match data_type {
-            DataType::Dictionary(codes_type, values_type) => {
-                Ok(Some(constant_to_dict(array, codes_type, values_type, ctx)?))
-            }
-            DataType::RunEndEncoded(ends_field, values_field) => Ok(Some(constant_to_run_end(
-                array,
-                ends_field.data_type(),
-                values_field,
-                ctx,
-            )?)),
-            _ => Ok(None),
-        }
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

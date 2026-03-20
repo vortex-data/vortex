@@ -20,7 +20,7 @@ pub fn canonical_bool_to_arrow(array: &BoolArray) -> VortexResult<ArrowArrayRef>
     )))
 }
 
-pub(super) fn to_arrow_bool(
+pub(crate) fn to_arrow_bool(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {

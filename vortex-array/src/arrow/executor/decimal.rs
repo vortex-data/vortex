@@ -23,7 +23,7 @@ use crate::arrays::DecimalArray;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::dtype::DecimalType;
 
-pub(super) fn to_arrow_decimal(
+pub(crate) fn to_arrow_decimal(
     array: ArrayRef,
     data_type: &DataType,
     ctx: &mut ExecutionCtx,

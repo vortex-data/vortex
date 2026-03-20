@@ -58,7 +58,7 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
     }))
 }
 
-pub(super) fn to_arrow_byte_view<T: ByteViewType>(
+pub(crate) fn to_arrow_byte_view<T: ByteViewType>(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {

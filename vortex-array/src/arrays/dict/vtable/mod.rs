@@ -3,8 +3,6 @@
 
 use std::hash::Hash;
 
-use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -26,8 +24,6 @@ use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
-use crate::arrow::ArrowArrayExecutor;
-use crate::arrow::executor::dictionary::make_dict_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -193,20 +189,6 @@ impl VTable for Dict {
         array.codes = codes;
         array.values = values;
         Ok(())
-    }
-
-    fn to_arrow_array(
-        array: &DictArray,
-        data_type: &DataType,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrowArrayRef>> {
-        let DataType::Dictionary(codes_type, values_type) = data_type else {
-            return Ok(None);
-        };
-        let parts = array.clone().into_parts();
-        let codes = parts.codes.execute_arrow(Some(codes_type), ctx)?;
-        let values = parts.values.execute_arrow(Some(values_type), ctx)?;
-        Ok(Some(make_dict_array(codes_type, codes, values)?))
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

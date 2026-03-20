@@ -15,6 +15,10 @@ mod validation_tests;
 #[cfg(any(test, feature = "_test-harness"))]
 pub mod dict_test;
 
+pub mod arrow_export;
+pub use arrow_export::ArrowExport;
+pub use arrow_export::ArrowExportArray;
+
 pub mod bool;
 pub use bool::Bool;
 pub use bool::BoolArray;
@@ -61,6 +65,10 @@ pub use listview::ListViewArray;
 pub mod masked;
 pub use masked::Masked;
 pub use masked::MaskedArray;
+
+pub mod native_arrow;
+pub use native_arrow::NativeArrow;
+pub use native_arrow::NativeArrowArray;
 
 pub mod null;
 pub use null::Null;

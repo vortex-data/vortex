@@ -22,7 +22,7 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability::NonNullable;
 
-pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
+pub(crate) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ArrayRef,
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,

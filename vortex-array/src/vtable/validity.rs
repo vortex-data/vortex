@@ -17,6 +17,12 @@ pub trait ValidityVTable<V: VTable> {
     fn validity(array: &V::Array) -> VortexResult<Validity>;
 }
 
+impl<V: VTable> ValidityVTable<V> for super::NotSupported {
+    fn validity(_array: &V::Array) -> VortexResult<Validity> {
+        vortex_error::vortex_bail!("Validity is not supported for this transient array type")
+    }
+}
+
 /// An implementation of the [`ValidityVTable`] for arrays that hold validity as a child array.
 pub struct ValidityVTableFromValidityHelper;
 

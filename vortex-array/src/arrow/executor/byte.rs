@@ -26,7 +26,7 @@ use crate::dtype::Nullability;
 use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
-pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
+pub(crate) fn to_arrow_byte_array<T: ByteArrayType>(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>

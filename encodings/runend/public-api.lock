@@ -94,8 +94,6 @@ pub fn vortex_runend::RunEnd::serialize(metadata: Self::Metadata) -> vortex_erro
 
 pub fn vortex_runend::RunEnd::stats(array: &vortex_runend::RunEndArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
-pub fn vortex_runend::RunEnd::to_arrow_array(array: &vortex_runend::RunEndArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
-
 pub fn vortex_runend::RunEnd::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd

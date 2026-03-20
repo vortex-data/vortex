@@ -3,14 +3,19 @@
 
 use std::ops::Range;
 
+use arrow_schema::DataType;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ArrowExport;
+use vortex_array::arrays::ArrowExportArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::NativeArrowArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
+use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
@@ -18,15 +23,54 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::RunEndArray;
+use crate::array::build_run_array;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&RunEndArrowExportKernel),
     ParentKernelSet::lift(&CompareExecuteAdaptor(RunEnd)),
     ParentKernelSet::lift(&RunEndSliceKernel),
     ParentKernelSet::lift(&FilterExecuteAdaptor(RunEnd)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(RunEnd)),
     ParentKernelSet::lift(&RunEndTakeFrom),
 ]);
+
+#[derive(Debug)]
+struct RunEndArrowExportKernel;
+
+impl ExecuteParentKernel<RunEnd> for RunEndArrowExportKernel {
+    type Parent = ArrowExport;
+
+    fn execute_parent(
+        &self,
+        array: &RunEndArray,
+        parent: &ArrowExportArray,
+        _child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let DataType::RunEndEncoded(ends_field, values_field) = parent.target() else {
+            return Ok(None);
+        };
+        let arrow_ends = array
+            .ends()
+            .clone()
+            .execute_arrow(Some(ends_field.data_type()), ctx)?;
+        let arrow_values = array
+            .values()
+            .clone()
+            .execute_arrow(Some(values_field.data_type()), ctx)?;
+        let arrow = build_run_array(
+            &arrow_ends,
+            &arrow_values,
+            ends_field.data_type(),
+            array.offset(),
+            array.len(),
+        )?;
+        Ok(Some(
+            NativeArrowArray::new(arrow, parent.dtype().clone()).into_array(),
+        ))
+    }
+}
 
 /// Kernel to execute slicing on a RunEnd array.
 ///

@@ -24,7 +24,6 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -209,31 +208,6 @@ impl VTable for RunEnd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
-    fn to_arrow_array(
-        array: &RunEndArray,
-        data_type: &DataType,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrowArrayRef>> {
-        let DataType::RunEndEncoded(ends_field, values_field) = data_type else {
-            return Ok(None);
-        };
-        let arrow_ends = array
-            .ends()
-            .clone()
-            .execute_arrow(Some(ends_field.data_type()), ctx)?;
-        let arrow_values = array
-            .values()
-            .clone()
-            .execute_arrow(Some(values_field.data_type()), ctx)?;
-        Ok(Some(build_run_array(
-            &arrow_ends,
-            &arrow_values,
-            ends_field.data_type(),
-            array.offset(),
-            array.len(),
-        )?))
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
@@ -536,7 +510,7 @@ pub(super) fn run_end_canonicalize(
     })
 }
 
-fn build_run_array(
+pub(crate) fn build_run_array(
     ends: &ArrowArrayRef,
     values: &ArrowArrayRef,
     ends_type: &DataType,

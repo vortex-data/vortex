@@ -15,7 +15,7 @@ use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::vtable::ValidityHelper;
 
-pub(super) fn to_arrow_fixed_list(
+pub(crate) fn to_arrow_fixed_list(
     array: ArrayRef,
     list_size: i32,
     elements_field: &FieldRef,

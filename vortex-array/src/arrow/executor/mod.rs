@@ -2,47 +2,34 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod bool;
-mod byte;
+pub(crate) mod byte;
 pub mod byte_view;
-mod decimal;
+pub(crate) mod decimal;
 pub(crate) mod dictionary;
-mod fixed_size_list;
-mod list;
-mod list_view;
+pub(crate) mod fixed_size_list;
+pub(crate) mod list;
+pub(crate) mod list_view;
 pub mod null;
 pub mod primitive;
-mod run_end;
-mod struct_;
+pub(crate) mod run_end;
+pub(crate) mod struct_;
 mod validity;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
-use arrow_array::types::*;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
 use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::DynArray;
-use crate::arrays::ExtensionArray;
-use crate::arrow::executor::bool::to_arrow_bool;
-use crate::arrow::executor::byte::to_arrow_byte_array;
-use crate::arrow::executor::byte_view::to_arrow_byte_view;
-use crate::arrow::executor::decimal::to_arrow_decimal;
-use crate::arrow::executor::dictionary::to_arrow_dictionary;
-use crate::arrow::executor::fixed_size_list::to_arrow_fixed_list;
-use crate::arrow::executor::list::to_arrow_list;
-use crate::arrow::executor::list_view::to_arrow_list_view;
-use crate::arrow::executor::null::to_arrow_null;
-use crate::arrow::executor::primitive::to_arrow_primitive;
-use crate::arrow::executor::run_end::to_arrow_run_end;
-use crate::arrow::executor::struct_::to_arrow_struct;
-use crate::dtype::DType;
+use crate::IntoArray;
+use crate::arrays::ArrowExportArray;
+use crate::arrays::NativeArrow;
 use crate::executor::ExecutionCtx;
 
 /// Trait for executing a Vortex array to produce an Arrow array.
@@ -83,121 +70,25 @@ impl ArrowArrayExecutor for ArrayRef {
     ) -> VortexResult<ArrowArrayRef> {
         let len = self.len();
 
-        // Unified path for ALL extension types (temporal, UUID, etc.).
-        if let DType::Extension(ext_dtype) = self.dtype() {
-            let resolved = match data_type {
-                Some(dt) => dt.clone(),
-                None => ext_dtype.to_arrow_data_type().ok_or_else(|| {
-                    vortex_err!(
-                        "Extension type \"{}\" does not support Arrow export",
-                        ext_dtype.id()
-                    )
-                })?,
-            };
-            let ext_dtype = ext_dtype.clone();
-            let ext_array = self.execute::<ExtensionArray>(ctx)?;
-            let storage = ext_array.storage_array().clone();
-            let arrow = ext_dtype.to_arrow_array(storage, &resolved, ctx)?;
-            vortex_ensure!(
-                arrow.len() == len,
-                "Arrow array length does not match Vortex array length after conversion to {:?}",
-                arrow
-            );
-            return Ok(arrow);
-        }
-
-        // Resolve the DataType if it is a leaf type
-        let resolved_type: DataType = match data_type {
+        let target = match data_type {
             Some(dt) => dt.clone(),
             None => preferred_arrow_type(&self)?,
         };
 
-        // Try the encoding's direct conversion first
-        if let Some(arrow) = self.to_arrow_array(&resolved_type, ctx)? {
-            vortex_ensure!(
-                arrow.len() == len,
-                "Arrow array length does not match Vortex array length after encoding conversion"
-            );
-            return Ok(arrow);
-        }
+        let export = ArrowExportArray::new(self, target).into_array();
+        let result = export.execute_until::<NativeArrow>(ctx)?;
 
-        // Fall through to DataType-based dispatch
-        let arrow = match &resolved_type {
-            DataType::Null => to_arrow_null(self, ctx),
-            DataType::Boolean => to_arrow_bool(self, ctx),
-            DataType::Int8 => to_arrow_primitive::<Int8Type>(self, ctx),
-            DataType::Int16 => to_arrow_primitive::<Int16Type>(self, ctx),
-            DataType::Int32 => to_arrow_primitive::<Int32Type>(self, ctx),
-            DataType::Int64 => to_arrow_primitive::<Int64Type>(self, ctx),
-            DataType::UInt8 => to_arrow_primitive::<UInt8Type>(self, ctx),
-            DataType::UInt16 => to_arrow_primitive::<UInt16Type>(self, ctx),
-            DataType::UInt32 => to_arrow_primitive::<UInt32Type>(self, ctx),
-            DataType::UInt64 => to_arrow_primitive::<UInt64Type>(self, ctx),
-            DataType::Float16 => to_arrow_primitive::<Float16Type>(self, ctx),
-            DataType::Float32 => to_arrow_primitive::<Float32Type>(self, ctx),
-            DataType::Float64 => to_arrow_primitive::<Float64Type>(self, ctx),
-            DataType::Binary => to_arrow_byte_array::<BinaryType>(self, ctx),
-            DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(self, ctx),
-            DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(self, ctx),
-            DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(self, ctx),
-            DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(self, ctx),
-            DataType::Utf8View => to_arrow_byte_view::<StringViewType>(self, ctx),
-            // TODO(joe): pass down preferred
-            DataType::List(elements_field) => to_arrow_list::<i32>(self, elements_field, ctx),
-            // TODO(joe): pass down preferred
-            DataType::LargeList(elements_field) => to_arrow_list::<i64>(self, elements_field, ctx),
-            // TODO(joe): pass down preferred
-            DataType::FixedSizeList(elements_field, list_size) => {
-                to_arrow_fixed_list(self, *list_size, elements_field, ctx)
-            }
-            // TODO(joe): pass down preferred
-            DataType::ListView(elements_field) => {
-                to_arrow_list_view::<i32>(self, elements_field, ctx)
-            }
-            // TODO(joe): pass down preferred
-            DataType::LargeListView(elements_field) => {
-                to_arrow_list_view::<i64>(self, elements_field, ctx)
-            }
-            DataType::Struct(fields) => {
-                let fields = if data_type.is_none() {
-                    None
-                } else {
-                    Some(fields)
-                };
-                to_arrow_struct(self, fields, ctx)
-            }
-            // TODO(joe): pass down preferred
-            DataType::Dictionary(codes_type, values_type) => {
-                to_arrow_dictionary(self, codes_type, values_type, ctx)
-            }
-            dt @ DataType::Decimal32(..) => to_arrow_decimal(self, dt, ctx),
-            dt @ DataType::Decimal64(..) => to_arrow_decimal(self, dt, ctx),
-            dt @ DataType::Decimal128(..) => to_arrow_decimal(self, dt, ctx),
-            dt @ DataType::Decimal256(..) => to_arrow_decimal(self, dt, ctx),
-            // TODO(joe): pass down preferred
-            DataType::RunEndEncoded(ends_type, values_type) => {
-                to_arrow_run_end(self, ends_type.data_type(), values_type, ctx)
-            }
-            DataType::Timestamp(..)
-            | DataType::Date32
-            | DataType::Date64
-            | DataType::Time32(_)
-            | DataType::Time64(_)
-            | DataType::FixedSizeBinary(_)
-            | DataType::Map(..)
-            | DataType::Duration(_)
-            | DataType::Interval(_)
-            | DataType::Union(..) => {
-                vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
-            }
-        }?;
-
+        let native = result.as_opt::<NativeArrow>().ok_or_else(|| {
+            vortex_err!(
+                "Arrow export did not produce NativeArrowArray, got {}",
+                result.encoding_id()
+            )
+        })?;
+        let arrow = native.arrow_array().clone();
         vortex_ensure!(
             arrow.len() == len,
-            "Arrow array length does not match Vortex array length after conversion to {:?}",
-            arrow
+            "Arrow array length does not match Vortex array length"
         );
-
         Ok(arrow)
     }
 

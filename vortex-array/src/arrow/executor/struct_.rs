@@ -30,7 +30,7 @@ use crate::dtype::StructFields;
 use crate::dtype::arrow::FromArrowType;
 use crate::scalar_fn::fns::pack::Pack;
 
-pub(super) fn to_arrow_struct(
+pub(crate) fn to_arrow_struct(
     array: ArrayRef,
     target_fields: Option<&Fields>,
     ctx: &mut ExecutionCtx,

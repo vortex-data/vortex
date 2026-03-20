@@ -18,7 +18,7 @@ use crate::arrow::ArrowArrayExecutor;
 
 /// Fallback conversion to Arrow dictionary. The encoding's `to_arrow_array` is tried first
 /// by the executor; this handles remaining cases via `arrow_cast`.
-pub(super) fn to_arrow_dictionary(
+pub(crate) fn to_arrow_dictionary(
     array: ArrayRef,
     codes_type: &DataType,
     values_type: &DataType,

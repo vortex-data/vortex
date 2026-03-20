@@ -15,7 +15,7 @@ use crate::arrow::ArrowArrayExecutor;
 
 /// Fallback conversion to Arrow run-end encoded. The encoding's `to_arrow_array` is tried first
 /// by the executor; this handles remaining cases via `arrow_cast`.
-pub(super) fn to_arrow_run_end(
+pub(crate) fn to_arrow_run_end(
     array: ArrayRef,
     ends_type: &DataType,
     values_type: &Field,

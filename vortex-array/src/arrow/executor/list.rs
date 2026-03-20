@@ -32,7 +32,7 @@ use crate::dtype::Nullability;
 use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
-pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
+pub(crate) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     array: ArrayRef,
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
