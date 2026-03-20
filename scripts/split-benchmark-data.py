@@ -12,9 +12,7 @@ Usage:
     python3 scripts/split-benchmark-data.py <input.json> <output_dir>
 """
 
-import gzip
 import json
-import math
 import os
 import sys
 from collections import defaultdict
@@ -141,10 +139,10 @@ def main():
 
             buckets[benchmark_id].append(line)
 
-    # Write gzipped JSONL files
+    # Write plain JSONL files (not gzipped — cat-s3.sh handles compression)
     for benchmark_id, lines in sorted(buckets.items()):
-        output_path = os.path.join(output_dir, f"{benchmark_id}.data.json.gz")
-        with gzip.open(output_path, "wt") as f:
+        output_path = os.path.join(output_dir, f"{benchmark_id}.jsonl")
+        with open(output_path, "w") as f:
             for line in lines:
                 f.write(line + "\n")
         print(f"  {benchmark_id}: {len(lines)} records")
