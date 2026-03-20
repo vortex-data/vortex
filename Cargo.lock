@@ -10219,6 +10219,7 @@ dependencies = [
  "parquet",
  "prost 0.14.3",
  "rand 0.10.0",
+ "regex-automata",
  "reqwest 0.12.28",
  "rstest",
  "vortex-array",

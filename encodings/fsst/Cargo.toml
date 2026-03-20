@@ -35,6 +35,7 @@ bytes = { workspace = true }
 divan = { workspace = true }
 parquet = { workspace = true }
 rand = { workspace = true }
+regex-automata = { workspace = true }
 reqwest = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }

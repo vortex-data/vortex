@@ -1,0 +1,13 @@
+dataset,pattern,pattern_type,fused_ns,byte_ns,speedup,matches,mean_sym_len,escape_rate,dfa_states
+english_prose,the,contains_short,33.26,61.10,1.837,94699,3.329,0.0000,6
+english_prose,would,contains_medium,66.37,165.95,2.500,8352,3.329,0.0000,8
+english_prose,implementation,contains_long,73.14,170.30,2.329,2901,3.329,0.0000,17
+english_prose,error|warning|critical,alternation,68.35,161.79,2.367,9008,3.329,0.0000,21
+english_prose,[a-z]{10,},char_class,73.45,169.45,2.307,8484,3.329,0.0000,14
+english_prose,th[aeiou],char_class_short,36.25,56.26,1.552,96455,3.329,0.0000,6
+english_prose,the .* of,dot_star,63.33,143.50,2.266,37828,3.329,0.0000,40
+urls,https://,contains_proto,16.07,38.75,2.411,80082,3.306,0.0000,11
+urls,google,contains_domain,27.42,70.63,2.576,36828,3.306,0.0000,9
+urls,api/v[0-9]+/,version_pattern,28.85,79.15,2.744,14265,3.306,0.0000,10
+urls,/users|/login|/search,path_alternation,30.62,83.73,2.735,42798,3.306,0.0000,18
+urls,\?.*utm_source,query_param,29.57,81.13,2.744,0,3.306,0.0000,48
