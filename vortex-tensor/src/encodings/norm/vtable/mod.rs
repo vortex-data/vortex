@@ -42,7 +42,11 @@ impl VTable for NormVector {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &NormVectorArray) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &NormVector
+    }
+
+    fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.tensor.norm_vector")
     }
 

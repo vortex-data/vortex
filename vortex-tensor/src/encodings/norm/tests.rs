@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Extension;
 use vortex::error::VortexResult;
@@ -105,6 +106,30 @@ fn execute_round_trip_zero_vector() -> VortexResult<()> {
     let flat = extract_flat_elements(&storage, list_size)?;
     // Zero vector should remain zero after round-trip.
     assert_close(flat.row::<f64>(0), &[0.0, 0.0]);
+
+    Ok(())
+}
+
+#[test]
+fn scalar_at_returns_original_vector() -> VortexResult<()> {
+    let arr = vector_array(
+        2,
+        &[
+            3.0, 4.0, // norm = 5.0
+            6.0, 8.0, // norm = 10.0
+        ],
+    )?;
+
+    let encoded = NormVectorArray::compress(arr)?;
+
+    // `scalar_at` on the NormVectorArray should match `scalar_at` on the decompressed result.
+    let mut ctx = vortex::array::LEGACY_SESSION.create_execution_ctx();
+    let decompressed = encoded.decompress(&mut ctx)?;
+
+    let norm_array = encoded.into_array();
+    for i in 0..2 {
+        assert_eq!(norm_array.scalar_at(i)?, decompressed.scalar_at(i)?);
+    }
 
     Ok(())
 }
