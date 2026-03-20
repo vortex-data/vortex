@@ -11,7 +11,7 @@ on:
         description: "Maximum fuzzing time in seconds"
         required: false
         type: number
-        default: 7200
+        default: 2700
       runner:
         description: "Runner name from .github-private runs-on.yml (e.g., arm64-medium, gpu)"
         required: false
