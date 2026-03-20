@@ -20,7 +20,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
-use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
@@ -226,9 +225,11 @@ impl VTable for Chunked {
 
         #[cfg(debug_assertions)]
         {
-            let chunk_offsets = chunk_offsets.as_opt::<Primitive>().unwrap_or_else(|| {
-                vortex_panic!("Chunked array chunk_offsets slot must be primitive")
-            });
+            let chunk_offsets = chunk_offsets
+                .as_opt::<crate::arrays::Primitive>()
+                .unwrap_or_else(|| {
+                    vortex_panic!("Chunked array chunk_offsets slot must be primitive")
+                });
             let chunk_offsets_buf = chunk_offsets.to_buffer::<u64>();
             debug_assert_eq!(
                 chunk_offsets_buf.len(),

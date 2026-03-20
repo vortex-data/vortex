@@ -9,6 +9,7 @@ use std::hash::Hasher;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayEq;
@@ -142,12 +143,36 @@ impl VTable for Variant {
             NUM_SLOTS,
             slots.len()
         );
-        array.slots = [slots.into_iter().next().vortex_expect("must exist")];
+        let child = slots
+            .into_iter()
+            .next()
+            .vortex_expect("VariantArray slot vector length was validated")
+            .ok_or_else(|| vortex_err!("VariantArray child slot must be present"))?;
+        array.slots = [Some(child)];
         Ok(())
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         // VariantArray is the canonical variant representation.
         Ok(ExecutionStep::done(array.clone().into_array()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arrays::PrimitiveArray;
+    use crate::dtype::Nullability;
+
+    #[test]
+    fn with_slots_rejects_missing_child() {
+        let mut array = VariantArray::new(
+            PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
+            Nullability::NonNullable,
+        );
+
+        let err = <Variant as VTable>::with_slots(&mut array, vec![None]).unwrap_err();
+
+        assert!(err.to_string().contains("child slot must be present"));
     }
 }
