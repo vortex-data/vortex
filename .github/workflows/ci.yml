@@ -494,9 +494,22 @@ jobs:
 
   cuda-test-sanitizer:
     if: github.repository == 'vortex-data/vortex'
-    name: "CUDA tests (sanitizer)"
+    name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: memcheck
+            runner_flags: "--tool memcheck --leak-check=full --error-exitcode 1"
+          # TODO(joe): try to re-enable racecheck, it is hanging in CI.
+          # - sanitizer: racecheck
+          #   runner_flags: "--tool racecheck --error-exitcode 1"
+          - sanitizer: synccheck
+            runner_flags: "--tool synccheck --error-exitcode 1"
+          - sanitizer: initcheck
+            runner_flags: "--tool initcheck --error-exitcode 1"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -510,22 +523,11 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: CUDA - memcheck
+      - name: Build tests
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu --no-run
+      - name: "CUDA - ${{ matrix.sanitizer }}"
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
-        # TODO(joe): try to re-enable, This is hanging in CI.
-        #      - name: CUDA - racecheck
-        #        env:
-        #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        #        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
-      - name: CUDA - synccheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
-      - name: CUDA - initcheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: "compute-sanitizer ${{ matrix.runner_flags }}"
         run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
 
   cuda-test-cudf:
