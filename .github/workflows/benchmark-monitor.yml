@@ -56,7 +56,6 @@ jobs:
             --commits commits.json \
             --results "${{ inputs.results_path }}" \
             --benchmark-id "${{ inputs.benchmark_id }}" \
-            --config scripts/benchmark_monitor_config.yaml \
             --current-commit "${{ github.sha }}" \
             --dry-run \
           || echo "monitor_exit_code=$?" >> "$GITHUB_OUTPUT"

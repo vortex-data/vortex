@@ -11,14 +11,10 @@
 """Benchmark regression monitor using sample-indexed change detection.
 
 Each commit is one logical step — wall-clock time between commits is irrelevant.
-The system is organized around *checks*: each check is a function that receives
-an ordered series of values and decides whether the latest point is anomalous.
 
-Built-in checks: EWMA, CUSUM, threshold. Custom checks can be registered via
-the `register_check` function.
-
-History is stored as one JSON file per benchmark suite (e.g. tpch-nvme.json),
-keeping each benchmark's data isolated and independently manageable.
+This file is the single source of truth: checks, configuration, and alerting
+are all defined here. To change how a benchmark is monitored, edit the
+BENCHMARK_CONFIG table below.
 
 Usage:
     uv run --no-project scripts/benchmark_monitor.py \
@@ -26,7 +22,6 @@ Usage:
         --commits commits.json \
         --results results.json \
         --benchmark-id tpch-nvme \
-        --config scripts/benchmark_monitor_config.yaml \
         [--current-commit <sha>] \
         [--webhook-url <incident.io URL>] \
         [--dry-run]
@@ -46,9 +41,50 @@ from pathlib import Path
 from typing import Any
 
 
-# ---------------------------------------------------------------------------
-# Alert
-# ---------------------------------------------------------------------------
+# ============================================================================
+# CONFIGURATION — edit this section to change monitoring behavior
+# ============================================================================
+
+# Default checks applied to any series that doesn't match a pattern below.
+DEFAULT_CHECKS: list[dict[str, Any]] = [
+    {"check": "ewma", "span": 10, "sigma": 3.0, "min_observations": 5},
+]
+
+# Per-benchmark overrides. Keys are matched against series names:
+#   - Trailing "*" matches as a prefix  (e.g. "tpch-s3*" matches "tpch-s3_q01/...")
+#   - Otherwise matched as a substring  (e.g. "compress" matches "compress_bench/...")
+#
+# Each entry is a list of checks to run. A series can have multiple checks.
+BENCHMARK_CONFIG: dict[str, list[dict[str, Any]]] = {
+    # S3 benchmarks are noisier — wider sigma, longer window
+    "tpch-s3*": [
+        {"check": "ewma", "sigma": 4.0, "span": 15, "min_observations": 8},
+    ],
+    "fineweb-s3*": [
+        {"check": "ewma", "sigma": 4.0, "span": 15, "min_observations": 8},
+    ],
+    # Compression benchmarks are stable — tighter bounds
+    "compress*": [
+        {"check": "ewma", "sigma": 2.5, "span": 8, "min_observations": 5},
+    ],
+    # Random access: CUSUM catches gradual drift better than EWMA
+    "random-access*": [
+        {"check": "cusum", "cusum_threshold": 4.0, "drift": 0.3, "min_observations": 8},
+    ],
+    # Example: run multiple checks on the same benchmark
+    # "clickbench*": [
+    #     {"check": "ewma", "sigma": 3.0, "span": 10},
+    #     {"check": "pct_change", "pct_threshold": 15.0, "window": 5},
+    # ],
+}
+
+# Set to False to also alert on improvements (faster than expected).
+REGRESSIONS_ONLY = True
+
+
+# ============================================================================
+# CHECKS — the extensible check framework
+# ============================================================================
 
 @dataclass
 class Alert:
@@ -63,41 +99,32 @@ class Alert:
     message: str
 
 
-# ---------------------------------------------------------------------------
-# Check framework
-# ---------------------------------------------------------------------------
-
 class Check(ABC):
-    """Base class for all series checks.
+    """Base class for series checks.
 
-    A check receives an ordered list of values (one per logical step) and
-    returns an Alert if the most recent observation is anomalous.
+    Subclass this and call `register_check()` to add a new check type.
     """
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Short identifier for this check type (e.g. 'ewma', 'cusum')."""
+        """Short identifier (e.g. 'ewma', 'cusum')."""
 
     @abstractmethod
     def run(self, values: list[float], params: dict[str, Any]) -> Alert | None:
-        """Analyze the series and optionally return an alert.
+        """Return an Alert if the latest point is anomalous, else None.
 
         Args:
-            values: Ordered observations (one per logical step, oldest first).
-            params: Check-specific parameters from the benchmark config.
-
-        Returns:
-            An Alert if the latest point is anomalous, else None.
+            values: Ordered observations, one per logical step, oldest first.
+            params: Check-specific parameters from BENCHMARK_CONFIG.
         """
 
 
-# Global check registry
 _CHECK_REGISTRY: dict[str, Check] = {}
 
 
 def register_check(check: Check) -> None:
-    """Register a check so it can be referenced by name in config."""
+    """Register a check so it can be referenced by name in BENCHMARK_CONFIG."""
     _CHECK_REGISTRY[check.name] = check
 
 
@@ -116,10 +143,7 @@ def get_check(name: str) -> Check:
 class EWMACheck(Check):
     """Exponentially Weighted Moving Average control chart.
 
-    Parameters (via config):
-        span: int = 10           Number of observations for EWMA smoothing.
-        sigma: float = 3.0       Deviation threshold (in standard deviations).
-        min_observations: int = 5  Minimum history length before alerting.
+    Params: span (int), sigma (float), min_observations (int).
     """
 
     @property
@@ -135,8 +159,6 @@ class EWMACheck(Check):
             return None
 
         alpha = 2.0 / (span + 1)
-
-        # Compute EWMA and exponentially-weighted variance up to second-to-last point
         ewma = values[0]
         ewma_var = 0.0
         for v in values[1:-1]:
@@ -171,10 +193,7 @@ class EWMACheck(Check):
 class CUSUMCheck(Check):
     """Tabular CUSUM — detects sustained shifts in the mean.
 
-    Parameters (via config):
-        drift: float = 0.5              Allowance parameter (in std devs).
-        cusum_threshold: float = 5.0    Decision interval (in std devs).
-        min_observations: int = 5       Minimum history length before alerting.
+    Params: drift (float), cusum_threshold (float), min_observations (int).
     """
 
     @property
@@ -197,7 +216,6 @@ class CUSUMCheck(Check):
         if std == 0:
             return None
 
-        # Normalize and run CUSUM over all values
         s_pos = 0.0
         s_neg = 0.0
         for v in values:
@@ -225,12 +243,9 @@ class CUSUMCheck(Check):
 
 
 class ThresholdCheck(Check):
-    """Simple static threshold — alerts when value exceeds a fixed bound.
+    """Static upper/lower bound check.
 
-    Parameters (via config):
-        max_value: float | None = None   Upper bound.
-        min_value: float | None = None   Lower bound.
-        min_observations: int = 1        Minimum history before alerting.
+    Params: max_value (float|None), min_value (float|None), min_observations (int).
     """
 
     @property
@@ -271,12 +286,9 @@ class ThresholdCheck(Check):
 
 
 class PctChangeCheck(Check):
-    """Percentage change from rolling mean — alerts on sudden jumps.
+    """Percentage change from rolling mean.
 
-    Parameters (via config):
-        window: int = 5             Rolling window size.
-        pct_threshold: float = 20.0   Percent change to trigger alert.
-        min_observations: int = 5   Minimum history before alerting.
+    Params: window (int), pct_threshold (float), min_observations (int).
     """
 
     @property
@@ -319,192 +331,33 @@ class PctChangeCheck(Check):
         return None
 
 
-# Register all built-in checks
 register_check(EWMACheck())
 register_check(CUSUMCheck())
 register_check(ThresholdCheck())
 register_check(PctChangeCheck())
 
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+# ============================================================================
+# CONFIG RESOLUTION — maps series names to their checks
+# ============================================================================
 
-@dataclass
-class BenchmarkCheckConfig:
-    """Configuration for a single check on a single benchmark."""
-
-    check: str = "ewma"
-    params: dict[str, Any] = field(default_factory=dict)
-    regressions_only: bool = True
-
-
-@dataclass
-class BenchmarkConfig:
-    """Per-benchmark configuration — one or more checks to run."""
-
-    checks: list[BenchmarkCheckConfig] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        if not self.checks:
-            self.checks = [BenchmarkCheckConfig(
-                check="ewma",
-                params={"span": 10, "sigma": 3.0, "min_observations": 5},
-            )]
+def checks_for(series_name: str) -> list[dict[str, Any]]:
+    """Look up the checks for a series, falling back to DEFAULT_CHECKS."""
+    # Exact match
+    if series_name in BENCHMARK_CONFIG:
+        return BENCHMARK_CONFIG[series_name]
+    # Pattern match
+    for pattern, checks in BENCHMARK_CONFIG.items():
+        if pattern.endswith("*") and series_name.startswith(pattern[:-1]):
+            return checks
+        if pattern in series_name:
+            return checks
+    return DEFAULT_CHECKS
 
 
-@dataclass
-class MonitorConfig:
-    """Top-level monitoring configuration."""
-
-    defaults: BenchmarkConfig = field(default_factory=BenchmarkConfig)
-    benchmarks: dict[str, BenchmarkConfig] = field(default_factory=dict)
-
-    def config_for(self, benchmark_name: str) -> BenchmarkConfig:
-        """Look up config for a benchmark, falling back to defaults."""
-        if benchmark_name in self.benchmarks:
-            return self.benchmarks[benchmark_name]
-        for pattern, cfg in self.benchmarks.items():
-            if pattern.endswith("*") and benchmark_name.startswith(pattern[:-1]):
-                return cfg
-            if pattern in benchmark_name:
-                return cfg
-        return self.defaults
-
-
-def load_config(path: Path) -> MonitorConfig:
-    """Load YAML config, falling back to defaults if file doesn't exist."""
-    if not path.exists():
-        return MonitorConfig()
-
-    try:
-        import yaml
-        with open(path) as f:
-            raw = yaml.safe_load(f) or {}
-    except ImportError:
-        raw = _parse_simple_yaml(path)
-
-    config = MonitorConfig()
-
-    if "defaults" in raw:
-        config.defaults = _parse_benchmark_section(raw["defaults"])
-
-    if "benchmarks" in raw:
-        for name, section in raw["benchmarks"].items():
-            config.benchmarks[name] = _parse_benchmark_section(
-                section, fallback=config.defaults,
-            )
-
-    return config
-
-
-def _parse_benchmark_section(
-    raw: dict | None,
-    fallback: BenchmarkConfig | None = None,
-) -> BenchmarkConfig:
-    """Parse a benchmark config section.
-
-    Supports two forms:
-      # Simple (single check, params at top level):
-      tpch*:
-        check: ewma
-        sigma: 4.0
-
-      # Multi-check:
-      compress*:
-        checks:
-          - check: ewma
-            sigma: 2.5
-          - check: pct_change
-            pct_threshold: 15.0
-    """
-    if not raw:
-        return fallback or BenchmarkConfig()
-
-    if "checks" in raw and isinstance(raw["checks"], list):
-        checks = []
-        for entry in raw["checks"]:
-            check_name = entry.pop("check", "ewma")
-            regressions_only = entry.pop("regressions_only", True)
-            checks.append(BenchmarkCheckConfig(
-                check=check_name,
-                params=entry,
-                regressions_only=regressions_only,
-            ))
-        return BenchmarkConfig(checks=checks)
-
-    # Simple form: extract check name, treat rest as params
-    check_name = raw.pop("check", None)
-    regressions_only = raw.pop("regressions_only", True)
-
-    if check_name:
-        return BenchmarkConfig(checks=[BenchmarkCheckConfig(
-            check=check_name,
-            params=dict(raw),
-            regressions_only=regressions_only,
-        )])
-
-    # Just parameter overrides on the default check
-    if fallback and fallback.checks:
-        base = fallback.checks[0]
-        merged_params = {**base.params, **raw}
-        return BenchmarkConfig(checks=[BenchmarkCheckConfig(
-            check=base.check,
-            params=merged_params,
-            regressions_only=base.regressions_only,
-        )])
-
-    return BenchmarkConfig(checks=[BenchmarkCheckConfig(
-        check="ewma",
-        params=dict(raw),
-    )])
-
-
-def _parse_simple_yaml(path: Path) -> dict:
-    """Minimal YAML-like parser for flat/nested dicts. Prefer real PyYAML."""
-    import re
-
-    result: dict[str, Any] = {}
-    stack: list[tuple[int, dict]] = [(-1, result)]
-
-    with open(path) as f:
-        for line in f:
-            stripped = line.rstrip()
-            if not stripped or stripped.lstrip().startswith("#"):
-                continue
-
-            indent = len(line) - len(line.lstrip())
-            while stack and stack[-1][0] >= indent:
-                stack.pop()
-
-            parent = stack[-1][1]
-            m = re.match(r"(\s*)(\S+):\s*(.*)", stripped)
-            if not m:
-                continue
-
-            key = m.group(2)
-            value_str = m.group(3).strip()
-
-            if value_str == "" or value_str == "{}":
-                child: dict[str, Any] = {}
-                parent[key] = child
-                stack.append((indent, child))
-            else:
-                try:
-                    value: Any = int(value_str)
-                except ValueError:
-                    try:
-                        value = float(value_str)
-                    except ValueError:
-                        value = value_str.strip("\"'")
-                parent[key] = value
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Per-benchmark history files
-# ---------------------------------------------------------------------------
+# ============================================================================
+# PER-BENCHMARK HISTORY FILES
+# ============================================================================
 
 @dataclass
 class SeriesPoint:
@@ -520,14 +373,8 @@ def history_file_path(history_dir: Path, benchmark_id: str) -> Path:
     return history_dir / f"{safe_name}.json"
 
 
-def load_history(
-    history_dir: Path,
-    benchmark_id: str,
-) -> dict[str, list[SeriesPoint]]:
-    """Load per-series history from the benchmark's history file.
-
-    Returns {series_name: [SeriesPoint, ...]} in logical order.
-    """
+def load_history(history_dir: Path, benchmark_id: str) -> dict[str, list[SeriesPoint]]:
+    """Load per-series history from the benchmark's history file."""
     path = history_file_path(history_dir, benchmark_id)
     if not path.exists():
         return {}
@@ -535,13 +382,10 @@ def load_history(
     with open(path) as f:
         data = json.load(f)
 
-    result: dict[str, list[SeriesPoint]] = {}
-    for series_name, points in data.get("series", {}).items():
-        result[series_name] = [
-            SeriesPoint(commit_id=p["commit_id"], value=p["value"])
-            for p in points
-        ]
-    return result
+    return {
+        name: [SeriesPoint(commit_id=p["commit_id"], value=p["value"]) for p in points]
+        for name, points in data.get("series", {}).items()
+    }
 
 
 def save_history(
@@ -574,10 +418,7 @@ def ingest_results(
     results_path: Path,
     current_commit: str,
 ) -> dict[str, list[SeriesPoint]]:
-    """Append new results from a benchmark run into the history.
-
-    Each line in results_path is a JSON object with at least 'name' and 'value'.
-    """
+    """Append new results from a benchmark run into the history."""
     with open(results_path) as f:
         for line in f:
             line = line.strip()
@@ -590,7 +431,6 @@ def ingest_results(
                 continue
 
             series = history.setdefault(name, [])
-            # Avoid duplicate entries for the same commit
             if series and series[-1].commit_id == current_commit:
                 series[-1].value = float(value)
             else:
@@ -612,14 +452,13 @@ def load_commit_order(commits_path: Path) -> list[str]:
     return commits
 
 
-# ---------------------------------------------------------------------------
-# Main analysis
-# ---------------------------------------------------------------------------
+# ============================================================================
+# ANALYSIS
+# ============================================================================
 
 def analyze(
     history: dict[str, list[SeriesPoint]],
     current_commit: str,
-    config: MonitorConfig,
 ) -> list[Alert]:
     """Run all configured checks on each series for the current commit."""
     alerts = []
@@ -628,27 +467,27 @@ def analyze(
         if not series or series[-1].commit_id != current_commit:
             continue
 
-        bench_config = config.config_for(series_name)
         values = [p.value for p in series]
 
-        for check_config in bench_config.checks:
-            check = get_check(check_config.check)
-            alert = check.run(values, check_config.params)
+        for check_params in checks_for(series_name):
+            params = dict(check_params)
+            check_name = params.pop("check", "ewma")
+            check = get_check(check_name)
+            alert = check.run(values, params)
 
             if alert is not None:
                 alert.benchmark = series_name
                 alert.commit_id = current_commit
-
-                if check_config.regressions_only and alert.deviation_sigma <= 0:
+                if REGRESSIONS_ONLY and alert.deviation_sigma <= 0:
                     continue
                 alerts.append(alert)
 
     return alerts
 
 
-# ---------------------------------------------------------------------------
-# Alerting
-# ---------------------------------------------------------------------------
+# ============================================================================
+# ALERTING
+# ============================================================================
 
 def send_incident_io_alert(
     alerts: list[Alert],
@@ -688,7 +527,7 @@ def send_incident_io_alert(
 
 
 def print_alerts(alerts: list[Alert]) -> None:
-    """Print alerts to stdout in a human-readable format."""
+    """Print alerts to stdout."""
     if not alerts:
         print("No regressions detected.")
         return
@@ -732,63 +571,44 @@ def write_github_output(alerts: list[Alert]) -> None:
                 f.write("## Benchmark Monitor\n\nNo regressions detected.\n")
 
 
-# ---------------------------------------------------------------------------
+# ============================================================================
 # CLI
-# ---------------------------------------------------------------------------
+# ============================================================================
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark regression monitor (sample-indexed, not time-indexed)",
     )
     parser.add_argument(
-        "--history-dir",
-        type=Path,
-        required=True,
+        "--history-dir", type=Path, required=True,
         help="Directory containing per-benchmark history JSON files",
     )
     parser.add_argument(
-        "--commits",
-        type=Path,
-        required=True,
+        "--commits", type=Path, required=True,
         help="Path to commits.json (newline-delimited commit metadata)",
     )
     parser.add_argument(
-        "--results",
-        type=Path,
-        required=True,
+        "--results", type=Path, required=True,
         help="Path to results.json from the current benchmark run",
     )
     parser.add_argument(
-        "--benchmark-id",
-        type=str,
-        required=True,
+        "--benchmark-id", type=str, required=True,
         help="Benchmark suite identifier (e.g. tpch-nvme, compress-bench)",
     )
     parser.add_argument(
-        "--config",
-        type=Path,
-        default=Path("scripts/benchmark_monitor_config.yaml"),
-        help="Path to monitor config YAML",
-    )
-    parser.add_argument(
-        "--current-commit",
-        type=str,
+        "--current-commit", type=str,
         help="The commit SHA to analyze (default: last in commits.json)",
     )
     parser.add_argument(
-        "--webhook-url",
-        type=str,
-        default=None,
+        "--webhook-url", type=str, default=None,
         help="incident.io alert source webhook URL",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
+        "--dry-run", action="store_true",
         help="Print alerts but don't send webhooks",
     )
     args = parser.parse_args()
 
-    config = load_config(args.config)
     commit_order = load_commit_order(args.commits)
 
     current_commit = args.current_commit
@@ -803,7 +623,6 @@ def main() -> None:
     print(f"Analyzing commit: {current_commit[:12]}")
     print(f"Commit history depth: {len(commit_order)}")
 
-    # Load existing history, ingest new results, save back
     history = load_history(args.history_dir, args.benchmark_id)
     history = ingest_results(history, args.results, current_commit)
     save_history(args.history_dir, args.benchmark_id, history, commit_order)
@@ -813,8 +632,7 @@ def main() -> None:
     max_depth = max(point_counts) if point_counts else 0
     print(f"Series tracked: {series_count} (max depth: {max_depth})")
 
-    # Run all checks
-    alerts = analyze(history, current_commit, config)
+    alerts = analyze(history, current_commit)
     print_alerts(alerts)
     write_github_output(alerts)
 
