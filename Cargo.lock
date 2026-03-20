@@ -10554,15 +10554,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-test-e2e"
-version = "0.1.0"
-dependencies = [
- "futures",
- "tokio",
- "vortex",
-]
-
-[[package]]
 name = "vortex-test-e2e-cuda"
 version = "0.1.0"
 dependencies = [
