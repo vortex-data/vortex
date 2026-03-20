@@ -247,6 +247,18 @@ impl VTable for BitPacked {
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        vortex_ensure!(
+            metadata.offset == 0,
+            "BitPackedArray offset must be 0 for serialization, got {}",
+            metadata.offset
+        );
+        if let Some(ref patches) = metadata.patches {
+            vortex_ensure!(
+                patches.offset()? == 0,
+                "BitPackedArray patches offset must be 0 for serialization, got {}",
+                patches.offset()?
+            );
+        }
         Ok(Some(metadata.serialize()))
     }
 

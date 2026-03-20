@@ -137,6 +137,11 @@ impl VTable for RunEnd {
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        vortex_ensure!(
+            metadata.offset == 0,
+            "RunEndArray offset must be 0 for serialization, got {}",
+            metadata.offset
+        );
         Ok(Some(metadata.serialize()))
     }
 
