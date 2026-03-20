@@ -17,7 +17,9 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
+use crate::arrays::decimal::array::NUM_SLOTS;
 use crate::arrays::decimal::array::SLOT_NAMES;
+use crate::arrays::decimal::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -174,16 +176,20 @@ impl VTable for Decimal {
     }
 
     fn slot_name(_array: &DecimalArray, idx: usize) -> String {
-        let _ = SLOT_NAMES;
-        vortex_panic!("DecimalArray has no slots, requested index {idx}")
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut DecimalArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            slots.is_empty(),
-            "DecimalArray expects 0 slots, got {}",
+            slots.len() == NUM_SLOTS,
+            "DecimalArray expects {} slots, got {}",
+            NUM_SLOTS,
             slots.len()
         );
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
+        };
         array.slots = slots;
         Ok(())
     }
@@ -228,6 +234,7 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
@@ -260,5 +267,39 @@ mod tests {
             .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
             .unwrap();
         assert!(decoded.is::<Decimal>());
+    }
+
+    #[test]
+    fn test_nullable_decimal_serde_roundtrip() {
+        let array = DecimalArray::new(
+            buffer![1234567i32, 0i32, -9999999i32],
+            DecimalDType::new(7, 3),
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let out = array
+            .clone()
+            .into_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+        let mut concat = ByteBufferMut::empty();
+        for buf in out {
+            concat.extend_from_slice(buf.as_ref());
+        }
+
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert_arrays_eq!(decoded, array);
     }
 }

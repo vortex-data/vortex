@@ -3,11 +3,12 @@
 
 mod vtable;
 
+use vortex_error::VortexExpect;
+
 pub use self::vtable::Variant;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use vortex_error::VortexExpect;
 
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];

@@ -22,7 +22,9 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::array::NUM_SLOTS;
 use crate::arrays::varbinview::array::SLOT_NAMES;
+use crate::arrays::varbinview::array::VALIDITY_SLOT;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -194,16 +196,20 @@ impl VTable for VarBinView {
     }
 
     fn slot_name(_array: &VarBinViewArray, idx: usize) -> String {
-        let _ = SLOT_NAMES;
-        vortex_panic!("VarBinViewArray has no slots, requested index {idx}")
+        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut VarBinViewArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            slots.is_empty(),
-            "VarBinViewArray expects 0 slots, got {}",
+            slots.len() == NUM_SLOTS,
+            "VarBinViewArray expects {} slots, got {}",
+            NUM_SLOTS,
             slots.len()
         );
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
+        };
         array.slots = slots;
         Ok(())
     }
@@ -227,5 +233,55 @@ impl VTable for VarBinView {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(array.clone().into_array()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::ByteBufferMut;
+    use vortex_session::registry::ReadContext;
+
+    use super::*;
+    use crate::ArrayContext;
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::assert_arrays_eq;
+    use crate::serde::ArrayParts;
+    use crate::serde::SerializeOptions;
+
+    #[test]
+    fn test_nullable_varbinview_serde_roundtrip() {
+        let array = VarBinViewArray::from_iter_nullable_str([
+            Some("hello"),
+            None,
+            Some("world"),
+            None,
+            Some("a moderately long string for testing"),
+        ]);
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let serialized = array
+            .clone()
+            .into_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert_arrays_eq!(decoded, array);
     }
 }

@@ -4950,7 +4950,7 @@ pub fn vortex_array::arrays::Variant::build(dtype: &vortex_array::dtype::DType, 
 
 pub fn vortex_array::arrays::Variant::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::Variant::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+pub fn vortex_array::arrays::Variant::child_name(array: &Self::Array, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::Variant::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -4968,7 +4968,7 @@ pub fn vortex_array::arrays::Variant::metadata(_array: &Self::Array) -> vortex_e
 
 pub fn vortex_array::arrays::Variant::nbuffers(_array: &Self::Array) -> usize
 
-pub fn vortex_array::arrays::Variant::nchildren(_array: &Self::Array) -> usize
+pub fn vortex_array::arrays::Variant::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Variant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -4976,9 +4976,13 @@ pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent:
 
 pub fn vortex_array::arrays::Variant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::arrays::Variant::slot_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+
+pub fn vortex_array::arrays::Variant::slots(array: &Self::Array) -> &[core::option::Option<vortex_array::ArrayRef>]
+
 pub fn vortex_array::arrays::Variant::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
 
-pub fn vortex_array::arrays::Variant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Variant::with_slots(array: &mut Self::Array, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Variant> for vortex_array::arrays::Variant
 
@@ -8178,7 +8182,7 @@ pub fn vortex_array::arrays::Variant::build(dtype: &vortex_array::dtype::DType, 
 
 pub fn vortex_array::arrays::Variant::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::Variant::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+pub fn vortex_array::arrays::Variant::child_name(array: &Self::Array, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::Variant::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -8196,7 +8200,7 @@ pub fn vortex_array::arrays::Variant::metadata(_array: &Self::Array) -> vortex_e
 
 pub fn vortex_array::arrays::Variant::nbuffers(_array: &Self::Array) -> usize
 
-pub fn vortex_array::arrays::Variant::nchildren(_array: &Self::Array) -> usize
+pub fn vortex_array::arrays::Variant::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Variant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -8204,9 +8208,13 @@ pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent:
 
 pub fn vortex_array::arrays::Variant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::arrays::Variant::slot_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+
+pub fn vortex_array::arrays::Variant::slots(array: &Self::Array) -> &[core::option::Option<vortex_array::ArrayRef>]
+
 pub fn vortex_array::arrays::Variant::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
 
-pub fn vortex_array::arrays::Variant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Variant::with_slots(array: &mut Self::Array, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Variant> for vortex_array::arrays::Variant
 
@@ -21614,7 +21622,7 @@ pub fn vortex_array::arrays::Variant::build(dtype: &vortex_array::dtype::DType, 
 
 pub fn vortex_array::arrays::Variant::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::Variant::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+pub fn vortex_array::arrays::Variant::child_name(array: &Self::Array, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::Variant::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -21632,7 +21640,7 @@ pub fn vortex_array::arrays::Variant::metadata(_array: &Self::Array) -> vortex_e
 
 pub fn vortex_array::arrays::Variant::nbuffers(_array: &Self::Array) -> usize
 
-pub fn vortex_array::arrays::Variant::nchildren(_array: &Self::Array) -> usize
+pub fn vortex_array::arrays::Variant::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Variant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -21640,9 +21648,13 @@ pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent:
 
 pub fn vortex_array::arrays::Variant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::arrays::Variant::slot_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+
+pub fn vortex_array::arrays::Variant::slots(array: &Self::Array) -> &[core::option::Option<vortex_array::ArrayRef>]
+
 pub fn vortex_array::arrays::Variant::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
 
-pub fn vortex_array::arrays::Variant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Variant::with_slots(array: &mut Self::Array, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::VTable for vortex_array::arrays::dict::Dict
 
