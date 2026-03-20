@@ -363,23 +363,28 @@ def _build_concordance(
     control_name = f"{identity.prefix}/{identity.engine}:{CONTROL_FORMAT}"
     control_dev = _series_deviation(control_name, history, commit_id, span)
 
-    # 3. Check other engines running the same format + query.
-    cross_engine_devs: dict[str, float] = {}
-    for name, points in history.items():
+    # 3. Check other engines' *control* formats for the same query.
+    #    If duckdb:parquet also spiked when datafusion:vortex alerts, the
+    #    whole machine was noisy.  But if duckdb:vortex spiked while
+    #    duckdb:parquet stayed calm, that *confirms* a real Vortex change.
+    cross_engine_control_devs: dict[str, float] = {}
+    for name in history:
         if name == alert_name:
             continue
         other = parse_series_identity(name)
         if other is None:
             continue
-        if other.query != identity.query or other.file_format != identity.file_format:
+        if other.query != identity.query:
             continue
         if other.engine == identity.engine:
             continue
         if other.engine in dep_upgrade_engines:
             continue
+        if other.file_format != CONTROL_FORMAT:
+            continue
         dev = _series_deviation(name, history, commit_id, span)
         if dev is not None:
-            cross_engine_devs[other.engine] = dev
+            cross_engine_control_devs[other.engine] = dev
 
     # Classify.
     control_also_moved = (
@@ -389,42 +394,42 @@ def _build_concordance(
         and math.copysign(1.0, control_dev) == alert_direction
     )
 
-    cross_engines_also_moved = sum(
-        1 for d in cross_engine_devs.values()
+    cross_engine_controls_moved = sum(
+        1 for d in cross_engine_control_devs.values()
         if abs(d) >= _CONCORDANCE_SIGMA
         and math.copysign(1.0, d) == alert_direction
     )
 
-    if control_also_moved and cross_engines_also_moved > 0:
+    if control_also_moved and cross_engine_controls_moved > 0:
         return NoiseAssessment(
             classification="global_noise",
             control_deviation=control_dev,
-            cross_engine_deviations=cross_engine_devs,
+            cross_engine_deviations=cross_engine_control_devs,
             message=f"control ({CONTROL_FORMAT}) also moved {control_dev:+.1f}σ "
-                    f"and {cross_engines_also_moved} other engine(s) agree — "
+                    f"and {cross_engine_controls_moved} other engine(s)' controls agree — "
                     f"likely system-wide noise",
         )
     if control_also_moved:
         return NoiseAssessment(
             classification="engine_noise",
             control_deviation=control_dev,
-            cross_engine_deviations=cross_engine_devs,
+            cross_engine_deviations=cross_engine_control_devs,
             message=f"control ({CONTROL_FORMAT}) also moved {control_dev:+.1f}σ "
                     f"for same engine — likely noise during {identity.engine} run",
         )
-    if cross_engines_also_moved > 0 and cross_engines_also_moved == len(cross_engine_devs):
+    if cross_engine_controls_moved > 0 and cross_engine_controls_moved == len(cross_engine_control_devs):
         return NoiseAssessment(
             classification="global_noise",
             control_deviation=control_dev,
-            cross_engine_deviations=cross_engine_devs,
-            message=f"all {cross_engines_also_moved} other engine(s) also moved — "
-                    f"likely system-wide noise",
+            cross_engine_deviations=cross_engine_control_devs,
+            message=f"all {cross_engine_controls_moved} other engine(s)' controls "
+                    f"also moved — likely system-wide noise",
         )
 
     return NoiseAssessment(
         classification="vortex_only",
         control_deviation=control_dev,
-        cross_engine_deviations=cross_engine_devs,
+        cross_engine_deviations=cross_engine_control_devs,
         message="only this series moved — likely a real change",
     )
 
