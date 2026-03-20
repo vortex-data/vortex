@@ -40,12 +40,30 @@ const geoMean = (arr) =>
       )
     : null;
 
+/** Extract architecture label from a benchmark record, if present. */
+function getArch(benchmark) {
+  const arch = benchmark.arch || benchmark.runner_id || benchmark.architecture;
+  if (!arch) return null;
+  // Normalize common values
+  const lower = arch.toLowerCase();
+  if (lower.includes("aarch64") || lower.includes("arm64")) return "aarch64";
+  if (lower.includes("x86_64") || lower.includes("amd64") || lower.includes("x86")) return "x86_64";
+  return arch;
+}
+
+/** Append architecture suffix to a group name when multiple archs are present. */
+function withArch(groupName, benchmark) {
+  const arch = getArch(benchmark);
+  if (!arch) return groupName;
+  return `${groupName} [${arch}]`;
+}
+
 function getGroup(benchmark) {
   const name = benchmark.name;
   const lower = name.toLowerCase();
 
   if (lower.startsWith("random-access/") || lower.startsWith("random access/")) {
-    return "Random Access";
+    return withArch("Random Access", benchmark);
   }
 
   if (
@@ -57,7 +75,7 @@ function getGroup(benchmark) {
     lower.includes(":parquet-zstd size/") ||
     lower.includes(":lance size/")
   ) {
-    return "Compression Size";
+    return withArch("Compression Size", benchmark);
   }
 
   if (
@@ -71,7 +89,7 @@ function getGroup(benchmark) {
     lower.startsWith("vortex:parquet-zstd ratio") ||
     lower.startsWith("vortex:raw ratio")
   ) {
-    return "Compression";
+    return withArch("Compression", benchmark);
   }
 
   for (const suite of QUERY_SUITES) {
@@ -81,11 +99,11 @@ function getGroup(benchmark) {
     )
       continue;
     if (suite.skip) return null;
-    if (!suite.fanOut) return suite.displayName;
+    if (!suite.fanOut) return withArch(suite.displayName, benchmark);
     const storage = benchmark.storage?.toUpperCase() === "S3" ? "S3" : "NVMe";
     const rawSf = benchmark.dataset?.[suite.datasetKey]?.scale_factor;
     const sf = rawSf ? Math.round(parseFloat(rawSf)) : 1;
-    return `${suite.displayName} (${storage}) (SF=${sf})`;
+    return withArch(`${suite.displayName} (${storage}) (SF=${sf})`, benchmark);
   }
 
   return null;
@@ -191,7 +209,9 @@ function latestIdx(chart) {
   return -1;
 }
 
-function calcSummary(name, charts) {
+function calcSummary(rawName, charts) {
+  // Strip [arch] suffix for matching
+  const name = rawName.replace(/\s*\[.*\]$/, '');
   if (name === "Random Access") {
     for (const q of charts.values()) {
       const i = latestIdx(q);
@@ -379,7 +399,9 @@ async function refresh() {
       if (!commit) { missing++; return; }
 
       const group = getGroup(b);
-      if (!group || !groups[group]) return;
+      if (!group) return;
+      // Dynamically create groups for new arch-suffixed variants
+      if (!groups[group]) groups[group] = new Map();
 
       let seriesName, chartName;
       const parts = b.name.split("/");

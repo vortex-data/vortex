@@ -83,7 +83,9 @@ export default function App() {
   }, [metadata, loading]);
 
   const getBenchmarkConfig = useCallback((groupName) => {
-    return BENCHMARK_CONFIGS.find(c => c.name === groupName) || {};
+    // Strip [arch] suffix for config matching
+    const base = groupName.replace(/\s*\[.*\]$/, '');
+    return BENCHMARK_CONFIGS.find(c => c.name === groupName || c.name === base) || {};
   }, []);
 
   const filteredGroups = useMemo(() => {
@@ -94,7 +96,8 @@ export default function App() {
       if (!groupMatchesFilters(groupName, groupFilters)) return false;
 
       if (categoryFilter !== 'all') {
-        const tags = CATEGORY_TAGS[groupName] || [];
+        const base = groupName.replace(/\s*\[.*\]$/, '');
+        const tags = CATEGORY_TAGS[groupName] || CATEGORY_TAGS[base] || [];
         if (!tags.includes(categoryFilter)) return false;
       }
 

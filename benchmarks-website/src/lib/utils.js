@@ -75,7 +75,9 @@ export function isMobile() {
   return window.innerWidth <= 768;
 }
 
-export function getBenchmarkDescription(categoryName) {
+export function getBenchmarkDescription(rawName) {
+  // Strip [arch] suffix for description matching
+  const categoryName = rawName.replace(/\s*\[.*\]$/, '');
   if (categoryName.startsWith('TPC-H')) {
     const match = categoryName.match(/SF=(\d+)/);
     const sf = match ? match[1] : null;

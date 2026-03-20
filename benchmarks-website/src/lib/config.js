@@ -216,14 +216,20 @@ for (const g of FAN_OUT_GROUPS) {
 // These operate on group names (not series names like FILTER_DIMENSIONS).
 // =============================================================================
 
+/** Strip the optional [arch] suffix from a group name for parsing. */
+function stripArch(groupName) {
+  return groupName.replace(/\s*\[.*\]$/, '');
+}
+
 /** Parse the workload/suite from a group name. */
 export function parseWorkload(groupName) {
-  if (["Random Access", "Compression", "Compression Size"].includes(groupName)) {
+  const base = stripArch(groupName);
+  if (["Random Access", "Compression", "Compression Size"].includes(base)) {
     return "Read/Write";
   }
   for (const s of QUERY_SUITES) {
     if (s.skip) continue;
-    if (groupName === s.displayName || groupName.startsWith(s.displayName + " (")) {
+    if (base === s.displayName || base.startsWith(s.displayName + " (")) {
       return s.displayName;
     }
   }
@@ -232,20 +238,28 @@ export function parseWorkload(groupName) {
 
 /** Parse the storage type from a group name (NVMe or S3). */
 export function parseStorage(groupName) {
-  const m = groupName.match(/\((NVMe|S3)\)/);
+  const base = stripArch(groupName);
+  const m = base.match(/\((NVMe|S3)\)/);
   if (m) return m[1];
   // Non-fan-out query suites and read/write are NVMe by default
-  if (["Random Access", "Compression", "Compression Size"].includes(groupName)) return "NVMe";
+  if (["Random Access", "Compression", "Compression Size"].includes(base)) return "NVMe";
   for (const s of QUERY_SUITES) {
-    if (!s.skip && !s.fanOut && groupName === s.displayName) return "NVMe";
+    if (!s.skip && !s.fanOut && base === s.displayName) return "NVMe";
   }
   return null;
 }
 
 /** Parse the scale factor from a group name. */
 export function parseScaleFactor(groupName) {
-  const m = groupName.match(/SF=(\d+)/);
+  const base = groupName.replace(/\s*\[.*\]$/, '');
+  const m = base.match(/SF=(\d+)/);
   return m ? `SF=${m[1]}` : null;
+}
+
+/** Parse the architecture from a group name (e.g. "TPC-H (NVMe) (SF=10) [aarch64]"). */
+export function parseArch(groupName) {
+  const m = groupName.match(/\[([^\]]+)\]$/);
+  return m ? m[1] : null;
 }
 
 /**
@@ -253,11 +267,16 @@ export function parseScaleFactor(groupName) {
  *   - key:    unique identifier
  *   - label:  display label
  *   - parse:  function(groupName) → string|null
+ *
+ * Architecture filter activates automatically when benchmark data includes
+ * `arch`, `runner_id`, or `architecture` fields. Group names will contain
+ * an [arch] suffix (e.g. "TPC-H (NVMe) (SF=10) [aarch64]").
  */
 export const GROUP_FILTER_DIMENSIONS = [
   { key: 'workload', label: 'Workload', parse: parseWorkload },
   { key: 'storage', label: 'Storage', parse: parseStorage },
   { key: 'scaleFactor', label: 'Scale Factor', parse: parseScaleFactor },
+  { key: 'arch', label: 'Architecture', parse: parseArch },
 ];
 
 /** Build default group filters (all dimensions set to 'all'). */
