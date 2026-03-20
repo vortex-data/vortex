@@ -522,9 +522,25 @@ jobs:
             --all-features \
             --target x86_64-unknown-linux-gnu \
             --archive-file nextest-archive.tar.zst
+      - name: Create sanitizer runner wrapper
+        run: |
+          cat > /tmp/sanitizer-runner.sh << 'EOF'
+          #!/bin/bash
+          # nextest invokes the target runner for both listing and execution.
+          # compute-sanitizer fails during listing because no CUDA APIs are called.
+          # Detect the list phase and run the binary directly, bypassing the sanitizer.
+          for arg in "$@"; do
+            if [[ "$arg" == "--list" ]]; then
+              exec "$@"
+            fi
+          done
+          exec compute-sanitizer $SANITIZER_OPTS "$@"
+          EOF
+          chmod +x /tmp/sanitizer-runner.sh
       - name: CUDA - memcheck
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
+          SANITIZER_OPTS: "--tool memcheck --leak-check=full --error-exitcode 1"
         run: |
           cargo nextest run \
             --archive-file nextest-archive.tar.zst \
@@ -533,7 +549,8 @@ jobs:
         # TODO(joe): try to re-enable, This is hanging in CI.
         #      - name: CUDA - racecheck
         #        env:
-        #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
+        #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
+        #          SANITIZER_OPTS: "--tool racecheck --error-exitcode 1"
         #        run: |
         #          cargo nextest run \
         #            --archive-file nextest-archive.tar.zst \
@@ -541,7 +558,8 @@ jobs:
         #            --verbose
       - name: CUDA - synccheck
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
+          SANITIZER_OPTS: "--tool synccheck --error-exitcode 1"
         run: |
           cargo nextest run \
             --archive-file nextest-archive.tar.zst \
@@ -549,7 +567,8 @@ jobs:
             --verbose
       - name: CUDA - initcheck
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
+          SANITIZER_OPTS: "--tool initcheck --error-exitcode 1"
         run: |
           cargo nextest run \
             --archive-file nextest-archive.tar.zst \
