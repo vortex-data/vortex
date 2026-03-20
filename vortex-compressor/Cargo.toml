@@ -1,0 +1,34 @@
+[package]
+name = "vortex-compressor"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Encoding-agnostic compression framework for Vortex arrays"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+itertools = { workspace = true }
+num-traits = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rustc-hash = { workspace = true }
+tracing = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[lints]
+workspace = true

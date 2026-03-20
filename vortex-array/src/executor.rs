@@ -172,6 +172,7 @@ impl dyn DynArray + '_ {
 ///
 /// Accumulates a trace of execution steps. Individual steps are logged at TRACE level for
 /// real-time following, and the full trace is dumped at DEBUG level when the context is dropped.
+#[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     id: usize,
     session: VortexSession,

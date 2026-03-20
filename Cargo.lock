@@ -9860,7 +9860,6 @@ name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "enum-iterator",
  "getrandom 0.4.2",
  "itertools 0.14.0",
  "num-traits",
@@ -9873,6 +9872,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compressor",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-error",
@@ -9941,6 +9941,24 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-session",
+]
+
+[[package]]
+name = "vortex-compressor"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "parking_lot",
+ "rand 0.10.0",
+ "rstest",
+ "rustc-hash",
+ "tracing",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-utils",
 ]
 
 [[package]]

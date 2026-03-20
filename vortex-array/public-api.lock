@@ -22266,6 +22266,14 @@ pub fn vortex_array::ExecutionCtx::new(session: vortex_session::VortexSession) -
 
 pub fn vortex_array::ExecutionCtx::session(&self) -> &vortex_session::VortexSession
 
+impl core::clone::Clone for vortex_array::ExecutionCtx
+
+pub fn vortex_array::ExecutionCtx::clone(&self) -> vortex_array::ExecutionCtx
+
+impl core::fmt::Debug for vortex_array::ExecutionCtx
+
+pub fn vortex_array::ExecutionCtx::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::fmt::Display for vortex_array::ExecutionCtx
 
 pub fn vortex_array::ExecutionCtx::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
