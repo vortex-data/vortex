@@ -26,6 +26,8 @@ use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayParts;
+use vortex::encodings::sequence::Sequence;
+use vortex::encodings::sequence::SequenceArrayParts;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -82,6 +84,7 @@ struct Pipeline {
 /// - `ALPArray` → recurse + `ALP` scalar op (f32 only, no patches)
 /// - `DictArray` → input stage for values + recurse codes + `DICT` scalar op
 /// - `RunEndArray` → input stages for ends/values + `RUNEND` source
+/// - `SequenceArray` → `SEQUENCE` source (integer ptypes only)
 /// - `SliceArray` → resolve via child's slice reduce/kernel
 ///
 /// # Limitations
@@ -158,6 +161,8 @@ impl PlanBuilderState<'_> {
             self.walk_primitive(array)
         } else if id == Slice::ID {
             self.walk_slice(array)
+        } else if id == Sequence::ID {
+            self.walk_sequence(array)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",
@@ -303,6 +308,25 @@ impl PlanBuilderState<'_> {
         let mut pipeline = self.walk(codes)?;
         pipeline.scalar_ops.push(ScalarOp::dict(values_smem_offset));
         Ok(pipeline)
+    }
+
+    /// SequenceArray → SEQUENCE source op
+    ///
+    /// Generates `value[i] = base + i * multiplier` on the GPU.
+    fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+        let seq = array
+            .try_into::<Sequence>()
+            .map_err(|_| vortex_err!("Expected SequenceArray"))?;
+        let SequenceArrayParts {
+            base, multiplier, ..
+        } = seq.into_parts();
+
+        Ok(Pipeline {
+            source: SourceOp::sequence(base.cast()?, multiplier.cast()?),
+            scalar_ops: vec![],
+            // SEQUENCE does not have an input pointer.
+            input_ptr: 0,
+        })
     }
 
     /// RunEndArray → add input stages for ends and values, RUNEND source op.

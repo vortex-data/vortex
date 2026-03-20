@@ -75,6 +75,17 @@ impl SourceOp {
             },
         }
     }
+
+    /// Generate a linear sequence: `value[i] = base + i * multiplier`.
+    /// Used for SequenceArray (e.g. monotonic run-end endpoints).
+    pub fn sequence(base: i64, multiplier: i64) -> Self {
+        Self {
+            op_code: SourceOp_SourceOpCode_SEQUENCE,
+            params: SourceParams {
+                sequence: SourceParams_SequenceParams { base, multiplier },
+            },
+        }
+    }
 }
 
 impl ScalarOp {
@@ -1000,6 +1011,62 @@ mod tests {
         let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0u32, 1u32, 100)]
+    #[case(5u32, 3u32, 2048)]
+    #[case(0u32, 1u32, 4096)]
+    #[case(100u32, 7u32, 5000)]
+    #[crate::test]
+    fn test_sequence_unsigned(
+        #[case] base: u32,
+        #[case] multiplier: u32,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::SequenceArray;
+
+        let expected: Vec<u32> = (0..len).map(|i| base + (i as u32) * multiplier).collect();
+
+        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&seq.into_array(), &cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0i32, 1i32, 100)]
+    #[case(-10i32, 3i32, 2048)]
+    #[case(100i32, -1i32, 100)]
+    #[case(-500i32, -7i32, 50)]
+    #[case(0i32, 1i32, 5000)]
+    #[crate::test]
+    fn test_sequence_signed(
+        #[case] base: i32,
+        #[case] multiplier: i32,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::SequenceArray;
+
+        let expected: Vec<i32> = (0..len).map(|i| base + (i as i32) * multiplier).collect();
+
+        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&seq.into_array(), &cuda_ctx)?;
+
+        let actual_u32 = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual: Vec<i32> = actual_u32.into_iter().map(|v| v as i32).collect();
         assert_eq!(actual, expected);
 
         Ok(())
