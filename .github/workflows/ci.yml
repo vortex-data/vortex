@@ -510,23 +510,51 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Build test archive
+        run: |
+          cargo nextest archive \
+            --locked \
+            -p vortex-cuda \
+            --all-features \
+            --target x86_64-unknown-linux-gnu \
+            --archive-file nextest-archive.tar.zst
       - name: CUDA - memcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        run: |
+          cargo nextest run \
+            --archive-file nextest-archive.tar.zst \
+            --no-fail-fast \
+            --verbose
         # TODO(joe): try to re-enable, This is hanging in CI.
         #      - name: CUDA - racecheck
         #        env:
         #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        #        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        #        run: |
+        #          cargo nextest run \
+        #            --archive-file nextest-archive.tar.zst \
+        #            --no-fail-fast \
+        #            --verbose
       - name: CUDA - synccheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        run: |
+          cargo nextest run \
+            --archive-file nextest-archive.tar.zst \
+            --no-fail-fast \
+            --verbose
       - name: CUDA - initcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        run: |
+          cargo nextest run \
+            --archive-file nextest-archive.tar.zst \
+            --no-fail-fast \
+            --verbose
 
   cuda-test-cudf:
     if: github.repository == 'vortex-data/vortex'
