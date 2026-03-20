@@ -494,9 +494,22 @@ jobs:
 
   cuda-test-sanitizer:
     if: github.repository == 'vortex-data/vortex'
-    name: "CUDA tests (sanitizer)"
+    name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: memcheck
+            runner_flags: "--tool memcheck --leak-check=full --error-exitcode 1"
+          # TODO(joe): try to re-enable racecheck, it is hanging in CI.
+          # - sanitizer: racecheck
+          #   runner_flags: "--tool racecheck --error-exitcode 1"
+          - sanitizer: synccheck
+            runner_flags: "--tool synccheck --error-exitcode 1"
+          - sanitizer: initcheck
+            runner_flags: "--tool initcheck --error-exitcode 1"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -510,77 +523,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install nextest
-        uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-      - name: Build test archive
-        run: |
-          cargo nextest archive \
-            --locked \
-            -p vortex-cuda \
-            --all-features \
-            --target x86_64-unknown-linux-gnu \
-            --archive-file nextest-archive.tar.zst
-      - name: Create sanitizer runner wrapper
-        run: |
-          cat > /tmp/sanitizer-runner.sh << 'EOF'
-          #!/bin/bash
-          # nextest invokes the target runner for both listing and execution.
-          # compute-sanitizer fails during listing because no CUDA APIs are called.
-          # Detect the list phase and run the binary directly, bypassing the sanitizer.
-          for arg in "$@"; do
-            if [[ "$arg" == "--list" ]]; then
-              exec "$@"
-            fi
-          done
-          compute-sanitizer $SANITIZER_OPTS "$@"
-          rc=$?
-          # Exit code 255 means "no instrumented API call" — the test didn't
-          # touch the GPU. This is harmless, not a sanitizer error.
-          if [[ $rc -eq 255 ]]; then
-            exit 0
-          fi
-          exit $rc
-          EOF
-          chmod +x /tmp/sanitizer-runner.sh
-      - name: CUDA - memcheck
+      - name: Build tests
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu --no-run
+      - name: "CUDA - ${{ matrix.sanitizer }}"
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
-          SANITIZER_OPTS: "--tool memcheck --leak-check=full --error-exitcode 1"
-        run: |
-          cargo nextest run \
-            --archive-file nextest-archive.tar.zst \
-            --no-fail-fast \
-            --verbose
-        # TODO(joe): try to re-enable, This is hanging in CI.
-        #      - name: CUDA - racecheck
-        #        env:
-        #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
-        #          SANITIZER_OPTS: "--tool racecheck --error-exitcode 1"
-        #        run: |
-        #          cargo nextest run \
-        #            --archive-file nextest-archive.tar.zst \
-        #            --no-fail-fast \
-        #            --verbose
-      - name: CUDA - synccheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
-          SANITIZER_OPTS: "--tool synccheck --error-exitcode 1"
-        run: |
-          cargo nextest run \
-            --archive-file nextest-archive.tar.zst \
-            --no-fail-fast \
-            --verbose
-      - name: CUDA - initcheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: /tmp/sanitizer-runner.sh
-          SANITIZER_OPTS: "--tool initcheck --error-exitcode 1"
-        run: |
-          cargo nextest run \
-            --archive-file nextest-archive.tar.zst \
-            --no-fail-fast \
-            --verbose
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: "compute-sanitizer ${{ matrix.runner_flags }}"
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
 
   cuda-test-cudf:
     if: github.repository == 'vortex-data/vortex'
