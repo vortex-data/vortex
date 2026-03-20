@@ -120,7 +120,7 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data/${{ matrix.benchmark.id }}.data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz | grep $base_commit_sha > base.json
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md

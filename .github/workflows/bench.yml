@@ -100,7 +100,7 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data/${{ matrix.benchmark.id }}.data.json.gz results.json
 
       - name: Alert incident.io
         if: failure()

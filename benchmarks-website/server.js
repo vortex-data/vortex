@@ -6,16 +6,21 @@ import zlib from "zlib";
 import readline from "readline";
 import { Readable } from "stream";
 import { LTTB } from "downsample";
-import { QUERY_SUITES, FAN_OUT_GROUPS, ENGINE_RENAMES } from "./src/config.js";
+import {
+  QUERY_SUITES,
+  FAN_OUT_GROUPS,
+  ENGINE_RENAMES,
+  DATA_FILES,
+} from "./src/config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Configuration
 const PORT = process.env.PORT || 3000;
-const DATA_URL =
-  process.env.DATA_URL ||
-  "https://vortex-ci-benchmark-results.s3.amazonaws.com/data.json.gz";
+const DATA_BASE_URL =
+  process.env.DATA_BASE_URL ||
+  "https://vortex-ci-benchmark-results.s3.amazonaws.com";
 const COMMITS_URL =
   process.env.COMMITS_URL ||
   "https://vortex-ci-benchmark-results.s3.amazonaws.com/commits.json";
@@ -228,27 +233,66 @@ function readLocalJsonl(fp) {
   });
 }
 
-// Stream benchmark data record-by-record without buffering the entire dataset
-async function forEachBenchmark(callback) {
-  let stream;
-  if (USE_LOCAL_DATA) {
-    stream = fs.createReadStream(path.join(__dirname, "sample/data.json"));
-  } else {
-    const res = await fetch(DATA_URL);
-    if (!res.ok) throw new Error(`Fetch failed: ${DATA_URL} ${res.status}`);
-    stream = Readable.fromWeb(res.body).pipe(zlib.createGunzip());
-  }
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-    rl.on("line", (l) => {
-      if (l.trim())
-        try {
-          callback(JSON.parse(l));
-        } catch {}
-    });
-    rl.on("close", resolve);
-    rl.on("error", reject);
+// Stream benchmark data from a single gzipped JSONL file
+function streamDataFile(url, callback) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        // File may not exist yet (new benchmark), skip gracefully
+        if (res.status === 404 || res.status === 403) {
+          console.log(`Skipping ${url} (${res.status})`);
+          return resolve();
+        }
+        throw new Error(`Fetch failed: ${url} ${res.status}`);
+      }
+      const stream = Readable.fromWeb(res.body).pipe(zlib.createGunzip());
+      const rl = readline.createInterface({
+        input: stream,
+        crlfDelay: Infinity,
+      });
+      rl.on("line", (l) => {
+        if (l.trim())
+          try {
+            callback(JSON.parse(l));
+          } catch {}
+      });
+      rl.on("close", resolve);
+      rl.on("error", reject);
+    } catch (e) {
+      reject(e);
+    }
   });
+}
+
+// Stream benchmark data record-by-record from all per-benchmark data files
+async function forEachBenchmark(callback) {
+  if (USE_LOCAL_DATA) {
+    return new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(
+        path.join(__dirname, "sample/data.json"),
+      );
+      const rl = readline.createInterface({
+        input: stream,
+        crlfDelay: Infinity,
+      });
+      rl.on("line", (l) => {
+        if (l.trim())
+          try {
+            callback(JSON.parse(l));
+          } catch {}
+      });
+      rl.on("close", resolve);
+      rl.on("error", reject);
+    });
+  }
+
+  // Fetch all per-benchmark data files in parallel
+  await Promise.all(
+    DATA_FILES.map((id) =>
+      streamDataFile(`${DATA_BASE_URL}/data/${id}.data.json.gz`, callback),
+    ),
+  );
 }
 
 // Main data processing

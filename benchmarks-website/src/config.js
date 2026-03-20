@@ -1,4 +1,30 @@
 // =============================================================================
+// Per-benchmark data files on S3 — one file per CI matrix entry.
+// Each file is a gzipped JSONL stream with a schema specific to that benchmark.
+// To add a new benchmark, add its CI matrix ID here.
+// =============================================================================
+
+export const DATA_FILES = [
+  // Non-SQL benchmarks (bench.yml)
+  "random-access-bench",
+  "compress-bench",
+  // SQL benchmarks (sql-benchmarks.yml / bench.yml)
+  "clickbench-nvme",
+  "tpch-nvme",
+  "tpch-s3",
+  "tpch-nvme-10",
+  "tpch-s3-10",
+  "tpcds-nvme",
+  "statpopgen",
+  "fineweb",
+  "fineweb-s3",
+  "polarsignals",
+  // Nightly-only benchmarks (nightly-bench.yml)
+  "tpch-nvme-100",
+  "tpch-s3-100",
+];
+
+// =============================================================================
 // SQL query benchmark suites — single source of truth.
 // To add a new SQL query benchmark, add one entry to QUERY_SUITES.
 // The server (routing/formatting) and frontend (UI config) both derive from this.

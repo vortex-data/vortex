@@ -241,7 +241,7 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data/${{ matrix.id }}.data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz | grep $base_commit_sha > base.json
 
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
@@ -274,7 +274,7 @@ jobs:
         if: inputs.mode == 'develop'
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data/${{ matrix.id }}.data.json.gz results.json
 
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'
