@@ -110,7 +110,7 @@ fixtures). Use `exact` for the current version.
 
 1. Read `versions.json` from store
 2. For each version, download `arrays/manifest.json` + all `.vortex` files
-3. Run `vortex-compat check --dir <tmpdir> --mode subset`
+3. Run `vortex-compat check --dir <tmpdir> --mode superset`
 4. Aggregate results, exit 1 if any failures
 
 ### `generate --output <DIR> [--git-ref <REF>] [--exclude <CSV>]`
