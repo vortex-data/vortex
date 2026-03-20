@@ -6,17 +6,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""Read alert ndjson from stdin, push to incident.io and/or GitHub summary.
+"""Read alert ndjson from stdin/file, push to incident.io / GitHub / terminal.
 
-This is the "emit" half of the pipeline. It reads the ndjson that
-benchmark_check.py produces and fans it out to the right places.
-
-    # Local — pretty-print what check found:
+    # Local — pretty-print:
     uv run scripts/benchmark_check.py ... | uv run scripts/benchmark_alert.py
 
-    # CI — send to incident.io and write GitHub step summary:
-    uv run scripts/benchmark_check.py ... | \
-        uv run scripts/benchmark_alert.py --webhook-url "$URL"
+    # CI — send to incident.io:
+    uv run scripts/benchmark_alert.py --webhook-url "$URL" --alerts-file alerts.ndjson
 """
 
 from __future__ import annotations
@@ -42,24 +38,21 @@ class Alert:
 
 
 def read_alerts(stream) -> list[Alert]:
-    """Read ndjson from a stream into Alert objects."""
     alerts = []
     for line in stream:
         line = line.strip()
         if not line:
             continue
         obj = json.loads(line)
-        alerts.append(Alert(
-            benchmark_id=obj["benchmark_id"],
-            series=obj["series"],
-            commit_id=obj["commit_id"],
-            check=obj["check"],
-            current=obj["current"],
-            expected=obj["expected"],
-            sigma=obj["sigma"],
-            message=obj["message"],
-        ))
+        alerts.append(Alert(**obj))
     return alerts
+
+
+def group_by_suite(alerts: list[Alert]) -> dict[str, list[Alert]]:
+    groups: dict[str, list[Alert]] = {}
+    for a in alerts:
+        groups.setdefault(a.benchmark_id, []).append(a)
+    return dict(sorted(groups.items()))
 
 
 # ============================================================================
@@ -67,19 +60,13 @@ def read_alerts(stream) -> list[Alert]:
 # ============================================================================
 
 def emit_terminal(alerts: list[Alert]) -> None:
-    """Pretty-print to stderr. Always runs."""
     if not alerts:
         print("No regressions detected.", file=sys.stderr)
         return
-
-    by_suite: dict[str, list[Alert]] = {}
-    for a in alerts:
-        by_suite.setdefault(a.benchmark_id, []).append(a)
-
     print(f"\n{'='*60}", file=sys.stderr)
     print(f"REGRESSIONS ({len(alerts)} total)", file=sys.stderr)
     print(f"{'='*60}", file=sys.stderr)
-    for suite, suite_alerts in sorted(by_suite.items()):
+    for suite, suite_alerts in group_by_suite(alerts).items():
         print(f"\n  {suite}:", file=sys.stderr)
         for a in suite_alerts:
             print(f"    [{a.check.upper()}] {a.series}", file=sys.stderr)
@@ -88,7 +75,6 @@ def emit_terminal(alerts: list[Alert]) -> None:
 
 
 def emit_github(alerts: list[Alert]) -> None:
-    """Write GITHUB_OUTPUT and GITHUB_STEP_SUMMARY. Skips outside Actions."""
     output_file = os.environ.get("GITHUB_OUTPUT")
     if output_file:
         with open(output_file, "a") as f:
@@ -103,13 +89,8 @@ def emit_github(alerts: list[Alert]) -> None:
         if not alerts:
             f.write("## Benchmark Monitor\nNo regressions detected.\n")
             return
-
-        by_suite: dict[str, list[Alert]] = {}
-        for a in alerts:
-            by_suite.setdefault(a.benchmark_id, []).append(a)
-
         f.write(f"## Benchmark Regressions ({len(alerts)} total)\n\n")
-        for suite, suite_alerts in sorted(by_suite.items()):
+        for suite, suite_alerts in group_by_suite(alerts).items():
             f.write(f"### {suite}\n\n")
             f.write("| Series | Check | σ | Current | Expected |\n")
             f.write("|--------|-------|---|---------|----------|\n")
@@ -120,7 +101,6 @@ def emit_github(alerts: list[Alert]) -> None:
 
 
 def emit_incident_io(alerts: list[Alert], webhook_url: str) -> None:
-    """Post each alert to incident.io."""
     for alert in alerts:
         payload = json.dumps({
             "title": f"Benchmark regression: {alert.series}",
@@ -157,7 +137,7 @@ def emit_incident_io(alerts: list[Alert], webhook_url: str) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Read alert ndjson from stdin, emit to incident.io / GitHub / terminal.",
+        description="Read alert ndjson, emit to incident.io / GitHub / terminal.",
     )
     p.add_argument("--webhook-url", type=str, default=None,
                    help="incident.io webhook URL (omit for local use)")
@@ -171,14 +151,11 @@ def main() -> None:
     else:
         alerts = read_alerts(sys.stdin)
 
-    # Always print to terminal
     emit_terminal(alerts)
 
-    # GitHub Actions summary (auto-detected)
     if os.environ.get("GITHUB_ACTIONS"):
         emit_github(alerts)
 
-    # incident.io webhook
     if args.webhook_url and alerts:
         print(f"Sending {len(alerts)} alert(s) to incident.io...", file=sys.stderr)
         emit_incident_io(alerts, args.webhook_url)

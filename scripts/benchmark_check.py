@@ -10,12 +10,7 @@
 
 """Find benchmark regressions. Writes ndjson to stdout.
 
-This is the "check" half of the pipeline. It loads history, ingests new
-results, runs statistical checks, and emits one JSON object per alert to
-stdout. Pipe to benchmark_alert.py to send them somewhere, or read them
-locally with jq.
-
-    # Local — just see what regressed:
+    # Local:
     uv run scripts/benchmark_check.py \
         --history-dir ./benchmark-history \
         --commits commits.json \
@@ -37,15 +32,18 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 
 # ============================================================================
-# METRIC TYPES — one struct per check, all fields typed with defaults
+# METRIC TYPES
 # ============================================================================
 
 @dataclass(frozen=True, slots=True)
 class Ewma:
-    """EWMA control chart config."""
-    pattern: str = "*"
+    """EWMA control chart. Alerts when latest value deviates from the
+    exponentially weighted mean by more than `sigma` standard deviations."""
+    pattern: str
     span: int = 10
     sigma: float = 3.0
     min_observations: int = 5
@@ -53,8 +51,8 @@ class Ewma:
 
 @dataclass(frozen=True, slots=True)
 class Cusum:
-    """Tabular CUSUM config."""
-    pattern: str = "*"
+    """Tabular CUSUM. Detects sustained shifts in the mean."""
+    pattern: str
     drift: float = 0.5
     cusum_threshold: float = 5.0
     min_observations: int = 5
@@ -62,8 +60,8 @@ class Cusum:
 
 @dataclass(frozen=True, slots=True)
 class Threshold:
-    """Static upper/lower bound config."""
-    pattern: str = "*"
+    """Static upper/lower bound."""
+    pattern: str
     max_value: float | None = None
     min_value: float | None = None
     min_observations: int = 1
@@ -71,8 +69,8 @@ class Threshold:
 
 @dataclass(frozen=True, slots=True)
 class PctChange:
-    """Percentage change from rolling mean config."""
-    pattern: str = "*"
+    """Percentage change from a rolling window mean."""
+    pattern: str
     window: int = 5
     pct_threshold: float = 20.0
     min_observations: int = 5
@@ -84,13 +82,33 @@ Metric = Ewma | Cusum | Threshold | PctChange
 # ============================================================================
 # METRICS — edit this to change what gets checked
 # ============================================================================
+#
+# Patterns match against the --benchmark-id passed to this script.
+# Trailing * = prefix match, otherwise substring match.
+# First match wins. Unmatched benchmarks get DEFAULT_METRIC.
+#
+# Benchmark IDs from bench.yml:
+#   random-access-bench   → Cusum  (catches gradual drift)
+#   compress-bench        → Ewma   (stable, tight σ=2.5)
+#   tpch-nvme             → Ewma   (default σ=3.0)
+#   tpch-s3               → Ewma   (noisy S3, wide σ=4.0)
+#   tpch-nvme-10          → Ewma   (default σ=3.0)
+#   tpch-s3-10            → Ewma   (noisy S3, wide σ=4.0)
+#   tpcds-nvme            → Ewma   (default σ=3.0)
+#   clickbench-nvme       → Ewma   (default σ=3.0)
+#   statpopgen            → Ewma   (default σ=3.0)
+#   fineweb               → Ewma   (default σ=3.0)
+#   fineweb-s3            → Ewma   (noisy S3, wide σ=4.0)
+#   polarsignals          → Ewma   (default σ=3.0)
 
-DEFAULT_METRIC: Metric = Ewma()
+DEFAULT_METRIC: Metric = Ewma(pattern="*")
 
 METRICS: list[Metric] = [
-    Ewma(pattern="tpch-s3*",       sigma=4.0, span=15, min_observations=8),
-    Ewma(pattern="fineweb-s3*",    sigma=4.0, span=15, min_observations=8),
+    # S3 benchmarks are noisier — wider sigma, longer window
+    Ewma(pattern="*-s3*",          sigma=4.0, span=15, min_observations=8),
+    # Compression is stable — tighter bounds
     Ewma(pattern="compress*",      sigma=2.5, span=8),
+    # Random access — CUSUM catches gradual drift better than EWMA
     Cusum(pattern="random-access*", cusum_threshold=4.0, drift=0.3, min_observations=8),
 ]
 
@@ -106,33 +124,20 @@ class Point:
 
 
 @dataclass(frozen=True, slots=True)
-class Alert:
-    series: str
-    commit_id: str
+class CheckResult:
+    """Output from a check function — just the numbers, no identity."""
     check_name: str
     current: float
     expected: float
     sigma: float
     message: str
 
-    def to_json(self, benchmark_id: str) -> dict:
-        return {
-            "benchmark_id": benchmark_id,
-            "series": self.series,
-            "commit_id": self.commit_id,
-            "check": self.check_name,
-            "current": self.current,
-            "expected": self.expected,
-            "sigma": self.sigma,
-            "message": self.message,
-        }
-
 
 # ============================================================================
 # CHECKS
 # ============================================================================
 
-def _check_ewma(values: list[float], m: Ewma) -> Alert | None:
+def _check_ewma(values: list[float], m: Ewma) -> CheckResult | None:
     if len(values) < m.min_observations:
         return None
     alpha = 2.0 / (m.span + 1)
@@ -150,17 +155,15 @@ def _check_ewma(values: list[float], m: Ewma) -> Alert | None:
     if abs(dev) < m.sigma:
         return None
     direction = "regression" if dev > 0 else "improvement"
-    return Alert(
-        series="", commit_id="", check_name="ewma",
-        current=current, expected=ewma, sigma=dev,
+    return CheckResult(
+        check_name="ewma", current=current, expected=ewma, sigma=dev,
         message=f"EWMA {direction}: {dev:+.2f}σ (value={current:.1f}, expected={ewma:.1f}±{std:.1f})",
     )
 
 
-def _check_cusum(values: list[float], m: Cusum) -> Alert | None:
+def _check_cusum(values: list[float], m: Cusum) -> CheckResult | None:
     if len(values) < m.min_observations:
         return None
-    import numpy as np
     hist = np.array(values[:-1], dtype=float)
     mu, std = float(np.mean(hist)), float(np.std(hist, ddof=1))
     if std == 0:
@@ -175,33 +178,30 @@ def _check_cusum(values: list[float], m: Cusum) -> Alert | None:
     current = values[-1]
     dev = (current - mu) / std
     direction = "regression" if s_pos >= m.cusum_threshold else "improvement"
-    return Alert(
-        series="", commit_id="", check_name="cusum",
-        current=current, expected=mu, sigma=dev,
+    return CheckResult(
+        check_name="cusum", current=current, expected=mu, sigma=dev,
         message=f"CUSUM {direction}: S+={s_pos:.2f} S-={s_neg:.2f} (threshold={m.cusum_threshold})",
     )
 
 
-def _check_threshold(values: list[float], m: Threshold) -> Alert | None:
+def _check_threshold(values: list[float], m: Threshold) -> CheckResult | None:
     if len(values) < m.min_observations:
         return None
     current = values[-1]
     if m.max_value is not None and current > m.max_value:
-        return Alert(
-            series="", commit_id="", check_name="threshold",
-            current=current, expected=m.max_value, sigma=0.0,
-            message=f"Exceeded: {current:.1f} > {m.max_value:.1f}",
+        return CheckResult(
+            check_name="threshold", current=current, expected=m.max_value,
+            sigma=0.0, message=f"Exceeded: {current:.1f} > {m.max_value:.1f}",
         )
     if m.min_value is not None and current < m.min_value:
-        return Alert(
-            series="", commit_id="", check_name="threshold",
-            current=current, expected=m.min_value, sigma=0.0,
-            message=f"Below: {current:.1f} < {m.min_value:.1f}",
+        return CheckResult(
+            check_name="threshold", current=current, expected=m.min_value,
+            sigma=0.0, message=f"Below: {current:.1f} < {m.min_value:.1f}",
         )
     return None
 
 
-def _check_pct_change(values: list[float], m: PctChange) -> Alert | None:
+def _check_pct_change(values: list[float], m: PctChange) -> CheckResult | None:
     if len(values) < m.min_observations:
         return None
     baseline = values[-m.window - 1:-1] if len(values) > m.window else values[:-1]
@@ -215,14 +215,15 @@ def _check_pct_change(values: list[float], m: PctChange) -> Alert | None:
     if abs(pct) < m.pct_threshold:
         return None
     direction = "regression" if pct > 0 else "improvement"
-    return Alert(
-        series="", commit_id="", check_name="pct_change",
-        current=current, expected=mean, sigma=pct / m.pct_threshold,
+    return CheckResult(
+        check_name="pct_change", current=current, expected=mean,
+        sigma=pct / m.pct_threshold,
         message=f"Pct change {direction}: {pct:+.1f}% (value={current:.1f}, baseline={mean:.1f})",
     )
 
 
-def run_check(values: list[float], metric: Metric) -> Alert | None:
+def run_check(values: list[float], metric: Metric) -> CheckResult | None:
+    """Dispatch to the right check based on metric type."""
     match metric:
         case Ewma():       return _check_ewma(values, metric)
         case Cusum():      return _check_cusum(values, metric)
@@ -234,18 +235,18 @@ def run_check(values: list[float], metric: Metric) -> Alert | None:
 # FILTER
 # ============================================================================
 
-def metric_for(series_name: str) -> Metric:
+def metric_for(benchmark_id: str) -> Metric:
+    """First matching metric from METRICS, or DEFAULT_METRIC."""
     for m in METRICS:
-        p = m.pattern
-        if p.endswith("*") and series_name.startswith(p[:-1]):
+        if m.pattern.endswith("*") and benchmark_id.startswith(m.pattern[:-1]):
             return m
-        if not p.endswith("*") and p in series_name:
+        if not m.pattern.endswith("*") and m.pattern in benchmark_id:
             return m
     return DEFAULT_METRIC
 
 
 # ============================================================================
-# HISTORY — file-locked reads and writes
+# HISTORY
 # ============================================================================
 
 def _history_path(history_dir: Path, benchmark_id: str) -> Path:
@@ -318,29 +319,33 @@ def load_commit_order(path: Path) -> list[str]:
 
 
 # ============================================================================
-# COMPUTE — run checks, emit ndjson to stdout
+# COMPUTE
 # ============================================================================
 
 def compute_and_emit(history: dict[str, list[Point]], commit_id: str,
                      benchmark_id: str, regressions_only: bool) -> int:
     """Run checks, write ndjson to stdout. Returns alert count."""
+    metric = metric_for(benchmark_id)
     count = 0
     for series_name, points in history.items():
         if not points or points[-1].commit_id != commit_id:
             continue
-        metric = metric_for(series_name)
         values = [p.value for p in points]
-        alert = run_check(values, metric)
-        if alert is None:
+        result = run_check(values, metric)
+        if result is None:
             continue
-        alert = Alert(
-            series=series_name, commit_id=commit_id,
-            check_name=alert.check_name, current=alert.current,
-            expected=alert.expected, sigma=alert.sigma, message=alert.message,
-        )
-        if regressions_only and alert.sigma <= 0:
+        if regressions_only and result.sigma <= 0:
             continue
-        json.dump(alert.to_json(benchmark_id), sys.stdout)
+        json.dump({
+            "benchmark_id": benchmark_id,
+            "series": series_name,
+            "commit_id": commit_id,
+            "check": result.check_name,
+            "current": result.current,
+            "expected": result.expected,
+            "sigma": result.sigma,
+            "message": result.message,
+        }, sys.stdout)
         sys.stdout.write("\n")
         count += 1
     return count
@@ -377,14 +382,15 @@ def main() -> None:
 
     series_count = len(history)
     max_depth = max((len(pts) for pts in history.values()), default=0)
+    metric = metric_for(args.benchmark_id)
     print(f"{args.benchmark_id}: {series_count} series, depth {max_depth}, "
-          f"commit {current_commit[:12]}", file=sys.stderr)
+          f"check {type(metric).__name__.lower()}, commit {current_commit[:12]}",
+          file=sys.stderr)
 
     alert_count = compute_and_emit(
         history, current_commit, args.benchmark_id,
         regressions_only=not args.all_alerts,
     )
-
     print(f"{args.benchmark_id}: {alert_count} alert(s)", file=sys.stderr)
     sys.exit(1 if alert_count else 0)
 
