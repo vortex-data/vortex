@@ -35,11 +35,6 @@ impl SliceKernel for BitPacked {
                 array.packed().slice(encoded_start..encoded_stop),
                 array.dtype().clone(),
                 array.validity()?.slice(range.clone())?,
-                array
-                    .patches()
-                    .map(|p| p.slice(range.clone()))
-                    .transpose()?
-                    .flatten(),
                 array.bit_width(),
                 range.len(),
                 offset as u16,
@@ -72,7 +67,8 @@ mod tests {
     #[test]
     fn test_execute_parent_returns_bitpacked_slice() -> VortexResult<()> {
         let values = PrimitiveArray::from_iter(0u32..2048);
-        let bitpacked = bitpack_encode(&values, 11, None)?;
+        let (bitpacked, patches) = bitpack_encode(&values, 11, None)?;
+        assert!(patches.is_none());
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 

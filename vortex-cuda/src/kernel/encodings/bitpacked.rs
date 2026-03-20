@@ -103,6 +103,7 @@ where
         packed,
         patches,
         validity,
+        ..
     } = array.into_parts();
 
     vortex_ensure!(len > 0, "Non empty array");

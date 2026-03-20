@@ -27,7 +27,12 @@ use vortex_mask::Mask;
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
 
-pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
+/// Find the ideal bit width that maximally compresses the input array.
+///
+/// Returns the packed array, and any patches values that did not pack.
+pub fn bitpack_to_best_bit_width(
+    array: &PrimitiveArray,
+) -> VortexResult<(BitPackedArray, Option<Patches>)> {
     let bit_width_freq = bit_width_histogram(array)?;
     let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
@@ -38,7 +43,7 @@ pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
-) -> VortexResult<BitPackedArray> {
+) -> VortexResult<(BitPackedArray, Option<Patches>)> {
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
         None => &bit_width_histogram(array)?,
@@ -64,8 +69,7 @@ pub fn bitpack_encode(
         )
     }
 
-    // SAFETY: we check that array only contains non-negative values.
-    let packed = unsafe { bitpack_unchecked(array, bit_width)? };
+    let packed = bitpack(array, bit_width)?;
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(array, bit_width, num_exceptions))
         .transpose()?
@@ -77,7 +81,6 @@ pub fn bitpack_encode(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
-            patches,
             bit_width,
             array.len(),
             0,
@@ -87,23 +90,16 @@ pub fn bitpack_encode(
         .stats_set
         .to_ref(bitpacked.as_ref())
         .inherit_from(array.statistics());
-    Ok(bitpacked)
+    Ok((bitpacked, patches))
 }
 
-/// Bitpack an array into the specified bit-width without checking statistics.
-///
-/// # Safety
-///
-/// It is the caller's responsibility to ensure that all values in the array can lossless pack
-/// into the specified bit-width.
-///
-/// Failure to do so will result in data loss.
+/// Bit-pack an array into the specified bit-width without checking statistics, truncating
+/// any values.
 pub unsafe fn bitpack_encode_unchecked(
     array: PrimitiveArray,
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
-    // SAFETY: non-negativity of input checked by caller.
-    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
+    let packed = bitpack(&array, bit_width)?;
 
     // SAFETY: checked by bitpack_unchecked
     let bitpacked = unsafe {
@@ -111,7 +107,6 @@ pub unsafe fn bitpack_encode_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
-            None,
             bit_width,
             array.len(),
             0,
@@ -127,18 +122,7 @@ pub unsafe fn bitpack_encode_unchecked(
 /// Bitpack a [PrimitiveArray] to the given width.
 ///
 /// On success, returns a [Buffer] containing the packed data.
-///
-/// # Safety
-///
-/// Internally this function will promote the provided array to its unsigned equivalent. This will
-/// violate ordering guarantees if the array contains any negative values.
-///
-/// It is the caller's responsibility to ensure that `parray` is non-negative before calling
-/// this function.
-pub unsafe fn bitpack_unchecked(
-    parray: &PrimitiveArray,
-    bit_width: u8,
-) -> VortexResult<ByteBuffer> {
+fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<ByteBuffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
         bitpack_primitive(parray.as_slice::<P>(), bit_width).into_byte_buffer()
@@ -383,8 +367,11 @@ pub mod test_harness {
     use rand::RngExt;
     use rand::rngs::StdRng;
     use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
@@ -415,7 +402,15 @@ pub mod test_harness {
             PrimitiveArray::new(values, validity)
         };
 
-        bitpack_encode(&values, 12, None).map(|a| a.into_array())
+        let (packed, patches) = bitpack_encode(&values, 12, None)?;
+
+        let packed = packed.into_array();
+        if let Some(patches) = patches {
+            let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+            Ok(PatchedArray::from_array_and_patches(packed, &patches, &mut ctx)?.into_array())
+        } else {
+            Ok(packed)
+        }
     }
 }
 
@@ -451,27 +446,6 @@ mod test {
             best_bit_width(&freq, bytes_per_exception(PType::U8)).unwrap(),
             3
         );
-    }
-
-    #[test]
-    fn null_patches() {
-        let valid_values = (0..24).map(|v| v < 1 << 4).collect::<Vec<_>>();
-        let values = PrimitiveArray::new(
-            (0u32..24).collect::<Buffer<_>>(),
-            Validity::from_iter(valid_values),
-        );
-        assert!(values.ptype().is_unsigned_int());
-        let compressed = BitPackedArray::encode(&values.into_array(), 4).unwrap();
-        assert!(compressed.patches().is_none());
-        assert_eq!(
-            (0..(1 << 4)).collect::<Vec<_>>(),
-            compressed
-                .validity_mask()
-                .unwrap()
-                .to_bit_buffer()
-                .set_indices()
-                .collect::<Vec<_>>()
-        )
     }
 
     #[test]
@@ -511,91 +485,5 @@ mod test {
         assert_arrays_eq!(into_ca, ca_into);
 
         Ok(())
-    }
-
-    #[test]
-    fn test_chunk_offsets() {
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200, 3000, 3100];
-        let mut values = vec![0u32; 4096usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
-
-        let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
-
-        // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
-        // chunk 1 (1024-2047): no patches -> points to patch index 2
-        // chunk 2 (2048-3071): patch at 3000 -> starts at patch index 2
-        // chunk 3 (3072-4095): patch at 3100 -> starts at patch index 3
-        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2, 3]));
-    }
-
-    #[test]
-    fn test_chunk_offsets_no_patches_in_middle() {
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200, 2500];
-        let mut values = vec![0u32; 3072usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
-
-        let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
-
-        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
-    }
-
-    #[test]
-    fn test_chunk_offsets_trailing_empty_chunks() {
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200, 1500];
-        let mut values = vec![0u32; 5120usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
-
-        let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
-
-        // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
-        // chunk 1 (1024-2047): patch at 1500 -> starts at patch index 2
-        // chunk 2 (2048-3071): no patches -> points to patch index 3
-        // chunk 3 (3072-4095): no patches -> points to patch index 3 (remaining chunks filled)
-        // chunk 4 (4096-5119): no patches -> points to patch index 3 (remaining chunks filled)
-        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 3, 3, 3]));
-    }
-
-    #[test]
-    fn test_chunk_offsets_single_chunk() {
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200];
-        let mut values = vec![0u32; 500usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
-
-        let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
-
-        // Single chunk starting at patch index 0.
-        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64]));
     }
 }

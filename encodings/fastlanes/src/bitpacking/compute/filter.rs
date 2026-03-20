@@ -46,7 +46,7 @@ impl FilterKernel for BitPacked {
     fn filter(
         array: &BitPackedArray,
         mask: &Mask,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
@@ -62,21 +62,11 @@ impl FilterKernel for BitPacked {
         }
 
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
-        let mut primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |U| {
-            let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
+        let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |U| {
+            let (buffer, validity) = filter_primitive::<U>(array, values)?;
             // reinterpret_cast for signed types.
             PrimitiveArray::new(buffer, validity).reinterpret_cast(array.ptype())
         });
-
-        let patches = array
-            .patches()
-            .map(|patches| patches.filter(&Mask::Values(values.clone()), ctx))
-            .transpose()?
-            .flatten();
-
-        if let Some(patches) = patches {
-            primitive = primitive.patch(&patches, ctx)?;
-        }
 
         Ok(Some(primitive.into_array()))
     }
@@ -93,7 +83,7 @@ impl FilterKernel for BitPacked {
 /// elements is relatively slow.
 ///
 /// Returns a tuple of (values buffer, validity mask).
-fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
+fn filter_primitive<U: UnsignedPType + BitPacking>(
     array: &BitPackedArray,
     selection: &Arc<MaskValues>,
 ) -> VortexResult<(Buffer<U>, Validity)> {
@@ -247,65 +237,5 @@ mod test {
         let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
         let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 3).unwrap();
         test_filter_conformance(&bitpacked.into_array());
-    }
-
-    /// Regression test for signed integers with patches.
-    ///
-    /// When filtering signed integers that have patches (exceptions), the patches
-    /// are stored with the signed type but FastLanes uses unsigned types internally.
-    /// This test ensures that the type handling is correct.
-    #[test]
-    fn filter_bitpacked_signed_with_patches() {
-        // Create signed integer values where some exceed the bit width (causing patches).
-        // Values 0-127 fit in 7 bits, but 1000 and 2000 do not.
-        let values: Vec<i32> = vec![0, 10, 1000, 20, 30, 2000, 40, 50, 60, 70];
-        let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 7).unwrap();
-        assert!(
-            bitpacked.patches().is_some(),
-            "Expected patches for values exceeding bit width"
-        );
-
-        // Filter to include some patched and some non-patched values.
-        let filtered = bitpacked
-            .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
-            .unwrap()
-            .to_primitive();
-
-        assert_arrays_eq!(filtered, PrimitiveArray::from_iter([0i32, 1000, 2000, 70]));
-    }
-
-    /// Regression test for signed integers with patches using low selectivity.
-    ///
-    /// This test uses a low selectivity filter which takes a different code path
-    /// that doesn't fully decompress the array first.
-    #[test]
-    fn filter_bitpacked_signed_with_patches_low_selectivity() {
-        // Create a larger array with signed integers and some patches.
-        let values: Vec<i32> = (0..1000)
-            .map(|i| {
-                if i % 100 == 0 {
-                    10000 + i // These will be patches (exceed 7 bits)
-                } else {
-                    i % 128 // These fit in 7 bits
-                }
-            })
-            .collect();
-        let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 7).unwrap();
-        assert!(
-            bitpacked.patches().is_some(),
-            "Expected patches for values exceeding bit width"
-        );
-
-        // Use low selectivity (only select 2% of values) to avoid full decompression.
-        let indices: Vec<usize> = (0..20).collect();
-        let filtered = bitpacked
-            .filter(Mask::from_indices(values.len(), indices))
-            .unwrap()
-            .to_primitive();
-
-        let expected: Vec<i32> = values[0..20].to_vec();
-        assert_arrays_eq!(filtered, PrimitiveArray::from_iter(expected));
     }
 }

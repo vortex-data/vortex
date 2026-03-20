@@ -5,7 +5,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
@@ -25,19 +24,6 @@ impl CastReduce for BitPacked {
                     array.packed().clone(),
                     dtype.as_ptype(),
                     new_validity,
-                    array
-                        .patches()
-                        .map(|patches| {
-                            let new_values = patches.values().cast(dtype.clone())?;
-                            Patches::new(
-                                patches.array_len(),
-                                patches.offset(),
-                                patches.indices().clone(),
-                                new_values,
-                                patches.chunk_offsets().clone(),
-                            )
-                        })
-                        .transpose()?,
                     array.bit_width(),
                     array.len(),
                     array.offset(),
@@ -53,6 +39,7 @@ impl CastReduce for BitPacked {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -105,7 +92,7 @@ mod tests {
     #[case(BitPackedArray::encode(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9).unwrap())]
     #[case(BitPackedArray::encode(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12).unwrap())]
     #[case(BitPackedArray::encode(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4).unwrap())]
-    fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
+    fn test_cast_bitpacked_conformance(#[case] array: ArrayRef) {
         test_cast_conformance(&array.into_array());
     }
 }

@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::PatchedArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -45,6 +46,7 @@ use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
+
 mod kernels;
 mod operations;
 mod rules;
@@ -163,6 +165,11 @@ impl VTable for BitPacked {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Do NOT execute any reduce rules if we have interior patches.
+        // We need to force an execution to convert to PatchedArray wrapping BitPackedArray.
+        if array.patches().is_some() {
+            return Ok(None);
+        }
         RULES.evaluate(array, parent, child_idx)
     }
 
@@ -316,11 +323,10 @@ impl VTable for BitPacked {
             })
             .transpose()?;
 
-        BitPackedArray::try_new(
+        let mut packed = BitPackedArray::try_new(
             packed,
             PType::try_from(dtype)?,
             validity,
-            patches,
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata bit_width {} does not fit in u8",
@@ -334,7 +340,10 @@ impl VTable for BitPacked {
                     metadata.offset
                 )
             })?,
-        )
+        )?;
+
+        packed.replace_patches(patches);
+        Ok(packed)
     }
 
     fn append_to_builder(
@@ -355,7 +364,17 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(unpack_array(array, ctx)?.into_array()))
+        if let Some(patches) = array.patches() {
+            // If there are patches, convert to PatchedArray and delegate to its execution.
+            let mut inner = array.clone();
+            inner.replace_patches(None);
+
+            let patched = PatchedArray::from_array_and_patches(inner.into_array(), patches, ctx)?;
+            Ok(ExecutionStep::done(patched.into_array()))
+        } else {
+            // If no patches, perform a normal unpack.
+            Ok(ExecutionStep::Done(unpack_array(array, ctx)?.into_array()))
+        }
     }
 
     fn execute_parent(
@@ -364,6 +383,13 @@ impl VTable for BitPacked {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Do NOT execute ANY parent kernels if we have interior patches.
+        // Force execution to convert to PatchedArray wrapping BitPackedArray, then we
+        // perform optimization through the PatchedArray.
+        if array.patches().is_some() {
+            return Ok(None);
+        }
+
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

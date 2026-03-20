@@ -11,15 +11,7 @@ use crate::bitpack_decompress;
 
 impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
-        Ok(
-            if let Some(patches) = array.patches()
-                && let Some(patch) = patches.get_patched(index)?
-            {
-                patch
-            } else {
-                bitpack_decompress::unpack_single(array, index)
-            },
-        )
+        Ok(bitpack_decompress::unpack_single(array, index))
     }
 }
 
