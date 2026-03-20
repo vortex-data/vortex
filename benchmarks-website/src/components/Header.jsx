@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { FILTER_DIMENSIONS, collectFilterValues } from '../lib/config';
 
 export default function Header({
   sidebarOpen,
@@ -11,7 +12,18 @@ export default function Header({
   onViewModeChange,
   onExpandAll,
   onCollapseAll,
+  globalFilters,
+  onGlobalFilterChange,
+  hasActiveGlobalFilters,
+  onClearGlobalFilters,
+  allSeriesNames,
 }) {
+  // Compute available options for each global filter dimension
+  const filterOptions = useMemo(() => {
+    if (!allSeriesNames?.length) return {};
+    return collectFilterValues(allSeriesNames);
+  }, [allSeriesNames]);
+
   return (
     <header className="sticky-header">
       <div className="header-content">
@@ -105,6 +117,44 @@ export default function Header({
           </a>
         </div>
       </div>
+
+      {/* Global filter bar — applies to all sections */}
+      {globalFilters && allSeriesNames?.length > 0 && (
+        <div className="global-filter-bar">
+          <span className="global-filter-label">Global filters:</span>
+          {FILTER_DIMENSIONS.map(dim => {
+            const options = filterOptions[dim.key] || [];
+            if (options.length <= 1) return null;
+            return (
+              <div key={dim.key} className="global-filter-group">
+                <span className="global-filter-dim-label">{dim.label}</span>
+                <div className="global-filter-buttons">
+                  <button
+                    className={`global-filter-btn ${globalFilters[dim.key] === 'all' ? 'active' : ''}`}
+                    onClick={() => onGlobalFilterChange(dim.key, 'all')}
+                  >
+                    All
+                  </button>
+                  {options.map(val => (
+                    <button
+                      key={val}
+                      className={`global-filter-btn ${globalFilters[dim.key] === val ? 'active' : ''}`}
+                      onClick={() => onGlobalFilterChange(dim.key, val)}
+                    >
+                      {val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {hasActiveGlobalFilters && (
+            <button className="global-filter-clear" onClick={onClearGlobalFilters}>
+              Clear
+            </button>
+          )}
+        </div>
+      )}
     </header>
   );
 }

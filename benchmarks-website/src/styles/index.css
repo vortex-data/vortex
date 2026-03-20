@@ -81,7 +81,6 @@ code, pre {
   top: 0;
   left: 0;
   right: 0;
-  height: var(--header-height);
   background: rgba(255, 255, 255, 0.95);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -89,14 +88,14 @@ code, pre {
   box-shadow: var(--shadow-sm);
   z-index: 1000;
   display: flex;
-  align-items: center;
+  flex-direction: column;
 }
 
 .header-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 100%;
+  min-height: var(--header-height);
   padding: 0 32px;
   width: 100%;
   gap: 24px;
@@ -251,6 +250,112 @@ code, pre {
   background-color: var(--bg-secondary);
   border-color: var(--primary-color);
   color: var(--primary-color);
+}
+
+/* Global Filter Bar */
+.global-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 32px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-wrap: wrap;
+}
+
+.global-filter-label {
+  font-family: "Geist", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.global-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.global-filter-dim-label {
+  font-family: "Geist", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.global-filter-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.global-filter-btn {
+  font-family: "Geist", sans-serif;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.global-filter-btn:hover {
+  border-color: var(--primary-color);
+  background-color: rgba(89, 113, 253, 0.05);
+}
+
+.global-filter-btn.active {
+  background-color: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.global-filter-clear {
+  font-family: "Geist", sans-serif;
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: auto;
+}
+
+.global-filter-clear:hover {
+  border-color: #e53e3e;
+  color: #e53e3e;
+}
+
+/* Section Filter Groups */
+.section-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-filter-group + .section-filter-group {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-color);
+}
+
+.engine-filter-btn.clear-local {
+  margin-left: auto;
+  color: var(--text-secondary);
+  border-style: dashed;
+}
+
+.engine-filter-btn.clear-local:hover {
+  border-color: #e53e3e;
+  color: #e53e3e;
 }
 
 /* Main Container */
@@ -1297,5 +1402,29 @@ code, pre {
 
   .benchmark-scores-summary {
     padding: 8px 16px;
+  }
+
+  .global-filter-bar {
+    padding: 6px 8px;
+    gap: 8px;
+  }
+
+  .global-filter-label {
+    font-size: 11px;
+  }
+
+  .global-filter-group {
+    flex-wrap: wrap;
+  }
+
+  .global-filter-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+
+  .section-filter-group + .section-filter-group {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
   }
 }

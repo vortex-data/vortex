@@ -4,7 +4,7 @@ import Sidebar from './Sidebar';
 import BenchmarkSection from './BenchmarkSection';
 import Modal from './Modal';
 import { fetchMetadata } from '../lib/api';
-import { BENCHMARK_CONFIGS, CATEGORY_TAGS } from '../lib/config';
+import { BENCHMARK_CONFIGS, CATEGORY_TAGS, defaultFilters } from '../lib/config';
 
 export default function App() {
   const [metadata, setMetadata] = useState(null);
@@ -17,6 +17,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState('grid');
   const [modalChart, setModalChart] = useState(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [globalFilters, setGlobalFilters] = useState(defaultFilters);
   const metadataFetched = useRef(false);
 
   useEffect(() => {
@@ -102,6 +103,32 @@ export default function App() {
     });
   }, [metadata, categoryFilter, searchFilter]);
 
+  // Collect all series names across all groups for global filter options
+  const allSeriesNames = useMemo(() => {
+    if (!metadata?.groups) return [];
+    const names = new Set();
+    for (const group of Object.values(metadata.groups)) {
+      for (const chart of (group.charts || [])) {
+        for (const s of (chart.series || [])) {
+          names.add(s);
+        }
+      }
+    }
+    return [...names];
+  }, [metadata]);
+
+  const handleGlobalFilterChange = useCallback((key, value) => {
+    setGlobalFilters(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const hasActiveGlobalFilters = useMemo(() => {
+    return Object.values(globalFilters).some(v => v !== 'all');
+  }, [globalFilters]);
+
+  const clearGlobalFilters = useCallback(() => {
+    setGlobalFilters(defaultFilters());
+  }, []);
+
   const toggleGroup = useCallback((groupName) => {
     setExpandedGroups(prev => {
       const next = new Set(prev);
@@ -146,21 +173,28 @@ export default function App() {
     setCategoryFilter('all');
   }, []);
 
+  const headerProps = {
+    sidebarOpen,
+    onMenuToggle: () => setSidebarOpen(!sidebarOpen),
+    categoryFilter,
+    onCategoryChange: setCategoryFilter,
+    searchFilter,
+    onSearchChange: setSearchFilter,
+    viewMode,
+    onViewModeChange: setViewMode,
+    onExpandAll: expandAll,
+    onCollapseAll: collapseAll,
+    globalFilters,
+    onGlobalFilterChange: handleGlobalFilterChange,
+    hasActiveGlobalFilters,
+    onClearGlobalFilters: clearGlobalFilters,
+    allSeriesNames,
+  };
+
   if (loading) {
     return (
       <div className="app">
-        <Header
-          sidebarOpen={sidebarOpen}
-          onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-          categoryFilter={categoryFilter}
-          onCategoryChange={setCategoryFilter}
-          searchFilter={searchFilter}
-          onSearchChange={setSearchFilter}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          onExpandAll={expandAll}
-          onCollapseAll={collapseAll}
-        />
+        <Header {...headerProps} />
         <div className="main-container">
           <main className="main-content">
             <div className="loading-indicator">
@@ -176,18 +210,7 @@ export default function App() {
   if (error) {
     return (
       <div className="app">
-        <Header
-          sidebarOpen={sidebarOpen}
-          onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-          categoryFilter={categoryFilter}
-          onCategoryChange={setCategoryFilter}
-          searchFilter={searchFilter}
-          onSearchChange={setSearchFilter}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          onExpandAll={expandAll}
-          onCollapseAll={collapseAll}
-        />
+        <Header {...headerProps} />
         <div className="main-container">
           <main className="main-content">
             <div className="error-indicator">
@@ -201,18 +224,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header
-        sidebarOpen={sidebarOpen}
-        onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-        categoryFilter={categoryFilter}
-        onCategoryChange={setCategoryFilter}
-        searchFilter={searchFilter}
-        onSearchChange={setSearchFilter}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        onExpandAll={expandAll}
-        onCollapseAll={collapseAll}
-      />
+      <Header {...headerProps} />
 
       <div className="main-container">
         <Sidebar
@@ -250,6 +262,7 @@ export default function App() {
                 onFullscreen={(data) => setModalChart(data)}
                 commitRange={metadata.totalCommits}
                 summary={groupData.summary}
+                globalFilters={globalFilters}
               />
             );
           })}

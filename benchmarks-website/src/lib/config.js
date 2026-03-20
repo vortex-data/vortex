@@ -232,7 +232,96 @@ export const SCALE_FACTOR_DESCRIPTIONS = {
   1000: "SF=1000 (~1TB of data)",
 };
 
-// Engine filter labels
+// =============================================================================
+// Series filter infrastructure — extensible for engine, format, arch, etc.
+//
+// Each series name is parsed into facets (engine, format, etc.) that can be
+// independently filtered at both the global (App) and per-section level.
+//
+// To add a new filter dimension (e.g. architecture):
+//   1. Add a `parseFoo(seriesName)` function below
+//   2. Add `foo` to FILTER_DIMENSIONS
+//   3. Emit `foo` from the benchmark data (server-side), or derive it client-side
+//   4. The filter bar and ChartContainer will pick it up automatically
+// =============================================================================
+
+/** Parse the engine component from a series name. */
+export function parseEngine(name) {
+  // "datafusion:vortex" → "datafusion"
+  if (name.includes(':')) return name.split(':')[0].toLowerCase();
+  // "vortex-nvme" → "vortex" (match known engines)
+  const lower = name.toLowerCase();
+  for (const eng of ['duckdb', 'datafusion', 'vortex', 'parquet', 'lance']) {
+    if (lower.startsWith(eng)) return eng;
+  }
+  return null;
+}
+
+/** Parse the format/storage-format component from a series name. */
+export function parseFormat(name) {
+  // "datafusion:vortex-compact" → "vortex-compact"
+  if (name.includes(':')) return name.split(':').slice(1).join(':').toLowerCase();
+  // "vortex-nvme" → "vortex"
+  const lower = name.toLowerCase();
+  // Strip known storage suffixes to get the format
+  const stripped = lower.replace(/-(nvme|s3|ssd|hdd)$/, '');
+  return stripped || null;
+}
+
+/**
+ * All filter dimensions. Each dimension has:
+ *   - key:    unique identifier, used as state key
+ *   - label:  display label for the filter bar
+ *   - parse:  function(seriesName) → string|null  — extracts this facet
+ *
+ * To add architecture filtering later, just add:
+ *   { key: 'arch', label: 'Architecture', parse: parseArch }
+ * and supply `arch` from the benchmark metadata.
+ */
+export const FILTER_DIMENSIONS = [
+  { key: 'engine', label: 'Engine', parse: parseEngine },
+  { key: 'format', label: 'Format', parse: parseFormat },
+  // Future: { key: 'arch', label: 'Architecture', parse: parseArch },
+];
+
+/** Build a { engine: 'all', format: 'all', ... } default filter state. */
+export function defaultFilters() {
+  return Object.fromEntries(FILTER_DIMENSIONS.map(d => [d.key, 'all']));
+}
+
+/**
+ * Test whether a series name passes a set of active filters.
+ * filters: { engine: 'all'|string, format: 'all'|string, ... }
+ */
+export function seriesMatchesFilters(seriesName, filters) {
+  for (const dim of FILTER_DIMENSIONS) {
+    const filterVal = filters[dim.key];
+    if (!filterVal || filterVal === 'all') continue;
+    const parsed = dim.parse(seriesName);
+    if (parsed === null) continue; // can't determine → don't filter out
+    if (parsed !== filterVal && !parsed.includes(filterVal)) return false;
+  }
+  return true;
+}
+
+/**
+ * Collect the unique values for each filter dimension from a list of series names.
+ * Returns { engine: ['datafusion', 'duckdb', ...], format: ['vortex', 'parquet', ...] }
+ */
+export function collectFilterValues(seriesNames) {
+  const result = {};
+  for (const dim of FILTER_DIMENSIONS) {
+    const values = new Set();
+    for (const name of seriesNames) {
+      const val = dim.parse(name);
+      if (val) values.add(val);
+    }
+    result[dim.key] = [...values].sort();
+  }
+  return result;
+}
+
+// Engine filter labels (kept for backwards compat, also used by the filter bar)
 export const ENGINE_LABELS = {
   all: "All",
   duckdb: "DuckDB",

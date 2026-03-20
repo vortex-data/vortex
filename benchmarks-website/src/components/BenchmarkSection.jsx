@@ -3,6 +3,11 @@ import { Info, Link2 } from 'lucide-react';
 import ChartContainer from './ChartContainer';
 import BenchmarkSummary from './BenchmarkSummary';
 import { getBenchmarkDescription, remapChartName } from '../lib/utils';
+import {
+  FILTER_DIMENSIONS,
+  collectFilterValues,
+  defaultFilters,
+} from '../lib/config';
 
 export default function BenchmarkSection({
   groupName,
@@ -14,30 +19,55 @@ export default function BenchmarkSection({
   onFullscreen,
   commitRange,
   summary,
+  globalFilters,
 }) {
-  const [engineFilter, setEngineFilter] = useState('all');
+  // Per-section local filter overrides (same shape as globalFilters)
+  const [localFilters, setLocalFilters] = useState(defaultFilters);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Get unique engines from chart series
-  const engines = useMemo(() => {
-    const engineSet = new Set();
+  // Collect all series names in this section for the local filter bar
+  const sectionSeriesNames = useMemo(() => {
+    const names = new Set();
     charts.forEach(chart => {
-      chart.series?.forEach(seriesName => {
-        if (seriesName.includes(':')) {
-          const engine = seriesName.split(':')[0].toLowerCase();
-          engineSet.add(engine);
-        }
-      });
+      chart.series?.forEach(name => names.add(name));
     });
-    return Array.from(engineSet).sort();
+    return [...names];
   }, [charts]);
+
+  // Compute available filter values for this section
+  const sectionFilterValues = useMemo(() => {
+    return collectFilterValues(sectionSeriesNames);
+  }, [sectionSeriesNames]);
+
+  // Merge global + local filters: local overrides global when not 'all'
+  const mergedFilters = useMemo(() => {
+    const merged = {};
+    for (const dim of FILTER_DIMENSIONS) {
+      const local = localFilters[dim.key];
+      const global = globalFilters?.[dim.key];
+      // Local takes precedence if set; otherwise use global
+      merged[dim.key] = (local && local !== 'all') ? local : (global || 'all');
+    }
+    return merged;
+  }, [localFilters, globalFilters]);
+
+  const hasLocalFilters = useMemo(() => {
+    return Object.values(localFilters).some(v => v !== 'all');
+  }, [localFilters]);
+
+  const handleLocalFilterChange = useCallback((key, value) => {
+    setLocalFilters(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const clearLocalFilters = useCallback(() => {
+    setLocalFilters(defaultFilters());
+  }, []);
 
   // Filter and sort charts based on config
   const filteredCharts = useMemo(() => {
     if (!charts) return [];
 
     let result = charts.filter(chart => {
-      // Apply keptCharts filter
       if (config.keptCharts) {
         const upperName = chart.name.toUpperCase();
         return config.keptCharts.some(kept => upperName === kept.toUpperCase());
@@ -45,7 +75,6 @@ export default function BenchmarkSection({
       return true;
     });
 
-    // Sort by keptCharts order if specified
     if (config.keptCharts) {
       const orderMap = new Map(config.keptCharts.map((name, idx) => [name.toUpperCase(), idx]));
       result.sort((a, b) => {
@@ -58,7 +87,6 @@ export default function BenchmarkSection({
     return result;
   }, [charts, config]);
 
-  // Copy link to clipboard
   const handleCopyLink = useCallback((e) => {
     e.stopPropagation();
     const url = `${window.location.origin}${window.location.pathname}#group-${groupName.replace(/\s+/g, '-')}`;
@@ -70,6 +98,11 @@ export default function BenchmarkSection({
   const description = getBenchmarkDescription(groupName);
   const hasData = filteredCharts.length > 0;
   const chartCount = filteredCharts.length;
+
+  // Determine which filter dimensions have meaningful options in this section
+  const activeDimensions = FILTER_DIMENSIONS.filter(
+    dim => (sectionFilterValues[dim.key] || []).length > 1
+  );
 
   return (
     <section
@@ -101,24 +134,33 @@ export default function BenchmarkSection({
           </div>
         </div>
 
-        {isExpanded && engines.length > 0 && (
+        {isExpanded && activeDimensions.length > 0 && (
           <div className="engine-filter-container">
-            <span className="engine-filter-label">Filter by engine:</span>
-            <button
-              className={`engine-filter-btn ${engineFilter === 'all' ? 'active' : ''}`}
-              onClick={() => setEngineFilter('all')}
-            >
-              All
-            </button>
-            {engines.map(engine => (
-              <button
-                key={engine}
-                className={`engine-filter-btn ${engineFilter === engine ? 'active' : ''}`}
-                onClick={() => setEngineFilter(engine)}
-              >
-                {engine}
-              </button>
+            {activeDimensions.map(dim => (
+              <div key={dim.key} className="section-filter-group">
+                <span className="engine-filter-label">{dim.label}:</span>
+                <button
+                  className={`engine-filter-btn ${localFilters[dim.key] === 'all' ? 'active' : ''}`}
+                  onClick={() => handleLocalFilterChange(dim.key, 'all')}
+                >
+                  All
+                </button>
+                {sectionFilterValues[dim.key].map(val => (
+                  <button
+                    key={val}
+                    className={`engine-filter-btn ${localFilters[dim.key] === val ? 'active' : ''}`}
+                    onClick={() => handleLocalFilterChange(dim.key, val)}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
             ))}
+            {hasLocalFilters && (
+              <button className="engine-filter-btn clear-local" onClick={clearLocalFilters}>
+                Clear
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -135,7 +177,7 @@ export default function BenchmarkSection({
               displayName={remapChartName(chart.name)}
               unit={config.unitOverride || chart.unit}
               config={config}
-              engineFilter={engineFilter}
+              filters={mergedFilters}
               onFullscreen={onFullscreen}
               commitRange={commitRange}
             />

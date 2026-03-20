@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { fetchChartData } from '../lib/api';
 import { formatDate, stringToColor } from '../lib/utils';
+import { seriesMatchesFilters } from '../lib/config';
 
 echarts.use([
   LineChart,
@@ -41,7 +42,7 @@ export default function ChartContainer({
   displayName,
   unit,
   config,
-  engineFilter,
+  filters,
   onFullscreen,
 }) {
   const [totalCommits, setTotalCommits] = useState(null);
@@ -191,12 +192,8 @@ export default function ChartContainer({
     Object.entries(series).forEach(([seriesName, points]) => {
       if (config.removedDatasets?.has(seriesName)) return;
 
-      if (engineFilter !== 'all') {
-        const engine = seriesName.split(':')[0].toLowerCase();
-        if (engine !== engineFilter && !seriesName.toLowerCase().includes(engineFilter)) {
-          return;
-        }
-      }
+      // Apply multi-dimensional filters (engine, format, arch, etc.)
+      if (filters && !seriesMatchesFilters(seriesName, filters)) return;
 
       let displaySeriesName = seriesName;
       if (config.renamedDatasets) {
@@ -219,7 +216,7 @@ export default function ChartContainer({
     });
 
     return { labels, seriesList, commits };
-  }, [chartData, config, engineFilter]);
+  }, [chartData, config, filters]);
 
   // Build ECharts option
   const echartsOption = useMemo(() => {
