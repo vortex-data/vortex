@@ -18,7 +18,7 @@ version = { workspace = true }
 cargo-fuzz = true
 
 [features]
-default = ["native"]
+default = ["native", "vortex/unstable_encodings"]
 native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
 zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
