@@ -28,11 +28,14 @@ import argparse
 import fcntl
 import json
 import math
+import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+
+CONTROL_FORMAT = "parquet"
 
 
 # ============================================================================
@@ -243,6 +246,203 @@ def run_check(values: list[float], metric: Metric) -> CheckResult | None:
         case PctChange():  return _check_pct_change(values, metric)
 
 
+def _ewma_deviation(values: list[float], span: int) -> float | None:
+    """Compute the EWMA z-score for the latest value without applying a threshold.
+
+    Returns the deviation in sigma units, or None if there is insufficient data.
+    Used by the concordance check to measure how much *any* series moved, even
+    those that did not trigger an alert.
+    """
+    if len(values) < 3:
+        return None
+    alpha = 2.0 / (span + 1)
+    ewma = values[0]
+    ewma_var = 0.0
+    for v in values[1:-1]:
+        diff = v - ewma
+        ewma_var = alpha * diff * diff + (1.0 - alpha) * ewma_var
+        ewma = alpha * v + (1.0 - alpha) * ewma
+    std = math.sqrt(ewma_var) if ewma_var > 0 else 0.0
+    if std == 0:
+        return None
+    return (values[-1] - ewma) / std
+
+
+# ============================================================================
+# SERIES IDENTITY
+# ============================================================================
+
+@dataclass(frozen=True, slots=True)
+class SeriesIdentity:
+    """Parsed components of a SQL benchmark series name.
+
+    Series names follow the pattern ``{dataset}_q{N}/{engine}:{format}``,
+    e.g. ``tpch_q01/datafusion:vortex``.  Non-SQL benchmarks (compress-bench,
+    random-access-bench) do not match this pattern and return None from
+    ``parse_series_identity``.
+    """
+    query: str      # e.g. "01"
+    engine: str     # e.g. "datafusion"
+    file_format: str  # e.g. "vortex"
+    prefix: str     # e.g. "tpch_q01" — everything before "/{engine}:..."
+
+
+_SERIES_RE = re.compile(r'^(.+_q\d+)/([^:]+):(.+)$')
+
+
+def parse_series_identity(name: str) -> SeriesIdentity | None:
+    """Extract query / engine / format from a series name, or None."""
+    m = _SERIES_RE.match(name)
+    if m is None:
+        return None
+    prefix = m.group(1)
+    query = prefix.rsplit("_q", 1)[-1]
+    return SeriesIdentity(query=query, engine=m.group(2),
+                          file_format=m.group(3), prefix=prefix)
+
+
+# ============================================================================
+# CONCORDANCE — cross-engine / cross-format noise detection
+# ============================================================================
+
+@dataclass(frozen=True, slots=True)
+class NoiseAssessment:
+    """Annotation added to an alert when cross-series concordance suggests
+    the spike is environmental noise rather than a real regression.
+
+    ``classification`` is one of:
+      - ``engine_noise``: the control format (parquet) for the same engine
+        and query also spiked — noise likely hit during that engine's run.
+      - ``global_noise``: multiple engines show the same spike for this query
+        — system-wide environmental noise.
+      - ``dep_upgrade``: the alerting engine's dependency was upgraded in this
+        commit, so cross-engine comparison is unreliable.
+      - ``vortex_only``: only Vortex formats moved; likely a real change.
+    """
+    classification: str
+    control_deviation: float | None = None
+    cross_engine_deviations: dict[str, float] = field(default_factory=dict)
+    message: str = ""
+
+
+# Threshold (in σ) above which we consider a non-alerting series to have
+# "also moved" in the same direction as the alerting series.
+_CONCORDANCE_SIGMA = 2.0
+
+
+def _build_concordance(
+    alert_name: str,
+    alert_sigma: float,
+    history: dict[str, list[Point]],
+    commit_id: str,
+    metric: Metric,
+    dep_upgrade_engines: set[str],
+) -> NoiseAssessment | None:
+    """Check whether an alerting series' spike is corroborated by controls.
+
+    Only applies to SQL-style series with engine:format naming.
+    """
+    identity = parse_series_identity(alert_name)
+    if identity is None:
+        return None
+
+    span = metric.span if isinstance(metric, Ewma) else 10
+    alert_direction = 1.0 if alert_sigma > 0 else -1.0
+
+    # 1. Check if this engine had a dependency upgrade.
+    if identity.engine in dep_upgrade_engines:
+        return NoiseAssessment(
+            classification="dep_upgrade",
+            message=f"engine '{identity.engine}' had a dependency upgrade — "
+                    f"cross-engine comparison skipped",
+        )
+
+    # 2. Check same-engine control format (e.g. datafusion:parquet for the
+    #    same query).  If the control also spiked in the same direction, the
+    #    noise hit during this engine's sequential run window.
+    control_name = f"{identity.prefix}/{identity.engine}:{CONTROL_FORMAT}"
+    control_dev = _series_deviation(control_name, history, commit_id, span)
+
+    # 3. Check other engines running the same format + query.
+    cross_engine_devs: dict[str, float] = {}
+    for name, points in history.items():
+        if name == alert_name:
+            continue
+        other = parse_series_identity(name)
+        if other is None:
+            continue
+        if other.query != identity.query or other.file_format != identity.file_format:
+            continue
+        if other.engine == identity.engine:
+            continue
+        if other.engine in dep_upgrade_engines:
+            continue
+        dev = _series_deviation(name, history, commit_id, span)
+        if dev is not None:
+            cross_engine_devs[other.engine] = dev
+
+    # Classify.
+    control_also_moved = (
+        control_dev is not None
+        and identity.file_format != CONTROL_FORMAT
+        and abs(control_dev) >= _CONCORDANCE_SIGMA
+        and math.copysign(1.0, control_dev) == alert_direction
+    )
+
+    cross_engines_also_moved = sum(
+        1 for d in cross_engine_devs.values()
+        if abs(d) >= _CONCORDANCE_SIGMA
+        and math.copysign(1.0, d) == alert_direction
+    )
+
+    if control_also_moved and cross_engines_also_moved > 0:
+        return NoiseAssessment(
+            classification="global_noise",
+            control_deviation=control_dev,
+            cross_engine_deviations=cross_engine_devs,
+            message=f"control ({CONTROL_FORMAT}) also moved {control_dev:+.1f}σ "
+                    f"and {cross_engines_also_moved} other engine(s) agree — "
+                    f"likely system-wide noise",
+        )
+    if control_also_moved:
+        return NoiseAssessment(
+            classification="engine_noise",
+            control_deviation=control_dev,
+            cross_engine_deviations=cross_engine_devs,
+            message=f"control ({CONTROL_FORMAT}) also moved {control_dev:+.1f}σ "
+                    f"for same engine — likely noise during {identity.engine} run",
+        )
+    if cross_engines_also_moved > 0 and cross_engines_also_moved == len(cross_engine_devs):
+        return NoiseAssessment(
+            classification="global_noise",
+            control_deviation=control_dev,
+            cross_engine_deviations=cross_engine_devs,
+            message=f"all {cross_engines_also_moved} other engine(s) also moved — "
+                    f"likely system-wide noise",
+        )
+
+    return NoiseAssessment(
+        classification="vortex_only",
+        control_deviation=control_dev,
+        cross_engine_deviations=cross_engine_devs,
+        message="only this series moved — likely a real change",
+    )
+
+
+def _series_deviation(
+    name: str,
+    history: dict[str, list[Point]],
+    commit_id: str,
+    span: int,
+) -> float | None:
+    """Compute the EWMA deviation for an arbitrary series at the given commit."""
+    points = history.get(name)
+    if not points or points[-1].commit_id != commit_id:
+        return None
+    values = [p.value for p in points]
+    return _ewma_deviation(values, span)
+
+
 # ============================================================================
 # FILTER
 # ============================================================================
@@ -335,10 +535,24 @@ def load_commit_order(path: Path) -> list[str]:
 # ============================================================================
 
 def compute_and_emit(history: dict[str, list[Point]], commit_id: str,
-                     benchmark_id: str, regressions_only: bool) -> int:
-    """Run checks, write ndjson to stdout. Returns alert count."""
+                     benchmark_id: str, regressions_only: bool,
+                     dep_upgrade_engines: set[str] | None = None) -> int:
+    """Run checks, write ndjson to stdout. Returns alert count.
+
+    Two-pass approach:
+    1. Compute check results for every series.
+    2. For each alert, run the concordance check against control formats and
+       other engines to classify the spike as noise vs. real.
+
+    The ``noise_assessment`` field is informational — alerts are still emitted
+    regardless, so downstream consumers (benchmark_alert.py) can decide how
+    to handle noise-classified alerts.
+    """
     metric = metric_for(benchmark_id)
-    count = 0
+    dep_engines = dep_upgrade_engines or set()
+
+    # Pass 1: collect alerts.
+    alerts: list[tuple[str, CheckResult]] = []
     for series_name, points in history.items():
         if not points or points[-1].commit_id != commit_id:
             continue
@@ -348,7 +562,13 @@ def compute_and_emit(history: dict[str, list[Point]], commit_id: str,
             continue
         if regressions_only and result.sigma <= 0:
             continue
-        json.dump({
+        alerts.append((series_name, result))
+
+    # Pass 2: emit with concordance annotation.
+    count = 0
+    noise_count = 0
+    for series_name, result in alerts:
+        record: dict = {
             "benchmark_id": benchmark_id,
             "series": series_name,
             "commit_id": commit_id,
@@ -357,9 +577,32 @@ def compute_and_emit(history: dict[str, list[Point]], commit_id: str,
             "expected": result.expected,
             "sigma": result.sigma,
             "message": result.message,
-        }, sys.stdout)
+        }
+        assessment = _build_concordance(
+            series_name, result.sigma, history, commit_id, metric, dep_engines,
+        )
+        if assessment is not None:
+            record["noise_assessment"] = {
+                "classification": assessment.classification,
+                "message": assessment.message,
+            }
+            if assessment.control_deviation is not None:
+                record["noise_assessment"]["control_deviation"] = round(assessment.control_deviation, 2)
+            if assessment.cross_engine_deviations:
+                record["noise_assessment"]["cross_engine_deviations"] = {
+                    k: round(v, 2) for k, v in assessment.cross_engine_deviations.items()
+                }
+            if assessment.classification in ("engine_noise", "global_noise", "dep_upgrade"):
+                noise_count += 1
+
+        json.dump(record, sys.stdout)
         sys.stdout.write("\n")
         count += 1
+
+    if noise_count:
+        print(f"{benchmark_id}: {noise_count}/{count} alert(s) classified as noise",
+              file=sys.stderr)
+
     return count
 
 
@@ -378,6 +621,10 @@ def main() -> None:
     p.add_argument("--current-commit", type=str, default=None)
     p.add_argument("--all-alerts", action="store_true",
                    help="Include improvements, not just regressions")
+    p.add_argument("--dep-upgrade-engines", type=str, default="",
+                   help="Comma-separated engines whose dependencies were "
+                        "upgraded in this commit (e.g. 'duckdb,datafusion'). "
+                        "Cross-engine comparison is skipped for these engines.")
     args = p.parse_args()
 
     commit_order = load_commit_order(args.commits)
@@ -399,9 +646,17 @@ def main() -> None:
           f"check {type(metric).__name__.lower()}, commit {current_commit[:12]}",
           file=sys.stderr)
 
+    dep_engines = set()
+    if args.dep_upgrade_engines:
+        dep_engines = {e.strip() for e in args.dep_upgrade_engines.split(",") if e.strip()}
+    if dep_engines:
+        print(f"{args.benchmark_id}: dependency upgrade engines: {dep_engines}",
+              file=sys.stderr)
+
     alert_count = compute_and_emit(
         history, current_commit, args.benchmark_id,
         regressions_only=not args.all_alerts,
+        dep_upgrade_engines=dep_engines,
     )
     print(f"{args.benchmark_id}: {alert_count} alert(s)", file=sys.stderr)
     sys.exit(1 if alert_count else 0)

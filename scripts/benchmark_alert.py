@@ -35,6 +35,7 @@ class Alert:
     expected: float
     sigma: float
     message: str
+    noise_assessment: dict | None = None
 
 
 def read_alerts(stream) -> list[Alert]:
@@ -46,6 +47,15 @@ def read_alerts(stream) -> list[Alert]:
         obj = json.loads(line)
         alerts.append(Alert(**obj))
     return alerts
+
+
+def is_noise(alert: Alert) -> bool:
+    """Return True if the alert was classified as environmental noise."""
+    if alert.noise_assessment is None:
+        return False
+    return alert.noise_assessment.get("classification") in (
+        "engine_noise", "global_noise", "dep_upgrade",
+    )
 
 
 def group_by_suite(alerts: list[Alert]) -> dict[str, list[Alert]]:
@@ -63,14 +73,23 @@ def emit_terminal(alerts: list[Alert]) -> None:
     if not alerts:
         print("No regressions detected.", file=sys.stderr)
         return
+    real = [a for a in alerts if not is_noise(a)]
+    noisy = [a for a in alerts if is_noise(a)]
     print(f"\n{'='*60}", file=sys.stderr)
-    print(f"REGRESSIONS ({len(alerts)} total)", file=sys.stderr)
+    print(f"REGRESSIONS ({len(real)} real, {len(noisy)} noise-classified, "
+          f"{len(alerts)} total)", file=sys.stderr)
     print(f"{'='*60}", file=sys.stderr)
     for suite, suite_alerts in group_by_suite(alerts).items():
         print(f"\n  {suite}:", file=sys.stderr)
         for a in suite_alerts:
-            print(f"    [{a.check.upper()}] {a.series}", file=sys.stderr)
+            noise_tag = ""
+            if is_noise(a):
+                classification = a.noise_assessment["classification"]
+                noise_tag = f" [NOISE:{classification}]"
+            print(f"    [{a.check.upper()}] {a.series}{noise_tag}", file=sys.stderr)
             print(f"      {a.message}", file=sys.stderr)
+            if a.noise_assessment and "message" in a.noise_assessment:
+                print(f"      ↳ {a.noise_assessment['message']}", file=sys.stderr)
     print(file=sys.stderr)
 
 
@@ -89,19 +108,33 @@ def emit_github(alerts: list[Alert]) -> None:
         if not alerts:
             f.write("## Benchmark Monitor\nNo regressions detected.\n")
             return
-        f.write(f"## Benchmark Regressions ({len(alerts)} total)\n\n")
+        real = [a for a in alerts if not is_noise(a)]
+        noisy = [a for a in alerts if is_noise(a)]
+        f.write(f"## Benchmark Regressions ({len(real)} real, "
+                f"{len(noisy)} noise-classified)\n\n")
         for suite, suite_alerts in group_by_suite(alerts).items():
             f.write(f"### {suite}\n\n")
-            f.write("| Series | Check | σ | Current | Expected |\n")
-            f.write("|--------|-------|---|---------|----------|\n")
+            f.write("| Series | Check | σ | Current | Expected | Noise? |\n")
+            f.write("|--------|-------|---|---------|----------|--------|\n")
             for a in suite_alerts:
+                noise_col = ""
+                if is_noise(a):
+                    noise_col = f"⚠️ {a.noise_assessment['classification']}"
+                elif a.noise_assessment and a.noise_assessment.get("classification") == "vortex_only":
+                    noise_col = "✅ confirmed"
                 f.write(f"| `{a.series}` | {a.check} | {a.sigma:+.2f} "
-                        f"| {a.current:.1f} | {a.expected:.1f} |\n")
+                        f"| {a.current:.1f} | {a.expected:.1f} | {noise_col} |\n")
             f.write("\n")
 
 
 def emit_incident_io(alerts: list[Alert], webhook_url: str) -> None:
+    skipped = sum(1 for a in alerts if is_noise(a))
+    if skipped:
+        print(f"  incident.io: skipping {skipped} noise-classified alert(s)",
+              file=sys.stderr)
     for alert in alerts:
+        if is_noise(alert):
+            continue
         payload = json.dumps({
             "title": f"Benchmark regression: {alert.series}",
             "description": alert.message,
