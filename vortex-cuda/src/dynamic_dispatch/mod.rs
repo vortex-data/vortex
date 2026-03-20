@@ -1004,4 +1004,33 @@ mod tests {
 
         Ok(())
     }
+
+    #[crate::test]
+    fn test_chunked_walks_first_chunk() -> VortexResult<()> {
+        use vortex::array::arrays::ChunkedArray;
+
+        let bit_width: u8 = 10;
+        let len = 2048;
+        let reference = 500u32;
+
+        let residuals: Vec<u32> = (0..len).map(|i| (i as u32) % (1 << bit_width)).collect();
+        let expected: Vec<u32> = residuals.iter().map(|&r| r + reference).collect();
+
+        let bp = BitPackedArray::encode(
+            &PrimitiveArray::new(Buffer::from(residuals), NonNullable).into_array(),
+            bit_width,
+        )?;
+        let for_arr = FoRArray::try_new(bp.into_array(), Scalar::from(reference))?;
+
+        // Wrap in a ChunkedArray with a single chunk.
+        let chunked = ChunkedArray::from_iter(vec![for_arr.into_array()]);
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&chunked.into_array(), &cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
 }

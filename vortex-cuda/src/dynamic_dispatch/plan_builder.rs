@@ -9,8 +9,8 @@
 
 use futures::executor::block_on;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;
@@ -82,6 +82,7 @@ struct Pipeline {
 /// - `ALPArray` → recurse + `ALP` scalar op (f32 only, no patches)
 /// - `DictArray` → input stage for values + recurse codes + `DICT` scalar op
 /// - `RunEndArray` → input stages for ends/values + `RUNEND` source
+/// - `ChunkedArray` → recurse into first chunk
 /// - `SliceArray` → resolve via child's slice reduce/kernel
 ///
 /// # Limitations
@@ -158,6 +159,8 @@ impl PlanBuilderState<'_> {
             self.walk_primitive(array)
         } else if id == Slice::ID {
             self.walk_slice(array)
+        } else if id == Chunked::ID {
+            self.walk_chunked(array)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",
@@ -303,6 +306,23 @@ impl PlanBuilderState<'_> {
         let mut pipeline = self.walk(codes)?;
         pipeline.scalar_ops.push(ScalarOp::dict(values_smem_offset));
         Ok(pipeline)
+    }
+
+    /// ChunkedArray → walk the first chunk.
+    ///
+    /// Dynamic dispatch plans operate on a single contiguous chunk.
+    /// When the plan builder encounters a `ChunkedArray`, it recurses
+    /// into the first chunk under the assumption that the caller has
+    /// already split the scan into per-chunk iterations.
+    fn walk_chunked(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+        let chunked = array
+            .try_into::<Chunked>()
+            .map_err(|_| vortex_err!("Expected ChunkedArray"))?;
+        let chunks = chunked.chunks();
+        if chunks.is_empty() {
+            vortex_bail!("Dynamic dispatch does not support empty ChunkedArray");
+        }
+        self.walk(chunks[0].clone())
     }
 
     /// RunEndArray → add input stages for ends and values, RUNEND source op.
