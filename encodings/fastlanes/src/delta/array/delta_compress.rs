@@ -21,7 +21,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
-use crate::bit_transpose::transpose_bitbuffer;
+use crate::bit_transpose::{transpose_bitbuffer, transpose_validity};
 
 pub fn delta_compress(
     array: &PrimitiveArray,
@@ -30,7 +30,7 @@ pub fn delta_compress(
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
         const LANES: usize = T::LANES;
         let (bases, deltas) = compress_primitive::<T, LANES>(array.as_slice::<T>());
-        let validity = transpose_and_pad_validity(array.validity(), deltas.len(), ctx)?;
+        let validity = transpose_validity(array.validity(), ctx)?;
         (
             PrimitiveArray::new(bases, array.dtype().nullability().into()),
             PrimitiveArray::new(deltas, validity),
@@ -38,36 +38,6 @@ pub fn delta_compress(
     });
 
     Ok((bases, deltas))
-}
-
-/// Transpose and pad validity to match the padded deltas length.
-///
-/// For [`Validity::Array`], the validity bits are transposed into FastLanes order and then
-/// extended to `padded_len`. The underlying byte buffer from transposition is already
-/// padded to 128-byte alignment (1024 bits), which exactly matches our 1024-element chunks.
-fn transpose_and_pad_validity(
-    validity: &Validity,
-    padded_len: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Validity> {
-    match validity {
-        Validity::Array(mask) => {
-            let bools = mask
-                .clone()
-                .execute::<Canonical>(ctx)?
-                .into_bool()
-                .into_bit_buffer();
-            let transposed = transpose_bitbuffer(bools);
-            let (offset, _len, bytes) = transposed.into_inner();
-            let padded = BitBuffer::new_with_offset(bytes, padded_len, offset);
-            Ok(Validity::Array(
-                BoolArray::new(padded, Validity::NonNullable).into_array(),
-            ))
-        }
-        v @ Validity::AllValid | v @ Validity::AllInvalid | v @ Validity::NonNullable => {
-            Ok(v.clone())
-        }
-    }
 }
 
 fn compress_primitive<T: NativePType + Delta + Transpose, const LANES: usize>(
