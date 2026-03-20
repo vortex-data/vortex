@@ -236,6 +236,9 @@ impl TryFrom<&DType> for LogicalType {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::array_type(element_logical_type, *list_size);
             }
+            DType::Variant(_) => {
+                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
+            }
             DType::Extension(ext_dtype) => {
                 let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
@@ -591,18 +594,13 @@ mod tests {
                 Ok(EmptyMetadata)
             }
 
-            fn validate_dtype(
-                &self,
-                _options: &Self::Metadata,
-                _storage_dtype: &DType,
-            ) -> VortexResult<()> {
+            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
                 &self,
-                _metadata: &'a Self::Metadata,
-                _storage_dtype: &'a DType,
+                _ext_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")

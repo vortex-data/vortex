@@ -33,7 +33,7 @@ pub(crate) mod compute;
 
 vtable!(Null);
 
-impl VTable for NullVTable {
+impl VTable for Null {
     type Array = NullArray;
 
     type Metadata = EmptyMetadata;
@@ -172,9 +172,9 @@ pub struct NullArray {
 }
 
 #[derive(Debug)]
-pub struct NullVTable;
+pub struct Null;
 
-impl NullVTable {
+impl Null {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
 }
 
@@ -186,13 +186,13 @@ impl NullArray {
         }
     }
 }
-impl OperationsVTable<NullVTable> for NullVTable {
+impl OperationsVTable<Null> for Null {
     fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }
 
-impl ValidityVTable<NullVTable> for NullVTable {
+impl ValidityVTable<Null> for Null {
     fn validity(_array: &NullArray) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)
     }

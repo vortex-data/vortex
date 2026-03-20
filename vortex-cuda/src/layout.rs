@@ -22,7 +22,7 @@ use vortex::array::DynArray;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::ConstantVTable;
+use vortex::array::arrays::Constant;
 use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
@@ -123,7 +123,7 @@ impl CudaFlatLayout {
     }
 }
 
-impl VTable for CudaFlatVTable {
+impl VTable for CudaFlat {
     type Layout = CudaFlatLayout;
     type Encoding = CudaFlatLayoutEncoding;
     type Metadata = ProstMetadata<CudaFlatLayoutMetadata>;
@@ -552,7 +552,7 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     let mut buffer_idx = 0u32;
     for array in chunk.depth_first_traversal() {
         let n = array.nbuffers();
-        if array.encoding_id() == ConstantVTable::ID {
+        if array.encoding_id() == Constant::ID {
             for buf in array.buffers() {
                 result.push(InlinedBuffer {
                     buffer_index: buffer_idx,

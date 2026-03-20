@@ -48,7 +48,7 @@ use crate::alp::rules::RULES;
 
 vtable!(ALP);
 
-impl VTable for ALPVTable {
+impl VTable for ALP {
     type Array = ALPArray;
 
     type Metadata = ProstMetadata<ALPMetadata>;
@@ -271,9 +271,9 @@ pub struct ALPArray {
 }
 
 #[derive(Debug)]
-pub struct ALPVTable;
+pub struct ALP;
 
-impl ALPVTable {
+impl ALP {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
 }
 
@@ -484,7 +484,7 @@ impl ALPArray {
     }
 }
 
-impl ValidityChild<ALPVTable> for ALPVTable {
+impl ValidityChild<ALP> for ALP {
     fn validity_child(array: &ALPArray) -> &ArrayRef {
         array.encoded()
     }

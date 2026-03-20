@@ -13,8 +13,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -23,7 +23,7 @@ use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl FillNullKernel for DecimalVTable {
+impl FillNullKernel for Decimal {
     fn fill_null(
         array: &DecimalArray,
         fill_value: &Scalar,

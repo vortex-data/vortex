@@ -7,4 +7,4 @@ pub use array::ExtensionArray;
 pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::ExtensionVTable;
+pub use vtable::Extension;

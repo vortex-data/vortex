@@ -13,8 +13,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::extension::datetime::AnyTemporal;
@@ -125,7 +125,7 @@ impl TemporalArray {
     /// These values are to be interpreted based on the time unit and optional time-zone stored
     /// in the TemporalMetadata.
     pub fn temporal_values(&self) -> &ArrayRef {
-        self.ext.storage()
+        self.ext.storage_array()
     }
 
     /// Retrieve the temporal metadata.
@@ -178,7 +178,7 @@ impl TryFrom<ArrayRef> for TemporalArray {
     /// `TemporalMetadata` variants, an error is returned.
     fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
         let ext = value
-            .as_opt::<ExtensionVTable>()
+            .as_opt::<Extension>()
             .ok_or_else(|| vortex_err!("array must be an ExtensionArray"))?;
         if !ext.ext_dtype().is::<AnyTemporal>() {
             vortex_bail!(

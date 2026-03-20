@@ -46,13 +46,13 @@ mod validity;
 vtable!(Dict);
 
 #[derive(Debug)]
-pub struct DictVTable;
+pub struct Dict;
 
-impl DictVTable {
+impl Dict {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
 }
 
-impl VTable for DictVTable {
+impl VTable for Dict {
     type Array = DictArray;
 
     type Metadata = ProstMetadata<DictMetadata>;

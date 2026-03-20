@@ -10,10 +10,10 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
+use crate::ALPRD;
 use crate::ALPRDArray;
-use crate::ALPRDVTable;
 
-impl TakeExecute for ALPRDVTable {
+impl TakeExecute for ALPRD {
     fn take(
         array: &ALPRDArray,
         indices: &ArrayRef,

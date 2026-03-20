@@ -3,16 +3,16 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::VarBinVTable;
+use vortex_array::arrays::VarBin;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::FSST;
 use crate::FSSTArray;
-use crate::FSSTVTable;
 
-impl CastReduce for FSSTVTable {
+impl CastReduce for FSST {
     fn cast(array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FSST is a string compression encoding.
         // For nullability changes, we can cast the codes and symbols arrays
@@ -29,7 +29,7 @@ impl CastReduce for FSSTVTable {
                     dtype.clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
-                    new_codes.as_::<VarBinVTable>().clone(),
+                    new_codes.as_::<VarBin>().clone(),
                     array.uncompressed_lengths().clone(),
                 )?
                 .into_array(),

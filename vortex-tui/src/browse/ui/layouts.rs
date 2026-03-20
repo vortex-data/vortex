@@ -30,8 +30,8 @@ use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::error::VortexExpect;
-use vortex::layout::layouts::flat::FlatVTable;
-use vortex::layout::layouts::zoned::ZonedVTable;
+use vortex::layout::layouts::flat::Flat;
+use vortex::layout::layouts::zoned::Zoned;
 
 use crate::browse::app::AppState;
 
@@ -44,7 +44,7 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     render_layout_header(app_state, header_area, buf);
 
     // Render the list view if the layout has children
-    if app_state.cursor.layout().is::<FlatVTable>() {
+    if app_state.cursor.layout().is::<Flat>() {
         render_array(
             app_state,
             detail_area,
@@ -73,7 +73,7 @@ fn render_layout_header(app: &AppState, area: Rect, buf: &mut Buffer) {
         Text::from(format!("Segment data size: {size}")).bold(),
     ];
 
-    if cursor.layout().is::<FlatVTable>() {
+    if cursor.layout().is::<Flat>() {
         if let Some(fb_size) = app.cached_flatbuffer_size {
             rows.push(Text::from(format!(
                 "FlatBuffer Size: {}",
@@ -86,7 +86,7 @@ fn render_layout_header(app: &AppState, area: Rect, buf: &mut Buffer) {
         rows.push(Text::from(metadata_info));
     }
 
-    if let Some(layout) = cursor.layout().as_opt::<ZonedVTable>() {
+    if let Some(layout) = cursor.layout().as_opt::<Zoned>() {
         // Push any zone stats.
         let mut line = String::new();
         line.push_str("Statistics: ");

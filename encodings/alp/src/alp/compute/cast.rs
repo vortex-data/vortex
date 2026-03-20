@@ -9,10 +9,10 @@ use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::alp::ALP;
 use crate::alp::ALPArray;
-use crate::alp::ALPVTable;
 
-impl CastReduce for ALPVTable {
+impl CastReduce for ALP {
     fn cast(array: &ALPArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Check if this is just a nullability change
         if array.dtype().eq_ignore_nullability(dtype) {

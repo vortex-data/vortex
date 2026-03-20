@@ -51,7 +51,7 @@ pub struct ListMetadata {
     offset_ptype: i32,
 }
 
-impl VTable for ListVTable {
+impl VTable for List {
     type Array = ListArray;
 
     type Metadata = ProstMetadata<ListMetadata>;
@@ -229,8 +229,8 @@ impl VTable for ListVTable {
 }
 
 #[derive(Debug)]
-pub struct ListVTable;
+pub struct List;
 
-impl ListVTable {
+impl List {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.list");
 }

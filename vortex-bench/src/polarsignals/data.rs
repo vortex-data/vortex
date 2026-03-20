@@ -22,7 +22,7 @@ use arrow_schema::Schema;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 

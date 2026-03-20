@@ -6,10 +6,10 @@ use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-use crate::ByteBoolVTable;
+use crate::ByteBool;
 
-pub(crate) static RULES: ParentRuleSet<ByteBoolVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(ByteBoolVTable)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ByteBoolVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(ByteBoolVTable)),
+pub(crate) static RULES: ParentRuleSet<ByteBool> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&CastReduceAdaptor(ByteBool)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(ByteBool)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ByteBool)),
 ]);

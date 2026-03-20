@@ -65,6 +65,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             DType::List(..) => unimplemented!("list scalar conversion"),
             DType::FixedSizeList(..) => unimplemented!("fixed-size list scalar conversion"),
             DType::Extension(..) => extension_to_arrow(value.as_extension()),
+            DType::Variant(_) => unimplemented!("Variant scalar conversion"),
         }
     }
 }
@@ -466,16 +467,14 @@ mod tests {
 
             fn validate_dtype(
                 &self,
-                _options: &Self::Metadata,
-                _storage_dtype: &DType,
+                _ext_dtype: &crate::dtype::extension::ExtDType<Self>,
             ) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
                 &self,
-                _metadata: &'a Self::Metadata,
-                _storage_dtype: &'a DType,
+                _ext_dtype: &'a crate::dtype::extension::ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")

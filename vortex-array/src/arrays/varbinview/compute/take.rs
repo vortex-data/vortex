@@ -12,8 +12,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
@@ -21,7 +21,7 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
-impl TakeExecute for VarBinViewVTable {
+impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
     fn take(
         array: &VarBinViewArray,

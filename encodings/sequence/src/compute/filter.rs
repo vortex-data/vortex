@@ -14,10 +14,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::Sequence;
 use crate::SequenceArray;
-use crate::SequenceVTable;
 
-impl FilterKernel for SequenceVTable {
+impl FilterKernel for Sequence {
     fn filter(
         array: &SequenceArray,
         mask: &Mask,

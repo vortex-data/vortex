@@ -17,9 +17,9 @@ use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
-use crate::arrays::BoolVTable;
-use crate::arrays::DecimalVTable;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::Bool;
+use crate::arrays::Decimal;
+use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -105,6 +105,11 @@ impl ScalarFnVTable for FillNull {
             .as_constant()
             .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
 
+        vortex_ensure!(
+            !fill_scalar.is_null(),
+            "fill_null requires a non-null fill value"
+        );
+
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
         };
@@ -166,16 +171,14 @@ fn fill_null_canonical(
         return result.execute::<ArrayRef>(ctx);
     }
     match canonical {
-        CanonicalView::Bool(a) => <BoolVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?
+        CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None")),
         CanonicalView::Primitive(a) => {
-            <PrimitiveVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?
+            <Primitive as FillNullKernel>::fill_null(a, fill_value, ctx)?
                 .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None"))
         }
-        CanonicalView::Decimal(a) => {
-            <DecimalVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?
-                .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None"))
-        }
+        CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
+            .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
         other => vortex_bail!(
             "No FillNullKernel for canonical array {}",
             other.as_ref().encoding_id()

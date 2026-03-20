@@ -11,7 +11,7 @@ use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
@@ -44,7 +44,7 @@ fn main() {
     divan::main();
 }
 
-const NUM_VALUES: u64 = 1_000_000;
+const NUM_VALUES: u64 = 100_000;
 
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {

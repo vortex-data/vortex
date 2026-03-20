@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -19,9 +20,6 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::listview::list_from_list_view;
-use vortex_array::compute::Cost;
-use vortex_array::compute::IsConstantOpts;
-use vortex_array::compute::is_constant_opts;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TemporalMetadata;
@@ -281,14 +279,8 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 if let Ok(temporal_array) = TemporalArray::try_from(ext_array.clone().into_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
-                    if is_constant_opts(
-                        &ext_array.clone().into_array(),
-                        &IsConstantOpts {
-                            cost: Cost::Canonicalize,
-                        },
-                    )?
-                    .unwrap_or_default()
-                    {
+                    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                    if is_constant(&ext_array.clone().into_array(), &mut ctx)? {
                         return Ok(ConstantArray::new(
                             temporal_array.as_ref().scalar_at(0)?,
                             ext_array.len(),
@@ -299,7 +291,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 }
 
                 // Compress the underlying storage array.
-                let compressed_storage = self.compress(ext_array.storage())?;
+                let compressed_storage = self.compress(ext_array.storage_array())?;
 
                 Ok(
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
@@ -327,9 +319,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ListVTable;
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
-    use vortex_array::arrays::ListViewVTable;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -365,9 +357,9 @@ mod tests {
         let array_ref = input.clone().into_array();
         let result = BtrBlocksCompressor::default().compress(&array_ref)?;
         if expect_list {
-            assert!(result.as_opt::<ListVTable>().is_some());
+            assert!(result.as_opt::<List>().is_some());
         } else {
-            assert!(result.as_opt::<ListViewVTable>().is_some());
+            assert!(result.as_opt::<ListView>().is_some());
         }
         assert_arrays_eq!(result, input);
         Ok(())

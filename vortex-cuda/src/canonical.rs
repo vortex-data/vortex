@@ -133,7 +133,7 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Extension(ext) => {
                 // Copy the storage array to host and rewrap in ExtensionArray.
                 let host_storage = ext
-                    .storage()
+                    .storage_array()
                     .to_canonical()?
                     .into_host()
                     .await?

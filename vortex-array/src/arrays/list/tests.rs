@@ -15,7 +15,7 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::FilterArray;
-use crate::arrays::ListVTable;
+use crate::arrays::List;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
@@ -430,7 +430,7 @@ fn test_offset_to_0() {
     assert_eq!(list.len(), 2);
 
     // For a sliced ListArray, we need to check it's still a ListArray
-    let list_array = list.as_::<ListVTable>();
+    let list_array = list.as_::<List>();
 
     // Check the offsets array has correct length (n+1 for n lists)
     assert_eq!(list_array.offsets().len(), 3);
@@ -592,7 +592,7 @@ fn test_list_of_lists() {
 
     // Access the first list of lists and verify its contents.
     let first_outer = list_of_lists.list_elements_at(0).unwrap();
-    let first_outer_list = first_outer.as_::<ListVTable>();
+    let first_outer_list = first_outer.as_::<List>();
     assert_eq!(first_outer_list.len(), 2);
 
     // Check first inner list [1, 2].
@@ -605,7 +605,7 @@ fn test_list_of_lists() {
 
     // Check the second list of lists [[4, 5, 6]].
     let second_outer = list_of_lists.list_elements_at(1).unwrap();
-    let second_outer_list = second_outer.as_::<ListVTable>();
+    let second_outer_list = second_outer.as_::<List>();
     assert_eq!(second_outer_list.len(), 1);
 
     let inner = second_outer_list.list_elements_at(0).unwrap();
@@ -618,7 +618,7 @@ fn test_list_of_lists() {
 
     // Check the fourth list of lists [[7]].
     let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
-    let fourth_outer_list = fourth_outer.as_::<ListVTable>();
+    let fourth_outer_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_outer_list.len(), 1);
 
     let inner = fourth_outer_list.list_elements_at(0).unwrap();
@@ -632,12 +632,12 @@ fn test_list_of_lists() {
 
     // Test slicing.
     let sliced = list_of_lists.slice(1..3).unwrap();
-    let sliced_list = sliced.as_::<ListVTable>();
+    let sliced_list = sliced.as_::<List>();
     assert_eq!(sliced_list.len(), 2);
 
     // First element of slice should be [[4, 5, 6]].
     let first_sliced = sliced_list.list_elements_at(0).unwrap();
-    let first_sliced_list = first_sliced.as_::<ListVTable>();
+    let first_sliced_list = first_sliced.as_::<List>();
     assert_eq!(first_sliced_list.len(), 1);
 
     // Second element of slice should be empty [].
@@ -679,14 +679,14 @@ fn test_list_of_lists_nullable_outer() {
 
     // Third element should be [[4, 5, 6]].
     let third = list_of_lists.list_elements_at(2).unwrap();
-    let third_list = third.as_::<ListVTable>();
+    let third_list = third.as_::<List>();
     assert_eq!(third_list.len(), 1);
     let inner = third_list.list_elements_at(0).unwrap();
     assert_eq!(inner.len(), 3);
 
     // Fourth element should be [[7]].
     let fourth = list_of_lists.list_elements_at(3).unwrap();
-    let fourth_list = fourth.as_::<ListVTable>();
+    let fourth_list = fourth.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
 }
 
@@ -723,7 +723,7 @@ fn test_list_of_lists_nullable_inner() {
 
     // First outer list should have 3 inner lists with the second being null.
     let first_outer = list_of_lists.list_elements_at(0).unwrap();
-    let first_list = first_outer.as_::<ListVTable>();
+    let first_list = first_outer.as_::<List>();
     assert_eq!(first_list.len(), 3);
 
     // Check that second inner list is null.
@@ -758,7 +758,7 @@ fn test_list_of_lists_both_nullable() {
     let first_outer = list_of_lists.scalar_at(0).unwrap();
     assert!(!first_outer.is_null());
     let first_outer_array = list_of_lists.list_elements_at(0).unwrap();
-    let first_list = first_outer_array.as_::<ListVTable>();
+    let first_list = first_outer_array.as_::<List>();
     assert_eq!(first_list.len(), 2);
 
     // First inner list should be [1, 2].
@@ -775,14 +775,14 @@ fn test_list_of_lists_both_nullable() {
 
     // Third outer list should have [3].
     let third_outer = list_of_lists.list_elements_at(2).unwrap();
-    let third_list = third_outer.as_::<ListVTable>();
+    let third_list = third_outer.as_::<List>();
     assert_eq!(third_list.len(), 1);
     let inner = third_list.list_elements_at(0).unwrap();
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([3]));
 
     // Fourth outer list should have a null inner list.
     let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
-    let fourth_list = fourth_outer.as_::<ListVTable>();
+    let fourth_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
     let inner = fourth_list.scalar_at(0).unwrap();
     assert!(inner.is_null());
@@ -890,7 +890,7 @@ fn test_recursive_compact_list_of_lists() {
     let original = create_list_of_lists_nullable(nested_data);
     // Slice to remove prefix - creates wasted space since offsets no longer reference early elements
     let sliced = original.slice(1..3).unwrap();
-    let sliced_list = sliced.as_::<ListVTable>();
+    let sliced_list = sliced.as_::<List>();
 
     // Test non-recursive compaction: only resets outer list offsets
     let non_recursive = sliced_list.reset_offsets(false).unwrap();
@@ -901,8 +901,8 @@ fn test_recursive_compact_list_of_lists() {
     assert_eq!(recursive.len(), 2);
 
     // Check the flattened elements - this shows the actual compaction difference
-    let non_recursive_flat_elements = non_recursive.elements().as_::<ListVTable>().elements();
-    let recursive_flat_elements = recursive.elements().as_::<ListVTable>().elements();
+    let non_recursive_flat_elements = non_recursive.elements().as_::<List>().elements();
+    let recursive_flat_elements = recursive.elements().as_::<List>().elements();
 
     // Non-recursive should still have all original elements [1,2,3,4,5,6,7,8,9,10,11,12]
     assert_eq!(non_recursive_flat_elements.len(), 12);

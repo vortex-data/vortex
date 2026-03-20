@@ -22,10 +22,10 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
-impl CompareKernel for FoRVTable {
+impl CompareKernel for FoR {
     fn compare(
         lhs: &FoRArray,
         rhs: &ArrayRef,

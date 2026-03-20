@@ -52,7 +52,7 @@ pub struct DecimalMetadata {
     pub(super) values_type: i32,
 }
 
-impl VTable for DecimalVTable {
+impl VTable for Decimal {
     type Array = DecimalArray;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
@@ -231,9 +231,9 @@ impl VTable for DecimalVTable {
 }
 
 #[derive(Debug)]
-pub struct DecimalVTable;
+pub struct Decimal;
 
-impl DecimalVTable {
+impl Decimal {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal");
 }
 
@@ -246,8 +246,8 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
-    use crate::arrays::DecimalVTable;
     use crate::dtype::DecimalDType;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
@@ -279,6 +279,6 @@ mod tests {
         let decoded = parts
             .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
             .unwrap();
-        assert!(decoded.is::<DecimalVTable>());
+        assert!(decoded.is::<Decimal>());
     }
 }

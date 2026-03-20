@@ -16,12 +16,12 @@ use vortex_array::scalar_fn::fns::between::BetweenReduce;
 use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
 
+use crate::ALP;
 use crate::ALPArray;
 use crate::ALPFloat;
-use crate::ALPVTable;
 use crate::match_each_alp_float_ptype;
 
-impl BetweenReduce for ALPVTable {
+impl BetweenReduce for ALP {
     fn between(
         array: &ALPArray,
         lower: &ArrayRef,

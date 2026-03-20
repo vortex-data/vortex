@@ -12,9 +12,11 @@ use vortex_mask::Mask;
 
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::sum::sum;
 use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::sum;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::PType;
@@ -108,7 +110,8 @@ pub struct BoolTyped<'a>(&'a dyn DynArray);
 
 impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
-        let true_count = sum(&self.0.to_array())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let true_count = sum(&self.0.to_array(), &mut ctx)?;
         Ok(true_count
             .as_primitive()
             .as_::<usize>()

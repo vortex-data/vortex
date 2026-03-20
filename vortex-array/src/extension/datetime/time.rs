@@ -92,12 +92,13 @@ impl ExtVTable for Time {
         TimeUnit::try_from(tag)
     }
 
-    fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        let metadata = ext_dtype.metadata();
         let ptype = time_ptype(metadata)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
 
         vortex_ensure!(
-            storage_dtype.as_ptype() == ptype,
+            ext_dtype.storage_dtype().as_ptype() == ptype,
             "Time storage dtype for {} must be {}",
             metadata,
             ptype
@@ -106,15 +107,36 @@ impl ExtVTable for Time {
         Ok(())
     }
 
+    fn can_coerce_from(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
+        let DType::Extension(other_ext) = other else {
+            return false;
+        };
+        let Some(other_unit) = other_ext.metadata_opt::<Time>() else {
+            return false;
+        };
+        let our_unit = ext_dtype.metadata();
+        our_unit <= other_unit && (ext_dtype.storage_dtype().is_nullable() || !other.is_nullable())
+    }
+
+    fn least_supertype(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
+        let DType::Extension(other_ext) = other else {
+            return None;
+        };
+        let other_unit = other_ext.metadata_opt::<Time>()?;
+        let our_unit = ext_dtype.metadata();
+        let finest = (*our_unit).min(*other_unit);
+        let union_null = ext_dtype.storage_dtype().nullability() | other.nullability();
+        Some(DType::Extension(Time::new(finest, union_null).erased()))
+    }
+
     fn unpack_native(
         &self,
-        metadata: &Self::Metadata,
-        _storage_dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         storage_value: &ScalarValue,
     ) -> VortexResult<Self::NativeValue<'_>> {
         let length_of_time = storage_value.as_primitive().cast::<i64>()?;
 
-        let (span, value) = match *metadata {
+        let (span, value) = match *ext_dtype.metadata() {
             TimeUnit::Seconds => {
                 let v = i32::try_from(length_of_time)
                     .map_err(|e| vortex_err!("Time seconds value out of i32 range: {e}"))?;
@@ -186,5 +208,16 @@ mod tests {
 
         let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(0))));
         assert_eq!(format!("{}", scalar.as_extension()), "00:00:00");
+    }
+
+    #[test]
+    fn least_supertype_time_units() {
+        use crate::dtype::Nullability::NonNullable;
+
+        let secs = DType::Extension(Time::new(TimeUnit::Seconds, NonNullable).erased());
+        let ns = DType::Extension(Time::new(TimeUnit::Nanoseconds, NonNullable).erased());
+        let expected = DType::Extension(Time::new(TimeUnit::Nanoseconds, NonNullable).erased());
+        assert_eq!(secs.least_supertype(&ns).unwrap(), expected);
+        assert_eq!(ns.least_supertype(&secs).unwrap(), expected);
     }
 }

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrayref::array_mut_ref;
-use arrayref::array_ref;
+use std::mem;
+use std::mem::MaybeUninit;
+
 use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
-use num_traits::WrappingSub;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -15,77 +16,78 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
-pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
-    // TODO(ngates): fill forward nulls?
-    // let filled = fill_forward(array)?.to_primitive()?;
+use crate::bit_transpose::transpose_validity;
 
-    // Compress the filled array
+pub fn delta_compress(
+    array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-        const LANES: usize = T::LANES;
-        let (bases, deltas) = compress_primitive::<T, LANES>(array.as_slice::<T>());
+        let (bases, deltas) = compress_primitive::<T, { T::LANES }>(array.as_slice::<T>());
+        // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
+        let validity = transpose_validity(array.validity(), ctx)?;
         (
-            // To preserve nullability, we include Validity
             PrimitiveArray::new(bases, array.dtype().nullability().into()),
-            PrimitiveArray::new(deltas, array.validity().clone()),
+            PrimitiveArray::new(deltas, validity),
         )
     });
 
     Ok((bases, deltas))
 }
 
-fn compress_primitive<T: NativePType + Delta + Transpose + WrappingSub, const LANES: usize>(
+fn compress_primitive<T: NativePType + Delta + Transpose, const LANES: usize>(
     array: &[T],
 ) -> (Buffer<T>, Buffer<T>) {
-    // How many fastlanes vectors we will process.
-    let num_chunks = array.len() / 1024;
+    let padded_len = array.len().next_multiple_of(1024);
+    let num_chunks = padded_len / 1024;
+    let bases_len = num_chunks * LANES;
+
+    // Split into full 1024-element chunks and a remainder.
+    let (full_chunks, remainder) = array.as_chunks::<1024>();
 
     // Allocate result arrays.
-    let mut bases = BufferMut::with_capacity(num_chunks * T::LANES + 1);
-    let mut deltas = BufferMut::with_capacity(array.len());
+    let mut bases = BufferMut::with_capacity(bases_len);
+    let mut deltas = BufferMut::with_capacity(padded_len);
+    let (output_deltas, _) = deltas.spare_capacity_mut().as_chunks_mut::<1024>();
 
-    // Loop over all the 1024-element chunks.
-    if num_chunks > 0 {
-        let mut transposed: [T; 1024] = [T::default(); 1024];
+    // Loop over all full 1024-element chunks.
+    let mut transposed: [T; 1024] = [T::default(); 1024];
+    for (chunk, output) in full_chunks.iter().zip(output_deltas.iter_mut()) {
+        Transpose::transpose(chunk, &mut transposed);
+        bases.extend_from_slice(&transposed[0..T::LANES]);
 
-        for i in 0..num_chunks {
-            let start_elem = i * 1024;
-            let chunk: &[T; 1024] = array_ref![array, start_elem, 1024];
-            Transpose::transpose(chunk, &mut transposed);
-
-            // Initialize and store the base vector for each chunk
-            bases.extend_from_slice(&transposed[0..T::LANES]);
-
-            deltas.reserve(1024);
-            let delta_len = deltas.len();
-            unsafe {
-                deltas.set_len(delta_len + 1024);
-                Delta::delta::<LANES>(
-                    &transposed,
-                    &*(transposed[0..T::LANES].as_ptr().cast()),
-                    array_mut_ref![deltas[delta_len..], 0, 1024],
-                );
-            }
+        unsafe {
+            Delta::delta::<LANES>(
+                &transposed,
+                &*(transposed[0..T::LANES].as_ptr().cast()),
+                mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(output),
+            );
         }
     }
 
-    // To avoid padding, the remainder is encoded with scalar logic.
-    let remainder_size = array.len() % 1024;
-    if remainder_size > 0 {
-        let chunk = &array[array.len() - remainder_size..];
-        let mut base_scalar = chunk[0];
-        bases.push(base_scalar);
-        for next in chunk {
-            let diff = next.wrapping_sub(&base_scalar);
-            deltas.push(diff);
-            base_scalar = *next;
+    // Pad the remainder to 1024 elements and process as a full chunk.
+    if !remainder.is_empty() {
+        let mut padded_chunk = [T::default(); 1024];
+        padded_chunk[..remainder.len()].copy_from_slice(remainder);
+
+        Transpose::transpose(&padded_chunk, &mut transposed);
+        bases.extend_from_slice(&transposed[0..T::LANES]);
+
+        unsafe {
+            Delta::delta::<LANES>(
+                &transposed,
+                &*(transposed[0..T::LANES].as_ptr().cast()),
+                mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(
+                    &mut output_deltas[full_chunks.len()],
+                ),
+            );
         }
     }
 
-    assert_eq!(
-        bases.len(),
-        num_chunks * T::LANES + (if remainder_size > 0 { 1 } else { 0 })
-    );
-    assert_eq!(deltas.len(), array.len());
+    unsafe { deltas.set_len(padded_len) };
+
+    assert_eq!(bases.len(), bases_len);
+    assert_eq!(deltas.len(), padded_len);
 
     (bases.freeze(), deltas.freeze())
 }
@@ -94,6 +96,7 @@ fn compress_primitive<T: NativePType + Delta + Transpose + WrappingSub, const LA
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -107,28 +110,18 @@ mod tests {
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-    #[test]
-    fn test_compress() -> VortexResult<()> {
-        do_roundtrip_test((0u32..10_000).collect())
-    }
-
-    #[test]
-    fn test_compress_nullable() -> VortexResult<()> {
-        do_roundtrip_test(PrimitiveArray::from_option_iter(
+    #[rstest]
+    #[case((0u32..10_000).collect())]
+    #[case((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect())]
+    #[case(PrimitiveArray::from_option_iter(
             (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
-        ))
-    }
-
-    #[test]
-    fn test_compress_overflow() -> VortexResult<()> {
-        do_roundtrip_test((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect())
-    }
-
-    fn do_roundtrip_test(input: PrimitiveArray) -> VortexResult<()> {
-        let delta = DeltaArray::try_from_primitive_array(&input)?;
-        assert_eq!(delta.len(), input.len());
+    ))]
+    fn test_compress(#[case] array: PrimitiveArray) -> VortexResult<()> {
+        let delta =
+            DeltaArray::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
+        assert_eq!(delta.len(), array.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
-        assert_arrays_eq!(decompressed, input);
+        assert_arrays_eq!(decompressed, array);
         Ok(())
     }
 }

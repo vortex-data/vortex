@@ -31,7 +31,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
+        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
         with:
           tool: cargo-edit
 
@@ -57,7 +57,7 @@ jobs:
       name: push-to-pypi
       url: https://pypi.org/p/vortex-data
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           pattern: wheels-*.zip
           # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
@@ -90,7 +90,7 @@ jobs:
           distribution: "corretto"
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v5
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           pattern: libvortex_jni_*.zip
       - name: Copy native JNI libs

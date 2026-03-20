@@ -55,7 +55,7 @@ pub struct RLEMetadata {
     pub offset: u64,
 }
 
-impl VTable for RLEVTable {
+impl VTable for RLE {
     type Array = RLEArray;
 
     type Metadata = ProstMetadata<RLEMetadata>;
@@ -240,9 +240,9 @@ impl VTable for RLEVTable {
 }
 
 #[derive(Debug)]
-pub struct RLEVTable;
+pub struct RLE;
 
-impl RLEVTable {
+impl RLE {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
 }
 

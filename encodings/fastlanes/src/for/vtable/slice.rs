@@ -8,10 +8,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
-impl SliceReduce for FoRVTable {
+impl SliceReduce for FoR {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: Just slicing encoded data does not affect FOR.
         Ok(Some(unsafe {

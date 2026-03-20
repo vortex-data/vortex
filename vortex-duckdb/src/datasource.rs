@@ -22,8 +22,8 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ScalarFnVTable;
+use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructVTable;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
@@ -130,7 +130,7 @@ impl Debug for DataSourceBindData {
                     .filter_exprs
                     .iter()
                     .map(|e| e.to_string())
-                    .collect_vec(),
+                    .collect::<Vec<String>>(),
             )
             .finish()
     }
@@ -329,7 +329,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 let (array_result, conversion_cache) = result?;
                 let array_result = array_result.optimize_recursive()?;
 
-                let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
+                let array_result = if let Some(array) = array_result.as_opt::<Struct>() {
                     array.clone()
                 } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
                     && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
@@ -523,7 +523,7 @@ fn extract_table_filter_expr(
     };
 
     table_filter_exprs.extend(additional_filters.iter().cloned());
-    Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
+    Ok(and_collect(table_filter_exprs))
 }
 
 #[cfg(test)]

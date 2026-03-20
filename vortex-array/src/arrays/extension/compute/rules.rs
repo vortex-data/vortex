@@ -5,10 +5,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
-use crate::arrays::FilterVTable;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -16,20 +16,20 @@ use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(ExtensionVTable)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(ExtensionVTable)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ExtensionVTable)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(ExtensionVTable)),
+    ParentRuleSet::lift(&CastReduceAdaptor(Extension)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(Extension)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Extension)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Extension)),
 ]);
 
 /// Push filter operations into the storage array of an extension array.
 #[derive(Debug)]
 struct ExtensionFilterPushDownRule;
 
-impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
-    type Parent = FilterVTable;
+impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,
@@ -39,7 +39,7 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
         let filtered_storage = child
-            .storage()
+            .storage_array()
             .clone()
             .filter(parent.filter_mask().clone())?;
         Ok(Some(
@@ -58,8 +58,8 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
+    use crate::arrays::Extension;
     use crate::arrays::ExtensionArray;
-    use crate::arrays::ExtensionVTable;
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -95,18 +95,13 @@ mod tests {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(
-            &self,
-            _options: &Self::Metadata,
-            _storage_dtype: &DType,
-        ) -> VortexResult<()> {
+        fn validate_dtype(&self, _extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
             Ok(())
         }
 
         fn unpack_native<'a>(
             &self,
-            _metadata: &'a Self::Metadata,
-            _storage_dtype: &'a DType,
+            _extension_dtype: &'a ExtDType<Self>,
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
             Ok("")
@@ -137,17 +132,17 @@ mod tests {
 
         // The result should be an ExtensionArray, not a FilterArray
         assert!(
-            optimized.as_opt::<ExtensionVTable>().is_some(),
+            optimized.as_opt::<Extension>().is_some(),
             "Expected ExtensionArray after optimization, got {}",
             optimized.encoding_id()
         );
 
-        let ext_result = optimized.as_::<ExtensionVTable>();
+        let ext_result = optimized.as_::<Extension>();
         assert_eq!(ext_result.len(), 3);
         assert_eq!(ext_result.ext_dtype(), &ext_dtype);
 
         // Check the storage values
-        let storage_result: &[i64] = &ext_result.storage().to_primitive().to_buffer::<i64>();
+        let storage_result: &[i64] = &ext_result.storage_array().to_primitive().to_buffer::<i64>();
         assert_eq!(storage_result, &[1, 3, 5]);
     }
 
@@ -168,12 +163,12 @@ mod tests {
 
         let optimized = filter_array.optimize().unwrap();
 
-        assert!(optimized.as_opt::<ExtensionVTable>().is_some());
-        let ext_result = optimized.as_::<ExtensionVTable>();
+        assert!(optimized.as_opt::<Extension>().is_some());
+        let ext_result = optimized.as_::<Extension>();
         assert_eq!(ext_result.len(), 3);
 
         // Check values: should be [Some(1), None, None]
-        let canonical = ext_result.storage().to_primitive();
+        let canonical = ext_result.storage_array().to_primitive();
         assert_eq!(canonical.len(), 3);
     }
 
@@ -197,18 +192,13 @@ mod tests {
                 Ok(EmptyMetadata)
             }
 
-            fn validate_dtype(
-                &self,
-                _options: &Self::Metadata,
-                _storage_dtype: &DType,
-            ) -> VortexResult<()> {
+            fn validate_dtype(&self, _extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
                 &self,
-                _metadata: &'a Self::Metadata,
-                _storage_dtype: &'a DType,
+                _extension_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")
@@ -238,9 +228,7 @@ mod tests {
         // The first child should still be an ExtensionArray (no pushdown happened)
         let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
         assert!(
-            scalar_fn.children()[0]
-                .as_opt::<ExtensionVTable>()
-                .is_some(),
+            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when ext types differ"
         );
     }
@@ -265,9 +253,7 @@ mod tests {
         // No pushdown should happen because sibling is not a constant
         let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
         assert!(
-            scalar_fn.children()[0]
-                .as_opt::<ExtensionVTable>()
-                .is_some(),
+            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when sibling is not constant"
         );
     }
@@ -290,9 +276,7 @@ mod tests {
         // No pushdown should happen because constant is not an extension scalar
         let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
         assert!(
-            scalar_fn.children()[0]
-                .as_opt::<ExtensionVTable>()
-                .is_some(),
+            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when constant is not extension"
         );
     }

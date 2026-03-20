@@ -7,14 +7,14 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl FillNullKernel for BoolVTable {
+impl FillNullKernel for Bool {
     fn fill_null(
         array: &BoolArray,
         fill_value: &Scalar,

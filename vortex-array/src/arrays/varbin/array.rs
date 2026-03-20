@@ -186,7 +186,7 @@ impl VarBinArray {
 
         // Check nullability matches
         vortex_ensure!(
-            dtype.is_nullable() != (validity == &Validity::NonNullable),
+            dtype.is_nullable() != matches!(validity, Validity::NonNullable),
             InvalidArgument: "incorrect validity {:?} for dtype {}",
             validity,
             dtype

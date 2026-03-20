@@ -13,4 +13,4 @@ pub(crate) mod compute;
 
 mod vtable;
 
-pub use vtable::ConstantVTable;
+pub use vtable::Constant;

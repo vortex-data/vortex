@@ -229,7 +229,7 @@ impl DictArray {
 mod test {
     #[allow(unused_imports)]
     use itertools::Itertools;
-    use rand::Rng;
+    use rand::RngExt;
     use rand::SeedableRng;
     use rand::distr::Distribution;
     use rand::distr::StandardUniform;

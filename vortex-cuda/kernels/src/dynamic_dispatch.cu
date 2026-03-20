@@ -114,6 +114,17 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         return;
     }
 
+    case SourceOp::SEQUENCE: {
+        // Generate a linear sequence: value[i] = base + i * multiplier.
+        // Used for SequenceArray (e.g. monotonic run-end endpoints).
+        const T base = static_cast<T>(source_op.params.sequence.base);
+        const T mul = static_cast<T>(source_op.params.sequence.multiplier);
+        for (uint32_t i = threadIdx.x; i < chunk_len; i += blockDim.x) {
+            smem_output[i] = base + static_cast<T>(chunk_start + i) * mul;
+        }
+        break;
+    }
+
     default:
         __builtin_unreachable();
     }

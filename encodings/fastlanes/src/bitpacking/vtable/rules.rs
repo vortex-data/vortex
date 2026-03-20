@@ -4,7 +4,7 @@
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 
-use crate::BitPackedVTable;
+use crate::BitPacked;
 
-pub(crate) const RULES: ParentRuleSet<BitPackedVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&CastReduceAdaptor(BitPackedVTable))]);
+pub(crate) const RULES: ParentRuleSet<BitPacked> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&CastReduceAdaptor(BitPacked))]);

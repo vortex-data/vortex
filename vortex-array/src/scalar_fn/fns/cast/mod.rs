@@ -18,17 +18,17 @@ use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
-use crate::arrays::BoolVTable;
+use crate::arrays::Bool;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
-use crate::arrays::DecimalVTable;
-use crate::arrays::ExtensionVTable;
-use crate::arrays::FixedSizeListVTable;
-use crate::arrays::ListViewVTable;
-use crate::arrays::NullVTable;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::StructVTable;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::Decimal;
+use crate::arrays::Extension;
+use crate::arrays::FixedSizeList;
+use crate::arrays::ListView;
+use crate::arrays::Null;
+use crate::arrays::Primitive;
+use crate::arrays::Struct;
+use crate::arrays::VarBinView;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
@@ -205,21 +205,21 @@ fn cast_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     match canonical {
-        CanonicalView::Null(a) => <NullVTable as CastReduce>::cast(a, dtype),
-        CanonicalView::Bool(a) => <BoolVTable as CastReduce>::cast(a, dtype),
-        CanonicalView::Primitive(a) => <PrimitiveVTable as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Decimal(a) => <DecimalVTable as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::VarBinView(a) => <VarBinViewVTable as CastReduce>::cast(a, dtype),
-        CanonicalView::List(a) => <ListViewVTable as CastReduce>::cast(a, dtype),
-        CanonicalView::FixedSizeList(a) => <FixedSizeListVTable as CastReduce>::cast(a, dtype),
-        CanonicalView::Struct(a) => <StructVTable as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Extension(a) => <ExtensionVTable as CastReduce>::cast(a, dtype),
+        CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
+        CanonicalView::Bool(a) => <Bool as CastReduce>::cast(a, dtype),
+        CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::VarBinView(a) => <VarBinView as CastReduce>::cast(a, dtype),
+        CanonicalView::List(a) => <ListView as CastReduce>::cast(a, dtype),
+        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastReduce>::cast(a, dtype),
+        CanonicalView::Struct(a) => <Struct as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
     }
 }
 
 /// Cast a constant array by dispatching to its [`CastReduce`] implementation.
 fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-    <ConstantVTable as CastReduce>::cast(array, dtype)
+    <Constant as CastReduce>::cast(array, dtype)
 }
 
 #[cfg(test)]

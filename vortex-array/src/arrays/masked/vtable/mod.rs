@@ -42,13 +42,13 @@ use crate::vtable::validity_to_child;
 vtable!(Masked);
 
 #[derive(Debug)]
-pub struct MaskedVTable;
+pub struct Masked;
 
-impl MaskedVTable {
+impl Masked {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
 }
 
-impl VTable for MaskedVTable {
+impl VTable for Masked {
     type Array = MaskedArray;
 
     type Metadata = EmptyMetadata;
@@ -228,8 +228,8 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::arrays::Masked;
     use crate::arrays::MaskedArray;
-    use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
     use crate::serde::ArrayParts;
@@ -283,7 +283,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(decoded.is::<MaskedVTable>());
+        assert!(decoded.is::<Masked>());
         assert_eq!(
             array.as_ref().display_values().to_string(),
             decoded.display_values().to_string()

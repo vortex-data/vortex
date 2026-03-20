@@ -118,7 +118,6 @@ where
 /// The caller must ensure the `avx2` feature is enabled.
 #[allow(dead_code, unused_variables, reason = "TODO(connor): Implement this")]
 #[target_feature(enable = "avx2")]
-#[inline]
 #[doc(hidden)]
 unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I]) -> Buffer<V> {
     macro_rules! dispatch_avx2 {

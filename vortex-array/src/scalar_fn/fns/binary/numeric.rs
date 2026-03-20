@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::scalar::NumericOperator;
@@ -53,10 +53,7 @@ fn constant_numeric(
     rhs: &ArrayRef,
     op: NumericOperator,
 ) -> VortexResult<Option<ArrayRef>> {
-    let (Some(lhs), Some(rhs)) = (
-        lhs.as_opt::<ConstantVTable>(),
-        rhs.as_opt::<ConstantVTable>(),
-    ) else {
+    let (Some(lhs), Some(rhs)) = (lhs.as_opt::<Constant>(), rhs.as_opt::<Constant>()) else {
         return Ok(None);
     };
 

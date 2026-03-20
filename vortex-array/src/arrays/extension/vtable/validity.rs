@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::ArrayRef;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
 use crate::vtable::ValidityChild;
 
-impl ValidityChild<ExtensionVTable> for ExtensionVTable {
+impl ValidityChild<Extension> for Extension {
     fn validity_child(array: &ExtensionArray) -> &ArrayRef {
-        &array.storage
+        &array.storage_array
     }
 }

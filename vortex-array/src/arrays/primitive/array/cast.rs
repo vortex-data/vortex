@@ -7,10 +7,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::min_max;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -67,7 +69,8 @@ impl PrimitiveArray {
             return Ok(self.clone());
         }
 
-        let Some(min_max) = min_max(&self.clone().into_array())? else {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Some(min_max) = min_max(&self.clone().into_array(), &mut ctx)? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 self.validity.clone(),
@@ -171,7 +174,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
-        assert_eq!(result.validity, Validity::AllInvalid);
+        assert!(matches!(result.validity, Validity::AllInvalid));
     }
 
     #[rstest]
@@ -254,7 +257,7 @@ mod tests {
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
         let result2 = array2.narrow().unwrap();
         // Empty arrays should not have their validity changed
-        assert_eq!(result.validity, Validity::AllInvalid);
-        assert_eq!(result2.validity, Validity::NonNullable);
+        assert!(matches!(result.validity, Validity::AllInvalid));
+        assert!(matches!(result2.validity, Validity::NonNullable));
     }
 }

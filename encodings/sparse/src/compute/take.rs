@@ -9,10 +9,10 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl TakeExecute for SparseVTable {
+impl TakeExecute for Sparse {
     fn take(
         array: &SparseArray,
         indices: &ArrayRef,

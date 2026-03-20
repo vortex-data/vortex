@@ -8,7 +8,7 @@ use anyhow::Result;
 use arrow_array::RecordBatch;
 use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex::array::ArrayRef;
@@ -115,7 +115,7 @@ impl Dataset for StructListOfInts {
             let array = self.to_vortex_array().await?;
 
             // Convert to Arrow RecordBatches and write to parquet
-            let chunked = array.as_::<vortex::array::arrays::ChunkedVTable>();
+            let chunked = array.as_::<vortex::array::arrays::Chunked>();
             let chunks = chunked.chunks();
 
             let file = File::create(&temp_path)?;

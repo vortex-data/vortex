@@ -24,8 +24,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use crate::Sequence;
 use crate::SequenceArray;
-use crate::SequenceVTable;
 
 fn take_inner<T: IntegerPType, S: NativePType>(
     mul: S,
@@ -72,7 +72,7 @@ fn take_inner<T: IntegerPType, S: NativePType>(
     }
 }
 
-impl TakeExecute for SequenceVTable {
+impl TakeExecute for Sequence {
     fn take(
         array: &SequenceArray,
         indices: &ArrayRef,

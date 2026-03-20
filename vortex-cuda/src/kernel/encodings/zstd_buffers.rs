@@ -16,8 +16,8 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
+use vortex::encodings::zstd::ZstdBuffers;
 use vortex::encodings::zstd::ZstdBuffersArray;
-use vortex::encodings::zstd::ZstdBuffersVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex_nvcomp::sys;
@@ -41,7 +41,7 @@ impl CudaExecute for ZstdBuffersExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let zstd_buffers = array
-            .try_into::<ZstdBuffersVTable>()
+            .try_into::<ZstdBuffers>()
             .map_err(|_| vortex_err!("expected zstd buffers array"))?;
         decode_zstd_buffers(zstd_buffers, ctx).await
     }

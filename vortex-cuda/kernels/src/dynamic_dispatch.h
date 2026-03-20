@@ -60,10 +60,16 @@ union SourceParams {
         uint64_t num_runs;
         uint64_t offset;
     } runend;
+
+    /// Generate a linear sequence: `value[i] = base + i * multiplier`.
+    struct SequenceParams {
+        int64_t base;
+        int64_t multiplier;
+    } sequence;
 };
 
 struct SourceOp {
-    enum SourceOpCode { BITUNPACK, LOAD, RUNEND } op_code;
+    enum SourceOpCode { BITUNPACK, LOAD, RUNEND, SEQUENCE } op_code;
     union SourceParams params;
 };
 

@@ -294,7 +294,7 @@ macro_rules! get_primitive {
                     array_ref
                         .inner
                         .to_extension()
-                        .storage()
+                        .storage_array()
                         .scalar_at(index as usize)?
                 } else {
                     array_ref.inner.scalar_at(index as usize)?
@@ -333,7 +333,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
             array_ref
                 .inner
                 .to_extension()
-                .storage()
+                .storage_array()
                 .scalar_at(index as usize)?
         } else {
             array_ref.inner.scalar_at(index as usize)?

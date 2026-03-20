@@ -8,7 +8,15 @@ use pyo3::prelude::*;
 use vortex::dtype::PType;
 
 /// Enum for primitive types.
-#[pyclass(name = "PType", module = "vortex", frozen, eq, eq_int, str)]
+#[pyclass(
+    name = "PType",
+    module = "vortex",
+    frozen,
+    eq,
+    eq_int,
+    str,
+    from_py_object
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PyPType {
     /// An 8-bit unsigned integer

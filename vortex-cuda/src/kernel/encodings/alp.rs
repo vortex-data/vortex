@@ -16,9 +16,9 @@ use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
+use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArray;
 use vortex::encodings::alp::ALPFloat;
-use vortex::encodings::alp::ALPVTable;
 use vortex::encodings::alp::match_each_alp_float_ptype;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -44,7 +44,7 @@ impl CudaExecute for ALPExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let array = array
-            .try_into::<ALPVTable>()
+            .try_into::<ALP>()
             .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
         match_each_alp_float_ptype!(array.ptype(), |A| { decode_alp::<A>(array, ctx).await })

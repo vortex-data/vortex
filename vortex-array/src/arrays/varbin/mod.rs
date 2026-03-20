@@ -5,10 +5,9 @@ mod array;
 pub use array::VarBinArray;
 
 pub(crate) mod compute;
-pub(crate) use compute::varbin_compute_min_max;
 
 mod vtable;
-pub use vtable::VarBinVTable;
+pub use vtable::VarBin;
 
 pub mod builder;
 

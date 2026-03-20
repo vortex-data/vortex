@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub(crate) use cast::*;
+pub(crate) use compare::*;
+pub(crate) use fill_null::*;
+pub(crate) use filter::*;
+pub(crate) use mask::*;
+pub(crate) use min_max::*;
+pub(crate) use scalar_at::*;
+pub(crate) use search_sorted::*;
+pub(crate) use slice::*;
+pub use sort::sort_canonical_array;
+pub(crate) use sum::*;
+pub(crate) use take::*;
+
 mod cast;
 mod compare;
 mod fill_null;
@@ -20,41 +33,46 @@ use std::ops::Range;
 use arbitrary::Arbitrary;
 use arbitrary::Error::EmptyChoose;
 use arbitrary::Unstructured;
-pub(crate) use cast::*;
-pub(crate) use compare::*;
-pub(crate) use fill_null::*;
-pub(crate) use filter::*;
 use itertools::Itertools;
-pub(crate) use mask::*;
-pub(crate) use min_max::*;
-pub(crate) use scalar_at::*;
-pub(crate) use search_sorted::*;
-pub(crate) use slice::*;
-pub use sort::sort_canonical_array;
 use strum::EnumCount;
 use strum::EnumDiscriminants;
 use strum::EnumIter;
 use strum::IntoEnumIterator;
-pub(crate) use sum::*;
-pub(crate) use take::*;
+use tracing::debug;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
+use vortex_array::aggregate_fn::fns::min_max::min_max;
+use vortex_array::aggregate_fn::fns::sum::sum;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::MinMaxResult;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::arbitrary::random_scalar;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::search_sorted::SearchResult;
+use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::FloatCode;
+use vortex_btrblocks::IntCode;
+use vortex_btrblocks::StringCode;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::SESSION;
+use crate::error::Backtrace;
+use crate::error::VortexFuzzError;
+use crate::error::VortexFuzzResult;
 
 #[derive(Debug)]
 pub struct FuzzArrayAction {
@@ -156,6 +174,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let array = ArbitraryArray::arbitrary(u)?.0;
         let mut current_array = array.to_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
 
         let mut valid_actions = actions_for_dtype(current_array.dtype())
             .into_iter()
@@ -314,6 +334,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
+                        &mut ctx,
                     )
                     .vortex_expect("sum_canonical_array should succeed in fuzz test");
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
@@ -324,6 +345,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
+                        &mut ctx,
                     )
                     .vortex_expect("min_max_canonical_array should succeed in fuzz test");
                     (Action::MinMax, ExpectedValue::MinMax(min_max_result))
@@ -487,6 +509,8 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             // Extension types delegate to storage dtype, support most operations
             ActionType::iter().collect()
         }
+        // Currently, no support at all
+        DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
     }
 }
 
@@ -517,11 +541,6 @@ fn random_action_from_list(
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
 pub fn compress_array(array: &ArrayRef, strategy: CompressorStrategy) -> ArrayRef {
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
-    use vortex_btrblocks::FloatCode;
-    use vortex_btrblocks::IntCode;
-    use vortex_btrblocks::StringCode;
-
     match strategy {
         CompressorStrategy::Default => BtrBlocksCompressor::default()
             .compress(array)
@@ -551,16 +570,20 @@ pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayR
 /// - `Ok(false)` - reject from corpus
 /// - `Err(_)` - a bug was found
 #[allow(clippy::result_large_err)]
-pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::min_max;
-    use vortex_array::compute::sum;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
 
+    let mut ctx = SESSION.create_execution_ctx();
+
+    debug!(
+        "Initial array:\nTree:\n{}Values:\n{:#}",
+        current_array.display_tree(),
+        current_array.display_values()
+    );
+
     for (i, (action, expected)) in actions.into_iter().enumerate() {
+        debug!(id = i, action = ?action);
         match action {
             Action::Compress(strategy) => {
                 let canonical = current_array
@@ -627,12 +650,12 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 current_array = cast_result;
             }
             Action::Sum => {
-                let sum_result =
-                    sum(&current_array).vortex_expect("sum operation should succeed in fuzz test");
+                let sum_result = sum(&current_array, &mut ctx)
+                    .vortex_expect("sum operation should succeed in fuzz test");
                 assert_scalar_eq(&expected.scalar(), &sum_result, i)?;
             }
             Action::MinMax => {
-                let min_max_result = min_max(&current_array)
+                let min_max_result = min_max(&current_array, &mut ctx)
                     .vortex_expect("min_max operation should succeed in fuzz test");
                 assert_min_max_eq(&expected.min_max(), &min_max_result, i)?;
             }
@@ -667,12 +690,7 @@ fn assert_search_sorted(
     side: SearchSortedSide,
     expected: SearchResult,
     step: usize,
-) -> crate::error::VortexFuzzResult<()> {
-    use vortex_array::search_sorted::SearchSorted;
-
-    use crate::error::Backtrace;
-    use crate::error::VortexFuzzError;
-
+) -> VortexFuzzResult<()> {
     let search_result = array
         .search_sorted(&s, side)
         .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
@@ -693,14 +711,7 @@ fn assert_search_sorted(
 
 /// Assert two arrays are equal.
 #[allow(clippy::result_large_err)]
-pub fn assert_array_eq(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    step: usize,
-) -> crate::error::VortexFuzzResult<()> {
-    use crate::error::Backtrace;
-    use crate::error::VortexFuzzError;
-
+pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzResult<()> {
     if lhs.dtype() != rhs.dtype() {
         return Err(VortexFuzzError::DTypeMismatch(
             lhs.clone(),
@@ -741,14 +752,7 @@ pub fn assert_array_eq(
 
 /// Assert two scalars are equal.
 #[allow(clippy::result_large_err)]
-pub fn assert_scalar_eq(
-    lhs: &Scalar,
-    rhs: &Scalar,
-    step: usize,
-) -> crate::error::VortexFuzzResult<()> {
-    use crate::error::Backtrace;
-    use crate::error::VortexFuzzError;
-
+pub fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzResult<()> {
     if lhs != rhs {
         return Err(VortexFuzzError::ScalarMismatch(
             lhs.clone(),
@@ -766,10 +770,7 @@ pub fn assert_min_max_eq(
     lhs: &Option<MinMaxResult>,
     rhs: &Option<MinMaxResult>,
     step: usize,
-) -> crate::error::VortexFuzzResult<()> {
-    use crate::error::Backtrace;
-    use crate::error::VortexFuzzError;
-
+) -> VortexFuzzResult<()> {
     if lhs != rhs {
         return Err(VortexFuzzError::MinMaxMismatch(
             lhs.clone(),

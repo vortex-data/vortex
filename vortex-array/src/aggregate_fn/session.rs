@@ -12,10 +12,19 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::nan_count::NanCount;
+use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
+use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
+use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
+use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
+use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::vtable::ArrayId;
 
 /// Registry of aggregate function vtables.
@@ -40,8 +49,18 @@ impl Default for AggregateFnSession {
             grouped_kernels: RwLock::new(HashMap::default()),
         };
 
+        // Register the built-in aggregate functions
+        this.register(IsConstant);
+        this.register(IsSorted);
+        this.register(MinMax);
+        this.register(NanCount);
+        this.register(Sum);
+
         // Register the built-in aggregate kernels.
-        this.register_aggregate_kernel(ChunkedVTable::ID, None, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(Chunked::ID, None, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(Dict::ID, Some(MinMax.id()), &DictMinMaxKernel);
+        this.register_aggregate_kernel(Dict::ID, Some(IsConstant.id()), &DictIsConstantKernel);
+        this.register_aggregate_kernel(Dict::ID, Some(IsSorted.id()), &DictIsSortedKernel);
 
         this
     }

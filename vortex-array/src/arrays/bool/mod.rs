@@ -11,7 +11,7 @@ pub(crate) mod compute;
 
 mod vtable;
 pub use compute::rules::BoolMaskedValidityRule;
-pub use vtable::BoolVTable;
+pub use vtable::Bool;
 
 #[cfg(feature = "_test-harness")]
 mod test_harness;

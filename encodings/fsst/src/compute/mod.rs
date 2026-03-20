@@ -4,12 +4,13 @@
 mod cast;
 mod compare;
 mod filter;
+mod like;
 
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::VarBinVTable;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
@@ -17,10 +18,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::FSST;
 use crate::FSSTArray;
-use crate::FSSTVTable;
 
-impl TakeExecute for FSSTVTable {
+impl TakeExecute for FSST {
     fn take(
         array: &FSSTArray,
         indices: &ArrayRef,
@@ -34,9 +35,9 @@ impl TakeExecute for FSSTVTable {
                     .union_nullability(indices.dtype().nullability()),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
-                VarBinVTable::take(array.codes(), indices, _ctx)?
+                VarBin::take(array.codes(), indices, _ctx)?
                     .vortex_expect("cannot fail")
-                    .try_into::<VarBinVTable>()
+                    .try_into::<VarBin>()
                     .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 array
                     .uncompressed_lengths()

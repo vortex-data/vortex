@@ -8,11 +8,13 @@ use std::ptr;
 use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
+use vortex::array::dtype::Nullability;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::mask::Mask;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_error;
@@ -321,23 +323,29 @@ impl ValidityRef<'_> {
         (validity_entry & (1u64 << idx_in_entry)) != 0
     }
 
-    /// Creates a Validity directly from the DuckDB validity mask for optimal performance.
-    pub fn to_validity(&self) -> Validity {
+    /// Creates a mask directly from the DuckDB validity mask for optimal performance.
+    pub fn to_mask(&self) -> Mask {
         let Some(validity) = self.validity else {
             // All values are valid
-            return Validity::AllValid;
+            return Mask::AllTrue(self.len);
         };
 
-        Validity::from(BitBuffer::new(
+        Mask::from_buffer(BitBuffer::new(
             Buffer::<u64>::copy_from(validity).into_byte_buffer(),
             self.len,
         ))
+    }
+
+    pub fn to_validity(&self) -> Validity {
+        Validity::from_mask(self.to_mask(), Nullability::Nullable)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex::mask::Mask;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
@@ -351,9 +359,8 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(
-            validity,
-            Validity::AllValid,
+        assert!(
+            matches!(validity, Validity::AllValid),
             "Expected None for all-valid vector"
         );
     }
@@ -373,8 +380,9 @@ mod tests {
         let validity = validity.to_validity();
         assert_eq!(validity.maybe_len(), Some(len));
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_eq!(
-            validity.to_mask(len),
+            validity.execute_mask(len, &mut ctx).unwrap(),
             Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
         );
     }
@@ -414,7 +422,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(validity, Validity::AllValid);
+        assert!(matches!(validity, Validity::AllValid));
     }
 
     #[test]
@@ -430,7 +438,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(validity, Validity::AllInvalid);
+        assert!(matches!(validity, Validity::AllInvalid));
     }
 
     #[test]

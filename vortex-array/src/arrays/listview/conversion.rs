@@ -261,10 +261,11 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
             }
         }
         Canonical::Extension(ext_array) => {
-            let converted_storage = recursive_list_from_list_view(ext_array.storage().clone())?;
+            let converted_storage =
+                recursive_list_from_list_view(ext_array.storage_array().clone())?;
 
             // Avoid cloning if elements didn't change.
-            if !Arc::ptr_eq(&converted_storage, ext_array.storage()) {
+            if !Arc::ptr_eq(&converted_storage, ext_array.storage_array()) {
                 ExtensionArray::new(ext_array.ext_dtype().clone(), converted_storage).into_array()
             } else {
                 ext_array.into_array()
@@ -286,8 +287,10 @@ mod tests {
     use super::super::tests::common::create_nullable_listview;
     use super::super::tests::common::create_overlapping_listview;
     use super::recursive_list_from_list_view;
+    use crate::ArrayEq;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::Precision;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeListArray;
@@ -295,6 +298,7 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewArray;
     use crate::arrays::listview::list_from_list_view;
     use crate::arrays::listview::list_view_from_list;
     use crate::assert_arrays_eq;
@@ -384,7 +388,11 @@ mod tests {
         let nullable_list_view = list_view_from_list(nullable_list.clone(), &mut ctx)?;
 
         // Verify validity is preserved.
-        assert_eq!(nullable_list_view.validity(), &validity);
+        assert!(
+            nullable_list_view
+                .validity()
+                .array_eq(&validity, Precision::Ptr)
+        );
         assert_eq!(nullable_list_view.len(), 3);
 
         // Round-trip conversion.
@@ -700,6 +708,26 @@ mod tests {
 
         assert_eq!(result.len(), 4);
         assert_arrays_eq!(struct_array.into_array(), result);
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/6882>.
+    ///
+    /// An empty `ListViewArray` constructed via `try_new` has `is_zero_copy_to_list: false`.
+    /// `list_from_list_view` should still succeed because empty arrays are trivially
+    /// zero-copyable.
+    #[test]
+    fn test_empty_listview_to_list_without_zctl_flag() -> VortexResult<()> {
+        let elements = VarBinViewArray::from_iter_str(Vec::<&str>::new()).into_array();
+        let offsets = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();
+        let sizes = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();
+        let list_view = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)?;
+
+        // `try_new` sets `is_zero_copy_to_list: false`.
+        assert!(!list_view.is_zero_copy_to_list());
+
+        let list_array = list_from_list_view(list_view)?;
+        assert_eq!(list_array.len(), 0);
         Ok(())
     }
 }

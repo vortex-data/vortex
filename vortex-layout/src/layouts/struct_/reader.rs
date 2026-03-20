@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::try_join;
 use itertools::Itertools;
@@ -57,7 +58,7 @@ pub struct StructReader {
     expanded_root_expr: Expression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
+    partitioned_expr_cache: DashMap<ExactExpr, Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -152,50 +153,64 @@ impl StructReader {
 
     /// Utility for partitioning an expression over the fields of a struct.
     fn partition_expr(&self, expr: Expression) -> Partitioned {
-        self.partitioned_expr_cache
-            .entry(ExactExpr(expr.clone()))
-            .or_insert_with(|| {
-                // First, we expand the root scope into the fields of the struct to ensure
-                // that partitioning works correctly.
-                let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let expr = expr
-                    .optimize_recursive(self.dtype())
-                    .vortex_expect("We should not fail to simplify expression over struct fields");
+        let key = ExactExpr(expr.clone());
 
-                // Partition the expression into expressions that can be evaluated over individual fields
-                let mut partitioned = partition(
-                    expr.clone(),
-                    self.dtype(),
-                    make_free_field_annotator(
-                        self.dtype()
-                            .as_struct_fields_opt()
-                            .vortex_expect("We know it's a struct DType"),
-                    ),
-                )
-                .vortex_expect("We should not fail to partition expression over struct fields");
+        if let Some(entry) = self.partitioned_expr_cache.get(&key)
+            && let Some(partitioning) = entry.value().get()
+        {
+            return partitioning.clone();
+        }
 
-                if partitioned.partitions.len() == 1 {
-                    // If there's only one partition, we step into the field scope of the original
-                    // expression by replacing any `$.a` with `$`.
-                    return Partitioned::Single(
-                        partitioned.partition_names[0].clone(),
-                        replace(expr, &col(partitioned.partition_names[0].clone()), root()),
-                    );
-                }
+        let cell = self
+            .partitioned_expr_cache
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceLock::new()))
+            .clone();
 
-                // We now need to process the partitioned expressions to rewrite the root scope
-                // to be that of the field, rather than the struct. In other words, "stepping in"
-                // to the field scope.
-                partitioned.partitions = partitioned
-                    .partitions
-                    .iter()
-                    .zip_eq(partitioned.partition_names.iter())
-                    .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
-                    .collect();
-
-                Partitioned::Multi(Arc::new(partitioned))
-            })
+        cell.get_or_init(|| self.compute_partitioned_expr(expr))
             .clone()
+    }
+
+    fn compute_partitioned_expr(&self, expr: Expression) -> Partitioned {
+        // First, we expand the root scope into the fields of the struct to ensure
+        // that partitioning works correctly.
+        let expr = replace(expr, &root(), self.expanded_root_expr.clone());
+        let expr = expr
+            .optimize_recursive(self.dtype())
+            .vortex_expect("We should not fail to simplify expression over struct fields");
+
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let mut partitioned = partition(
+            expr.clone(),
+            self.dtype(),
+            make_free_field_annotator(
+                self.dtype()
+                    .as_struct_fields_opt()
+                    .vortex_expect("We know it's a struct DType"),
+            ),
+        )
+        .vortex_expect("We should not fail to partition expression over struct fields");
+
+        if partitioned.partitions.len() == 1 {
+            // If there's only one partition, we step into the field scope of the original
+            // expression by replacing any `$.a` with `$`.
+            return Partitioned::Single(
+                partitioned.partition_names[0].clone(),
+                replace(expr, &col(partitioned.partition_names[0].clone()), root()),
+            );
+        }
+
+        // We now need to process the partitioned expressions to rewrite the root scope
+        // to be that of the field, rather than the struct. In other words, "stepping in"
+        // to the field scope.
+        partitioned.partitions = partitioned
+            .partitions
+            .iter()
+            .zip_eq(partitioned.partition_names.iter())
+            .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
+            .collect();
+
+        Partitioned::Multi(Arc::new(partitioned))
     }
 }
 

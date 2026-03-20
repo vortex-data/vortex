@@ -3,13 +3,13 @@
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
-impl CastReduce for ExtensionVTable {
+impl CastReduce for Extension {
     fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
@@ -19,7 +19,10 @@ impl CastReduce for ExtensionVTable {
             unreachable!("Already verified we have an extension dtype");
         };
 
-        let new_storage = match array.storage().cast(ext_dtype.storage_dtype().clone()) {
+        let new_storage = match array
+            .storage_array()
+            .cast(ext_dtype.storage_dtype().clone())
+        {
             Ok(arr) => arr,
             Err(e) => {
                 tracing::warn!("Failed to cast storage array: {e}");

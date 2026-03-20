@@ -44,13 +44,13 @@ mod validity;
 vtable!(Chunked);
 
 #[derive(Debug)]
-pub struct ChunkedVTable;
+pub struct Chunked;
 
-impl ChunkedVTable {
+impl Chunked {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.chunked");
 }
 
-impl VTable for ChunkedVTable {
+impl VTable for Chunked {
     type Array = ChunkedArray;
 
     type Metadata = EmptyMetadata;
