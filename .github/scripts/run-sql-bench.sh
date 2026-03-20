@@ -19,8 +19,17 @@
 #   --remote-storage <url>    Remote storage URL (e.g., s3://bucket/path/)
 #                             If provided, runs in remote mode (no lance support).
 #   --benchmark-id <id>       Benchmark ID for error messages (e.g., tpch-s3)
+#   --max-retries <n>         Max retries for noisy results (default: 2, env: BENCH_MAX_RETRIES)
+#
+# Environment variables:
+#   BENCH_MAX_RETRIES         Max retry attempts for noisy runs (default: 2)
+#   BENCH_COV_THRESHOLD       Per-benchmark CoV threshold for noise (default: 0.15)
+#   BENCH_NOISY_FRACTION      Fraction of benchmarks that must be noisy to trigger rerun (default: 0.25)
 
 set -Eeu -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 subcommand="$1"
 targets="$2"
@@ -30,6 +39,9 @@ scale_factor=""
 iterations=""
 remote_storage=""
 benchmark_id=""
+max_retries="${BENCH_MAX_RETRIES:-2}"
+cov_threshold="${BENCH_COV_THRESHOLD:-0.15}"
+noisy_fraction="${BENCH_NOISY_FRACTION:-0.25}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -47,6 +59,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --benchmark-id)
             benchmark_id="$2"
+            shift 2
+            ;;
+        --max-retries)
+            max_retries="$2"
             shift 2
             ;;
         *)
@@ -101,38 +117,70 @@ if [[ -n "$iterations" ]]; then
     opts="-i $iterations $opts"
 fi
 
+# Run a benchmark engine and retry if the results are too noisy.
+#
+# Arguments:
+#   $1 - engine label (for logging)
+#   $2 - output json filename
+#   $3... - the benchmark command and arguments
+run_with_retry() {
+    local label="$1"
+    local output_file="$2"
+    shift 2
+
+    for attempt in $(seq 0 "$max_retries"); do
+        if [[ $attempt -gt 0 ]]; then
+            echo "run-sql-bench: retrying $label (attempt $((attempt + 1))/$((max_retries + 1)))"
+        fi
+
+        # shellcheck disable=SC2086
+        "$@" -o "$output_file"
+
+        # Check noise levels. If the check script is missing, skip the check.
+        if [[ ! -f "$REPO_ROOT/scripts/check-bench-noise.py" ]]; then
+            break
+        fi
+
+        if python3 "$REPO_ROOT/scripts/check-bench-noise.py" "$output_file" \
+            --cov-threshold "$cov_threshold" --noisy-fraction "$noisy_fraction"; then
+            break
+        fi
+
+        if [[ $attempt -eq $max_retries ]]; then
+            echo "run-sql-bench: $label still noisy after $((max_retries + 1)) attempts, using last results"
+        fi
+    done
+}
+
 touch results.json
 
 if [[ -n "$df_formats" ]]; then
-    # shellcheck disable=SC2086
-    target/release_debug/datafusion-bench "$subcommand" \
+    run_with_retry "datafusion" df-results.json \
+        target/release_debug/datafusion-bench "$subcommand" \
         -d gh-json \
         --formats "$df_formats" \
-        $opts \
-        -o df-results.json
+        $opts
 
     cat df-results.json >> results.json
 fi
 
 if [[ -n "$ddb_formats" ]]; then
-    # shellcheck disable=SC2086
-    target/release_debug/duckdb-bench "$subcommand" \
+    run_with_retry "duckdb" ddb-results.json \
+        target/release_debug/duckdb-bench "$subcommand" \
         -d gh-json \
         --formats "$ddb_formats" \
         $opts \
-        --delete-duckdb-database \
-        -o ddb-results.json
+        --delete-duckdb-database
 
     cat ddb-results.json >> results.json
 fi
 
 # Lance-bench only runs for local benchmarks.
 if ! $is_remote && [[ "$has_lance" == "true" ]] && [[ -f "target/release_debug/lance-bench" ]]; then
-    # shellcheck disable=SC2086
-    target/release_debug/lance-bench "$subcommand" \
+    run_with_retry "lance" lance-results.json \
+        target/release_debug/lance-bench "$subcommand" \
         -d gh-json \
-        $opts \
-        -o lance-results.json
+        $opts
 
     cat lance-results.json >> results.json
 fi

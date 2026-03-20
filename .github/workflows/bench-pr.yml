@@ -92,8 +92,21 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
+          BENCH_MAX_RETRIES: "2"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
+          max_retries="${BENCH_MAX_RETRIES:-2}"
+          for attempt in $(seq 0 "$max_retries"); do
+            if [[ $attempt -gt 0 ]]; then
+              echo "bench-pr: retrying ${{ matrix.benchmark.name }} (attempt $((attempt + 1))/$((max_retries + 1)))"
+            fi
+            bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
+            if python3 scripts/check-bench-noise.py results.json; then
+              break
+            fi
+            if [[ $attempt -eq $max_retries ]]; then
+              echo "bench-pr: ${{ matrix.benchmark.name }} still noisy after $((max_retries + 1)) attempts, using last results"
+            fi
+          done
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false
