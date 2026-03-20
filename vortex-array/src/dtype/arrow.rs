@@ -28,7 +28,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -36,9 +35,7 @@ use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
-use crate::extension::datetime::AnyTemporal;
 use crate::extension::datetime::Date;
-use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
@@ -235,26 +232,44 @@ impl DType {
 
         let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
         for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-            let field = if field_dtype.is_variant() {
+            builder.push(field_dtype.to_arrow_field(field_name.as_ref())?);
+        }
+
+        Ok(builder.finish())
+    }
+
+    /// Convert a Vortex [`DType`] into an Arrow [`Field`] with the given name.
+    ///
+    /// This handles extension types (which may produce Arrow Field metadata) and
+    /// Variant types (which require metadata for roundtripping).
+    pub fn to_arrow_field(&self, name: &str) -> VortexResult<Field> {
+        match self {
+            DType::Extension(ext_dtype) => {
+                let data_type = ext_dtype.to_arrow_data_type().ok_or_else(|| {
+                    vortex_err!(
+                        "Extension type \"{}\" does not support Arrow export",
+                        ext_dtype.id()
+                    )
+                })?;
+                let mut field = Field::new(name, data_type, self.is_nullable());
+                let metadata = ext_dtype.arrow_field_metadata();
+                if !metadata.is_empty() {
+                    field = field.with_metadata(metadata);
+                }
+                Ok(field)
+            }
+            DType::Variant(_) => {
                 let storage = DataType::Struct(variant_storage_fields_minimal());
-                Field::new(field_name.as_ref(), storage, field_dtype.is_nullable()).with_metadata(
+                Ok(Field::new(name, storage, self.is_nullable()).with_metadata(
                     [(
                         "ARROW:extension:name".to_owned(),
                         "arrow.parquet.variant".to_owned(),
                     )]
                     .into(),
-                )
-            } else {
-                Field::new(
-                    field_name.as_ref(),
-                    field_dtype.to_arrow_dtype()?,
-                    field_dtype.is_nullable(),
-                )
-            };
-            builder.push(field);
+                ))
+            }
+            _ => Ok(Field::new(name, self.to_arrow_dtype()?, self.is_nullable())),
         }
-
-        Ok(builder.finish())
     }
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
@@ -323,34 +338,12 @@ impl DType {
             DType::Variant(_) => vortex_bail!(
                 "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
             ),
-            DType::Extension(ext_dtype) => {
-                // Try and match against the known extension DTypes.
-                if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
-                    return Ok(match temporal {
-                        TemporalMetadata::Timestamp(unit, tz) => {
-                            DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
-                        }
-                        TemporalMetadata::Date(unit) => match unit {
-                            TimeUnit::Days => DataType::Date32,
-                            TimeUnit::Milliseconds => DataType::Date64,
-                            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                            }
-                        },
-                        TemporalMetadata::Time(unit) => match unit {
-                            TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
-                            TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
-                            TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
-                            TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
-                            TimeUnit::Days => {
-                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                            }
-                        },
-                    });
-                };
-
-                vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
-            }
+            DType::Extension(ext_dtype) => ext_dtype.to_arrow_data_type().ok_or_else(|| {
+                vortex_err!(
+                    "Extension type \"{}\" does not support Arrow export",
+                    ext_dtype.id()
+                )
+            })?,
         })
     }
 }

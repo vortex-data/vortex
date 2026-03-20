@@ -3,6 +3,9 @@
 
 use std::hash::Hash;
 
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -21,6 +24,7 @@ use crate::arrays::ListArray;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
+use crate::arrow::executor::preferred_arrow_type;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -209,6 +213,21 @@ impl VTable for List {
         let new_array = ListArray::try_new(elements, offsets, validity)?;
         *array = new_array;
         Ok(())
+    }
+
+    fn preferred_arrow_data_type(array: &ListArray) -> Option<DataType> {
+        let offsets_ptype = PType::try_from(array.offsets().dtype()).ok()?;
+        let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
+        let elem_dtype = preferred_arrow_type(array.elements()).ok()?;
+        let field = FieldRef::new(Field::new_list_field(
+            elem_dtype,
+            array.elements().dtype().is_nullable(),
+        ));
+        Some(if use_large {
+            DataType::LargeList(field)
+        } else {
+            DataType::List(field)
+        })
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

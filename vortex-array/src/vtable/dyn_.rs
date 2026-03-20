@@ -8,6 +8,8 @@ use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use arcref::ArcRef;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -59,6 +61,17 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
+
+    /// See [`VTable::preferred_arrow_data_type`]
+    fn preferred_arrow_data_type(&self, array: &ArrayRef) -> Option<DataType>;
+
+    /// See [`VTable::to_arrow_array`]
+    fn to_arrow_array(
+        &self,
+        array: &ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>>;
 
     /// See [`VTable::execute`]
     fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
@@ -144,6 +157,19 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         );
 
         Ok(Some(reduced))
+    }
+
+    fn preferred_arrow_data_type(&self, array: &ArrayRef) -> Option<DataType> {
+        V::preferred_arrow_data_type(downcast::<V>(array))
+    }
+
+    fn to_arrow_array(
+        &self,
+        array: &ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
+        V::to_arrow_array(downcast::<V>(array), data_type, ctx)
     }
 
     fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

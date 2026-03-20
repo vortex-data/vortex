@@ -12,6 +12,8 @@ use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -163,6 +165,17 @@ pub trait DynArray:
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
 
+    /// Returns the preferred (cheapest) Arrow DataType for this encoding, if any.
+    fn preferred_arrow_data_type(&self) -> Option<DataType>;
+
+    /// Convert this encoding directly to an Arrow array for the given target DataType.
+    /// Returns Ok(None) if this encoding cannot directly produce the target type.
+    fn to_arrow_array(
+        &self,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>>;
+
     /// Replaces the children of the array with the given array references.
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 }
@@ -273,6 +286,18 @@ impl DynArray for Arc<dyn DynArray> {
 
     fn statistics(&self) -> StatsSetRef<'_> {
         self.as_ref().statistics()
+    }
+
+    fn preferred_arrow_data_type(&self) -> Option<DataType> {
+        self.as_ref().preferred_arrow_data_type()
+    }
+
+    fn to_arrow_array(
+        &self,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
+        self.as_ref().to_arrow_array(data_type, ctx)
     }
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
@@ -656,6 +681,18 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
 
     fn statistics(&self) -> StatsSetRef<'_> {
         V::stats(&self.0)
+    }
+
+    fn preferred_arrow_data_type(&self) -> Option<DataType> {
+        V::preferred_arrow_data_type(&self.0)
+    }
+
+    fn to_arrow_array(
+        &self,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
+        V::to_arrow_array(&self.0, data_type, ctx)
     }
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {

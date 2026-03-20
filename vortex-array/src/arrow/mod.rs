@@ -9,9 +9,9 @@ use vortex_error::VortexResult;
 
 mod convert;
 mod datum;
-mod executor;
+pub(crate) mod executor;
 mod iter;
-mod null_buffer;
+pub(crate) mod null_buffer;
 mod record_batch;
 
 pub use datum::*;

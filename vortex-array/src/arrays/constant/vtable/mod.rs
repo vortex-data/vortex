@@ -3,11 +3,21 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::RunArray;
+use arrow_array::new_null_array;
+use arrow_array::types::*;
+use arrow_buffer::ArrowNativeType;
+use arrow_schema::DataType;
+use arrow_schema::Field;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -19,6 +29,8 @@ use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
+use crate::arrow::ArrowArrayExecutor;
+use crate::arrow::executor::dictionary::make_dict_array;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
@@ -178,6 +190,25 @@ impl VTable for Constant {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
+    fn to_arrow_array(
+        array: &ConstantArray,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
+        match data_type {
+            DataType::Dictionary(codes_type, values_type) => {
+                Ok(Some(constant_to_dict(array, codes_type, values_type, ctx)?))
+            }
+            DataType::RunEndEncoded(ends_field, values_field) => Ok(Some(constant_to_run_end(
+                array,
+                ends_field.data_type(),
+                values_field,
+                ctx,
+            )?)),
+            _ => Ok(None),
+        }
+    }
+
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(
             constant_canonicalize(array)?.into_array(),
@@ -259,6 +290,83 @@ impl VTable for Constant {
 
         Ok(())
     }
+}
+
+/// Convert a constant array to a dictionary with a single entry.
+fn constant_to_dict(
+    array: &ConstantArray,
+    codes_type: &DataType,
+    values_type: &DataType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let len = array.len();
+    let scalar = array.scalar();
+    if scalar.is_null() {
+        let dict_type =
+            DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone()));
+        return Ok(new_null_array(&dict_type, len));
+    }
+
+    let values = ConstantArray::new(scalar.clone(), 1)
+        .into_array()
+        .execute_arrow(Some(values_type), ctx)?;
+    let codes = zeroed_codes_array(codes_type, len)?;
+    make_dict_array(codes_type, codes, values)
+}
+
+fn zeroed_codes_array(codes_type: &DataType, len: usize) -> VortexResult<ArrowArrayRef> {
+    use arrow_array::PrimitiveArray;
+    Ok(match codes_type {
+        DataType::Int8 => Arc::new(PrimitiveArray::<Int8Type>::from_value(0, len)),
+        DataType::Int16 => Arc::new(PrimitiveArray::<Int16Type>::from_value(0, len)),
+        DataType::Int32 => Arc::new(PrimitiveArray::<Int32Type>::from_value(0, len)),
+        DataType::Int64 => Arc::new(PrimitiveArray::<Int64Type>::from_value(0, len)),
+        DataType::UInt8 => Arc::new(PrimitiveArray::<UInt8Type>::from_value(0, len)),
+        DataType::UInt16 => Arc::new(PrimitiveArray::<UInt16Type>::from_value(0, len)),
+        DataType::UInt32 => Arc::new(PrimitiveArray::<UInt32Type>::from_value(0, len)),
+        DataType::UInt64 => Arc::new(PrimitiveArray::<UInt64Type>::from_value(0, len)),
+        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
+    })
+}
+
+/// Convert a constant array to a run-end encoded array with a single run.
+fn constant_to_run_end(
+    array: &ConstantArray,
+    ends_type: &DataType,
+    values_type: &Field,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let len = array.len();
+    let scalar = array.scalar();
+
+    if scalar.is_null() || len == 0 {
+        let ree_type = DataType::RunEndEncoded(
+            Arc::new(Field::new("run_ends", ends_type.clone(), false)),
+            Arc::new(values_type.clone()),
+        );
+        return Ok(new_null_array(&ree_type, len));
+    }
+
+    let values = ConstantArray::new(scalar.clone(), 1)
+        .into_array()
+        .execute_arrow(Some(values_type.data_type()), ctx)?;
+
+    match ends_type {
+        DataType::Int16 => build_constant_run_array::<Int16Type>(len, &values),
+        DataType::Int32 => build_constant_run_array::<Int32Type>(len, &values),
+        DataType::Int64 => build_constant_run_array::<Int64Type>(len, &values),
+        _ => vortex_bail!("Unsupported run-end index type: {:?}", ends_type),
+    }
+}
+
+fn build_constant_run_array<R: RunEndIndexType>(
+    len: usize,
+    values: &ArrowArrayRef,
+) -> VortexResult<ArrowArrayRef> {
+    let end = R::Native::from_usize(len)
+        .ok_or_else(|| vortex_err!("Array length {len} exceeds run-end index capacity"))?;
+    let run_ends = arrow_array::PrimitiveArray::<R>::from_value(end, 1);
+    Ok(Arc::new(RunArray::<R>::try_new(&run_ends, values)?) as ArrowArrayRef)
 }
 
 /// Downcasts `builder` to `B`, then either appends `n` nulls or calls `fill` with the typed

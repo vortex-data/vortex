@@ -3,7 +3,14 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::RunArray;
+use arrow_array::cast::AsArray;
+use arrow_array::types::*;
+use arrow_buffer::ArrowNativeType;
+use arrow_schema::DataType;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -17,6 +24,7 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -201,6 +209,31 @@ impl VTable for RunEnd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn to_arrow_array(
+        array: &RunEndArray,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
+        let DataType::RunEndEncoded(ends_field, values_field) = data_type else {
+            return Ok(None);
+        };
+        let arrow_ends = array
+            .ends()
+            .clone()
+            .execute_arrow(Some(ends_field.data_type()), ctx)?;
+        let arrow_values = array
+            .values()
+            .clone()
+            .execute_arrow(Some(values_field.data_type()), ctx)?;
+        Ok(Some(build_run_array(
+            &arrow_ends,
+            &arrow_values,
+            ends_field.data_type(),
+            array.offset(),
+            array.len(),
+        )?))
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
@@ -501,6 +534,59 @@ pub(super) fn run_end_canonicalize(
         }
         _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
     })
+}
+
+fn build_run_array(
+    ends: &ArrowArrayRef,
+    values: &ArrowArrayRef,
+    ends_type: &DataType,
+    offset: usize,
+    length: usize,
+) -> VortexResult<ArrowArrayRef> {
+    match ends_type {
+        DataType::Int16 => build_run_array_typed::<Int16Type>(ends, values, offset, length),
+        DataType::Int32 => build_run_array_typed::<Int32Type>(ends, values, offset, length),
+        DataType::Int64 => build_run_array_typed::<Int64Type>(ends, values, offset, length),
+        _ => vortex_bail!("Unsupported run-end index type: {:?}", ends_type),
+    }
+}
+
+fn build_run_array_typed<R: RunEndIndexType>(
+    ends: &ArrowArrayRef,
+    values: &ArrowArrayRef,
+    offset: usize,
+    length: usize,
+) -> VortexResult<ArrowArrayRef>
+where
+    R::Native: std::ops::Sub<Output = R::Native> + Ord,
+{
+    let offset_native = R::Native::from_usize(offset).ok_or_else(|| {
+        vortex_error::vortex_err!("Offset {offset} exceeds run-end index capacity")
+    })?;
+    let length_native = R::Native::from_usize(length).ok_or_else(|| {
+        vortex_error::vortex_err!("Length {length} exceeds run-end index capacity")
+    })?;
+
+    let ends_prim = ends.as_primitive::<R>();
+    if offset == 0 && ends_prim.values().last() == Some(&length_native) {
+        return Ok(Arc::new(RunArray::<R>::try_new(ends_prim, values)?) as ArrowArrayRef);
+    }
+
+    // Trim to only include runs covering the [offset, offset+length) range.
+    let num_runs = (ends_prim
+        .values()
+        .partition_point(|&e| e - offset_native < length_native)
+        + 1)
+    .min(ends_prim.len());
+
+    let trimmed_ends = ends.slice(0, num_runs);
+    let trimmed_values = values.slice(0, num_runs);
+
+    let adjusted = trimmed_ends
+        .as_primitive::<R>()
+        .unary(|end| (end - offset_native).min(length_native));
+
+    Ok(Arc::new(RunArray::<R>::try_new(&adjusted, &trimmed_values)?) as ArrowArrayRef)
 }
 
 #[cfg(test)]

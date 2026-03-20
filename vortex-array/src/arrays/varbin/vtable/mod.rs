@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_schema::DataType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -217,6 +218,18 @@ impl VTable for VarBin {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn preferred_arrow_data_type(array: &VarBinArray) -> Option<DataType> {
+        let offsets_ptype = PType::try_from(array.offsets().dtype()).ok()?;
+        let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
+        Some(match (array.dtype(), use_large) {
+            (DType::Utf8(_), false) => DataType::Utf8,
+            (DType::Utf8(_), true) => DataType::LargeUtf8,
+            (DType::Binary(_), false) => DataType::Binary,
+            (DType::Binary(_), true) => DataType::LargeBinary,
+            _ => return None,
+        })
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

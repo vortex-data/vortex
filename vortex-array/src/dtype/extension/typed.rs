@@ -13,14 +13,18 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+use crate::executor::ExecutionCtx;
 use crate::scalar::ScalarValue;
 
 /// A typed extension data type, parameterized by a concrete [`ExtVTable`].
@@ -129,6 +133,21 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn coercion_can_coerce_to(&self, other: &DType) -> bool;
     /// Compute the least supertype of this extension type and another type.
     fn coercion_least_supertype(&self, other: &DType) -> Option<DType>;
+
+    // Arrow export methods.
+
+    /// Returns the Arrow DataType for this extension type.
+    fn arrow_data_type(&self) -> Option<DataType>;
+    /// Returns Arrow Field metadata.
+    #[expect(clippy::disallowed_types, reason = "Arrow API requires std HashMap")]
+    fn arrow_metadata(&self) -> std::collections::HashMap<String, String>;
+    /// Convert the extension type's storage array to an Arrow array.
+    fn arrow_convert(
+        &self,
+        storage: ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef>;
 }
 
 impl<V: ExtVTable> DynExtDType for ExtDType<V> {
@@ -211,5 +230,23 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
     fn coercion_least_supertype(&self, other: &DType) -> Option<DType> {
         self.vtable.least_supertype(self, other)
+    }
+
+    fn arrow_data_type(&self) -> Option<DataType> {
+        self.vtable.to_arrow_data_type(self)
+    }
+
+    #[expect(clippy::disallowed_types, reason = "Arrow API requires std HashMap")]
+    fn arrow_metadata(&self) -> std::collections::HashMap<String, String> {
+        self.vtable.arrow_field_metadata(self)
+    }
+
+    fn arrow_convert(
+        &self,
+        storage: ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        self.vtable.to_arrow_array(self, storage, data_type, ctx)
     }
 }

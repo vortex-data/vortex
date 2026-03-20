@@ -5,11 +5,15 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
+use crate::executor::ExecutionCtx;
 use crate::scalar::ScalarValue;
 
 /// The public API for defining new extension types.
@@ -96,4 +100,39 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>>;
+
+    // Methods related to Arrow export.
+
+    /// Returns the Arrow DataType for this extension type, if it supports Arrow export.
+    /// Returns None if the extension type is not Arrow-exportable (default).
+    fn to_arrow_data_type(&self, ext_dtype: &ExtDType<Self>) -> Option<DataType> {
+        let _ = ext_dtype;
+        None
+    }
+
+    /// Returns Arrow Field metadata (e.g., ARROW:extension:name).
+    /// Default: empty (no metadata).
+    #[expect(clippy::disallowed_types, reason = "Arrow API requires std HashMap")]
+    fn arrow_field_metadata(
+        &self,
+        ext_dtype: &ExtDType<Self>,
+    ) -> std::collections::HashMap<String, String> {
+        let _ = ext_dtype;
+        std::collections::HashMap::new()
+    }
+
+    /// Convert the extension type's storage array to an Arrow array.
+    /// Called by the executor after unwrapping the ExtensionArray.
+    /// Default: delegates to the standard Arrow executor for the given DataType.
+    fn to_arrow_array(
+        &self,
+        ext_dtype: &ExtDType<Self>,
+        storage: ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        use crate::arrow::ArrowArrayExecutor;
+        let _ = ext_dtype;
+        storage.execute_arrow(Some(data_type), ctx)
+    }
 }

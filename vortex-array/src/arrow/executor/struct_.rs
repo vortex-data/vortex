@@ -166,13 +166,20 @@ fn create_from_fields(
             let arrow_fields: Fields = names
                 .iter()
                 .zip_eq(arrow_arrays.iter())
-                .zip_eq(vortex_fields.iter().map(|f| f.dtype().is_nullable()))
-                .map(|((name, arr), vx_nullable)| {
-                    Arc::new(Field::new(
+                .zip_eq(vortex_fields.iter())
+                .map(|((name, arr), vx_field)| {
+                    let mut field = Field::new(
                         name.as_ref(),
                         arr.data_type().clone(),
-                        vx_nullable,
-                    ))
+                        vx_field.dtype().is_nullable(),
+                    );
+                    if let DType::Extension(ext) = vx_field.dtype() {
+                        let metadata = ext.arrow_field_metadata();
+                        if !metadata.is_empty() {
+                            field = field.with_metadata(metadata);
+                        }
+                    }
+                    Arc::new(field)
                 })
                 .collect();
 

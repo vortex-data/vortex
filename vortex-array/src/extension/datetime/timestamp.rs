@@ -6,6 +6,9 @@
 use std::fmt;
 use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
+use arrow_schema::TimeUnit as ArrowTimeUnit;
 use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -14,12 +17,14 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+use crate::executor::ExecutionCtx;
 use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
 
@@ -204,6 +209,88 @@ impl ExtVTable for Timestamp {
             "Timestamp storage dtype must be i64"
         );
         Ok(())
+    }
+
+    fn to_arrow_data_type(&self, ext_dtype: &ExtDType<Self>) -> Option<DataType> {
+        let opts = ext_dtype.metadata();
+        ArrowTimeUnit::try_from(opts.unit)
+            .ok()
+            .map(|unit| DataType::Timestamp(unit, opts.tz.clone()))
+    }
+
+    fn to_arrow_array(
+        &self,
+        ext_dtype: &ExtDType<Self>,
+        storage: ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        use arrow_array::PrimitiveArray;
+        use arrow_array::types::ArrowTimestampType;
+        use arrow_array::types::*;
+
+        use crate::arrays::PrimitiveArray as VortexPrimitiveArray;
+        use crate::arrow::null_buffer::to_null_buffer;
+        use crate::dtype::NativePType;
+
+        let DataType::Timestamp(arrow_unit, arrow_tz) = data_type else {
+            vortex_bail!(
+                "Cannot convert Timestamp to non-Timestamp Arrow type {}",
+                data_type
+            );
+        };
+
+        let opts = ext_dtype.metadata();
+        vortex_ensure!(
+            &opts.tz == arrow_tz,
+            "Cannot convert Timestamp array due to timezone mismatch: {:?} vs {:?}",
+            opts.tz,
+            arrow_tz
+        );
+
+        fn build_ts<T: ArrowTimestampType>(
+            storage: ArrayRef,
+            arrow_tz: &Option<Arc<str>>,
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrowArrayRef>
+        where
+            T::Native: NativePType,
+        {
+            let primitive = storage.execute::<VortexPrimitiveArray>(ctx)?;
+            vortex_ensure!(
+                primitive.ptype() == T::Native::PTYPE,
+                "Expected temporal array to produce vector of width {}, found {}",
+                T::Native::PTYPE,
+                primitive.ptype()
+            );
+            let validity = primitive.validity_mask()?;
+            let buffer = primitive.to_buffer::<T::Native>();
+            let values = buffer.into_arrow_scalar_buffer();
+            let nulls = to_null_buffer(validity);
+            Ok(Arc::new(
+                PrimitiveArray::<T>::new(values, nulls).with_timezone_opt(arrow_tz.clone()),
+            ))
+        }
+
+        match (opts.unit, arrow_unit) {
+            (TimeUnit::Seconds, ArrowTimeUnit::Second) => {
+                build_ts::<TimestampSecondType>(storage, arrow_tz, ctx)
+            }
+            (TimeUnit::Milliseconds, ArrowTimeUnit::Millisecond) => {
+                build_ts::<TimestampMillisecondType>(storage, arrow_tz, ctx)
+            }
+            (TimeUnit::Microseconds, ArrowTimeUnit::Microsecond) => {
+                build_ts::<TimestampMicrosecondType>(storage, arrow_tz, ctx)
+            }
+            (TimeUnit::Nanoseconds, ArrowTimeUnit::Nanosecond) => {
+                build_ts::<TimestampNanosecondType>(storage, arrow_tz, ctx)
+            }
+            _ => vortex_bail!(
+                "Cannot convert Timestamp({}) to Arrow Timestamp({:?})",
+                opts.unit,
+                arrow_unit
+            ),
+        }
     }
 
     fn unpack_native<'a>(

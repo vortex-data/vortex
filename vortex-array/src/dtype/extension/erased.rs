@@ -9,10 +9,13 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDType;
@@ -20,6 +23,7 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
 use crate::dtype::extension::typed::DynExtDType;
+use crate::executor::ExecutionCtx;
 use crate::scalar::ScalarValue;
 
 /// A type-erased extension dtype.
@@ -113,6 +117,27 @@ impl ExtDTypeRef {
     /// Compute the least supertype of this extension type and another type.
     pub fn least_supertype(&self, other: &DType) -> Option<DType> {
         self.0.coercion_least_supertype(other)
+    }
+
+    /// Returns the Arrow DataType for this extension type, if it supports Arrow export.
+    pub fn to_arrow_data_type(&self) -> Option<DataType> {
+        self.0.arrow_data_type()
+    }
+
+    /// Returns Arrow Field metadata for this extension type.
+    #[expect(clippy::disallowed_types, reason = "Arrow API requires std HashMap")]
+    pub fn arrow_field_metadata(&self) -> std::collections::HashMap<String, String> {
+        self.0.arrow_metadata()
+    }
+
+    /// Convert the extension type's storage array to an Arrow array.
+    pub fn to_arrow_array(
+        &self,
+        storage: ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        self.0.arrow_convert(storage, data_type, ctx)
     }
 }
 

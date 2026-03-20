@@ -930,6 +930,8 @@ pub fn vortex_array::arrays::Bool::nbuffers(_array: &vortex_array::arrays::BoolA
 
 pub fn vortex_array::arrays::Bool::nchildren(array: &vortex_array::arrays::BoolArray) -> usize
 
+pub fn vortex_array::arrays::Bool::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Bool::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -937,6 +939,8 @@ pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &v
 pub fn vortex_array::arrays::Bool::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Bool::stats(array: &vortex_array::arrays::BoolArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Bool::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -1138,6 +1142,8 @@ pub fn vortex_array::arrays::Chunked::nbuffers(_array: &vortex_array::arrays::Ch
 
 pub fn vortex_array::arrays::Chunked::nchildren(array: &vortex_array::arrays::ChunkedArray) -> usize
 
+pub fn vortex_array::arrays::Chunked::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Chunked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1145,6 +1151,8 @@ pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Chunked::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Chunked::stats(array: &vortex_array::arrays::ChunkedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Chunked::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -1304,6 +1312,8 @@ pub fn vortex_array::arrays::Constant::nbuffers(_array: &vortex_array::arrays::C
 
 pub fn vortex_array::arrays::Constant::nchildren(_array: &vortex_array::arrays::ConstantArray) -> usize
 
+pub fn vortex_array::arrays::Constant::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Constant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Constant::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1311,6 +1321,8 @@ pub fn vortex_array::arrays::Constant::reduce_parent(array: &Self::Array, parent
 pub fn vortex_array::arrays::Constant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Constant::stats(array: &vortex_array::arrays::ConstantArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Constant::to_arrow_array(array: &vortex_array::arrays::ConstantArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Constant::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -1510,6 +1522,8 @@ pub fn vortex_array::arrays::Decimal::nbuffers(_array: &vortex_array::arrays::De
 
 pub fn vortex_array::arrays::Decimal::nchildren(array: &vortex_array::arrays::DecimalArray) -> usize
 
+pub fn vortex_array::arrays::Decimal::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Decimal::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1517,6 +1531,8 @@ pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Decimal::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Decimal::stats(array: &vortex_array::arrays::DecimalArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Decimal::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -1718,6 +1734,8 @@ pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
+pub fn vortex_array::arrays::dict::Dict::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1725,6 +1743,8 @@ pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::dict::Dict::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::dict::Dict::stats(array: &vortex_array::arrays::dict::DictArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::dict::Dict::to_arrow_array(array: &vortex_array::arrays::dict::DictArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -1822,6 +1842,8 @@ pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
+pub fn vortex_array::arrays::dict::Dict::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1829,6 +1851,8 @@ pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::dict::Dict::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::dict::Dict::stats(array: &vortex_array::arrays::dict::DictArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::dict::Dict::to_arrow_array(array: &vortex_array::arrays::dict::DictArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -2118,6 +2142,8 @@ pub fn vortex_array::arrays::Extension::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Extension::nchildren(_array: &vortex_array::arrays::ExtensionArray) -> usize
 
+pub fn vortex_array::arrays::Extension::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Extension::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2125,6 +2151,8 @@ pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, paren
 pub fn vortex_array::arrays::Extension::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Extension::stats(array: &vortex_array::arrays::ExtensionArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Extension::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -2254,6 +2282,8 @@ pub fn vortex_array::arrays::Filter::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Filter::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Filter::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Filter::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Filter::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2261,6 +2291,8 @@ pub fn vortex_array::arrays::Filter::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Filter::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Filter::stats(array: &vortex_array::arrays::FilterArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Filter::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Filter::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -2470,6 +2502,8 @@ pub fn vortex_array::arrays::FixedSizeList::nbuffers(_array: &vortex_array::arra
 
 pub fn vortex_array::arrays::FixedSizeList::nchildren(array: &vortex_array::arrays::FixedSizeListArray) -> usize
 
+pub fn vortex_array::arrays::FixedSizeList::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::FixedSizeList::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::FixedSizeList::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2477,6 +2511,8 @@ pub fn vortex_array::arrays::FixedSizeList::reduce_parent(array: &Self::Array, p
 pub fn vortex_array::arrays::FixedSizeList::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::FixedSizeList::stats(array: &vortex_array::arrays::FixedSizeListArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::FixedSizeList::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::FixedSizeList::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -2618,6 +2654,8 @@ pub fn vortex_array::arrays::List::nbuffers(_array: &vortex_array::arrays::ListA
 
 pub fn vortex_array::arrays::List::nchildren(array: &vortex_array::arrays::ListArray) -> usize
 
+pub fn vortex_array::arrays::List::preferred_arrow_data_type(array: &vortex_array::arrays::ListArray) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::List::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2625,6 +2663,8 @@ pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &v
 pub fn vortex_array::arrays::List::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::List::stats(array: &vortex_array::arrays::ListArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::List::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -2786,6 +2826,8 @@ pub fn vortex_array::arrays::ListView::nbuffers(_array: &vortex_array::arrays::L
 
 pub fn vortex_array::arrays::ListView::nchildren(array: &vortex_array::arrays::ListViewArray) -> usize
 
+pub fn vortex_array::arrays::ListView::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::ListView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2793,6 +2835,8 @@ pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent
 pub fn vortex_array::arrays::ListView::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::ListView::stats(array: &vortex_array::arrays::ListViewArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::ListView::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -2964,6 +3008,8 @@ pub fn vortex_array::arrays::Masked::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Masked::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Masked::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Masked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2971,6 +3017,8 @@ pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Masked::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Masked::stats(array: &vortex_array::arrays::MaskedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Masked::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -3102,6 +3150,8 @@ pub fn vortex_array::arrays::null::Null::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::null::Null::nchildren(_array: &vortex_array::arrays::null::NullArray) -> usize
 
+pub fn vortex_array::arrays::null::Null::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::null::Null::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::null::Null::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3109,6 +3159,8 @@ pub fn vortex_array::arrays::null::Null::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::null::Null::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::null::Null::stats(array: &vortex_array::arrays::null::NullArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::null::Null::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::null::Null::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -3312,6 +3364,8 @@ pub fn vortex_array::arrays::Primitive::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Primitive::nchildren(array: &vortex_array::arrays::PrimitiveArray) -> usize
 
+pub fn vortex_array::arrays::Primitive::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Primitive::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Primitive::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3319,6 +3373,8 @@ pub fn vortex_array::arrays::Primitive::reduce_parent(array: &Self::Array, paren
 pub fn vortex_array::arrays::Primitive::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Primitive::stats(array: &vortex_array::arrays::PrimitiveArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Primitive::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Primitive::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -3620,6 +3676,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3627,6 +3685,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Se
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::stats(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -3702,6 +3762,8 @@ pub fn vortex_array::arrays::Shared::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Shared::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Shared::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Shared::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Shared::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3709,6 +3771,8 @@ pub fn vortex_array::arrays::Shared::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Shared::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Shared::stats(array: &vortex_array::arrays::SharedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Shared::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Shared::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -3820,6 +3884,8 @@ pub fn vortex_array::arrays::slice::Slice::nbuffers(_array: &Self::Array) -> usi
 
 pub fn vortex_array::arrays::slice::Slice::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::slice::Slice::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::slice::Slice::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::slice::Slice::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3827,6 +3893,8 @@ pub fn vortex_array::arrays::slice::Slice::reduce_parent(array: &Self::Array, pa
 pub fn vortex_array::arrays::slice::Slice::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::slice::Slice::stats(array: &vortex_array::arrays::slice::SliceArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::slice::Slice::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::slice::Slice::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -4078,6 +4146,8 @@ pub fn vortex_array::arrays::Struct::nbuffers(_array: &vortex_array::arrays::Str
 
 pub fn vortex_array::arrays::Struct::nchildren(array: &vortex_array::arrays::StructArray) -> usize
 
+pub fn vortex_array::arrays::Struct::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Struct::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Struct::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4085,6 +4155,8 @@ pub fn vortex_array::arrays::Struct::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Struct::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Struct::stats(array: &vortex_array::arrays::StructArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Struct::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Struct::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -4294,6 +4366,8 @@ pub fn vortex_array::arrays::VarBin::nbuffers(_array: &vortex_array::arrays::Var
 
 pub fn vortex_array::arrays::VarBin::nchildren(array: &vortex_array::arrays::VarBinArray) -> usize
 
+pub fn vortex_array::arrays::VarBin::preferred_arrow_data_type(array: &vortex_array::arrays::VarBinArray) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::VarBin::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4301,6 +4375,8 @@ pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::VarBin::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::VarBin::stats(array: &vortex_array::arrays::VarBinArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::VarBin::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -4696,6 +4772,8 @@ pub fn vortex_array::arrays::VarBinView::nbuffers(array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::VarBinView::nchildren(array: &vortex_array::arrays::VarBinViewArray) -> usize
 
+pub fn vortex_array::arrays::VarBinView::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::VarBinView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBinView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4703,6 +4781,8 @@ pub fn vortex_array::arrays::VarBinView::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::VarBinView::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::VarBinView::stats(array: &vortex_array::arrays::VarBinViewArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::VarBinView::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBinView::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -4886,6 +4966,8 @@ pub fn vortex_array::arrays::Variant::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Variant::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Variant::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Variant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -4893,6 +4975,8 @@ pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Variant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Variant::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Variant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -5026,6 +5110,8 @@ pub fn vortex_array::arrays::Bool::nbuffers(_array: &vortex_array::arrays::BoolA
 
 pub fn vortex_array::arrays::Bool::nchildren(array: &vortex_array::arrays::BoolArray) -> usize
 
+pub fn vortex_array::arrays::Bool::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Bool::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5033,6 +5119,8 @@ pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &v
 pub fn vortex_array::arrays::Bool::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Bool::stats(array: &vortex_array::arrays::BoolArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Bool::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -5206,6 +5294,8 @@ pub fn vortex_array::arrays::Chunked::nbuffers(_array: &vortex_array::arrays::Ch
 
 pub fn vortex_array::arrays::Chunked::nchildren(array: &vortex_array::arrays::ChunkedArray) -> usize
 
+pub fn vortex_array::arrays::Chunked::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Chunked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5213,6 +5303,8 @@ pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Chunked::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Chunked::stats(array: &vortex_array::arrays::ChunkedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Chunked::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -5370,6 +5462,8 @@ pub fn vortex_array::arrays::Constant::nbuffers(_array: &vortex_array::arrays::C
 
 pub fn vortex_array::arrays::Constant::nchildren(_array: &vortex_array::arrays::ConstantArray) -> usize
 
+pub fn vortex_array::arrays::Constant::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Constant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Constant::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5377,6 +5471,8 @@ pub fn vortex_array::arrays::Constant::reduce_parent(array: &Self::Array, parent
 pub fn vortex_array::arrays::Constant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Constant::stats(array: &vortex_array::arrays::ConstantArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Constant::to_arrow_array(array: &vortex_array::arrays::ConstantArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Constant::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -5512,6 +5608,8 @@ pub fn vortex_array::arrays::Decimal::nbuffers(_array: &vortex_array::arrays::De
 
 pub fn vortex_array::arrays::Decimal::nchildren(array: &vortex_array::arrays::DecimalArray) -> usize
 
+pub fn vortex_array::arrays::Decimal::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Decimal::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5519,6 +5617,8 @@ pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Decimal::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Decimal::stats(array: &vortex_array::arrays::DecimalArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Decimal::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -5688,6 +5788,8 @@ pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
+pub fn vortex_array::arrays::dict::Dict::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5695,6 +5797,8 @@ pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::dict::Dict::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::dict::Dict::stats(array: &vortex_array::arrays::dict::DictArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::dict::Dict::to_arrow_array(array: &vortex_array::arrays::dict::DictArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -5842,6 +5946,8 @@ pub fn vortex_array::arrays::Extension::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Extension::nchildren(_array: &vortex_array::arrays::ExtensionArray) -> usize
 
+pub fn vortex_array::arrays::Extension::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Extension::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5849,6 +5955,8 @@ pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, paren
 pub fn vortex_array::arrays::Extension::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Extension::stats(array: &vortex_array::arrays::ExtensionArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Extension::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -5976,6 +6084,8 @@ pub fn vortex_array::arrays::Filter::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Filter::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Filter::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Filter::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Filter::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5983,6 +6093,8 @@ pub fn vortex_array::arrays::Filter::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Filter::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Filter::stats(array: &vortex_array::arrays::FilterArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Filter::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Filter::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -6108,6 +6220,8 @@ pub fn vortex_array::arrays::FixedSizeList::nbuffers(_array: &vortex_array::arra
 
 pub fn vortex_array::arrays::FixedSizeList::nchildren(array: &vortex_array::arrays::FixedSizeListArray) -> usize
 
+pub fn vortex_array::arrays::FixedSizeList::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::FixedSizeList::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::FixedSizeList::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6115,6 +6229,8 @@ pub fn vortex_array::arrays::FixedSizeList::reduce_parent(array: &Self::Array, p
 pub fn vortex_array::arrays::FixedSizeList::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::FixedSizeList::stats(array: &vortex_array::arrays::FixedSizeListArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::FixedSizeList::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::FixedSizeList::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -6254,6 +6370,8 @@ pub fn vortex_array::arrays::List::nbuffers(_array: &vortex_array::arrays::ListA
 
 pub fn vortex_array::arrays::List::nchildren(array: &vortex_array::arrays::ListArray) -> usize
 
+pub fn vortex_array::arrays::List::preferred_arrow_data_type(array: &vortex_array::arrays::ListArray) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::List::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6261,6 +6379,8 @@ pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &v
 pub fn vortex_array::arrays::List::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::List::stats(array: &vortex_array::arrays::ListArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::List::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -6400,6 +6520,8 @@ pub fn vortex_array::arrays::ListView::nbuffers(_array: &vortex_array::arrays::L
 
 pub fn vortex_array::arrays::ListView::nchildren(array: &vortex_array::arrays::ListViewArray) -> usize
 
+pub fn vortex_array::arrays::ListView::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::ListView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6407,6 +6529,8 @@ pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent
 pub fn vortex_array::arrays::ListView::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::ListView::stats(array: &vortex_array::arrays::ListViewArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::ListView::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -6558,6 +6682,8 @@ pub fn vortex_array::arrays::Masked::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Masked::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Masked::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Masked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6565,6 +6691,8 @@ pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Masked::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Masked::stats(array: &vortex_array::arrays::MaskedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Masked::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -6692,6 +6820,8 @@ pub fn vortex_array::arrays::null::Null::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::null::Null::nchildren(_array: &vortex_array::arrays::null::NullArray) -> usize
 
+pub fn vortex_array::arrays::null::Null::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::null::Null::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::null::Null::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6699,6 +6829,8 @@ pub fn vortex_array::arrays::null::Null::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::null::Null::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::null::Null::stats(array: &vortex_array::arrays::null::NullArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::null::Null::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::null::Null::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -6834,6 +6966,8 @@ pub fn vortex_array::arrays::Primitive::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Primitive::nchildren(array: &vortex_array::arrays::PrimitiveArray) -> usize
 
+pub fn vortex_array::arrays::Primitive::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Primitive::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Primitive::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6841,6 +6975,8 @@ pub fn vortex_array::arrays::Primitive::reduce_parent(array: &Self::Array, paren
 pub fn vortex_array::arrays::Primitive::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Primitive::stats(array: &vortex_array::arrays::PrimitiveArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Primitive::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Primitive::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -7068,6 +7204,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7075,6 +7213,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Se
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::stats(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -7140,6 +7280,8 @@ pub fn vortex_array::arrays::Shared::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Shared::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Shared::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Shared::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Shared::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7147,6 +7289,8 @@ pub fn vortex_array::arrays::Shared::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Shared::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Shared::stats(array: &vortex_array::arrays::SharedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Shared::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Shared::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -7256,6 +7400,8 @@ pub fn vortex_array::arrays::slice::Slice::nbuffers(_array: &Self::Array) -> usi
 
 pub fn vortex_array::arrays::slice::Slice::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::slice::Slice::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::slice::Slice::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::slice::Slice::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7263,6 +7409,8 @@ pub fn vortex_array::arrays::slice::Slice::reduce_parent(array: &Self::Array, pa
 pub fn vortex_array::arrays::slice::Slice::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::slice::Slice::stats(array: &vortex_array::arrays::slice::SliceArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::slice::Slice::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::slice::Slice::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -7392,6 +7540,8 @@ pub fn vortex_array::arrays::Struct::nbuffers(_array: &vortex_array::arrays::Str
 
 pub fn vortex_array::arrays::Struct::nchildren(array: &vortex_array::arrays::StructArray) -> usize
 
+pub fn vortex_array::arrays::Struct::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Struct::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Struct::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7399,6 +7549,8 @@ pub fn vortex_array::arrays::Struct::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Struct::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Struct::stats(array: &vortex_array::arrays::StructArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Struct::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Struct::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -7632,6 +7784,8 @@ pub fn vortex_array::arrays::VarBin::nbuffers(_array: &vortex_array::arrays::Var
 
 pub fn vortex_array::arrays::VarBin::nchildren(array: &vortex_array::arrays::VarBinArray) -> usize
 
+pub fn vortex_array::arrays::VarBin::preferred_arrow_data_type(array: &vortex_array::arrays::VarBinArray) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::VarBin::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7639,6 +7793,8 @@ pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::VarBin::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::VarBin::stats(array: &vortex_array::arrays::VarBinArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::VarBin::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -7848,6 +8004,8 @@ pub fn vortex_array::arrays::VarBinView::nbuffers(array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::VarBinView::nchildren(array: &vortex_array::arrays::VarBinViewArray) -> usize
 
+pub fn vortex_array::arrays::VarBinView::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::VarBinView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBinView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7855,6 +8013,8 @@ pub fn vortex_array::arrays::VarBinView::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::VarBinView::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::VarBinView::stats(array: &vortex_array::arrays::VarBinViewArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::VarBinView::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBinView::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -8026,6 +8186,8 @@ pub fn vortex_array::arrays::Variant::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Variant::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Variant::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Variant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -8033,6 +8195,8 @@ pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Variant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Variant::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Variant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -10032,6 +10196,8 @@ pub struct vortex_array::dtype::extension::ExtDTypeRef(_)
 
 impl vortex_array::dtype::extension::ExtDTypeRef
 
+pub fn vortex_array::dtype::extension::ExtDTypeRef::arrow_field_metadata(&self) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::dtype::extension::ExtDTypeRef::can_coerce_from(&self, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::can_coerce_to(&self, other: &vortex_array::dtype::DType) -> bool
@@ -10051,6 +10217,10 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex
 pub fn vortex_array::dtype::extension::ExtDTypeRef::serialize_metadata(&self) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::to_arrow_array(&self, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::to_arrow_data_type(&self) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::with_nullability(&self, nullability: vortex_array::dtype::Nullability) -> Self
 
@@ -10106,6 +10276,8 @@ pub type vortex_array::dtype::extension::ExtVTable::Metadata: 'static + core::ma
 
 pub type vortex_array::dtype::extension::ExtVTable::NativeValue<'a>: core::fmt::Display
 
+pub fn vortex_array::dtype::extension::ExtVTable::arrow_field_metadata(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -10117,6 +10289,10 @@ pub fn vortex_array::dtype::extension::ExtVTable::id(&self) -> vortex_array::dty
 pub fn vortex_array::dtype::extension::ExtVTable::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::dtype::extension::ExtVTable::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::dtype::extension::ExtVTable::to_arrow_array(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::dtype::extension::ExtVTable::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::dtype::extension::ExtVTable::unpack_native<'a>(&self, ext_dtype: &'a vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -10130,6 +10306,8 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
+pub fn vortex_array::extension::datetime::Date::arrow_field_metadata(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::datetime::Date::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Date::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -10141,6 +10319,10 @@ pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype
 pub fn vortex_array::extension::datetime::Date::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Date::to_arrow_array(&self, _ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::Date::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::datetime::Date::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -10154,6 +10336,8 @@ pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
 
+pub fn vortex_array::extension::datetime::Time::arrow_field_metadata(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::datetime::Time::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Time::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -10165,6 +10349,10 @@ pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype
 pub fn vortex_array::extension::datetime::Time::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Time::to_arrow_array(&self, _ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::Time::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::datetime::Time::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -10178,6 +10366,8 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
+pub fn vortex_array::extension::datetime::Timestamp::arrow_field_metadata(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -10189,6 +10379,10 @@ pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::
 pub fn vortex_array::extension::datetime::Timestamp::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Timestamp::to_arrow_array(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::Timestamp::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, ext_dtype: &'a vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -10202,6 +10396,8 @@ pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
 
+pub fn vortex_array::extension::uuid::Uuid::arrow_field_metadata(&self, _ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -10213,6 +10409,10 @@ pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::ex
 pub fn vortex_array::extension::uuid::Uuid::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::uuid::Uuid::to_arrow_array(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::uuid::Uuid::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -10431,6 +10631,8 @@ pub fn vortex_array::dtype::DType::from_proto(value: &vortex_proto::dtype::DType
 impl vortex_array::dtype::DType
 
 pub fn vortex_array::dtype::DType::to_arrow_dtype(&self) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::dtype::DType::to_arrow_field(&self, name: &str) -> vortex_error::VortexResult<arrow_schema::field::Field>
 
 pub fn vortex_array::dtype::DType::to_arrow_schema(&self) -> vortex_error::VortexResult<arrow_schema::schema::Schema>
 
@@ -14072,6 +14274,8 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
+pub fn vortex_array::extension::datetime::Date::arrow_field_metadata(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::datetime::Date::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Date::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -14083,6 +14287,10 @@ pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype
 pub fn vortex_array::extension::datetime::Date::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Date::to_arrow_array(&self, _ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::Date::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::datetime::Date::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -14128,6 +14336,8 @@ pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
 
+pub fn vortex_array::extension::datetime::Time::arrow_field_metadata(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::datetime::Time::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Time::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -14139,6 +14349,10 @@ pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype
 pub fn vortex_array::extension::datetime::Time::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Time::to_arrow_array(&self, _ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::Time::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::datetime::Time::unpack_native(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -14186,6 +14400,8 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
+pub fn vortex_array::extension::datetime::Timestamp::arrow_field_metadata(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -14197,6 +14413,10 @@ pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::
 pub fn vortex_array::extension::datetime::Timestamp::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Timestamp::to_arrow_array(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::Timestamp::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, ext_dtype: &'a vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -14268,6 +14488,8 @@ pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
 
+pub fn vortex_array::extension::uuid::Uuid::arrow_field_metadata(&self, _ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -14279,6 +14501,10 @@ pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::ex
 pub fn vortex_array::extension::uuid::Uuid::least_supertype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::uuid::Uuid::to_arrow_array(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage: vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::uuid::Uuid::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> core::option::Option<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(&self, ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -20396,9 +20622,13 @@ pub fn vortex_array::vtable::DynVTable::execute(&self, array: &vortex_array::Arr
 
 pub fn vortex_array::vtable::DynVTable::execute_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+pub fn vortex_array::vtable::DynVTable::preferred_arrow_data_type(&self, array: &vortex_array::ArrayRef) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::vtable::DynVTable::reduce(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::vtable::DynVTable::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub fn vortex_array::vtable::DynVTable::to_arrow_array(&self, array: &vortex_array::ArrayRef, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::vtable::DynVTable::with_children(&self, array: &vortex_array::ArrayRef, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -20534,6 +20764,8 @@ pub fn vortex_array::vtable::VTable::nbuffers(array: &Self::Array) -> usize
 
 pub fn vortex_array::vtable::VTable::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::vtable::VTable::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::vtable::VTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::vtable::VTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20541,6 +20773,8 @@ pub fn vortex_array::vtable::VTable::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::vtable::VTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::vtable::VTable::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::vtable::VTable::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::vtable::VTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20588,6 +20822,8 @@ pub fn vortex_array::arrays::Bool::nbuffers(_array: &vortex_array::arrays::BoolA
 
 pub fn vortex_array::arrays::Bool::nchildren(array: &vortex_array::arrays::BoolArray) -> usize
 
+pub fn vortex_array::arrays::Bool::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Bool::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20595,6 +20831,8 @@ pub fn vortex_array::arrays::Bool::reduce_parent(array: &Self::Array, parent: &v
 pub fn vortex_array::arrays::Bool::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Bool::stats(array: &vortex_array::arrays::BoolArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Bool::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Bool::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20642,6 +20880,8 @@ pub fn vortex_array::arrays::Chunked::nbuffers(_array: &vortex_array::arrays::Ch
 
 pub fn vortex_array::arrays::Chunked::nchildren(array: &vortex_array::arrays::ChunkedArray) -> usize
 
+pub fn vortex_array::arrays::Chunked::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Chunked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20649,6 +20889,8 @@ pub fn vortex_array::arrays::Chunked::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Chunked::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Chunked::stats(array: &vortex_array::arrays::ChunkedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Chunked::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Chunked::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20696,6 +20938,8 @@ pub fn vortex_array::arrays::Constant::nbuffers(_array: &vortex_array::arrays::C
 
 pub fn vortex_array::arrays::Constant::nchildren(_array: &vortex_array::arrays::ConstantArray) -> usize
 
+pub fn vortex_array::arrays::Constant::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Constant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Constant::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20703,6 +20947,8 @@ pub fn vortex_array::arrays::Constant::reduce_parent(array: &Self::Array, parent
 pub fn vortex_array::arrays::Constant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Constant::stats(array: &vortex_array::arrays::ConstantArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Constant::to_arrow_array(array: &vortex_array::arrays::ConstantArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Constant::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20750,6 +20996,8 @@ pub fn vortex_array::arrays::Decimal::nbuffers(_array: &vortex_array::arrays::De
 
 pub fn vortex_array::arrays::Decimal::nchildren(array: &vortex_array::arrays::DecimalArray) -> usize
 
+pub fn vortex_array::arrays::Decimal::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Decimal::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20757,6 +21005,8 @@ pub fn vortex_array::arrays::Decimal::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Decimal::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Decimal::stats(array: &vortex_array::arrays::DecimalArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Decimal::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Decimal::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20804,6 +21054,8 @@ pub fn vortex_array::arrays::Extension::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Extension::nchildren(_array: &vortex_array::arrays::ExtensionArray) -> usize
 
+pub fn vortex_array::arrays::Extension::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Extension::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20811,6 +21063,8 @@ pub fn vortex_array::arrays::Extension::reduce_parent(array: &Self::Array, paren
 pub fn vortex_array::arrays::Extension::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Extension::stats(array: &vortex_array::arrays::ExtensionArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Extension::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Extension::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20858,6 +21112,8 @@ pub fn vortex_array::arrays::Filter::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Filter::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Filter::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Filter::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Filter::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20865,6 +21121,8 @@ pub fn vortex_array::arrays::Filter::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Filter::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Filter::stats(array: &vortex_array::arrays::FilterArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Filter::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Filter::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20912,6 +21170,8 @@ pub fn vortex_array::arrays::FixedSizeList::nbuffers(_array: &vortex_array::arra
 
 pub fn vortex_array::arrays::FixedSizeList::nchildren(array: &vortex_array::arrays::FixedSizeListArray) -> usize
 
+pub fn vortex_array::arrays::FixedSizeList::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::FixedSizeList::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::FixedSizeList::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20919,6 +21179,8 @@ pub fn vortex_array::arrays::FixedSizeList::reduce_parent(array: &Self::Array, p
 pub fn vortex_array::arrays::FixedSizeList::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::FixedSizeList::stats(array: &vortex_array::arrays::FixedSizeListArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::FixedSizeList::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::FixedSizeList::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -20966,6 +21228,8 @@ pub fn vortex_array::arrays::List::nbuffers(_array: &vortex_array::arrays::ListA
 
 pub fn vortex_array::arrays::List::nchildren(array: &vortex_array::arrays::ListArray) -> usize
 
+pub fn vortex_array::arrays::List::preferred_arrow_data_type(array: &vortex_array::arrays::ListArray) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::List::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -20973,6 +21237,8 @@ pub fn vortex_array::arrays::List::reduce_parent(array: &Self::Array, parent: &v
 pub fn vortex_array::arrays::List::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::List::stats(array: &vortex_array::arrays::ListArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::List::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::List::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21020,6 +21286,8 @@ pub fn vortex_array::arrays::ListView::nbuffers(_array: &vortex_array::arrays::L
 
 pub fn vortex_array::arrays::ListView::nchildren(array: &vortex_array::arrays::ListViewArray) -> usize
 
+pub fn vortex_array::arrays::ListView::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::ListView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21027,6 +21295,8 @@ pub fn vortex_array::arrays::ListView::reduce_parent(array: &Self::Array, parent
 pub fn vortex_array::arrays::ListView::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::ListView::stats(array: &vortex_array::arrays::ListViewArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::ListView::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::ListView::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21074,6 +21344,8 @@ pub fn vortex_array::arrays::Masked::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Masked::nchildren(array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Masked::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Masked::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21081,6 +21353,8 @@ pub fn vortex_array::arrays::Masked::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Masked::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Masked::stats(array: &vortex_array::arrays::MaskedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Masked::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Masked::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21128,6 +21402,8 @@ pub fn vortex_array::arrays::Primitive::nbuffers(_array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::Primitive::nchildren(array: &vortex_array::arrays::PrimitiveArray) -> usize
 
+pub fn vortex_array::arrays::Primitive::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Primitive::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Primitive::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21135,6 +21411,8 @@ pub fn vortex_array::arrays::Primitive::reduce_parent(array: &Self::Array, paren
 pub fn vortex_array::arrays::Primitive::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Primitive::stats(array: &vortex_array::arrays::PrimitiveArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Primitive::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Primitive::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21182,6 +21460,8 @@ pub fn vortex_array::arrays::Shared::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Shared::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Shared::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Shared::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Shared::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21189,6 +21469,8 @@ pub fn vortex_array::arrays::Shared::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Shared::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Shared::stats(array: &vortex_array::arrays::SharedArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Shared::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Shared::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21236,6 +21518,8 @@ pub fn vortex_array::arrays::Struct::nbuffers(_array: &vortex_array::arrays::Str
 
 pub fn vortex_array::arrays::Struct::nchildren(array: &vortex_array::arrays::StructArray) -> usize
 
+pub fn vortex_array::arrays::Struct::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Struct::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Struct::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21243,6 +21527,8 @@ pub fn vortex_array::arrays::Struct::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::Struct::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Struct::stats(array: &vortex_array::arrays::StructArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Struct::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Struct::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21290,6 +21576,8 @@ pub fn vortex_array::arrays::VarBin::nbuffers(_array: &vortex_array::arrays::Var
 
 pub fn vortex_array::arrays::VarBin::nchildren(array: &vortex_array::arrays::VarBinArray) -> usize
 
+pub fn vortex_array::arrays::VarBin::preferred_arrow_data_type(array: &vortex_array::arrays::VarBinArray) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::VarBin::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21297,6 +21585,8 @@ pub fn vortex_array::arrays::VarBin::reduce_parent(array: &Self::Array, parent: 
 pub fn vortex_array::arrays::VarBin::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::VarBin::stats(array: &vortex_array::arrays::VarBinArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::VarBin::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBin::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21344,6 +21634,8 @@ pub fn vortex_array::arrays::VarBinView::nbuffers(array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::VarBinView::nchildren(array: &vortex_array::arrays::VarBinViewArray) -> usize
 
+pub fn vortex_array::arrays::VarBinView::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::VarBinView::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBinView::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21351,6 +21643,8 @@ pub fn vortex_array::arrays::VarBinView::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::VarBinView::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::VarBinView::stats(array: &vortex_array::arrays::VarBinViewArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::VarBinView::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::VarBinView::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21398,6 +21692,8 @@ pub fn vortex_array::arrays::Variant::nbuffers(_array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::Variant::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::Variant::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::Variant::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21405,6 +21701,8 @@ pub fn vortex_array::arrays::Variant::reduce_parent(array: &Self::Array, parent:
 pub fn vortex_array::arrays::Variant::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::Variant::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::Variant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21452,6 +21750,8 @@ pub fn vortex_array::arrays::dict::Dict::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::dict::Dict::nchildren(_array: &vortex_array::arrays::dict::DictArray) -> usize
 
+pub fn vortex_array::arrays::dict::Dict::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::dict::Dict::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21459,6 +21759,8 @@ pub fn vortex_array::arrays::dict::Dict::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::dict::Dict::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::dict::Dict::stats(array: &vortex_array::arrays::dict::DictArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::dict::Dict::to_arrow_array(array: &vortex_array::arrays::dict::DictArray, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::dict::Dict::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21506,6 +21808,8 @@ pub fn vortex_array::arrays::null::Null::nbuffers(_array: &vortex_array::arrays:
 
 pub fn vortex_array::arrays::null::Null::nchildren(_array: &vortex_array::arrays::null::NullArray) -> usize
 
+pub fn vortex_array::arrays::null::Null::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::null::Null::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::null::Null::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21513,6 +21817,8 @@ pub fn vortex_array::arrays::null::Null::reduce_parent(array: &Self::Array, pare
 pub fn vortex_array::arrays::null::Null::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::null::Null::stats(array: &vortex_array::arrays::null::NullArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::null::Null::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::null::Null::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21560,6 +21866,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nbuffers(_array: &vortex
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::nchildren(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> usize
 
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21567,6 +21875,8 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::reduce_parent(array: &Se
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::stats(array: &vortex_array::arrays::scalar_fn::ScalarFnArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -21614,6 +21924,8 @@ pub fn vortex_array::arrays::slice::Slice::nbuffers(_array: &Self::Array) -> usi
 
 pub fn vortex_array::arrays::slice::Slice::nchildren(_array: &Self::Array) -> usize
 
+pub fn vortex_array::arrays::slice::Slice::preferred_arrow_data_type(_array: &Self::Array) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::arrays::slice::Slice::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::slice::Slice::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -21621,6 +21933,8 @@ pub fn vortex_array::arrays::slice::Slice::reduce_parent(array: &Self::Array, pa
 pub fn vortex_array::arrays::slice::Slice::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::slice::Slice::stats(array: &vortex_array::arrays::slice::SliceArray) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::arrays::slice::Slice::to_arrow_array(_array: &Self::Array, _data_type: &arrow_schema::datatype::DataType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::arrays::slice::Slice::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -22078,6 +22392,8 @@ pub fn vortex_array::ArrayAdapter<V>::is_valid(&self, index: usize) -> vortex_er
 
 pub fn vortex_array::ArrayAdapter<V>::len(&self) -> usize
 
+pub fn vortex_array::ArrayAdapter<V>::preferred_arrow_data_type(&self) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::ArrayAdapter<V>::scalar_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::ArrayAdapter<V>::slice(&self, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -22087,6 +22403,8 @@ pub fn vortex_array::ArrayAdapter<V>::statistics(&self) -> vortex_array::stats::
 pub fn vortex_array::ArrayAdapter<V>::take(&self, indices: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayAdapter<V>::to_array(&self) -> vortex_array::ArrayRef
+
+pub fn vortex_array::ArrayAdapter<V>::to_arrow_array(&self, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::ArrayAdapter<V>::to_canonical(&self) -> vortex_error::VortexResult<vortex_array::Canonical>
 
@@ -22462,6 +22780,8 @@ pub fn vortex_array::DynArray::is_valid(&self, index: usize) -> vortex_error::Vo
 
 pub fn vortex_array::DynArray::len(&self) -> usize
 
+pub fn vortex_array::DynArray::preferred_arrow_data_type(&self) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::DynArray::scalar_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::DynArray::slice(&self, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -22471,6 +22791,8 @@ pub fn vortex_array::DynArray::statistics(&self) -> vortex_array::stats::StatsSe
 pub fn vortex_array::DynArray::take(&self, indices: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::DynArray::to_array(&self) -> vortex_array::ArrayRef
+
+pub fn vortex_array::DynArray::to_arrow_array(&self, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::DynArray::to_canonical(&self) -> vortex_error::VortexResult<vortex_array::Canonical>
 
@@ -22512,6 +22834,8 @@ pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::is_valid(&self, index: usiz
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::len(&self) -> usize
 
+pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::preferred_arrow_data_type(&self) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::scalar_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::slice(&self, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -22521,6 +22845,8 @@ pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::statistics(&self) -> vortex
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::take(&self, indices: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::to_array(&self) -> vortex_array::ArrayRef
+
+pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::to_arrow_array(&self, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::to_canonical(&self) -> vortex_error::VortexResult<vortex_array::Canonical>
 
@@ -22562,6 +22888,8 @@ pub fn vortex_array::ArrayAdapter<V>::is_valid(&self, index: usize) -> vortex_er
 
 pub fn vortex_array::ArrayAdapter<V>::len(&self) -> usize
 
+pub fn vortex_array::ArrayAdapter<V>::preferred_arrow_data_type(&self) -> core::option::Option<arrow_schema::datatype::DataType>
+
 pub fn vortex_array::ArrayAdapter<V>::scalar_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::ArrayAdapter<V>::slice(&self, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -22571,6 +22899,8 @@ pub fn vortex_array::ArrayAdapter<V>::statistics(&self) -> vortex_array::stats::
 pub fn vortex_array::ArrayAdapter<V>::take(&self, indices: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayAdapter<V>::to_array(&self) -> vortex_array::ArrayRef
+
+pub fn vortex_array::ArrayAdapter<V>::to_arrow_array(&self, data_type: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
 
 pub fn vortex_array::ArrayAdapter<V>::to_canonical(&self) -> vortex_error::VortexResult<vortex_array::Canonical>
 

@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
+use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -10,12 +13,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+use crate::executor::ExecutionCtx;
 use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
 
@@ -104,6 +109,57 @@ impl ExtVTable for Date {
         );
 
         Ok(())
+    }
+
+    fn to_arrow_data_type(&self, ext_dtype: &ExtDType<Self>) -> Option<DataType> {
+        match ext_dtype.metadata() {
+            TimeUnit::Days => Some(DataType::Date32),
+            TimeUnit::Milliseconds => Some(DataType::Date64),
+            _ => None,
+        }
+    }
+
+    fn to_arrow_array(
+        &self,
+        _ext_dtype: &ExtDType<Self>,
+        storage: ArrayRef,
+        data_type: &DataType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        use arrow_array::PrimitiveArray;
+        use arrow_array::types::ArrowTemporalType;
+        use arrow_array::types::*;
+
+        use crate::arrays::PrimitiveArray as VortexPrimitiveArray;
+        use crate::arrow::null_buffer::to_null_buffer;
+        use crate::dtype::NativePType;
+
+        fn build_temporal<T: ArrowTemporalType>(
+            storage: ArrayRef,
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrowArrayRef>
+        where
+            T::Native: NativePType,
+        {
+            let primitive = storage.execute::<VortexPrimitiveArray>(ctx)?;
+            vortex_ensure!(
+                primitive.ptype() == T::Native::PTYPE,
+                "Expected temporal array to produce vector of width {}, found {}",
+                T::Native::PTYPE,
+                primitive.ptype()
+            );
+            let validity = primitive.validity_mask()?;
+            let buffer = primitive.to_buffer::<T::Native>();
+            let values = buffer.into_arrow_scalar_buffer();
+            let nulls = to_null_buffer(validity);
+            Ok(Arc::new(PrimitiveArray::<T>::new(values, nulls)))
+        }
+
+        match data_type {
+            DataType::Date32 => build_temporal::<Date32Type>(storage, ctx),
+            DataType::Date64 => build_temporal::<Date64Type>(storage, ctx),
+            _ => vortex_bail!("Cannot convert Date to Arrow type {}", data_type),
+        }
     }
 
     fn can_coerce_from(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {

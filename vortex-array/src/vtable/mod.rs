@@ -11,6 +11,8 @@ use std::fmt::Debug;
 use std::hash::Hasher;
 use std::ops::Deref;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 pub use dyn_::*;
 pub use operations::*;
 pub use validity::*;
@@ -180,6 +182,23 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Replaces the children in `array` with `children`. The count must be the same and types
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
+
+    /// Returns the preferred (cheapest) Arrow DataType for this encoding.
+    /// Default: None (use dtype.to_arrow_dtype()).
+    fn preferred_arrow_data_type(_array: &Self::Array) -> Option<DataType> {
+        None
+    }
+
+    /// Convert this encoding directly to an Arrow array for the given target DataType.
+    /// Returns Ok(None) if this encoding cannot directly produce the target type.
+    /// Default: Ok(None) (fall through to executor's DataType-based dispatch).
+    fn to_arrow_array(
+        _array: &Self::Array,
+        _data_type: &DataType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
+        Ok(None)
+    }
 
     /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
     /// do next.

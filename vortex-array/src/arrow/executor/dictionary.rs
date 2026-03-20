@@ -5,9 +5,7 @@ use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::DictionaryArray;
-use arrow_array::PrimitiveArray;
 use arrow_array::cast::AsArray;
-use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_schema::DataType;
 use vortex_error::VortexError;
@@ -16,31 +14,17 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
-use crate::arrays::Dict;
-use crate::arrays::DictArray;
-use crate::arrays::dict::DictArrayParts;
 use crate::arrow::ArrowArrayExecutor;
 
+/// Fallback conversion to Arrow dictionary. The encoding's `to_arrow_array` is tried first
+/// by the executor; this handles remaining cases via `arrow_cast`.
 pub(super) fn to_arrow_dictionary(
     array: ArrayRef,
     codes_type: &DataType,
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = match array.try_into::<Dict>() {
-        Ok(dict) => return dict_to_dict(dict, codes_type, values_type, ctx),
-        Err(array) => array,
-    };
-    let array = match array.try_into::<Constant>() {
-        Ok(constant) => return constant_to_dict(constant, codes_type, values_type, ctx),
-        Err(array) => array,
-    };
-
-    // Otherwise, we should try and build a dictionary.
-    // Arrow hides this functionality inside the cast module!
+    // Flatten to the values type, then cast to dictionary.
     let array = array.execute_arrow(Some(values_type), ctx)?;
     arrow_cast::cast(
         &array,
@@ -49,58 +33,8 @@ pub(super) fn to_arrow_dictionary(
     .map_err(VortexError::from)
 }
 
-/// Convert a constant array to a dictionary with a single entry.
-fn constant_to_dict(
-    array: ConstantArray,
-    codes_type: &DataType,
-    values_type: &DataType,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrowArrayRef> {
-    let len = array.len();
-    let scalar = array.scalar();
-    if scalar.is_null() {
-        let dict_type =
-            DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone()));
-        return Ok(new_null_array(&dict_type, len));
-    }
-
-    let values = ConstantArray::new(scalar.clone(), 1)
-        .into_array()
-        .execute_arrow(Some(values_type), ctx)?;
-    let codes = zeroed_codes_array(codes_type, len)?;
-    make_dict_array(codes_type, codes, values)
-}
-
-/// Convert a Vortex dictionary array to an Arrow dictionary array.
-fn dict_to_dict(
-    array: DictArray,
-    codes_type: &DataType,
-    values_type: &DataType,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrowArrayRef> {
-    let DictArrayParts { codes, values, .. } = array.into_parts();
-    let codes = codes.execute_arrow(Some(codes_type), ctx)?;
-    let values = values.execute_arrow(Some(values_type), ctx)?;
-    make_dict_array(codes_type, codes, values)
-}
-
-/// Construct a zeroed Arrow primitive array directly.
-fn zeroed_codes_array(codes_type: &DataType, len: usize) -> VortexResult<ArrowArrayRef> {
-    Ok(match codes_type {
-        DataType::Int8 => Arc::new(PrimitiveArray::<Int8Type>::from_value(0, len)),
-        DataType::Int16 => Arc::new(PrimitiveArray::<Int16Type>::from_value(0, len)),
-        DataType::Int32 => Arc::new(PrimitiveArray::<Int32Type>::from_value(0, len)),
-        DataType::Int64 => Arc::new(PrimitiveArray::<Int64Type>::from_value(0, len)),
-        DataType::UInt8 => Arc::new(PrimitiveArray::<UInt8Type>::from_value(0, len)),
-        DataType::UInt16 => Arc::new(PrimitiveArray::<UInt16Type>::from_value(0, len)),
-        DataType::UInt32 => Arc::new(PrimitiveArray::<UInt32Type>::from_value(0, len)),
-        DataType::UInt64 => Arc::new(PrimitiveArray::<UInt64Type>::from_value(0, len)),
-        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
-    })
-}
-
 /// Construct an Arrow `DictionaryArray` from pre-built codes and values arrays.
-fn make_dict_array(
+pub(crate) fn make_dict_array(
     codes_type: &DataType,
     codes: ArrowArrayRef,
     values: ArrowArrayRef,
@@ -148,11 +82,11 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::executor::dictionary::ConstantArray;
-    use crate::arrow::executor::dictionary::DictArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::executor::VortexSessionExecute;

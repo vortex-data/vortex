@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_schema::DataType;
 use uuid;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -74,6 +75,18 @@ impl ExtVTable for Uuid {
         );
 
         Ok(())
+    }
+
+    fn to_arrow_data_type(&self, ext_dtype: &ExtDType<Self>) -> Option<DataType> {
+        ext_dtype.storage_dtype().to_arrow_dtype().ok()
+    }
+
+    #[expect(clippy::disallowed_types, reason = "Arrow API requires std HashMap")]
+    fn arrow_field_metadata(
+        &self,
+        _ext_dtype: &ExtDType<Self>,
+    ) -> std::collections::HashMap<String, String> {
+        [("ARROW:extension:name".into(), "arrow.uuid".into())].into()
     }
 
     fn unpack_native<'a>(
