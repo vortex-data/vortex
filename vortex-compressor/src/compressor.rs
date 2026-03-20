@@ -28,6 +28,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::builtins::IntDictScheme;
 use crate::ctx::CompressorContext;
@@ -180,8 +181,7 @@ impl CascadingCompressor {
             }
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
-                    .unmasked_fields()
-                    .iter()
+                    .iter_unmasked_fields()
                     .map(|field| self.compress(field))
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -240,6 +240,9 @@ impl CascadingCompressor {
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array(),
                 )
+            }
+            Canonical::Variant(_) => {
+                vortex_bail!("Variant arrays can not be compressed")
             }
         }
     }

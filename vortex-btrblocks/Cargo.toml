@@ -14,7 +14,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-enum-iterator = { workspace = true }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
@@ -25,6 +24,7 @@ tracing = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-compressor = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
