@@ -61,9 +61,10 @@ use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
-use vortex_btrblocks::FloatCode;
-use vortex_btrblocks::IntCode;
-use vortex_btrblocks::StringCode;
+use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::float;
+use vortex_btrblocks::schemes::integer;
+use vortex_btrblocks::schemes::string;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -546,9 +547,11 @@ pub fn compress_array(array: &ArrayRef, strategy: CompressorStrategy) -> ArrayRe
             .compress(array)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
         CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
-            .include_string([StringCode::Zstd])
-            .include_int([IntCode::Pco])
-            .include_float([FloatCode::Pco])
+            .include([
+                string::ZstdScheme.id(),
+                integer::PcoScheme.id(),
+                float::PcoScheme.id(),
+            ])
             .build()
             .compress(array)
             .vortex_expect("Compact compress should succeed in fuzz test"),
