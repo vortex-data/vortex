@@ -91,19 +91,25 @@ fn create_density_matrix_fixture(
 #[divan::bench(args = BENCH_ARGS)]
 fn intersect_by_rank(bencher: Bencher, (size, pattern): (usize, &str)) {
     let (base, rank) = create_fixture(size, pattern);
-    bencher.bench(|| base.intersect_by_rank(&rank));
+    bencher
+        .with_inputs(|| (&base, &rank))
+        .bench_refs(|(base, rank)| base.intersect_by_rank(rank));
 }
 
 /// Sparse base masks (varying selectivity)
 #[divan::bench(args = SPARSE_ARGS)]
 fn sparse(bencher: Bencher, (size, selectivity, _name): (usize, f64, &str)) {
     let (base, rank) = create_sparse_fixture(size, selectivity);
-    bencher.bench(|| base.intersect_by_rank(&rank));
+    bencher
+        .with_inputs(|| (&base, &rank))
+        .bench_refs(|(base, rank)| base.intersect_by_rank(rank));
 }
 
 /// Density matrix (self_density x mask_density)
 #[divan::bench(args = DENSITY_MATRIX_ARGS)]
 fn density_matrix(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
     let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
-    bencher.bench(|| base.intersect_by_rank(&rank));
+    bencher
+        .with_inputs(|| (&base, &rank))
+        .bench_refs(|(base, rank)| base.intersect_by_rank(rank));
 }
