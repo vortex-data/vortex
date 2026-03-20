@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import App from '../components/App.jsx';
+import '../styles/index.css';
+---
+
+<Layout title="Vortex Benchmarks">
+  <div id="root">
+    <App client:load />
+  </div>
+</Layout>

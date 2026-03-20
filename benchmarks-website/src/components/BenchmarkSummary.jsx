@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatTime } from '../utils';
+import { formatTime } from '../lib/utils';
 
 // BenchmarkSummary now uses pre-computed summary from metadata (passed via props)
 // instead of fetching all chart data

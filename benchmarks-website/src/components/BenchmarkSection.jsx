@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { Info, Link2 } from 'lucide-react';
 import ChartContainer from './ChartContainer';
 import BenchmarkSummary from './BenchmarkSummary';
-import { getBenchmarkDescription, remapChartName } from '../utils';
+import { getBenchmarkDescription, remapChartName } from '../lib/utils';
 
 export default function BenchmarkSection({
   groupName,

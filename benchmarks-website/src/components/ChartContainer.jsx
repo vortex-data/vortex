@@ -1,14 +1,15 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactEChartsCore from 'echarts-for-react/lib/core';
+import * as echarts from 'echarts/core';
+import { LineChart } from 'echarts/charts';
 import {
-  CategoryScale,
-  Chart as ChartJS,
-  Legend,
-  LinearScale,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-} from 'chart.js';
-import zoomPlugin from 'chartjs-plugin-zoom';
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DataZoomComponent,
+  ToolboxComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import {
   ChevronLeft,
   ChevronRight,
@@ -19,39 +20,18 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Line } from 'react-chartjs-2';
-import { fetchChartData } from '../api';
-import { formatDate, stringToColor } from '../utils';
+import { fetchChartData } from '../lib/api';
+import { formatDate, stringToColor } from '../lib/utils';
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  zoomPlugin
-);
-
-// Custom tooltip positioner - 50px from cursor, 50px above nearest point
-Tooltip.positioners.topCorner = function(elements, eventPosition) {
-  const chart = this.chart;
-  const chartCenter = (chart.chartArea.left + chart.chartArea.right) / 2;
-  const chartVerticalCenter = (chart.chartArea.top + chart.chartArea.bottom) / 2;
-  const isOnRightSide = eventPosition.x > chartCenter;
-  const isOnTopSide = eventPosition.y < chartVerticalCenter;
-
-  let x = isOnRightSide ? eventPosition.x - 150 : eventPosition.x + 150;
-  let y = isOnTopSide ? chart.chartArea.top + 100 : chart.chartArea.bottom - 100;
-  return {
-    x,
-    y,
-    xAlign: isOnRightSide ? 'right' : 'left',
-    yAlign: isOnTopSide ? 'top' : 'bottom',
-  };
-};
+echarts.use([
+  LineChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DataZoomComponent,
+  ToolboxComponent,
+  CanvasRenderer,
+]);
 
 const DEFAULT_RANGE_SIZE = 100;
 
@@ -68,12 +48,9 @@ export default function ChartContainer({
   const [chartData, setChartData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // viewRange stores the requested range: either { last: N } or { startIdx, endIdx }
   const [viewRange, setViewRange] = useState({ last: DEFAULT_RANGE_SIZE });
   const chartRef = useRef(null);
-  const isResettingZoom = useRef(false);
 
-  // Fetch data for the current view range
   useEffect(() => {
     let cancelled = false;
 
@@ -84,10 +61,8 @@ export default function ChartContainer({
       try {
         let options = {};
         if (viewRange.last) {
-          // Initial load: get last N commits
           options = { last: viewRange.last };
         } else if (viewRange.startIdx !== undefined && viewRange.endIdx !== undefined) {
-          // Navigation: use index-based range
           options = { startIdx: viewRange.startIdx, endIdx: viewRange.endIdx };
         }
 
@@ -101,24 +76,16 @@ export default function ChartContainer({
           }
         }
       } catch (err) {
-        if (!cancelled) {
-          setError(err.message);
-        }
+        if (!cancelled) setError(err.message);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadData();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [groupName, chartName, viewRange]);
 
-  // Compute display range info from chartData (for rendering only)
   const displayRangeInfo = useMemo(() => {
     if (!chartData) return { startIdx: 0, endIdx: 0, total: 0, rangeSize: 0 };
     const total = chartData.originalLength || chartData.commits?.length || 0;
@@ -129,7 +96,6 @@ export default function ChartContainer({
     return { startIdx, endIdx, total, rangeSize };
   }, [chartData]);
 
-  // Compute current range from viewRange state (for navigation calculations)
   const getCurrentRange = useCallback(() => {
     const total = totalCommits || 0;
     if (viewRange.last) {
@@ -143,26 +109,17 @@ export default function ChartContainer({
     }
     const startIdx = viewRange.startIdx ?? 0;
     const endIdx = viewRange.endIdx ?? (total - 1);
-    return {
-      startIdx,
-      endIdx,
-      total,
-      rangeSize: endIdx - startIdx + 1,
-    };
+    return { startIdx, endIdx, total, rangeSize: endIdx - startIdx + 1 };
   }, [viewRange, totalCommits]);
 
   const isAtStart = displayRangeInfo.startIdx === 0;
   const isAtEnd = displayRangeInfo.endIdx >= displayRangeInfo.total - 1;
   const currentRangeSize = displayRangeInfo.rangeSize;
 
-  // Navigation handlers - use functional updates to get latest state
   const handleGoToStart = useCallback(() => {
     const range = getCurrentRange();
     if (range.startIdx === 0 || !range.total) return;
-    setViewRange({
-      startIdx: 0,
-      endIdx: Math.min(range.rangeSize - 1, range.total - 1),
-    });
+    setViewRange({ startIdx: 0, endIdx: Math.min(range.rangeSize - 1, range.total - 1) });
   }, [getCurrentRange]);
 
   const handleGoToEnd = useCallback(() => {
@@ -177,10 +134,7 @@ export default function ChartContainer({
     const moveAmount = Math.max(1, Math.floor(range.rangeSize / 2));
     const newStartIdx = Math.max(0, range.startIdx - moveAmount);
     const newEndIdx = newStartIdx + range.rangeSize - 1;
-    setViewRange({
-      startIdx: newStartIdx,
-      endIdx: Math.min(newEndIdx, range.total - 1),
-    });
+    setViewRange({ startIdx: newStartIdx, endIdx: Math.min(newEndIdx, range.total - 1) });
   }, [getCurrentRange]);
 
   const handleMoveForward = useCallback(() => {
@@ -200,17 +154,8 @@ export default function ChartContainer({
     const halfRange = Math.floor(newRangeSize / 2);
     let newStartIdx = center - halfRange;
     let newEndIdx = newStartIdx + newRangeSize - 1;
-
-    // Clamp to bounds
-    if (newStartIdx < 0) {
-      newStartIdx = 0;
-      newEndIdx = newRangeSize - 1;
-    }
-    if (newEndIdx >= range.total) {
-      newEndIdx = range.total - 1;
-      newStartIdx = Math.max(0, newEndIdx - newRangeSize + 1);
-    }
-
+    if (newStartIdx < 0) { newStartIdx = 0; newEndIdx = newRangeSize - 1; }
+    if (newEndIdx >= range.total) { newEndIdx = range.total - 1; newStartIdx = Math.max(0, newEndIdx - newRangeSize + 1); }
     setViewRange({ startIdx: newStartIdx, endIdx: newEndIdx });
   }, [getCurrentRange]);
 
@@ -222,17 +167,8 @@ export default function ChartContainer({
     const halfRange = Math.floor(newRangeSize / 2);
     let newStartIdx = center - halfRange;
     let newEndIdx = newStartIdx + newRangeSize - 1;
-
-    // Clamp to bounds
-    if (newStartIdx < 0) {
-      newStartIdx = 0;
-      newEndIdx = Math.min(newRangeSize - 1, range.total - 1);
-    }
-    if (newEndIdx >= range.total) {
-      newEndIdx = range.total - 1;
-      newStartIdx = Math.max(0, newEndIdx - newRangeSize + 1);
-    }
-
+    if (newStartIdx < 0) { newStartIdx = 0; newEndIdx = Math.min(newRangeSize - 1, range.total - 1); }
+    if (newEndIdx >= range.total) { newEndIdx = range.total - 1; newStartIdx = Math.max(0, newEndIdx - newRangeSize + 1); }
     setViewRange({ startIdx: newStartIdx, endIdx: newEndIdx });
   }, [getCurrentRange]);
 
@@ -244,46 +180,17 @@ export default function ChartContainer({
 
   const isFullRange = isAtStart && isAtEnd;
 
-  // Handle drag selection zoom
-  const handleDragZoom = useCallback((startDataIdx, endDataIdx) => {
-    if (!chartData?.commits || !chartData.requestedRange) return;
-
-    const numCommits = chartData.commits.length;
-    if (numCommits < 2) return;
-
-    const rangeStart = chartData.requestedRange.startIndex;
-    const rangeEnd = chartData.requestedRange.endIndex;
-    const total = chartData.originalLength || rangeEnd + 1;
-
-    // Map chart indices to original dataset indices using linear interpolation
-    // This correctly handles downsampled data where numCommits < (rangeEnd - rangeStart + 1)
-    const minIdx = Math.min(startDataIdx, endDataIdx);
-    const maxIdx = Math.max(startDataIdx, endDataIdx);
-    const globalStartIdx = rangeStart + Math.round(minIdx / (numCommits - 1) * (rangeEnd - rangeStart));
-    const globalEndIdx = rangeStart + Math.round(maxIdx / (numCommits - 1) * (rangeEnd - rangeStart));
-
-    // Ensure minimum range
-    if (globalEndIdx - globalStartIdx < 5) return;
-
-    setViewRange({
-      startIdx: Math.max(0, globalStartIdx),
-      endIdx: Math.min(total - 1, globalEndIdx),
-    });
-  }, [chartData]);
-
   // Process series data with filters and renaming
   const processedData = useMemo(() => {
     if (!chartData?.series || !chartData?.commits) return null;
 
     const { series, commits } = chartData;
-    const datasets = [];
+    const seriesList = [];
     const labels = commits.map(c => formatDate(c.timestamp));
 
     Object.entries(series).forEach(([seriesName, points]) => {
-      // Apply removed datasets filter
       if (config.removedDatasets?.has(seriesName)) return;
 
-      // Apply engine filter
       if (engineFilter !== 'all') {
         const engine = seriesName.split(':')[0].toLowerCase();
         if (engine !== engineFilter && !seriesName.toLowerCase().includes(engineFilter)) {
@@ -291,7 +198,6 @@ export default function ChartContainer({
         }
       }
 
-      // Rename series if needed
       let displaySeriesName = seriesName;
       if (config.renamedDatasets) {
         const caseInsensitive = {};
@@ -301,207 +207,152 @@ export default function ChartContainer({
         displaySeriesName = caseInsensitive[seriesName.toLowerCase()] || seriesName;
       }
 
-      // Check if hidden by default
       const hidden = config.hiddenDatasets?.has(seriesName) ||
                      config.hiddenDatasets?.has(displaySeriesName);
 
-      datasets.push({
-        label: displaySeriesName,
+      seriesList.push({
+        name: displaySeriesName,
         data: points,
-        borderColor: stringToColor(displaySeriesName),
-        backgroundColor: stringToColor(displaySeriesName) + '20',
-        pointRadius: 2,
-        pointHoverRadius: 5,
-        pointStyle: 'cross',
-        borderWidth: 1.5,
-        tension: 0,
-        spanGaps: true,
+        color: stringToColor(displaySeriesName),
         hidden,
       });
     });
 
-    return { labels, datasets, commits };
+    return { labels, seriesList, commits };
   }, [chartData, config, engineFilter]);
 
-  // Handle click on chart point to open commit on GitHub
-  const handleChartClick = useCallback((event, elements) => {
-    if (!elements.length || !processedData?.commits) return;
-    const dataIndex = elements[0].index;
-    const commit = processedData.commits[dataIndex];
+  // Build ECharts option
+  const echartsOption = useMemo(() => {
+    if (!processedData) return {};
+
+    const { labels, seriesList } = processedData;
+
+    return {
+      animation: false,
+      grid: {
+        left: 60,
+        right: 20,
+        top: 40,
+        bottom: 60,
+        containLabel: false,
+      },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(16, 16, 16, 0.92)',
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        textStyle: {
+          fontFamily: 'Geist Mono, monospace',
+          fontSize: 12,
+          color: '#fff',
+        },
+        axisPointer: {
+          type: 'cross',
+          lineStyle: { color: 'rgba(89, 113, 253, 0.4)' },
+          crossStyle: { color: 'rgba(89, 113, 253, 0.4)' },
+        },
+        formatter: (params) => {
+          if (!params.length || !processedData?.commits) return '';
+          const idx = params[0].dataIndex;
+          const commit = processedData.commits[idx];
+          const dateStr = commit ? formatDate(commit.timestamp) : params[0].axisValue;
+          const author = commit?.author || 'Unknown';
+          const sha = commit?.id?.slice(0, 7) || '';
+          const msg = commit?.message || '';
+
+          let header = `<div style="margin-bottom:6px;font-family:Geist,sans-serif;font-size:12px;color:rgba(255,255,255,0.7)">`;
+          header += `${dateStr} — ${author}<br/><span style="color:rgba(255,255,255,0.5)">(${sha}) ${msg}</span></div>`;
+
+          const sorted = [...params].filter(p => p.value != null).sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+          const top = sorted.slice(0, 10);
+          const lines = top.map(p => {
+            const val = p.value < 1 ? p.value.toFixed(4) : p.value.toFixed(2);
+            return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">` +
+              `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>` +
+              `<span style="flex:1">${p.seriesName}</span>` +
+              `<span style="font-weight:600">${val} ${unit || ''}</span></div>`;
+          }).join('');
+
+          return header + lines;
+        },
+        confine: true,
+      },
+      legend: {
+        type: 'scroll',
+        top: 0,
+        left: 0,
+        itemWidth: 14,
+        itemHeight: 10,
+        textStyle: {
+          fontFamily: 'Geist, sans-serif',
+          fontSize: 12,
+          color: '#333',
+        },
+        selected: Object.fromEntries(
+          seriesList.map(s => [s.name, !s.hidden])
+        ),
+      },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        axisLabel: {
+          fontFamily: 'Geist, sans-serif',
+          fontSize: 11,
+          rotate: 45,
+          interval: Math.max(0, Math.floor(labels.length / 10) - 1),
+        },
+        axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
+        splitLine: { show: true, lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        name: unit || '',
+        nameTextStyle: {
+          fontFamily: 'Geist, sans-serif',
+          fontSize: 12,
+          padding: [0, 0, 0, 40],
+        },
+        axisLabel: {
+          fontFamily: 'Geist Mono, monospace',
+          fontSize: 12,
+        },
+        axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
+        splitLine: { lineStyle: { color: 'rgba(0,0,0,0.08)' } },
+      },
+      dataZoom: [
+        {
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'none',
+        },
+      ],
+      series: seriesList.map(s => ({
+        name: s.name,
+        type: 'line',
+        data: s.data,
+        symbol: 'circle',
+        symbolSize: 4,
+        lineStyle: { width: 1.5, color: s.color },
+        itemStyle: { color: s.color },
+        connectNulls: true,
+        emphasis: {
+          focus: 'series',
+          lineStyle: { width: 2.5 },
+        },
+      })),
+    };
+  }, [processedData, unit]);
+
+  // Handle click to open commit on GitHub
+  const onChartClick = useCallback((params) => {
+    if (!processedData?.commits) return;
+    const commit = processedData.commits[params.dataIndex];
     if (commit?.id) {
       window.open(`https://github.com/vortex-data/vortex/commit/${commit.id}`, '_blank');
     }
   }, [processedData]);
 
-  // Chart.js options with drag zoom
-  const options = useMemo(() => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    onClick: handleChartClick,
-    onHover: (event, elements) => {
-      event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
-    },
-    interaction: {
-      mode: 'index',
-      intersect: true,
-    },
-    plugins: {
-      legend: {
-        position: 'top',
-        align: 'start',
-        labels: {
-          boxWidth: 12,
-          padding: 8,
-          font: {
-            size: 12,
-            family: 'Geist, sans-serif',
-          },
-          usePointStyle: true,
-          pointStyle: 'rectRounded',
-        },
-      },
-      tooltip: {
-        backgroundColor: 'rgba(16, 16, 16, 0.9)',
-        titleFont: { family: 'Geist, sans-serif', size: 13 },
-        bodyFont: { family: 'Geist Mono, monospace', size: 12 },
-        padding: 12,
-        cornerRadius: 4,
-        position: 'topCorner',
-        caretSize: 0,
-        itemSort: (a, b) => b.parsed.y - a.parsed.y,
-        // Limit to top 10 items by value to prevent tooltip from getting too large
-        filter: (item, _index, items) => {
-          if (items.length <= 10) return item.parsed.y != null;
-          const validItems = items.filter(i => i.parsed.y != null);
-          if (validItems.length <= 10) return item.parsed.y != null;
-          const sorted = [...validItems].sort((a, b) => (b.parsed.y ?? 0) - (a.parsed.y ?? 0));
-          const top10 = sorted.slice(0, 10);
-          return top10.some(i => i.datasetIndex === item.datasetIndex);
-        },
-        callbacks: {
-          title: (items) => {
-            if (!items.length || !processedData?.commits) return '';
-            const commit = processedData.commits[items[0].dataIndex];
-            if (!commit) return items[0].label;
-            const author = commit.author || 'Unknown';
-            return `${formatDate(commit.timestamp)} — ${author}\n(${commit.id?.slice(0, 7) || ''}) ${commit.message || ''}`;
-          },
-          label: (item) => {
-            const value = item.parsed.y;
-            if (value == null) return null;
-            const formattedValue = value < 1 ? value.toFixed(4) : value.toFixed(2);
-            return `${item.dataset.label}: ${formattedValue} ${unit || ''}`;
-          },
-          labelTextColor: (tooltipItem) => {
-            const chart = tooltipItem.chart;
-            const activeElements = chart._active || [];
-            if (activeElements.length === 0) return '#ffffff';
-            const lastEvent = chart._lastEvent;
-            if (!lastEvent) return '#ffffff';
-            // Find which dataset point is closest to the cursor
-            let hoveredDatasetIndex = activeElements[0].datasetIndex;
-            let closestDist = Infinity;
-            for (const el of activeElements) {
-              const point = chart.getDatasetMeta(el.datasetIndex).data[el.index];
-              if (point) {
-                const dist = Math.hypot(point.x - lastEvent.x, point.y - lastEvent.y);
-                if (dist < closestDist) {
-                  closestDist = dist;
-                  hoveredDatasetIndex = el.datasetIndex;
-                }
-              }
-            }
-            if (tooltipItem.datasetIndex === hoveredDatasetIndex) {
-              return '#ffffff';
-            }
-            return 'rgba(255, 255, 255, 0.45)';
-          },
-        },
-      },
-      zoom: {
-        zoom: {
-          drag: {
-            enabled: true,
-            backgroundColor: 'rgba(99, 102, 241, 0.2)',
-            borderColor: 'rgba(99, 102, 241, 0.8)',
-            borderWidth: 1,
-          },
-          mode: 'x',
-          onZoomComplete: ({ chart }) => {
-            // Prevent infinite loop from resetZoom triggering onZoomComplete
-            if (isResettingZoom.current) {
-              isResettingZoom.current = false;
-              return;
-            }
-
-            const { min, max } = chart.scales.x;
-            const startIdx = Math.floor(min);
-            const endIdx = Math.ceil(max);
-            if (startIdx >= 0 && endIdx > startIdx) {
-              handleDragZoom(startIdx, endIdx);
-            }
-            // Reset chart zoom state
-            isResettingZoom.current = true;
-            chart.resetZoom();
-          },
-        },
-      },
-    },
-    scales: {
-      x: {
-        display: true,
-        grid: {
-          display: true,
-          color: 'rgba(0, 0, 0, 0.12)',
-        },
-        ticks: {
-          maxRotation: 45,
-          minRotation: 45,
-          font: {
-            size: 11,
-            family: 'Geist, sans-serif',
-          },
-          maxTicksLimit: 10,
-          callback: function(value, index, ticks) {
-            // Always show first and last tick
-            if (index === 0 || index === ticks.length - 1) {
-              return this.getLabelForValue(value);
-            }
-            // Show intermediate ticks based on maxTicksLimit
-            const step = Math.ceil(ticks.length / 10);
-            if (index % step === 0) {
-              return this.getLabelForValue(value);
-            }
-            return null;
-          },
-        },
-      },
-      y: {
-        display: true,
-        beginAtZero: true,
-        grid: {
-          color: 'rgba(0, 0, 0, 0.12)',
-        },
-        ticks: {
-          font: {
-            size: 12,
-            family: 'Geist Mono, monospace',
-          },
-        },
-        title: {
-          display: !!unit,
-          text: unit || '',
-          font: {
-            size: 12,
-            family: 'Geist, sans-serif',
-          },
-        },
-      },
-    },
-  }), [unit, processedData, handleDragZoom, handleChartClick]);
-
-  // Fullscreen handler
   const handleFullscreen = useCallback(() => {
     if (processedData) {
       onFullscreen({
@@ -517,7 +368,6 @@ export default function ChartContainer({
     }
   }, [processedData, displayName, groupName, chartName, unit, config, totalCommits, getCurrentRange, onFullscreen]);
 
-  // Show placeholder only on initial load (no data yet)
   const showPlaceholder = !processedData && (loading || error);
   const showOverlay = loading && processedData;
 
@@ -551,7 +401,7 @@ export default function ChartContainer({
     );
   }
 
-  if (!processedData || processedData.datasets.length === 0) {
+  if (!processedData || processedData.seriesList.length === 0) {
     return (
       <div className="chart-container">
         <div className="chart-header">
@@ -577,81 +427,44 @@ export default function ChartContainer({
         </span>
         <div className="chart-actions">
           <div className="chart-zoom-controls">
-            <button
-              className="chart-zoom-btn"
-              onClick={handleGoToStart}
-              disabled={loading || isAtStart}
-              data-tooltip="Go to beginning"
-            >
+            <button className="chart-zoom-btn" onClick={handleGoToStart} disabled={loading || isAtStart} data-tooltip="Go to beginning">
               <SkipBack size={14} />
             </button>
-            <button
-              className="chart-zoom-btn"
-              onClick={handleMoveBackward}
-              disabled={loading || isAtStart}
-              data-tooltip="Move backwards"
-            >
+            <button className="chart-zoom-btn" onClick={handleMoveBackward} disabled={loading || isAtStart} data-tooltip="Move backwards">
               <ChevronLeft size={14} />
             </button>
-            <button
-              className="chart-zoom-btn"
-              onClick={handleZoomOut}
-              disabled={loading || isFullRange}
-              data-tooltip="Zoom out"
-            >
+            <button className="chart-zoom-btn" onClick={handleZoomOut} disabled={loading || isFullRange} data-tooltip="Zoom out">
               <ZoomOut size={14} />
             </button>
-            <button
-              className="chart-zoom-btn"
-              onClick={handleZoomIn}
-              disabled={loading || currentRangeSize <= 10}
-              data-tooltip="Zoom in"
-            >
+            <button className="chart-zoom-btn" onClick={handleZoomIn} disabled={loading || currentRangeSize <= 10} data-tooltip="Zoom in">
               <ZoomIn size={14} />
             </button>
-            <button
-              className="chart-zoom-btn"
-              onClick={handleMoveForward}
-              disabled={loading || isAtEnd}
-              data-tooltip="Move forwards"
-            >
+            <button className="chart-zoom-btn" onClick={handleMoveForward} disabled={loading || isAtEnd} data-tooltip="Move forwards">
               <ChevronRight size={14} />
             </button>
-            <button
-              className="chart-zoom-btn"
-              onClick={handleGoToEnd}
-              disabled={loading || isAtEnd}
-              data-tooltip="Go to end"
-            >
+            <button className="chart-zoom-btn" onClick={handleGoToEnd} disabled={loading || isAtEnd} data-tooltip="Go to end">
               <SkipForward size={14} />
             </button>
-            <button
-              className="chart-zoom-btn"
-              onClick={handleShowFullRange}
-              disabled={loading || isFullRange}
-              data-tooltip="Show full range"
-            >
+            <button className="chart-zoom-btn" onClick={handleShowFullRange} disabled={loading || isFullRange} data-tooltip="Show full range">
               <MoveHorizontal size={14} />
             </button>
           </div>
-          <button
-            className="chart-zoom-btn"
-            onClick={handleFullscreen}
-            disabled={loading}
-            data-tooltip="Fullscreen"
-          >
+          <button className="chart-zoom-btn" onClick={handleFullscreen} disabled={loading} data-tooltip="Fullscreen">
             <Expand size={14} />
           </button>
         </div>
       </div>
       <div className={`chart-canvas-wrapper ${showOverlay ? 'loading' : ''}`}>
-        <Line
+        <ReactEChartsCore
           ref={chartRef}
-          data={{
-            labels: processedData.labels,
-            datasets: processedData.datasets,
+          echarts={echarts}
+          option={echartsOption}
+          style={{ height: '100%', minHeight: '320px' }}
+          notMerge={true}
+          lazyUpdate={true}
+          onEvents={{
+            click: onChartClick,
           }}
-          options={options}
         />
         {showOverlay && (
           <div className="chart-loading-overlay">
