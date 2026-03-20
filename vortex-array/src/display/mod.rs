@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod extractor;
+mod extractors;
+mod node;
 mod tree;
+mod tree_display;
 
 use std::fmt::Display;
 
+pub use extractor::TreeContext;
+pub use extractor::TreeExtractor;
+pub use extractors::BufferExtractor;
+pub use extractors::MetadataExtractor;
+pub use extractors::NbytesExtractor;
+pub use extractors::StatsExtractor;
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
+pub use tree_display::TreeDisplay;
 
 use crate::DynArray;
 
@@ -429,6 +440,61 @@ impl dyn DynArray + '_ {
                 stats: true,
             },
         )
+    }
+
+    /// Create a tree display with all built-in extractors (nbytes, stats, metadata, buffers).
+    ///
+    /// This is the default, fully-detailed tree display. Use
+    /// [`tree_display_builder()`][Self::tree_display_builder] for a blank slate.
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   buffer: values host 10 B (align=2) (100.00%)
+    /// ";
+    /// assert_eq!(array.tree_display().to_string(), expected);
+    /// ```
+    pub fn tree_display(&self) -> TreeDisplay {
+        TreeDisplay::default_display(self.to_array())
+    }
+
+    /// Create a composable tree display builder with no extractors.
+    ///
+    /// With no extractors, only encoding headers and the tree structure are shown.
+    /// Add extractors with [`.with()`][TreeDisplay::with] to include additional information.
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// use vortex_array::display::{NbytesExtractor, MetadataExtractor, BufferExtractor};
+    ///
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    ///
+    /// // Encodings only (no extractors)
+    /// let encodings = array.tree_display_builder().to_string();
+    /// assert_eq!(encodings, "root: vortex.primitive(i16, len=5)\n");
+    ///
+    /// // With nbytes
+    /// let with_nbytes = array.tree_display_builder()
+    ///     .with(NbytesExtractor)
+    ///     .to_string();
+    /// assert_eq!(with_nbytes, "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)\n");
+    ///
+    /// // With metadata and buffers
+    /// let detailed = array.tree_display_builder()
+    ///     .with(MetadataExtractor)
+    ///     .with(BufferExtractor { show_percent: false })
+    ///     .to_string();
+    /// let expected = "root: vortex.primitive(i16, len=5)\n  metadata: EmptyMetadata\n  buffer: values host 10 B (align=2)\n";
+    /// assert_eq!(detailed, expected);
+    /// ```
+    pub fn tree_display_builder(&self) -> TreeDisplay {
+        TreeDisplay::new(self.to_array())
     }
 
     /// Display the array as a formatted table.
