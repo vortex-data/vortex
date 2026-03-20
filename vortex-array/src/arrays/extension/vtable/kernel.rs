@@ -17,9 +17,9 @@ use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<Extension> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&ExtensionArrowExportKernel),
     ParentKernelSet::lift(&CompareExecuteAdaptor(Extension)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(Extension)),
+    ParentKernelSet::lift(&ExtensionArrowExportKernel),
 ]);
 
 #[derive(Debug)]

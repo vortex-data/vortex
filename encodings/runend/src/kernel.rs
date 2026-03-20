@@ -27,12 +27,12 @@ use crate::array::build_run_array;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&RunEndArrowExportKernel),
     ParentKernelSet::lift(&CompareExecuteAdaptor(RunEnd)),
     ParentKernelSet::lift(&RunEndSliceKernel),
     ParentKernelSet::lift(&FilterExecuteAdaptor(RunEnd)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(RunEnd)),
     ParentKernelSet::lift(&RunEndTakeFrom),
+    ParentKernelSet::lift(&RunEndArrowExportKernel),
 ]);
 
 #[derive(Debug)]

@@ -14,3 +14,5 @@ pub(crate) mod compute;
 mod vtable;
 
 pub use vtable::Constant;
+pub(crate) use vtable::constant_to_dict;
+pub(crate) use vtable::constant_to_run_end;

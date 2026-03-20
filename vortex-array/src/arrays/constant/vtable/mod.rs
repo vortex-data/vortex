@@ -12,7 +12,6 @@ use arrow_array::types::*;
 use arrow_buffer::ArrowNativeType;
 use arrow_schema::DataType;
 use arrow_schema::Field;
-use kernel::PARENT_KERNELS;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -52,7 +51,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
-mod kernel;
 mod operations;
 mod validity;
 
@@ -192,15 +190,6 @@ impl VTable for Constant {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         Ok(ExecutionStep::Done(
             constant_canonicalize(array)?.into_array(),
@@ -285,7 +274,7 @@ impl VTable for Constant {
 }
 
 /// Convert a constant array to a dictionary with a single entry.
-fn constant_to_dict(
+pub(crate) fn constant_to_dict(
     array: &ConstantArray,
     codes_type: &DataType,
     values_type: &DataType,
@@ -322,7 +311,7 @@ fn zeroed_codes_array(codes_type: &DataType, len: usize) -> VortexResult<ArrowAr
 }
 
 /// Convert a constant array to a run-end encoded array with a single run.
-fn constant_to_run_end(
+pub(crate) fn constant_to_run_end(
     array: &ConstantArray,
     ends_type: &DataType,
     values_type: &Field,

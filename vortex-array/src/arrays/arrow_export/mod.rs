@@ -26,6 +26,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::Constant;
 use crate::arrays::Extension;
 use crate::arrays::NativeArrow;
 use crate::arrays::NativeArrowArray;
@@ -205,6 +206,29 @@ impl VTable for ArrowExport {
         // If child is already NativeArrow, we're done.
         if array.child.is::<NativeArrow>() {
             return Ok(ExecutionStep::Done(array.child.clone()));
+        }
+
+        // Handle Constant children directly for Dict/REE targets (avoids canonicalization).
+        if let Some(constant) = array.child.as_opt::<Constant>() {
+            match &array.target {
+                DataType::Dictionary(codes_type, values_type) => {
+                    let arrow =
+                        crate::arrays::constant::constant_to_dict(constant, codes_type, values_type, ctx)?;
+                    let native = NativeArrowArray::new(arrow, array.dtype.clone());
+                    return Ok(ExecutionStep::Done(native.into_array()));
+                }
+                DataType::RunEndEncoded(ends_field, values_field) => {
+                    let arrow = crate::arrays::constant::constant_to_run_end(
+                        constant,
+                        ends_field.data_type(),
+                        values_field,
+                        ctx,
+                    )?;
+                    let native = NativeArrowArray::new(arrow, array.dtype.clone());
+                    return Ok(ExecutionStep::Done(native.into_array()));
+                }
+                _ => {}
+            }
         }
 
         // If child is canonical, convert via DataType dispatch.
