@@ -60,10 +60,6 @@ pub fn vortex_turboquant::TurboQuant::buffer_name(_array: &vortex_turboquant::Tu
 
 pub fn vortex_turboquant::TurboQuant::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantArray>
 
-pub fn vortex_turboquant::TurboQuant::child(array: &vortex_turboquant::TurboQuantArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::TurboQuant::child_name(_array: &vortex_turboquant::TurboQuantArray, idx: usize) -> alloc::string::String
-
 pub fn vortex_turboquant::TurboQuant::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_turboquant::TurboQuant::dtype(array: &vortex_turboquant::TurboQuantArray) -> &vortex_array::dtype::DType
@@ -80,17 +76,19 @@ pub fn vortex_turboquant::TurboQuant::metadata(array: &vortex_turboquant::TurboQ
 
 pub fn vortex_turboquant::TurboQuant::nbuffers(_array: &vortex_turboquant::TurboQuantArray) -> usize
 
-pub fn vortex_turboquant::TurboQuant::nchildren(array: &vortex_turboquant::TurboQuantArray) -> usize
-
 pub fn vortex_turboquant::TurboQuant::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_turboquant::TurboQuant::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_turboquant::TurboQuant::slot_name(_array: &vortex_turboquant::TurboQuantArray, idx: usize) -> alloc::string::String
+
+pub fn vortex_turboquant::TurboQuant::slots(array: &vortex_turboquant::TurboQuantArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_turboquant::TurboQuant::stats(array: &vortex_turboquant::TurboQuantArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_turboquant::TurboQuant::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_turboquant::TurboQuant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_turboquant::TurboQuant::with_slots(array: &mut vortex_turboquant::TurboQuantArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_turboquant::TurboQuant> for vortex_turboquant::TurboQuant
 
@@ -118,7 +116,7 @@ pub fn vortex_turboquant::TurboQuantArray::norms(&self) -> &vortex_array::array:
 
 pub fn vortex_turboquant::TurboQuantArray::padded_dim(&self) -> u32
 
-pub fn vortex_turboquant::TurboQuantArray::qjl(&self) -> core::option::Option<&vortex_turboquant::QjlCorrection>
+pub fn vortex_turboquant::TurboQuantArray::qjl(&self) -> core::option::Option<vortex_turboquant::QjlCorrection>
 
 pub fn vortex_turboquant::TurboQuantArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
 
