@@ -92,3 +92,7 @@ harness = false
 [[bench]]
 name = "transpose_patches"
 harness = false
+
+[[bench]]
+name = "hybrid_dispatch_cuda"
+harness = false

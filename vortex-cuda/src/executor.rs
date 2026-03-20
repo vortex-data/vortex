@@ -28,6 +28,8 @@ use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
+use crate::hybrid_dispatch;
+
 use crate::CudaSession;
 use crate::ExportDeviceArray;
 use crate::kernel::DefaultLaunchStrategy;
@@ -265,6 +267,11 @@ impl CudaExecutionCtx {
         self.ctx.session()
     }
 
+    /// Returns a reference to the CUDA session.
+    pub(crate) fn cuda_session(&self) -> &CudaSession {
+        &self.cuda_session
+    }
+
     /// Get a handle to the exporter that can convert arrays into `ArrowDeviceArray`.
     pub fn exporter(&self) -> &Arc<dyn ExportDeviceArray> {
         self.cuda_session.export_device_array()
@@ -362,6 +369,19 @@ impl CudaArrayExt for ArrayRef {
         if self.is_canonical() || self.is_empty() {
             trace!(encoding = ?self.encoding_id(), "skipping canonical");
             return self.execute(&mut ctx.ctx);
+        }
+
+        // Try to fuse the encoding tree (or parts of it) into dynamic-dispatch
+        // kernel launches. See hybrid_dispatch module docs for details.
+        match hybrid_dispatch::try_dyn_dispatch(&self, ctx).await {
+            Ok(canonical) => return Ok(canonical),
+            Err(e) => {
+                trace!(
+                    encoding = %self.encoding_id(),
+                    error = %e,
+                    "Hybrid dispatch not applicable, trying registered single kernel"
+                );
+            }
         }
 
         let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
