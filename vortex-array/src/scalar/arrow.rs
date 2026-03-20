@@ -466,14 +466,12 @@ mod tests {
             }
 
             fn validate_dtype(
-                &self,
                 _ext_dtype: &crate::dtype::extension::ExtDType<Self>,
             ) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
-                &self,
                 _ext_dtype: &'a crate::dtype::extension::ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {

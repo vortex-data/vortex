@@ -51,10 +51,7 @@ impl ExtVTable for DivisibleInt {
         Ok(Divisor(n))
     }
 
-    fn validate_dtype(
-        &self,
-        ext_dtype: &crate::dtype::extension::ExtDType<Self>,
-    ) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &crate::dtype::extension::ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
             "divisible int storage dtype must be u64"
@@ -63,7 +60,6 @@ impl ExtVTable for DivisibleInt {
     }
 
     fn unpack_native<'a>(
-        &self,
         ext_dtype: &'a crate::dtype::extension::ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
