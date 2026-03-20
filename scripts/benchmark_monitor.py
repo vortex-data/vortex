@@ -43,31 +43,69 @@ import sys
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
+
+
+# ============================================================================
+# METRIC TYPES — one struct per check, all fields typed with defaults
+# ============================================================================
+
+@dataclass(frozen=True, slots=True)
+class Ewma:
+    """EWMA control chart config."""
+    pattern: str = "*"
+    span: int = 10
+    sigma: float = 3.0
+    min_observations: int = 5
+
+
+@dataclass(frozen=True, slots=True)
+class Cusum:
+    """Tabular CUSUM config."""
+    pattern: str = "*"
+    drift: float = 0.5
+    cusum_threshold: float = 5.0
+    min_observations: int = 5
+
+
+@dataclass(frozen=True, slots=True)
+class Threshold:
+    """Static upper/lower bound config."""
+    pattern: str = "*"
+    max_value: float | None = None
+    min_value: float | None = None
+    min_observations: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class PctChange:
+    """Percentage change from rolling mean config."""
+    pattern: str = "*"
+    window: int = 5
+    pct_threshold: float = 20.0
+    min_observations: int = 5
+
+
+Metric = Ewma | Cusum | Threshold | PctChange
 
 
 # ============================================================================
 # METRICS — this is the only section you need to edit
 # ============================================================================
 #
-# Each metric is a check applied to a set of benchmark series.
-# "pattern" matches series names: trailing * = prefix, otherwise substring.
-# "check" names a registered check function.
-# Remaining keys are passed as params to the check.
-#
-# The list is evaluated top-to-bottom; first matching pattern wins.
-# Series that match nothing get DEFAULT_METRIC.
+# Each entry is a typed struct. Pattern matching: trailing * = prefix,
+# otherwise substring. First match wins. Unmatched series get DEFAULT_METRIC.
 
-DEFAULT_METRIC = {"check": "ewma", "span": 10, "sigma": 3.0, "min_observations": 5}
+DEFAULT_METRIC: Metric = Ewma()
 
-METRICS: list[dict[str, Any]] = [
+METRICS: list[Metric] = [
     # S3 benchmarks — noisier, wider bounds
-    {"pattern": "tpch-s3*",       "check": "ewma", "sigma": 4.0, "span": 15, "min_observations": 8},
-    {"pattern": "fineweb-s3*",    "check": "ewma", "sigma": 4.0, "span": 15, "min_observations": 8},
+    Ewma(pattern="tpch-s3*",       sigma=4.0, span=15, min_observations=8),
+    Ewma(pattern="fineweb-s3*",    sigma=4.0, span=15, min_observations=8),
     # Compression — stable, tighter bounds
-    {"pattern": "compress*",      "check": "ewma", "sigma": 2.5, "span": 8},
+    Ewma(pattern="compress*",      sigma=2.5, span=8),
     # Random access — CUSUM catches gradual drift
-    {"pattern": "random-access*", "check": "cusum", "cusum_threshold": 4.0, "drift": 0.3, "min_observations": 8},
+    Cusum(pattern="random-access*", cusum_threshold=4.0, drift=0.3, min_observations=8),
 ]
 
 
@@ -95,38 +133,14 @@ class Alert:
 
 
 # ============================================================================
-# CHECKS — composable statistical tests
+# CHECKS — one function per metric type, dispatched via match
 # ============================================================================
-#
-# A check is any callable: (values: list[float], **params) -> Alert | None
-# Register with @check("name") to make it available in METRICS.
 
-
-class CheckFn(Protocol):
-    def __call__(self, values: list[float], **params: Any) -> Alert | None: ...
-
-
-_CHECKS: dict[str, CheckFn] = {}
-
-
-def check(name: str):
-    """Decorator to register a check function."""
-    def decorator(fn: CheckFn) -> CheckFn:
-        _CHECKS[name] = fn
-        return fn
-    return decorator
-
-
-@check("ewma")
-def check_ewma(values: list[float], *, span: int = 10, sigma: float = 3.0,
-               min_observations: int = 5, **_: Any) -> Alert | None:
-    """EWMA control chart. Alerts when latest point deviates from the
-    exponentially weighted moving average by more than `sigma` standard
-    deviations."""
-    if len(values) < min_observations:
+def _check_ewma(values: list[float], m: Ewma) -> Alert | None:
+    if len(values) < m.min_observations:
         return None
 
-    alpha = 2.0 / (span + 1)
+    alpha = 2.0 / (m.span + 1)
     ewma = values[0]
     ewma_var = 0.0
     for v in values[1:-1]:
@@ -140,7 +154,7 @@ def check_ewma(values: list[float], *, span: int = 10, sigma: float = 3.0,
 
     current = values[-1]
     dev = (current - ewma) / std
-    if abs(dev) < sigma:
+    if abs(dev) < m.sigma:
         return None
 
     direction = "regression" if dev > 0 else "improvement"
@@ -151,11 +165,8 @@ def check_ewma(values: list[float], *, span: int = 10, sigma: float = 3.0,
     )
 
 
-@check("cusum")
-def check_cusum(values: list[float], *, drift: float = 0.5, cusum_threshold: float = 5.0,
-                min_observations: int = 5, **_: Any) -> Alert | None:
-    """Tabular CUSUM. Detects sustained mean shifts."""
-    if len(values) < min_observations:
+def _check_cusum(values: list[float], m: Cusum) -> Alert | None:
+    if len(values) < m.min_observations:
         return None
 
     import numpy as np
@@ -167,52 +178,45 @@ def check_cusum(values: list[float], *, drift: float = 0.5, cusum_threshold: flo
     s_pos = s_neg = 0.0
     for v in values:
         z = (v - mu) / std
-        s_pos = max(0.0, s_pos + z - drift)
-        s_neg = max(0.0, s_neg - z - drift)
+        s_pos = max(0.0, s_pos + z - m.drift)
+        s_neg = max(0.0, s_neg - z - m.drift)
 
-    if s_pos < cusum_threshold and s_neg < cusum_threshold:
+    if s_pos < m.cusum_threshold and s_neg < m.cusum_threshold:
         return None
 
     current = values[-1]
     dev = (current - mu) / std
-    direction = "regression" if s_pos >= cusum_threshold else "improvement"
+    direction = "regression" if s_pos >= m.cusum_threshold else "improvement"
     return Alert(
         series="", commit_id="", check_name="cusum",
         current=current, expected=mu, sigma=dev,
-        message=f"CUSUM {direction}: S+={s_pos:.2f} S-={s_neg:.2f} (threshold={cusum_threshold})",
+        message=f"CUSUM {direction}: S+={s_pos:.2f} S-={s_neg:.2f} (threshold={m.cusum_threshold})",
     )
 
 
-@check("threshold")
-def check_threshold(values: list[float], *, max_value: float | None = None,
-                    min_value: float | None = None,
-                    min_observations: int = 1, **_: Any) -> Alert | None:
-    """Static upper/lower bound."""
-    if len(values) < min_observations:
+def _check_threshold(values: list[float], m: Threshold) -> Alert | None:
+    if len(values) < m.min_observations:
         return None
     current = values[-1]
-    if max_value is not None and current > max_value:
+    if m.max_value is not None and current > m.max_value:
         return Alert(
             series="", commit_id="", check_name="threshold",
-            current=current, expected=max_value, sigma=0.0,
-            message=f"Exceeded: {current:.1f} > {max_value:.1f}",
+            current=current, expected=m.max_value, sigma=0.0,
+            message=f"Exceeded: {current:.1f} > {m.max_value:.1f}",
         )
-    if min_value is not None and current < min_value:
+    if m.min_value is not None and current < m.min_value:
         return Alert(
             series="", commit_id="", check_name="threshold",
-            current=current, expected=min_value, sigma=0.0,
-            message=f"Below: {current:.1f} < {min_value:.1f}",
+            current=current, expected=m.min_value, sigma=0.0,
+            message=f"Below: {current:.1f} < {m.min_value:.1f}",
         )
     return None
 
 
-@check("pct_change")
-def check_pct_change(values: list[float], *, window: int = 5, pct_threshold: float = 20.0,
-                     min_observations: int = 5, **_: Any) -> Alert | None:
-    """Percentage change from rolling mean."""
-    if len(values) < min_observations:
+def _check_pct_change(values: list[float], m: PctChange) -> Alert | None:
+    if len(values) < m.min_observations:
         return None
-    baseline = values[-window - 1:-1] if len(values) > window else values[:-1]
+    baseline = values[-m.window - 1:-1] if len(values) > m.window else values[:-1]
     if not baseline:
         return None
     mean = sum(baseline) / len(baseline)
@@ -220,27 +224,36 @@ def check_pct_change(values: list[float], *, window: int = 5, pct_threshold: flo
         return None
     current = values[-1]
     pct = ((current - mean) / mean) * 100.0
-    if abs(pct) < pct_threshold:
+    if abs(pct) < m.pct_threshold:
         return None
     direction = "regression" if pct > 0 else "improvement"
     return Alert(
         series="", commit_id="", check_name="pct_change",
-        current=current, expected=mean, sigma=pct / pct_threshold,
+        current=current, expected=mean, sigma=pct / m.pct_threshold,
         message=f"Pct change {direction}: {pct:+.1f}% (value={current:.1f}, baseline={mean:.1f})",
     )
+
+
+def run_check(values: list[float], metric: Metric) -> Alert | None:
+    """Dispatch to the right check based on metric type."""
+    match metric:
+        case Ewma():       return _check_ewma(values, metric)
+        case Cusum():      return _check_cusum(values, metric)
+        case Threshold():  return _check_threshold(values, metric)
+        case PctChange():  return _check_pct_change(values, metric)
 
 
 # ============================================================================
 # FILTER — match series names to metrics
 # ============================================================================
 
-def metric_for(series_name: str) -> dict[str, Any]:
+def metric_for(series_name: str) -> Metric:
     """First matching metric from METRICS, or DEFAULT_METRIC."""
     for m in METRICS:
-        pattern = m.get("pattern", "")
-        if pattern.endswith("*") and series_name.startswith(pattern[:-1]):
+        p = m.pattern
+        if p.endswith("*") and series_name.startswith(p[:-1]):
             return m
-        if pattern and pattern in series_name:
+        if not p.endswith("*") and p in series_name:
             return m
     return DEFAULT_METRIC
 
@@ -337,17 +350,8 @@ def compute(history: dict[str, list[Point]], commit_id: str,
             continue
 
         metric = metric_for(series_name)
-        params = {k: v for k, v in metric.items() if k not in ("pattern", "check")}
-        check_name = metric.get("check", "ewma")
-
-        fn = _CHECKS.get(check_name)
-        if fn is None:
-            available = ", ".join(sorted(_CHECKS))
-            print(f"  warning: unknown check '{check_name}' (have: {available})", file=sys.stderr)
-            continue
-
         values = [p.value for p in points]
-        alert = fn(values, **params)
+        alert = run_check(values, metric)
         if alert is None:
             continue
 
