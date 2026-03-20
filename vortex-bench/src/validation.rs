@@ -7,9 +7,12 @@
 //! representations of the same values, enabling a single set of reference
 //! files to validate results from either engine.
 
+use std::path::Path;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
+use datafusion_sqllogictest::value_normalizer;
+use sqllogictest::default_validator;
 
 /// Normalize a `f64` value to a canonical string representation.
 ///
@@ -249,4 +252,89 @@ pub fn rows_to_slt(query_sql: &str, column_types: &str, rows: &mut Vec<Vec<Strin
         out.push('\n');
     }
     out
+}
+
+/// Parse expected result rows from a `.slt.no` file.
+///
+/// Extracts all lines after the first `----` separator until the end of the
+/// file (or until a blank line followed by another record header). Each line
+/// becomes one entry in the returned `Vec<String>`.
+fn parse_slt_expected_rows(content: &str) -> Vec<String> {
+    let mut in_results = false;
+    let mut expected = Vec::new();
+
+    for line in content.lines() {
+        if !in_results {
+            if line == "----" {
+                in_results = true;
+            }
+            continue;
+        }
+        expected.push(line.to_string());
+    }
+
+    // Trim trailing empty lines
+    while expected.last().is_some_and(|l| l.is_empty()) {
+        expected.pop();
+    }
+
+    expected
+}
+
+/// Validate actual query rows against a `.slt.no` reference file.
+///
+/// Reads the file at `slt_path`, parses the expected rows after `----`,
+/// applies `rowsort` to the actual rows, and compares using
+/// `sqllogictest::default_validator` with `datafusion_sqllogictest::value_normalizer`.
+///
+/// Returns `Ok(())` if the results match, or `Err` with a diff description.
+pub fn validate_against_slt(
+    slt_path: &Path,
+    actual_rows: &mut [Vec<String>],
+) -> Result<(), String> {
+    let content = std::fs::read_to_string(slt_path)
+        .map_err(|e| format!("Failed to read {}: {e}", slt_path.display()))?;
+
+    let expected_lines = parse_slt_expected_rows(&content);
+
+    // Apply rowsort to actual rows (same as the slt file specifies)
+    actual_rows.sort();
+
+    let matches = default_validator(value_normalizer, actual_rows, &expected_lines);
+
+    if matches {
+        Ok(())
+    } else {
+        // Build a human-readable diff for the error message
+        let actual_flat: Vec<String> = actual_rows.iter().map(|row| row.join(" ")).collect();
+
+        let mut diff_msg = String::new();
+        diff_msg.push_str(&format!("Mismatch against {}\n", slt_path.display()));
+        diff_msg.push_str(&format!(
+            "Expected {} lines, got {} lines\n",
+            expected_lines.len(),
+            actual_flat.len()
+        ));
+
+        let max_lines = expected_lines.len().max(actual_flat.len()).min(20);
+        for i in 0..max_lines {
+            let exp = expected_lines
+                .get(i)
+                .map(String::as_str)
+                .unwrap_or("<missing>");
+            let act = actual_flat
+                .get(i)
+                .map(String::as_str)
+                .unwrap_or("<missing>");
+            if exp != act {
+                diff_msg.push_str(&format!("  line {i}: expected: {exp}\n"));
+                diff_msg.push_str(&format!("  line {i}:   actual: {act}\n"));
+            }
+        }
+        if expected_lines.len().max(actual_flat.len()) > 20 {
+            diff_msg.push_str("  ... (truncated)\n");
+        }
+
+        Err(diff_msg)
+    }
 }

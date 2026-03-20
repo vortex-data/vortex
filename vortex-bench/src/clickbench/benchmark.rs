@@ -128,6 +128,7 @@ impl Benchmark for ClickBenchBenchmark {
         Some(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("clickbench")
+                .join("slt")
                 .join("results"),
         )
     }

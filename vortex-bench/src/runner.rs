@@ -13,8 +13,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 use indicatif::ProgressBar;
-use similar::ChangeTag;
-use similar::TextDiff;
 use vortex::error::vortex_panic;
 
 use crate::Benchmark;
@@ -22,8 +20,8 @@ use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
 use crate::Target;
-use crate::validation::rows_to_normalized_tsv;
 use crate::validation::rows_to_slt;
+use crate::validation::validate_against_slt;
 
 /// Controls whether queries are benchmarked or explained.
 pub enum BenchmarkMode {
@@ -277,24 +275,20 @@ impl SqlBenchmarkRunner {
         }
     }
 
-    /// Get the path for a reference result file (TSV format, for validation).
+    /// Get the path for a `.slt.no` reference result file.
     fn reference_path(&self, query_idx: usize) -> Option<PathBuf> {
-        self.expected_results_dir
-            .as_ref()
-            .map(|dir| dir.join(format!("q{query_idx:02}.tsv")))
-    }
-
-    /// Get the path for a generated `.slt.no` reference file.
-    fn slt_reference_path(&self, query_idx: usize) -> Option<PathBuf> {
         self.expected_results_dir
             .as_ref()
             .map(|dir| dir.join(format!("q{query_idx:02}.slt.no")))
     }
 
-    /// Validate a query result against its reference file.
+    /// Validate a query result against its `.slt.no` reference file.
+    ///
+    /// Uses `sqllogictest::default_validator` with `value_normalizer` to compare
+    /// actual rows against the expected rows parsed from the slt file.
     ///
     /// Returns `true` if the result matches (or no reference exists), `false` on mismatch.
-    fn validate_query_result(&self, query_idx: usize, actual: &str) -> bool {
+    fn validate_query_result(&self, query_idx: usize, actual_rows: &mut [Vec<String>]) -> bool {
         let Some(path) = self.reference_path(query_idx) else {
             eprintln!("No expected_results_dir configured, skipping validation for q{query_idx}");
             return true;
@@ -309,33 +303,20 @@ impl SqlBenchmarkRunner {
             return true;
         }
 
-        let expected = fs::read_to_string(&path).unwrap_or_else(|e| {
-            vortex_panic!("Failed to read reference file {}: {e}", path.display());
-        });
-
-        if expected == actual {
-            return true;
+        match validate_against_slt(&path, actual_rows) {
+            Ok(()) => true,
+            Err(msg) => {
+                eprintln!(
+                    "=== Result mismatch for q{query_idx} ({engine}) ===",
+                    engine = self.engine
+                );
+                eprintln!("{msg}");
+                false
+            }
         }
-
-        let diff = TextDiff::from_lines(expected.as_str(), actual);
-        eprintln!(
-            "=== Result mismatch for q{query_idx} ({engine}) ===",
-            engine = self.engine
-        );
-        for change in diff.iter_all_changes() {
-            let sign = match change.tag() {
-                ChangeTag::Delete => "-",
-                ChangeTag::Insert => "+",
-                ChangeTag::Equal => " ",
-            };
-            eprint!("{sign}{change}");
-        }
-        eprintln!();
-
-        false
     }
 
-    /// Write a query result as a new reference file (TSV format).
+    /// Write a query result as a `.slt.no` reference file.
     fn write_reference_result(&self, query_idx: usize, result: &str) {
         let Some(path) = self.reference_path(query_idx) else {
             eprintln!(
@@ -355,28 +336,6 @@ impl SqlBenchmarkRunner {
         });
 
         eprintln!("Wrote reference for q{query_idx} to {}", path.display());
-    }
-
-    /// Write a query result as a `.slt.no` sqllogictest reference file.
-    fn write_slt_reference_result(&self, query_idx: usize, result: &str) {
-        let Some(path) = self.slt_reference_path(query_idx) else {
-            eprintln!(
-                "No expected_results_dir configured, cannot generate slt reference for q{query_idx}"
-            );
-            return;
-        };
-
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap_or_else(|e| {
-                vortex_panic!("Failed to create directory {}: {e}", parent.display());
-            });
-        }
-
-        fs::write(&path, result).unwrap_or_else(|e| {
-            vortex_panic!("Failed to write slt reference file {}: {e}", path.display());
-        });
-
-        eprintln!("Wrote slt reference for q{query_idx} to {}", path.display());
     }
 
     /// Run (or explain) all queries for all formats synchronously.
@@ -430,9 +389,8 @@ impl SqlBenchmarkRunner {
 
                         // Validate the last iteration's result against the reference file.
                         if validate && self.expected_results_dir.is_some() {
-                            let (cols, mut rows) = result.normalized_result();
-                            let tsv = rows_to_normalized_tsv(&cols, &mut rows);
-                            if !self.validate_query_result(query_idx, &tsv) {
+                            let (_cols, mut rows) = result.normalized_result();
+                            if !self.validate_query_result(query_idx, &mut rows) {
                                 validation_failures.push((query_idx, format));
                             }
                         }
@@ -480,9 +438,8 @@ impl SqlBenchmarkRunner {
 
                 for (query_idx, query) in queries.iter() {
                     let (_, result) = execute(&mut ctx, *query_idx, format, query.as_str())?;
-                    let (cols, mut rows) = result.normalized_result();
-                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
-                    if !self.validate_query_result(*query_idx, &tsv) {
+                    let (_cols, mut rows) = result.normalized_result();
+                    if !self.validate_query_result(*query_idx, &mut rows) {
                         all_passed = false;
                     }
                 }
@@ -504,12 +461,9 @@ impl SqlBenchmarkRunner {
                 for (query_idx, query) in queries.iter() {
                     let (_, result) = execute(&mut ctx, *query_idx, format, query.as_str())?;
                     let col_types = result.column_types();
-                    let (cols, mut rows) = result.normalized_result();
-                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
-                    self.write_reference_result(*query_idx, &tsv);
-
+                    let (_cols, mut rows) = result.normalized_result();
                     let slt = rows_to_slt(query, &col_types, &mut rows);
-                    self.write_slt_reference_result(*query_idx, &slt);
+                    self.write_reference_result(*query_idx, &slt);
                 }
             }
         }
@@ -585,9 +539,8 @@ impl SqlBenchmarkRunner {
 
                         // Validate the last iteration's result against the reference file.
                         if validate && self.expected_results_dir.is_some() {
-                            let (cols, mut rows) = result.normalized_result();
-                            let tsv = rows_to_normalized_tsv(&cols, &mut rows);
-                            if !self.validate_query_result(query_idx, &tsv) {
+                            let (_cols, mut rows) = result.normalized_result();
+                            if !self.validate_query_result(query_idx, &mut rows) {
                                 validation_failures.push((query_idx, format));
                             }
                         }
@@ -634,9 +587,8 @@ impl SqlBenchmarkRunner {
 
                 for (query_idx, query) in queries.iter() {
                     let (_, result) = execute(*query_idx, &ctx, query.as_str()).await?;
-                    let (cols, mut rows) = result.normalized_result();
-                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
-                    if !self.validate_query_result(*query_idx, &tsv) {
+                    let (_cols, mut rows) = result.normalized_result();
+                    if !self.validate_query_result(*query_idx, &mut rows) {
                         all_passed = false;
                     }
                 }
@@ -657,12 +609,9 @@ impl SqlBenchmarkRunner {
                 for (query_idx, query) in queries.iter() {
                     let (_, result) = execute(*query_idx, &ctx, query.as_str()).await?;
                     let col_types = result.column_types();
-                    let (cols, mut rows) = result.normalized_result();
-                    let tsv = rows_to_normalized_tsv(&cols, &mut rows);
-                    self.write_reference_result(*query_idx, &tsv);
-
+                    let (_cols, mut rows) = result.normalized_result();
                     let slt = rows_to_slt(query, &col_types, &mut rows);
-                    self.write_slt_reference_result(*query_idx, &slt);
+                    self.write_reference_result(*query_idx, &slt);
                 }
             }
         }

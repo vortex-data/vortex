@@ -26,6 +26,7 @@ bigdecimal = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+datafusion-sqllogictest = { workspace = true }
 futures = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }
@@ -42,7 +43,7 @@ regex = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-similar = { workspace = true }
+sqllogictest = "0.28"
 sysinfo = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 target-lexicon = { workspace = true }

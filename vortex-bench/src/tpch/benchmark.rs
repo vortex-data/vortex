@@ -147,6 +147,7 @@ impl Benchmark for TpcHBenchmark {
         Some(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tpch")
+                .join("slt")
                 .join("results"),
         )
     }
