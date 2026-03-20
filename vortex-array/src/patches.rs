@@ -984,13 +984,14 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
             }
         }
         Validity::AllInvalid => {
-            // All patch values are null, just mark positions as invalid.
-            for &i in patch_indices {
+            // Preserve patch payloads while keeping the destination null.
+            for (&i, &value) in patch_indices.iter().zip_eq(patch_values) {
                 let index = i.as_() - patch_offset;
 
                 // SAFETY: `index` is valid because caller guarantees all patch indices are within
                 // bounds after offset adjustment.
                 unsafe {
+                    buffer[index] = value;
                     validity.unset_unchecked(index);
                 }
             }
@@ -1008,8 +1009,8 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
                 // SAFETY: `index` and `patch_idx` are valid because caller guarantees all patch
                 // indices are within bounds after offset adjustment.
                 unsafe {
+                    buffer[index] = value;
                     if mask.value_unchecked(patch_idx) {
-                        buffer[index] = value;
                         validity.set_unchecked(index);
                     } else {
                         validity.unset_unchecked(index);

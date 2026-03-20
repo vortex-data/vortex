@@ -21,7 +21,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::BitPackedArray;
@@ -185,12 +185,26 @@ fn insert_values_and_validity_at_indices_to_uninit_range<
     indices_offset: usize,
     f: F,
 ) {
-    let Mask::AllTrue(_) = values_validity else {
-        vortex_panic!("BitPackedArray somehow had nullable patch values");
-    };
-
-    for (index, &value) in indices.iter().zip_eq(values) {
-        dst.set_value(index.as_() - indices_offset, f(value));
+    match values_validity.bit_buffer() {
+        AllOr::All => {
+            for (index, &value) in indices.iter().zip_eq(values) {
+                dst.set_value(index.as_() - indices_offset, f(value));
+            }
+        }
+        AllOr::None => {
+            for (index, &value) in indices.iter().zip_eq(values) {
+                let dst_index = index.as_() - indices_offset;
+                dst.set_value(dst_index, f(value));
+                dst.set_validity_bit(dst_index, false);
+            }
+        }
+        AllOr::Some(validity) => {
+            for (patch_idx, (index, &value)) in indices.iter().zip_eq(values).enumerate() {
+                let dst_index = index.as_() - indices_offset;
+                dst.set_value(dst_index, f(value));
+                dst.set_validity_bit(dst_index, validity.value(patch_idx));
+            }
+        }
     }
 }
 

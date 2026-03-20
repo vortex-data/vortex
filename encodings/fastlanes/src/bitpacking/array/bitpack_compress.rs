@@ -21,6 +21,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
@@ -203,12 +204,8 @@ pub fn gather_patches(
     bit_width: u8,
     num_exceptions_hint: usize,
 ) -> VortexResult<Option<Patches>> {
-    let patch_validity = match parray.validity() {
-        Validity::NonNullable => Validity::NonNullable,
-        _ => Validity::AllValid,
-    };
-
     let array_len = parray.len();
+    let validity = parray.validity_mask()?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -216,7 +213,7 @@ pub fn gather_patches(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
-                patch_validity,
+                &validity,
             )?
         })
     } else if array_len < u16::MAX as usize {
@@ -225,7 +222,7 @@ pub fn gather_patches(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
-                patch_validity,
+                &validity,
             )?
         })
     } else if array_len < u32::MAX as usize {
@@ -234,7 +231,7 @@ pub fn gather_patches(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
-                patch_validity,
+                &validity,
             )?
         })
     } else {
@@ -243,7 +240,7 @@ pub fn gather_patches(
                 parray.as_slice::<T>(),
                 bit_width,
                 num_exceptions_hint,
-                patch_validity,
+                &validity,
             )?
         })
     };
@@ -255,7 +252,7 @@ fn gather_patches_impl<T, P>(
     data: &[T],
     bit_width: u8,
     num_exceptions_hint: usize,
-    patch_validity: Validity,
+    validity: &Mask,
 ) -> VortexResult<Option<Patches>>
 where
     T: PrimInt + NativePType,
@@ -263,6 +260,7 @@ where
 {
     let mut indices: BufferMut<P> = BufferMut::with_capacity(num_exceptions_hint);
     let mut values: BufferMut<T> = BufferMut::with_capacity(num_exceptions_hint);
+    let mut patch_validity = Vec::with_capacity(num_exceptions_hint);
 
     let total_chunks = data.len().div_ceil(1024);
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
@@ -276,6 +274,7 @@ where
         if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize {
             indices.push(P::from(idx).vortex_expect("cast index from usize"));
             values.push(*value);
+            patch_validity.push(validity.value(idx));
         }
     }
 
@@ -286,7 +285,7 @@ where
             data.len(),
             0,
             indices.into_array(),
-            PrimitiveArray::new(values, patch_validity).into_array(),
+            PrimitiveArray::new(values, Validity::from_iter(patch_validity)).into_array(),
             Some(chunk_offsets.into_array()),
         )?))
     }
