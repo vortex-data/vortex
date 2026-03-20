@@ -162,6 +162,6 @@ impl VTable for NormVector {
     }
 
     fn execute(array: &NormVectorArray, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.execute_into_vector(ctx)?))
+        Ok(ExecutionStep::Done(array.decompress(ctx)?))
     }
 }

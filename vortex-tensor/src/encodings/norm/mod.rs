@@ -9,5 +9,5 @@ pub use array::NormVectorArray;
 mod vtable;
 pub use vtable::NormVector;
 
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
