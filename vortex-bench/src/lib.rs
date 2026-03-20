@@ -9,6 +9,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
+use alp_compress::AlpCompressBenchmark;
 use anyhow::bail;
 use clap::ValueEnum;
 use clickbench::ClickBenchBenchmark;
@@ -32,6 +33,7 @@ use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
+pub mod alp_compress;
 pub mod benchmark;
 pub mod clickbench;
 pub mod compress;
@@ -258,6 +260,8 @@ pub enum BenchmarkArg {
     PolarSignals,
     #[clap(name = "public-bi")]
     PublicBi,
+    #[clap(name = "alp-compress")]
+    AlpCompress,
 }
 
 /// Default scale factor for TPC-related benchmarks
@@ -312,6 +316,11 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
                 anyhow::anyhow!("public-bi benchmark requires --opt dataset=<name>")
             })?;
             let benchmark = PublicBiBenchmark::new(dataset)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::AlpCompress => {
+            let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
+            let benchmark = AlpCompressBenchmark::new(scale_factor)?;
             Ok(Box::new(benchmark) as _)
         }
     }
