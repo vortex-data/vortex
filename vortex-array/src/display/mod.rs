@@ -477,7 +477,7 @@ impl dyn DynArray + '_ {
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
-                let opening_brace= if f.alternate() { "[\n" } else { "[" };
+                let opening_brace = if f.alternate() { "[\n" } else { "[" };
                 let closing_brace = if f.alternate() { "\n]" } else { "]" };
 
                 let sep = if *omit_comma_after_space { "," } else { ", " };
@@ -485,16 +485,19 @@ impl dyn DynArray + '_ {
                 let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
                 let is_truncated = self.len() > limit;
 
-                let fmt_scalar = |i| self
-                    .scalar_at(i)
-                    .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
-
+                let fmt_scalar = |i| {
+                    self.scalar_at(i)
+                        .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
+                };
                 write!(
                     f,
                     "{opening_brace}{}{closing_brace}",
                     (0..limit.saturating_sub(3))
                         .map(fmt_scalar)
-                        .chain(std::iter::repeat_n("...".to_string(), is_truncated as usize))
+                        .chain(std::iter::repeat_n(
+                            "...".to_string(),
+                            is_truncated as usize
+                        ))
                         .chain((self.len().saturating_sub(3)..self.len()).map(fmt_scalar))
                         .format(sep)
                 )
