@@ -127,13 +127,17 @@ impl VTable for Bool {
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
-        assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(ProstMetadata(BoolMetadata {
             offset: u32::try_from(array.offset).vortex_expect("checked"),
         }))
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        vortex_ensure!(
+            metadata.offset == 0,
+            "BoolArray offset must be 0 for serialization, got {}",
+            metadata.offset
+        );
         Ok(Some(metadata.serialize()))
     }
 
