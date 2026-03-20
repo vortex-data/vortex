@@ -18,6 +18,7 @@ use vortex_session::VortexSession;
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
 
+#[expect(dead_code)]
 pub struct DeltaFixture;
 
 impl FlatLayoutFixture for DeltaFixture {
