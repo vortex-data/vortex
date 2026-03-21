@@ -1,0 +1,466 @@
+% Scanning Compressed Strings: DFA-Based LIKE Pushdown for FSST-Encoded Columnar Data
+% Target: DaMoN (Data Management on New Hardware) @ SIGMOD
+% Format: 6-8 pages, double column, ACM sigconf
+
+\documentclass[sigconf,nonacm]{acmart}
+
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{subcaption}
+\usepackage{xspace}
+
+% Convenience macros
+\newcommand{\fsst}{\textsc{fsst}\xspace}
+\newcommand{\like}{\texttt{LIKE}\xspace}
+\newcommand{\vortex}{\textsc{Vortex}\xspace}
+\newcommand{\dfa}{\textsc{dfa}\xspace}
+\newcommand{\kmp}{\textsc{kmp}\xspace}
+
+\begin{document}
+
+\title{Scanning Compressed Strings: DFA-Based LIKE Pushdown\\for FSST-Encoded Columnar Data}
+
+\author{TODO}
+\affiliation{%
+  \institution{TODO}
+}
+\email{TODO}
+
+% ===========================================================================
+% ABSTRACT
+% ===========================================================================
+
+\begin{abstract}
+Modern columnar stores compress strings with FSST (Fast Static Symbol Table),
+which replaces recurring byte sequences with single-byte codes using a learned
+255-entry symbol table. Evaluating predicates like \texttt{LIKE~'prefix\%'} or
+\texttt{LIKE~'\%needle\%'} conventionally requires decompressing the data first,
+paying the cost of memory allocation, cache pollution, and memcpy before the
+actual comparison can begin.
+
+We present a technique that evaluates LIKE predicates directly on
+FSST-compressed code streams by constructing a compact DFA over the symbol
+table. The core challenge is that FSST symbols are variable-length (1--8 bytes),
+so a single code byte may advance the matcher through multiple byte-level
+states. Our construction addresses this in four stages: (1)~build a KMP failure
+function on the needle bytes, (2)~materialize a byte-level transition table,
+(3)~simulate each symbol's multi-byte expansion to produce symbol-level
+transitions---the step with no analogue in standard DFA literature---and
+(4)~flatten the result into a cache-resident \texttt{u8}-indexed lookup table.
+Escape codes (literal bytes without a symbol) are handled via a sentinel
+architecture that keeps the hot path branchless while gracefully degrading as
+escape rate increases.
+
+The resulting DFA fits entirely in L1 cache ($\leq$64\,KB for patterns up to
+253 bytes), requires zero heap allocation during scanning, and processes one
+FSST code per iteration rather than one byte. On real-world datasets from
+ClickBench and FineWeb, FSST achieves 3--5$\times$ compression with mean symbol
+lengths of 3--5 bytes and escape rates below 5\%. For \texttt{prefix\%}
+patterns the DFA matches or exceeds Arrow's SIMD string kernel while skipping
+decompression entirely; for \texttt{\%needle\%} patterns it delivers consistent
+speedups that scale with compression ratio. We implement the technique in
+Vortex, an open-source compressed columnar engine, where it composes with
+zone-map pruning: the zone map eliminates non-matching row groups, and the DFA
+scans survivors without materializing strings.
+\end{abstract}
+
+\maketitle
+
+% ===========================================================================
+% 1. INTRODUCTION
+% ===========================================================================
+
+\section{Introduction}
+\label{sec:intro}
+
+% WHY: String-heavy analytical queries are increasingly common, and FSST is
+% the dominant lightweight string compression in columnar stores.
+
+% PROBLEM: LIKE predicates require decompression today — this is wasteful
+% because the compressed representation already contains enough information
+% to evaluate the predicate.
+
+% CONTRIBUTION: We show how to construct a DFA that operates directly on
+% FSST code streams, and demonstrate significant speedups on real data.
+
+% OUTLINE: Brief roadmap of the paper.
+
+\textbf{TODO.}
+
+% ===========================================================================
+% 2. BACKGROUND
+% ===========================================================================
+
+\section{Background}
+\label{sec:background}
+
+% 2.1 FSST Encoding
+% - Symbol table: up to 255 symbols, each 1-8 bytes
+% - Compression: greedy left-to-right, longest-match
+% - Escape code (255): literal byte follows
+% - Typical compression ratios on string data: 3-5x
+
+\subsection{FSST Encoding}
+\label{sec:bg-fsst}
+
+\textbf{TODO.}
+
+% 2.2 LIKE Predicate Semantics
+% - SQL LIKE with % and _ wildcards
+% - We focus on two common cases:
+%   (a) prefix%  — starts-with
+%   (b) %needle% — contains
+% - These cover the majority of LIKE usage in practice
+
+\subsection{LIKE Predicate Semantics}
+\label{sec:bg-like}
+
+\textbf{TODO.}
+
+% 2.3 KMP String Matching
+% - Failure function, linear-time matching
+% - Why KMP (not Boyer-Moore): we process symbols left-to-right,
+%   matching FSST's encoding direction
+
+\subsection{KMP String Matching}
+\label{sec:bg-kmp}
+
+\textbf{TODO.}
+
+% ===========================================================================
+% 3. DFA CONSTRUCTION
+% ===========================================================================
+
+\section{DFA Construction}
+\label{sec:construction}
+
+% Overview: four-stage pipeline that transforms a LIKE pattern + FSST symbol
+% table into a flat lookup table. Walk through each stage with a running example.
+
+% Running example:
+%   needle = "abab"
+%   symbols: s0="ab" (code 0), s1="ac" (code 1), s2="b" (code 2)
+
+\textbf{TODO: introduce running example.}
+
+% --------------------------------------------------------------------------
+% Stage 1: KMP failure function
+% --------------------------------------------------------------------------
+
+\subsection{Stage 1: KMP Failure Function}
+\label{sec:stage1}
+
+% Build standard KMP failure function on needle bytes.
+% For needle "abab": failure = [0, 0, 1, 2]
+% This enables O(n) matching with backtracking on mismatch.
+
+\textbf{TODO.}
+
+% --------------------------------------------------------------------------
+% Stage 2: Byte-level transition table
+% --------------------------------------------------------------------------
+
+\subsection{Stage 2: Byte-Level Transition Table}
+\label{sec:stage2}
+
+% Materialize (state × byte) → state table.
+% States: 0..needle_len (progress states) + ACCEPT + possibly FAIL (prefix only).
+% For prefix%: mismatch → sticky FAIL (no backtracking).
+% For %needle%: mismatch → KMP failure fallback.
+
+\textbf{TODO.}
+
+% --------------------------------------------------------------------------
+% Stage 3: Symbol-level transitions (CORE NOVELTY)
+% --------------------------------------------------------------------------
+
+\subsection{Stage 3: Symbol-Level Transitions}
+\label{sec:stage3}
+
+% THE KEY STEP: For each (state, symbol_code) pair, feed the symbol's bytes
+% through the byte-level table and record the final state.
+%
+% This handles:
+%   - Multi-byte symbols advancing through multiple match states
+%   - Cross-symbol boundary matching (pattern straddles two symbols)
+%   - KMP fallback within a single symbol (e.g., "abac" symbol vs "abab" needle)
+%
+% Worked example with the running example symbols.
+%
+% Correctness argument: the simulation produces identical results to
+% byte-by-byte matching on decompressed data, regardless of how the
+% compressor chose to decompose the string into symbols.
+
+\textbf{TODO.}
+
+% --------------------------------------------------------------------------
+% Stage 4: Flat u8 table with escape sentinel
+% --------------------------------------------------------------------------
+
+\subsection{Stage 4: Flat Table with Escape Sentinel}
+\label{sec:stage4}
+
+% Flatten into table[state * 256 + code] → next_state.
+% State IDs are u8 → table ≤ 64KB → fits in L1.
+%
+% Escape handling:
+%   - Code 255 (FSST escape) maps to sentinel value in the symbol table
+%   - Scanner detects sentinel, reads next literal byte
+%   - Looks up in separate byte-level escape table
+%   - Hot path (codes 0-254): one branchless table lookup
+%   - Cold path (code 255): one branch + one extra lookup
+%
+% Pattern length limits:
+%   - prefix%: up to 253 bytes (N progress + accept + fail + sentinel ≤ 256)
+%   - %needle%: up to 254 bytes (N progress + accept + sentinel ≤ 256)
+
+\textbf{TODO.}
+
+% --------------------------------------------------------------------------
+% Pseudocode
+% --------------------------------------------------------------------------
+
+\subsection{Scan Algorithm}
+\label{sec:scan}
+
+% Present the scanning algorithm as pseudocode.
+% Emphasize the hot path: while (pos < len) { state = table[state][codes[pos++]]; }
+% Show how escape sentinel interrupts this.
+
+\begin{algorithm}
+\caption{DFA scan over FSST-compressed codes}\label{alg:scan}
+\begin{algorithmic}[1]
+\Require{code stream $C[0..n)$, symbol table $T$, escape table $E$, sentinel $\sigma$}
+\Ensure{true if pattern matches}
+\State $s \gets s_0$ \Comment{start state}
+\State $i \gets 0$
+\While{$i < n$}
+    \State $s' \gets T[s][C[i]]$
+    \If{$s' = \sigma$} \Comment{escape: cold path}
+        \State $i \gets i + 1$
+        \State $s \gets E[s][C[i]]$
+    \Else \Comment{symbol: hot path}
+        \State $s \gets s'$
+    \EndIf
+    \If{$s = s_{\text{accept}}$} \Return true
+    \EndIf
+    \State $i \gets i + 1$
+\EndWhile
+\State \Return false
+\end{algorithmic}
+\end{algorithm}
+
+% ===========================================================================
+% 4. INTEGRATION
+% ===========================================================================
+
+\section{Integration with Vortex}
+\label{sec:integration}
+
+% 4.1 Pushdown framework
+% - Vortex evaluates scalar functions on encoded arrays without decoding
+% - The LIKE kernel checks if the array is FSST-encoded, attempts DFA
+%   construction, falls back to decompression if unsupported pattern
+
+% 4.2 Zone-map composition
+% - Vortex files store per-zone min/max statistics
+% - Zone maps prune row groups that cannot match the LIKE pattern
+% - DFA scans only surviving zones
+% - Combined benefit: zone maps reduce volume, DFA reduces cost per byte
+
+\textbf{TODO.}
+
+% ===========================================================================
+% 5. EVALUATION
+% ===========================================================================
+
+\section{Evaluation}
+\label{sec:eval}
+
+% Setup: machine specs, compiler, datasets, methodology (samples × iters)
+
+\subsection{Experimental Setup}
+\label{sec:eval-setup}
+
+\textbf{TODO: machine specs, compiler version, methodology.}
+
+% --------------------------------------------------------------------------
+% 5.1 Symbol table characterization (Experiment A)
+% --------------------------------------------------------------------------
+
+\subsection{Symbol Table Characterization}
+\label{sec:eval-symtab}
+
+% Real-world datasets: ClickBench (URL, Title, SearchPhrase, Referer),
+% FineWeb (url, text), TPC-H (l_comment).
+%
+% Table: n_strings, avg_len, n_symbols, mean_sym_len, compression_ratio,
+% escape_rate, entropy, effective_alphabet, p50/p90 symbol coverage.
+%
+% Key finding: escape rates are consistently low (<5%) on real data,
+% validating the sentinel architecture.
+
+\textbf{TODO: summary table of symbol table characteristics.}
+
+% --------------------------------------------------------------------------
+% 5.2 DFA vs decompress-then-match (Experiment B)
+% --------------------------------------------------------------------------
+
+\subsection{DFA vs Decompress-then-Match}
+\label{sec:eval-throughput}
+
+% Bar chart: speedup per dataset × pattern type (prefix%, %needle%).
+% Use real patterns on real data.
+% Show Arrow LIKE kernel as the baseline (not a strawman).
+%
+% Key finding: DFA wins most convincingly on well-compressed data with
+% longer symbols (URLs). On high-entropy data (SearchPhrase), the advantage
+% is smaller but still positive.
+
+\textbf{TODO: throughput comparison, bar chart.}
+
+% --------------------------------------------------------------------------
+% 5.3 Escape rate sensitivity (Experiment C)
+% --------------------------------------------------------------------------
+
+\subsection{Escape Rate Sensitivity}
+\label{sec:eval-escape}
+
+% Line chart: DFA throughput (GB/s) vs escape rate (0-50%).
+% Controlled sweep using noise injection on FineWeb text.
+%
+% Key finding: graceful degradation — throughput drops linearly, no cliff.
+% Even at 20% escape rate, DFA still competitive with decompression.
+
+\textbf{TODO: escape rate sweep, line chart.}
+
+% --------------------------------------------------------------------------
+% 5.4 Symbol length vs throughput (Experiment D)
+% --------------------------------------------------------------------------
+
+\subsection{Mean Symbol Length vs Throughput}
+\label{sec:eval-symlen}
+
+% Scatter: mean_sym_len (x) vs throughput (y) for DFA and decompress.
+% Real datasets as named points overlaid.
+%
+% Key finding: DFA throughput scales roughly linearly with mean symbol length
+% (fewer transitions per string). Decompression throughput is mostly flat.
+
+\textbf{TODO: symbol length scatter plot.}
+
+% --------------------------------------------------------------------------
+% 5.5 Pattern length scaling (Experiment E)
+% --------------------------------------------------------------------------
+
+\subsection{Pattern Length Scaling}
+\label{sec:eval-patlen}
+
+% Line chart: throughput vs pattern length (1-200 bytes).
+% DFA table size grows linearly; does it cause cache pressure?
+%
+% Key finding: throughput roughly constant until table exceeds L1 cache.
+
+\textbf{TODO: pattern length sweep.}
+
+% --------------------------------------------------------------------------
+% 5.6 Construction cost (Experiment F)
+% --------------------------------------------------------------------------
+
+\subsection{Construction Cost}
+\label{sec:eval-construction}
+
+% Table: construction time (ns) for various pattern lengths and types.
+% Compare against scan time for 1K, 10K, 100K rows.
+%
+% Key finding: construction is <10µs, amortized after a few hundred rows.
+
+\textbf{TODO: construction cost table.}
+
+% --------------------------------------------------------------------------
+% 5.7 End-to-end with zone pruning (Experiment G)
+% --------------------------------------------------------------------------
+
+\subsection{End-to-End File Scan}
+\label{sec:eval-e2e}
+
+% Stacked bar: query time breakdown (zone prune + DFA scan + other).
+% Full Vortex pipeline on ClickBench/FineWeb data written to Vortex files.
+%
+% Key finding: zone maps + DFA compose multiplicatively.
+
+\textbf{TODO: end-to-end results.}
+
+% --------------------------------------------------------------------------
+% 5.8 Micro-architectural analysis (Experiment I)
+% --------------------------------------------------------------------------
+
+\subsection{Micro-Architectural Analysis}
+\label{sec:eval-perf}
+
+% perf counters: L1/L2/L3 cache misses, branch mispredictions, IPC.
+% Compare DFA scan vs decompress-then-match.
+%
+% Key finding: DFA has dramatically fewer cache misses (small working set)
+% and fewer branch mispredictions (branchless hot path).
+
+\textbf{TODO: perf counter comparison.}
+
+% ===========================================================================
+% 6. RELATED WORK
+% ===========================================================================
+
+\section{Related Work}
+\label{sec:related}
+
+% 6.1 FSST
+% - Boncz et al., VLDB 2020: the FSST paper
+% - Used in DuckDB, Velox, Vortex, and others
+
+% 6.2 Predicate evaluation on compressed data
+% - Dictionary pushdown (trivial: compare against dictionary entries)
+% - Run-length encoding pushdown
+% - Bit-packed integer pushdown
+% - None of these handle variable-length string compression like FSST
+
+% 6.3 Compressed pattern matching
+% - Navarro & Tarhio (2005): pattern matching on LZ77
+% - Amir, Benson, Farach (1996): matching on LZW
+% - These target different compression schemes and are not directly applicable
+
+% 6.4 SIMD string matching
+% - Arrow LIKE kernel uses SIMD for prefix/contains
+% - Our DFA operates at a coarser granularity (codes vs bytes)
+% - Complementary: could SIMD-ize the DFA table lookups
+
+\textbf{TODO.}
+
+% ===========================================================================
+% 7. CONCLUSION
+% ===========================================================================
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+% Summary of contributions:
+% 1. Four-stage DFA construction for LIKE on FSST-compressed data
+% 2. Sentinel escape architecture for branchless hot path
+% 3. Comprehensive evaluation on real-world datasets
+%
+% Future work:
+% - Extend to regex (fused DFA prototype already works)
+% - SIMD-ize the DFA table lookups (gather instructions)
+% - Extend to other LIKE patterns (suffix, interior wildcards)
+% - Apply to other variable-length encodings beyond FSST
+
+\textbf{TODO.}
+
+% ===========================================================================
+% REFERENCES
+% ===========================================================================
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}
