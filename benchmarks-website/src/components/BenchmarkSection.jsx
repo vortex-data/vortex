@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { Info, Link2 } from 'lucide-react';
 import ChartContainer from './ChartContainer';
+import LazyChart from './LazyChart';
 import BenchmarkSummary from './BenchmarkSummary';
 import { getBenchmarkDescription, remapChartName } from '../lib/utils';
 import {
@@ -170,17 +171,18 @@ export default function BenchmarkSection({
       {isExpanded && (
         <div className={`benchmark-graphs ${viewMode === 'list' ? 'list-view' : ''} ${chartCount === 1 ? 'single-chart' : ''}`}>
           {filteredCharts.map(chart => (
-            <ChartContainer
-              key={chart.name}
-              groupName={groupName}
-              chartName={chart.name}
-              displayName={remapChartName(chart.name)}
-              unit={config.unitOverride || chart.unit}
-              config={config}
-              filters={mergedFilters}
-              onFullscreen={onFullscreen}
-              commitRange={commitRange}
-            />
+            <LazyChart key={chart.name}>
+              <ChartContainer
+                groupName={groupName}
+                chartName={chart.name}
+                displayName={remapChartName(chart.name)}
+                unit={config.unitOverride || chart.unit}
+                config={config}
+                filters={mergedFilters}
+                onFullscreen={onFullscreen}
+                commitRange={commitRange}
+              />
+            </LazyChart>
           ))}
         </div>
       )}
