@@ -274,7 +274,14 @@ jobs:
         if: inputs.mode == 'develop'
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data/${{ matrix.id }}.data.json.gz results.json
+          # Split query and memory records into separate files
+          grep -v '_memory/' results.json > results-query.json || true
+          grep '_memory/' results.json > results-memory.json || true
+
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data/${{ matrix.id }}.data.json.gz results-query.json
+          if [ -s results-memory.json ]; then
+            bash scripts/cat-s3.sh vortex-ci-benchmark-results data/${{ matrix.id }}-memory.data.json.gz results-memory.json
+          fi
 
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'

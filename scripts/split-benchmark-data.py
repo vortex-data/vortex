@@ -26,6 +26,15 @@ def classify_record(record: dict) -> str | None:
     name = record.get("name", "")
     lower = name.lower()
 
+    # Detect memory records — strip the _memory suffix and re-classify,
+    # then append "-memory" to the resulting file ID.
+    is_memory = "_memory/" in lower
+    if is_memory:
+        # Reconstruct the name without _memory so the SQL routing logic works
+        record = {**record, "name": name.replace("_memory/", "/")}
+        base_id = classify_record(record)
+        return f"{base_id}-memory" if base_id else None
+
     # Random access benchmarks
     if lower.startswith("random-access/") or lower.startswith("random access/"):
         return "random-access-bench"

@@ -22,6 +22,19 @@ export const DATA_FILES = [
   // Nightly-only benchmarks (nightly-bench.yml)
   "tpch-nvme-100",
   "tpch-s3-100",
+  // Memory measurements (split from SQL benchmarks)
+  "clickbench-nvme-memory",
+  "tpch-nvme-memory",
+  "tpch-s3-memory",
+  "tpch-nvme-10-memory",
+  "tpch-s3-10-memory",
+  "tpcds-nvme-memory",
+  "statpopgen-memory",
+  "fineweb-memory",
+  "fineweb-s3-memory",
+  "polarsignals-memory",
+  "tpch-nvme-100-memory",
+  "tpch-s3-100-memory",
 ];
 
 // =============================================================================
