@@ -22,6 +22,7 @@ use vortex::error::vortex_err;
 use vortex::utils::aliases::dash_map::DashMap;
 
 mod arrays;
+pub mod compare;
 mod encodings;
 mod filter;
 mod patches;

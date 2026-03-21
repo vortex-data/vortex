@@ -300,6 +300,41 @@ __device__ inline uint32_t output_tile_len(const struct Stage &stage, uint32_t b
     return min(SMEM_TILE_SIZE - element_offset, block_len - tile_off);
 }
 
+/// Evaluate a comparison and return true/false.
+template <typename T>
+__device__ inline bool eval_compare(T value, T scalar, CompareOp op) {
+    switch (op) {
+    case CMP_EQ:     return value == scalar;
+    case CMP_NOT_EQ: return value != scalar;
+    case CMP_GT:     return value > scalar;
+    case CMP_GTE:    return value >= scalar;
+    case CMP_LT:     return value < scalar;
+    case CMP_LTE:    return value <= scalar;
+    default:         return false;
+    }
+}
+
+/// Write comparison results for a range of output elements into a packed
+/// bitmask.  Each thread processes its strided elements and atomically ORs
+/// bits into the output uint32_t words.
+template <typename T>
+__device__ void write_compare_bits(const T *__restrict values,
+                                   uint8_t *__restrict bitmask,
+                                   uint64_t global_offset,
+                                   uint32_t chunk_len,
+                                   T scalar,
+                                   CompareOp op) {
+    for (uint32_t i = threadIdx.x; i < chunk_len; i += blockDim.x) {
+        uint64_t idx = global_offset + i;
+        bool result = eval_compare(values[idx], scalar, op);
+        if (result) {
+            uint64_t word_idx = idx / 32;
+            uint32_t bit_pos = idx % 32;
+            atomicOr(reinterpret_cast<uint32_t *>(bitmask) + word_idx, 1u << bit_pos);
+        }
+    }
+}
+
 /// Entry point of the dynamic dispatch kernel.
 ///
 /// Executes the plan's stages in order:
@@ -307,12 +342,16 @@ __device__ inline uint32_t output_tile_len(const struct Stage &stage, uint32_t b
 ///      for the output stage to reference.
 ///   2. The output stage decodes the root array and writes directly to
 ///      global memory.
+///   3. If compare is enabled, evaluates the comparison on the output
+///      values and writes a packed bitmask to `bitmask_output`.
 ///
-/// @param output    Global memory output buffer
-/// @param array_len Total number of elements to produce
-/// @param plan      Device pointer to the dispatch plan
+/// @param output         Global memory output buffer
+/// @param bitmask_output Global memory bitmask buffer (may be NULL if compare disabled)
+/// @param array_len      Total number of elements to produce
+/// @param plan           Device pointer to the dispatch plan
 template <typename T>
 __device__ void dynamic_dispatch(T *__restrict output,
+                                 uint8_t *__restrict bitmask_output,
                                  uint64_t array_len,
                                  const struct DynamicDispatchPlan *__restrict plan) {
 
@@ -352,15 +391,25 @@ __device__ void dynamic_dispatch(T *__restrict output,
                                                  block_start + tile_off);
         tile_off += tile_len;
     }
+
+    // Optional comparison: evaluate predicate on the output values we just
+    // wrote and pack results into a bitmask.
+    if (smem_plan.compare.enabled && bitmask_output != nullptr) {
+        __syncthreads();
+        const T scalar = static_cast<T>(smem_plan.compare.scalar_bits);
+        write_compare_bits<T>(output, bitmask_output, block_start, block_len,
+                              scalar, smem_plan.compare.op);
+    }
 }
 
 /// Generates a dynamic dispatch kernel entry point for each unsigned integer type.
 #define GENERATE_DYNAMIC_DISPATCH_KERNEL(suffix, Type)                                                       \
     extern "C" __global__ void dynamic_dispatch_##suffix(                                                    \
         Type *__restrict output,                                                                             \
+        uint8_t *__restrict bitmask_output,                                                                  \
         uint64_t array_len,                                                                                  \
         const struct DynamicDispatchPlan *__restrict plan) {                                                 \
-        dynamic_dispatch<Type>(output, array_len, plan);                                                     \
+        dynamic_dispatch<Type>(output, bitmask_output, array_len, plan);                                     \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_DYNAMIC_DISPATCH_KERNEL)

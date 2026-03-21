@@ -25,6 +25,8 @@ use vortex::error::VortexExpect;
 use vortex::mask::Mask;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
+use vortex_cuda::compare::CompareOp;
+use vortex_cuda::dynamic_dispatch::build_plan;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
@@ -106,9 +108,48 @@ fn bench_hybrid_filter_for_bitpacked(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// Fused decompress + compare in a single kernel via plan.with_compare().
+// No separate compare kernel, no host-side mask.
+// ---------------------------------------------------------------------------
+fn bench_hybrid_fused_predicate(c: &mut Criterion) {
+    let mut group = c.benchmark_group("hybrid_fused_predicate_6bw");
+    group.sample_size(10);
+
+    let reference = 100_000u32;
+    let threshold = reference + 50;
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        let array = make_for_bitpacked(*len, 6, reference);
+
+        group.bench_with_input(BenchmarkId::new("fused_compare", len_str), len, |b, _| {
+            let rt = Builder::new_current_thread().enable_all().build().unwrap();
+            let mut ctx =
+                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+            b.iter(|| {
+                rt.block_on(async {
+                    let (plan, bufs) = build_plan(&array, &ctx).unwrap();
+                    let plan = plan.with_compare(CompareOp::Gt, threshold as u64);
+                    let result = plan
+                        .execute(vortex::dtype::PType::U32, array.len(), bufs, &mut ctx)
+                        .unwrap();
+                    std::hint::black_box(&result.canonical);
+                    std::hint::black_box(&result.bitmask);
+                });
+            });
+        });
+    }
+
+    group.finish();
+}
+
 fn benchmark_hybrid_dispatch(c: &mut Criterion) {
     bench_hybrid_for_bitpacked(c);
     bench_hybrid_filter_for_bitpacked(c);
+    bench_hybrid_fused_predicate(c);
 }
 
 criterion::criterion_group!(benches, benchmark_hybrid_dispatch);

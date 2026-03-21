@@ -21,6 +21,8 @@
 
 use std::sync::Arc;
 
+use crate::kernel::compare::CompareOp as RustCompareOp;
+
 use cudarc::driver::DevicePtr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
@@ -201,7 +203,31 @@ impl DynamicDispatchPlan {
         Self {
             num_stages: stages_slice.len() as u8,
             stages: buf,
+            compare: CompareConfig {
+                enabled: 0,
+                op: CompareOp_CMP_EQ,
+                scalar_bits: 0,
+            },
         }
+    }
+
+    /// Enable a comparison on the output stage.  The kernel will evaluate
+    /// the comparison against `scalar_bits` and write a packed bitmask to
+    /// a second output buffer alongside the values.
+    pub fn with_compare(mut self, op: RustCompareOp, scalar_bits: u64) -> Self {
+        self.compare = CompareConfig {
+            enabled: 1,
+            op: match op {
+                RustCompareOp::Eq => CompareOp_CMP_EQ,
+                RustCompareOp::NotEq => CompareOp_CMP_NOT_EQ,
+                RustCompareOp::Gt => CompareOp_CMP_GT,
+                RustCompareOp::Gte => CompareOp_CMP_GTE,
+                RustCompareOp::Lt => CompareOp_CMP_LT,
+                RustCompareOp::Lte => CompareOp_CMP_LTE,
+            },
+            scalar_bits,
+        };
+        self
     }
 
     /// Compute the dynamic shared memory bytes needed for this plan.
@@ -236,7 +262,7 @@ impl DynamicDispatchPlan {
         len: usize,
         device_buffers: Vec<BufferHandle>,
         ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    ) -> VortexResult<ExecuteResult> {
         let unsigned_ptype = match output_ptype {
             PType::U8 | PType::I8 => PType::U8,
             PType::U16 | PType::I16 => PType::U16,
@@ -246,6 +272,7 @@ impl DynamicDispatchPlan {
         };
         match_each_unsigned_integer_ptype!(unsigned_ptype, |T| {
             self.execute_typed::<T>(output_ptype, len, device_buffers, ctx)
+                .map(ExecuteResult::from)
         })
     }
 
@@ -255,16 +282,18 @@ impl DynamicDispatchPlan {
         len: usize,
         device_buffers: Vec<BufferHandle>,
         ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical>
+    ) -> VortexResult<(Canonical, Option<BufferHandle>)>
     where
         T: cudarc::driver::DeviceRepr + vortex::dtype::NativePType,
     {
         if len == 0 {
-            return Ok(Canonical::Primitive(PrimitiveArray::empty::<T>(
-                Nullability::NonNullable,
-            )));
+            return Ok((
+                Canonical::Primitive(PrimitiveArray::empty::<T>(Nullability::NonNullable)),
+                None,
+            ));
         }
 
+        let compare_enabled = self.compare.enabled != 0;
         let output_buf = CudaDeviceBuffer::new(ctx.device_alloc::<T>(len.next_multiple_of(1024))?);
         let device_plan = Arc::new(
             ctx.stream()
@@ -282,11 +311,22 @@ impl DynamicDispatchPlan {
         };
 
         let output_ptr = output_buf.offset_ptr();
+
+        // Allocate bitmask buffer if comparison is enabled.
+        let bitmask_buf = if compare_enabled {
+            let bytes = ((len + 31) / 32) * 4;
+            Some(CudaDeviceBuffer::new(ctx.device_alloc::<u8>(bytes)?))
+        } else {
+            None
+        };
+        let bitmask_ptr: u64 = bitmask_buf.as_ref().map_or(0, |b| b.offset_ptr());
+
         let plan_ptr = device_plan.device_ptr(ctx.stream()).0;
         let array_len_u64 = len as u64;
 
         ctx.launch_kernel_config(&cuda_function, config, len, |args| {
             args.arg(&output_ptr);
+            args.arg(&bitmask_ptr);
             args.arg(&array_len_u64);
             args.arg(&plan_ptr);
         })?;
@@ -294,11 +334,27 @@ impl DynamicDispatchPlan {
         drop(device_buffers);
         drop(device_plan);
 
-        Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+        let canonical = Canonical::Primitive(PrimitiveArray::from_buffer_handle(
             BufferHandle::new_device(output_buf.slice_typed::<T>(0..len)),
             output_ptype,
             Validity::NonNullable,
-        )))
+        ));
+        let bitmask_handle = bitmask_buf.map(|b| BufferHandle::new_device(Arc::new(b)));
+        Ok((canonical, bitmask_handle))
+    }
+}
+
+/// Result of executing a `DynamicDispatchPlan`.
+pub struct ExecuteResult {
+    /// The decompressed output values.
+    pub canonical: Canonical,
+    /// Device-resident packed bitmask if a comparison was configured, `None` otherwise.
+    pub bitmask: Option<BufferHandle>,
+}
+
+impl From<(Canonical, Option<BufferHandle>)> for ExecuteResult {
+    fn from((canonical, bitmask): (Canonical, Option<BufferHandle>)) -> Self {
+        Self { canonical, bitmask }
     }
 }
 
@@ -505,8 +561,10 @@ mod tests {
         let cuda_function = cuda_ctx
             .load_function("dynamic_dispatch", &[PType::U32])
             .vortex_expect("load kernel");
+        let bitmask_ptr: u64 = 0; // null — no comparison in test
         let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
         launch_builder.arg(&output_ptr);
+        launch_builder.arg(&bitmask_ptr);
         launch_builder.arg(&array_len_u64);
         launch_builder.arg(&plan_ptr);
 

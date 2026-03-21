@@ -98,6 +98,17 @@ struct ScalarOp {
 
 #define MAX_SCALAR_OPS 4
 
+/// Optional comparison applied to the output stage's final values.
+/// When enabled, the kernel writes a packed bitmask alongside the output
+/// values.  The bitmask is LSB-first, one bit per element.
+enum CompareOp { CMP_EQ, CMP_NOT_EQ, CMP_GT, CMP_GTE, CMP_LT, CMP_LTE };
+
+struct CompareConfig {
+    uint8_t enabled;       // 0 = no comparison, 1 = compare enabled
+    enum CompareOp op;
+    uint64_t scalar_bits;  // scalar value reinterpreted as uint64_t
+};
+
 /// A single stage in the dispatch plan.
 ///
 /// Each stage is a pipeline (source + scalar ops) that writes decoded data
@@ -123,9 +134,15 @@ struct Stage {
 /// offsets are assigned with a simple bump allocator.
 ///
 /// The last stage is the output pipeline which directly writes to global memory.
+///
+/// When `compare.enabled` is set, the kernel also evaluates a comparison
+/// against a scalar on the output values and writes a packed bitmask to
+/// a second output buffer.  This fuses decompression + predicate evaluation
+/// into a single kernel launch.
 struct DynamicDispatchPlan {
     uint8_t num_stages;
     struct Stage stages[MAX_STAGES];
+    struct CompareConfig compare;
 };
 
 #ifdef __cplusplus

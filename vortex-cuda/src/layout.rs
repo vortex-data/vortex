@@ -9,6 +9,12 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use vortex::array::scalar_fn::fns::binary::Binary;
+use vortex::array::scalar_fn::fns::literal::Literal;
+use vortex::array::scalar_fn::fns::operators::Operator;
+use vortex::array::scalar_fn::fns::root::Root;
+use vortex::dtype::PType;
+
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
@@ -66,6 +72,9 @@ use vortex::scalar::upper_bound;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
+
+use crate::dynamic_dispatch::plan_builder::build_plan;
+use crate::kernel::compare::CompareOp;
 
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]
@@ -323,18 +332,23 @@ impl LayoutReader for CudaFlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-                let array = array.apply(&expr)?;
-                let array = array.filter(mask.clone())?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
-                mask.intersect_by_rank(&array_mask)
-            } else {
-                let array = array.apply(&expr)?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
-                mask.bitand(&array_mask)
-            };
+            // Try GPU predicate evaluation for simple `col <cmp> scalar`
+            // expressions.  This avoids the CPU round-trip for the mask.
+            let array_mask =
+                if let Some(gpu_mask) = try_gpu_filter_eval(&array, &expr, &session).await? {
+                    mask.bitand(&gpu_mask)
+                } else if mask.density() < EXPR_EVAL_THRESHOLD {
+                    let array = array.apply(&expr)?;
+                    let array = array.filter(mask.clone())?;
+                    let mut ctx = session.create_execution_ctx();
+                    let array_mask = array.execute::<Mask>(&mut ctx)?;
+                    mask.intersect_by_rank(&array_mask)
+                } else {
+                    let array = array.apply(&expr)?;
+                    let mut ctx = session.create_execution_ctx();
+                    let array_mask = array.execute::<Mask>(&mut ctx)?;
+                    mask.bitand(&array_mask)
+                };
 
             tracing::debug!(
                 "CudaFlat mask evaluation {} - {} (mask = {}) => {}",
@@ -382,6 +396,108 @@ impl LayoutReader for CudaFlatReader {
         }
         .boxed())
     }
+}
+
+/// Try to evaluate a simple `col <cmp> scalar` predicate entirely on the GPU.
+///
+/// Returns `Some(mask)` if the expression is a supported comparison and the
+/// column is a primitive type.  Returns `None` to fall back to CPU evaluation.
+async fn try_gpu_filter_eval(
+    array: &ArrayRef,
+    expr: &Expression,
+    session: &VortexSession,
+) -> VortexResult<Option<Mask>> {
+    // Must be a Binary comparison expression.
+    let Some(&op) = expr.as_opt::<Binary>() else {
+        return Ok(None);
+    };
+
+    let compare_op = match op {
+        Operator::Eq => CompareOp::Eq,
+        Operator::NotEq => CompareOp::NotEq,
+        Operator::Gt => CompareOp::Gt,
+        Operator::Gte => CompareOp::Gte,
+        Operator::Lt => CompareOp::Lt,
+        Operator::Lte => CompareOp::Lte,
+        // And, Or, Add, Sub, Mul, Div are not comparisons.
+        _ => return Ok(None),
+    };
+
+    let children = expr.children();
+    if children.len() != 2 {
+        return Ok(None);
+    }
+
+    // Match `Root <cmp> Literal` or `Literal <cmp> Root`.
+    let (compare_op, scalar) = if children[0].is::<Root>() {
+        if let Some(scalar) = children[1].as_opt::<Literal>() {
+            (compare_op, scalar.clone())
+        } else {
+            return Ok(None);
+        }
+    } else if children[1].is::<Root>() {
+        if let Some(scalar) = children[0].as_opt::<Literal>() {
+            // Flip: `5 < col` becomes `col > 5`.
+            let flipped = match compare_op {
+                CompareOp::Gt => CompareOp::Lt,
+                CompareOp::Gte => CompareOp::Lte,
+                CompareOp::Lt => CompareOp::Gt,
+                CompareOp::Lte => CompareOp::Gte,
+                other => other, // Eq, NotEq are symmetric.
+            };
+            (flipped, scalar.clone())
+        } else {
+            return Ok(None);
+        }
+    } else {
+        return Ok(None);
+    };
+
+    // Column must be a primitive type.
+    let ptype = match PType::try_from(array.dtype()) {
+        Ok(pt) => pt,
+        Err(_) => return Ok(None),
+    };
+
+    let len = array.len();
+    let mut ctx = crate::session::CudaSession::create_execution_ctx(session)?;
+
+    // Reinterpret the scalar as u64 bits for the kernel.
+    let scalar_bits: u64 = match ptype {
+        PType::U8 => u8::try_from(&scalar).map(|v| v as u64).ok(),
+        PType::I8 => i8::try_from(&scalar).map(|v| v as u8 as u64).ok(),
+        PType::U16 => u16::try_from(&scalar).map(|v| v as u64).ok(),
+        PType::I16 => i16::try_from(&scalar).map(|v| v as u16 as u64).ok(),
+        PType::U32 => u32::try_from(&scalar).map(|v| v as u64).ok(),
+        PType::I32 => i32::try_from(&scalar).map(|v| v as u32 as u64).ok(),
+        PType::F32 => f32::try_from(&scalar).map(|v| f32::to_bits(v) as u64).ok(),
+        PType::U64 => u64::try_from(&scalar).map(|v| v).ok(),
+        PType::I64 => i64::try_from(&scalar).map(|v| v as u64).ok(),
+        _ => None,
+    }
+    .ok_or_else(|| vortex::error::vortex_err!("cannot convert scalar to bits for compare"))?;
+
+    // Build a fused plan with comparison enabled — decompression + predicate
+    // evaluation in a single kernel launch.
+    let Ok((plan, bufs)) = build_plan(array, &ctx) else {
+        return Ok(None);
+    };
+    let plan = plan.with_compare(compare_op, scalar_bits);
+    let result = plan.execute(ptype, len, bufs, &mut ctx)?;
+
+    // D2H the bitmask to construct a Mask for the layout reader interface.
+    // TODO: keep the bitmask on device and pass it directly to CUB filter,
+    // bypassing the Mask round-trip entirely.
+    use vortex::buffer::Alignment;
+    use vortex::buffer::BitBuffer;
+    let device_bitmask = result
+        .bitmask
+        .ok_or_else(|| vortex::error::vortex_err!("expected bitmask from fused compare plan"))?;
+    let host_buf = device_bitmask
+        .as_device()
+        .copy_to_host(Alignment::new(1))?
+        .await?;
+    Ok(Some(Mask::from_buffer(BitBuffer::new(host_buf, len))))
 }
 
 /// A [`LayoutStrategy`] that writes a [`CudaFlatLayout`] with constant array buffers inlined

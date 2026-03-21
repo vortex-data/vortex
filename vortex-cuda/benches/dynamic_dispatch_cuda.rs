@@ -13,6 +13,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DevicePtr;
+use cudarc::driver::DevicePtrMut;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
@@ -35,9 +36,11 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
+use vortex_cuda::compare::CompareOp;
 use vortex_cuda::dynamic_dispatch;
 use vortex_cuda::dynamic_dispatch::DynamicDispatchPlan;
 use vortex_cuda_macros::cuda_available;
@@ -76,8 +79,10 @@ fn run_timed(
         .record(stream)
         .map_err(|e| vortex_err!("{e:?}"))?;
 
+    let bitmask_ptr: u64 = 0; // null — no comparison in benchmark
     let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
     launch_builder.arg(&output_ptr);
+    launch_builder.arg(&bitmask_ptr);
     launch_builder.arg(&array_len_u64);
     launch_builder.arg(&plan_ptr);
 
@@ -409,12 +414,164 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// Benchmark: Fused FoR(BitPacked) + compare (GPU-timed, pre-allocated)
+// ---------------------------------------------------------------------------
+fn bench_fused_compare_for_bitpacked(c: &mut Criterion) {
+    let mut group = c.benchmark_group("fused_compare_for_bitpacked_6bw");
+    group.sample_size(10);
+
+    let bit_width: u8 = 6;
+    let reference = 100_000u32;
+    let threshold = reference + 50;
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        let max_val = (1u64 << bit_width).saturating_sub(1);
+        let residuals: Vec<u32> = (0..*len)
+            .map(|i| (i as u64 % (max_val + 1)) as u32)
+            .collect();
+        let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
+        let bp = BitPackedArray::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
+        let for_arr =
+            FoRArray::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
+        let array = for_arr.into_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let runner =
+                    BenchRunnerCompare::new(&array, n, threshold as u64, CompareOp::Gt, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Like BenchRunner but with a fused comparison: pre-allocates both output
+/// and bitmask buffers, uploads a plan with compare enabled, and measures
+/// only GPU kernel time.
+struct BenchRunnerCompare {
+    smem_bytes: u32,
+    len: usize,
+    device_plan: Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
+    output_buf: CudaDeviceBuffer,
+    bitmask_buf: CudaDeviceBuffer,
+    _plan_buffers: Vec<vortex::array::buffer::BufferHandle>,
+}
+
+impl BenchRunnerCompare {
+    fn new(
+        array: &vortex::array::ArrayRef,
+        len: usize,
+        scalar_bits: u64,
+        op: CompareOp,
+        cuda_ctx: &CudaExecutionCtx,
+    ) -> Self {
+        let (plan, plan_buffers) =
+            dynamic_dispatch::build_plan(array, cuda_ctx).vortex_expect("build_plan");
+        let plan = plan.with_compare(op, scalar_bits);
+        let smem_bytes = plan.shared_mem_bytes::<u32>();
+
+        let device_plan = Arc::new(
+            cuda_ctx
+                .stream()
+                .clone_htod(std::slice::from_ref(&plan))
+                .expect("htod plan"),
+        );
+
+        let output_slice = cuda_ctx
+            .device_alloc::<u32>(len.next_multiple_of(1024))
+            .expect("alloc output");
+        let output_buf = CudaDeviceBuffer::new(output_slice);
+
+        let bitmask_bytes = ((len + 31) / 32) * 4;
+        let bitmask_slice = cuda_ctx
+            .device_alloc::<u8>(bitmask_bytes)
+            .expect("alloc bitmask");
+        let bitmask_buf = CudaDeviceBuffer::new(bitmask_slice);
+
+        Self {
+            smem_bytes,
+            len,
+            device_plan,
+            output_buf,
+            bitmask_buf,
+            _plan_buffers: plan_buffers,
+        }
+    }
+
+    fn run(&self, cuda_ctx: &mut CudaExecutionCtx) -> Duration {
+        cuda_ctx.stream().synchronize().unwrap();
+
+        let cuda_function = cuda_ctx
+            .load_function("dynamic_dispatch", &[PType::U32])
+            .unwrap();
+        let array_len_u64 = self.len as u64;
+        let output_view = self.output_buf.as_view::<u32>();
+        let bitmask_view = self.bitmask_buf.as_view::<u8>();
+        let (output_ptr, record_output) = output_view.device_ptr(cuda_ctx.stream());
+        let (bitmask_ptr, record_bitmask) = bitmask_view.device_ptr(cuda_ctx.stream());
+        let (plan_ptr, record_plan) = self.device_plan.device_ptr(cuda_ctx.stream());
+
+        let stream = cuda_ctx.stream();
+        let ctx = stream.context();
+        let start_event = ctx
+            .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
+            .unwrap();
+        start_event.record(stream).unwrap();
+
+        let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
+        launch_builder.arg(&output_ptr);
+        launch_builder.arg(&bitmask_ptr);
+        launch_builder.arg(&array_len_u64);
+        launch_builder.arg(&plan_ptr);
+
+        let num_blocks = self.len.div_ceil(2048) as u32;
+        let config = LaunchConfig {
+            grid_dim: (num_blocks, 1, 1),
+            block_dim: (64, 1, 1),
+            shared_mem_bytes: self.smem_bytes,
+        };
+
+        unsafe {
+            launch_builder.launch(config).unwrap();
+        }
+        drop((record_output, record_bitmask, record_plan));
+
+        let stream = cuda_ctx.stream();
+        let ctx = stream.context();
+        let end_event = ctx
+            .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
+            .unwrap();
+        end_event.record(stream).unwrap();
+
+        let elapsed_ms = start_event.elapsed_ms(&end_event).unwrap();
+        Duration::from_secs_f32(elapsed_ms / 1000.0)
+    }
+}
+
 fn benchmark_dynamic_dispatch(c: &mut Criterion) {
     bench_for_bitpacked(c);
     bench_dict_bp_codes(c);
     bench_runend(c);
     bench_dict_bp_codes_bp_for_values(c);
     bench_alp_for_bitpacked(c);
+    bench_fused_compare_for_bitpacked(c);
 }
 
 criterion::criterion_group!(benches, benchmark_dynamic_dispatch);

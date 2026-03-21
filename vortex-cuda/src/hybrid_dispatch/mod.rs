@@ -83,7 +83,9 @@ pub async fn try_dyn_dispatch(
         // Whole tree is dyn-dispatch-compatible.
         if let Ok((plan, bufs)) = build_plan(array, ctx) {
             debug!(encoding = %array.encoding_id(), num_stages = plan.num_stages, "fully-fused dyn dispatch");
-            return plan.execute(output_ptype, array.len(), bufs, ctx);
+            return Ok(plan
+                .execute(output_ptype, array.len(), bufs, ctx)?
+                .canonical);
         }
     } else if let Some(result) = try_partial_fuse(array, &subtrees, output_ptype, ctx).await? {
         return Ok(result);
@@ -129,8 +131,11 @@ async fn try_partial_fuse(
 
     let n = subtree_inputs.len();
     bufs.extend(subtree_inputs.into_iter().map(|(_, h)| h));
-    debug!(encoding = %array.encoding_id(), num_stages = plan.num_stages, num_subtrees = n, "partially-fused dyn dispatch");
-    plan.execute(output_ptype, array.len(), bufs, ctx).map(Some)
+    debug!(encoding = %array.encoding_id(), num_stages = plan.num_stages, num_subtree_inputs = n, "partially-fused dyn dispatch");
+    Ok(Some(
+        plan.execute(output_ptype, array.len(), bufs, ctx)?
+            .canonical,
+    ))
 }
 
 #[cfg(test)]
