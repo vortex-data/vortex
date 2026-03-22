@@ -49,3 +49,7 @@ harness = false
 name = "vortex_bitbuffer"
 harness = false
 
+[[bench]]
+name = "collect_bool"
+harness = false
+
