@@ -26,7 +26,7 @@ pub fn vortex_fastlanes::bitpack_compress::bitpack_primitive<T: vortex_array::dt
 
 pub fn vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
-pub unsafe fn vortex_fastlanes::bitpack_compress::bitpack_unchecked(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, bit_width: u8) -> vortex_error::VortexResult<vortex_buffer::ByteBuffer>
+pub unsafe fn vortex_fastlanes::bitpack_compress::bitpack_unchecked(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, bit_width: u8) -> vortex_buffer::ByteBuffer
 
 pub fn vortex_fastlanes::bitpack_compress::find_best_bit_width(ptype: vortex_array::dtype::ptype::PType, bit_width_freq: &[usize]) -> vortex_error::VortexResult<u8>
 
@@ -47,10 +47,6 @@ pub fn vortex_fastlanes::bitpack_decompress::unpack_primitive_array<T: vortex_fa
 pub fn vortex_fastlanes::bitpack_decompress::unpack_single(array: &vortex_fastlanes::BitPackedArray, index: usize) -> vortex_array::scalar::Scalar
 
 pub unsafe fn vortex_fastlanes::bitpack_decompress::unpack_single_primitive<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(packed: &[T], bit_width: usize, index_to_decode: usize) -> T
-
-pub fn vortex_fastlanes::bitpack_decompress::unpack_to_primitive(array: &vortex_fastlanes::BitPackedArray) -> vortex_array::arrays::primitive::array::PrimitiveArray
-
-pub fn vortex_fastlanes::bitpack_decompress::unpack_to_primitive_typed<P: vortex_fastlanes::unpack_iter::BitPacked>(array: &vortex_fastlanes::BitPackedArray) -> vortex_array::arrays::primitive::array::PrimitiveArray
 
 pub mod vortex_fastlanes::unpack_iter
 
@@ -372,7 +368,7 @@ pub fn vortex_fastlanes::DeltaArray::len(&self) -> usize
 
 pub fn vortex_fastlanes::DeltaArray::offset(&self) -> usize
 
-pub fn vortex_fastlanes::DeltaArray::try_from_delta_compress_parts(bases: vortex_array::array::ArrayRef, deltas: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::DeltaArray::try_from_delta_compress_parts(bases: vortex_array::array::ArrayRef, deltas: vortex_array::array::ArrayRef, logical_len: usize) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fastlanes::DeltaArray::try_from_primitive_array(array: &vortex_array::arrays::primitive::array::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
