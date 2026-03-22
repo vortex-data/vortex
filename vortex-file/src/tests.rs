@@ -63,7 +63,11 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
+<<<<<<< HEAD
 use vortex_scan::v2::scan::ScanBuilder2;
+=======
+use vortex_scan::ScanBuilder;
+>>>>>>> develop
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -1198,8 +1202,13 @@ async fn write_nullable_top_level_struct() {
 }
 
 async fn round_trip(
+<<<<<<< HEAD
     array: &dyn DynArray,
     f: impl Fn(ScanBuilder2) -> VortexResult<ScanBuilder2>,
+=======
+    array: &ArrayRef,
+    f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
+>>>>>>> develop
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
     SESSION

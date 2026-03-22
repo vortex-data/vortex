@@ -67,6 +67,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
 
+<<<<<<< HEAD
     /// Create a new v2 reader for the layout.
     fn new_reader2(
         layout: &Self::Layout,
@@ -77,6 +78,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         vortex_bail!("new_reader2 not implemented for this layout")
     }
 
+=======
+>>>>>>> develop
     /// Construct a new [`Layout`] from the provided parts.
     fn build(
         encoding: &Self::Encoding,

@@ -27,7 +27,10 @@ use vortex_scan::ScanBuilder;
 use vortex_scan::SplitBy;
 use vortex_scan::api::DataSourceRef;
 use vortex_scan::layout::LayoutReaderDataSource;
+<<<<<<< HEAD
 use vortex_scan::v2::scan::ScanBuilder2;
+=======
+>>>>>>> develop
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -110,6 +113,7 @@ impl VortexFile {
         )))
     }
 
+<<<<<<< HEAD
     pub fn scan2(&self) -> VortexResult<ScanBuilder2> {
         let reader_ref = self
             .footer
@@ -118,6 +122,8 @@ impl VortexFile {
         Ok(ScanBuilder2::new(reader_ref, self.session.clone()))
     }
 
+=======
+>>>>>>> develop
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
         Ok(ScanBuilder::new(

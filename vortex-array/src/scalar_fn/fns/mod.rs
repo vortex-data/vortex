@@ -19,5 +19,8 @@ pub mod operators;
 pub mod pack;
 pub mod root;
 pub mod select;
+<<<<<<< HEAD
 pub mod stats;
+=======
+>>>>>>> develop
 pub mod zip;

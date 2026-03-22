@@ -676,8 +676,11 @@ pub fn dynamic(
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
 }
+<<<<<<< HEAD
 
 // ---- Statistic ----
 
 pub use crate::scalar_fn::fns::stats::Statistic;
 pub use crate::scalar_fn::fns::stats::statistic;
+=======
+>>>>>>> develop
