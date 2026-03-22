@@ -7,7 +7,7 @@ mod patch;
 pub use array::BoolArray;
 pub use array::BoolArrayParts;
 
-pub(crate) mod compute;
+pub mod compute;
 
 mod vtable;
 pub use compute::rules::BoolMaskedValidityRule;

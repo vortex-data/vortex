@@ -15,6 +15,11 @@ use divan::Bencher;
 use rand::prelude::*;
 use rand_distr::Zipf;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::bool::compute::filter::filter_bitbuffer_by_mask;
+use vortex_array::arrays::bool::compute::filter::filter_bitbuffer_by_mask_software;
+use vortex_array::arrays::bool::compute::filter::pext_fallback;
+use vortex_array::arrays::bool::compute::filter::pext_parallel_prefix;
+use vortex_array::arrays::bool::compute::filter::pext_serial;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::get_bit;
@@ -348,4 +353,149 @@ fn head_to_head_new(bencher: Bencher, density: f64) {
     bencher
         .with_inputs(|| Mask::from_buffer(mask_buf.clone()))
         .bench_values(|m| array.filter(m).unwrap());
+}
+
+// --- PEXT implementation comparison ---
+// Compare: hardware PEXT vs byte-LUT fallback vs parallel-prefix vs serial.
+
+const PEXT_DENSITIES: &[u32] = &[1, 8, 16, 32, 48, 56, 63];
+
+/// Build a u64 with exactly `popcount` bits set at random positions.
+fn make_u64_mask(popcount: u32, rng: &mut StdRng) -> u64 {
+    if popcount >= 64 {
+        return u64::MAX;
+    }
+    let mut mask = 0u64;
+    let mut positions: Vec<u32> = (0..64).collect();
+    positions.shuffle(rng);
+    for &pos in positions.iter().take(popcount as usize) {
+        mask |= 1u64 << pos;
+    }
+    mask
+}
+
+#[divan::bench(args = PEXT_DENSITIES)]
+fn pext_word_hardware(bencher: Bencher, popcount: u32) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src: u64 = rng.random();
+    let mask = make_u64_mask(popcount, &mut rng);
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("bmi2") {
+            bencher.bench(|| unsafe {
+                std::hint::black_box(std::arch::x86_64::_pext_u64(
+                    std::hint::black_box(src),
+                    std::hint::black_box(mask),
+                ))
+            });
+            return;
+        }
+    }
+    bencher.bench(|| {
+        std::hint::black_box(pext_fallback(
+            std::hint::black_box(src),
+            std::hint::black_box(mask),
+        ))
+    });
+}
+
+#[divan::bench(args = PEXT_DENSITIES)]
+fn pext_word_byte_lut(bencher: Bencher, popcount: u32) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src: u64 = rng.random();
+    let mask = make_u64_mask(popcount, &mut rng);
+    bencher.bench(|| {
+        std::hint::black_box(pext_fallback(
+            std::hint::black_box(src),
+            std::hint::black_box(mask),
+        ))
+    });
+}
+
+#[divan::bench(args = PEXT_DENSITIES)]
+fn pext_word_parallel_prefix(bencher: Bencher, popcount: u32) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src: u64 = rng.random();
+    let mask = make_u64_mask(popcount, &mut rng);
+    bencher.bench(|| {
+        std::hint::black_box(pext_parallel_prefix(
+            std::hint::black_box(src),
+            std::hint::black_box(mask),
+        ))
+    });
+}
+
+#[divan::bench(args = PEXT_DENSITIES)]
+fn pext_word_serial(bencher: Bencher, popcount: u32) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src: u64 = rng.random();
+    let mask = make_u64_mask(popcount, &mut rng);
+    bencher.bench(|| {
+        std::hint::black_box(pext_serial(
+            std::hint::black_box(src),
+            std::hint::black_box(mask),
+        ))
+    });
+}
+
+// --- Full filter comparison: hardware vs software PEXT paths ---
+// Uses rotating mask pools to defeat branch prediction.
+
+const MASK_POOL_SIZE: usize = 32;
+
+fn make_mask_pool(
+    len: usize,
+    density: f64,
+    count: usize,
+    rng: &mut StdRng,
+) -> Vec<(BitBuffer, usize)> {
+    (0..count)
+        .map(|_| {
+            let buf = BitBuffer::from_iter((0..len).map(|_| rng.random_bool(density)));
+            let tc = buf.iter().filter(|b| *b).count();
+            (buf, tc)
+        })
+        .collect()
+}
+
+#[divan::bench(args = DENSITIES)]
+fn filter_full_hardware_pext(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(0.5)));
+    let pool = make_mask_pool(DENSITY_SWEEP_SIZE, density, MASK_POOL_SIZE, &mut rng);
+    let idx = std::sync::atomic::AtomicUsize::new(0usize);
+    bencher.bench(|| {
+        let i = idx.load(std::sync::atomic::Ordering::Relaxed);
+        let (mask_buf, true_count) = &pool[i % MASK_POOL_SIZE];
+        idx.store(i.wrapping_add(1), std::sync::atomic::Ordering::Relaxed);
+        filter_bitbuffer_by_mask(&src, mask_buf, *true_count)
+    });
+}
+
+#[divan::bench(args = DENSITIES)]
+fn filter_full_parallel_prefix(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(0.5)));
+    let pool = make_mask_pool(DENSITY_SWEEP_SIZE, density, MASK_POOL_SIZE, &mut rng);
+    let idx = std::sync::atomic::AtomicUsize::new(0usize);
+    bencher.bench(|| {
+        let i = idx.load(std::sync::atomic::Ordering::Relaxed);
+        let (mask_buf, true_count) = &pool[i % MASK_POOL_SIZE];
+        idx.store(i.wrapping_add(1), std::sync::atomic::Ordering::Relaxed);
+        filter_bitbuffer_by_mask_software(&src, mask_buf, *true_count, pext_parallel_prefix)
+    });
+}
+
+#[divan::bench(args = DENSITIES)]
+fn filter_full_serial(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(0.5)));
+    let pool = make_mask_pool(DENSITY_SWEEP_SIZE, density, MASK_POOL_SIZE, &mut rng);
+    let idx = std::sync::atomic::AtomicUsize::new(0usize);
+    bencher.bench(|| {
+        let i = idx.load(std::sync::atomic::Ordering::Relaxed);
+        let (mask_buf, true_count) = &pool[i % MASK_POOL_SIZE];
+        idx.store(i.wrapping_add(1), std::sync::atomic::Ordering::Relaxed);
+        filter_bitbuffer_by_mask_software(&src, mask_buf, *true_count, pext_serial)
+    });
 }

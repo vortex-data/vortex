@@ -3,7 +3,7 @@
 
 mod cast;
 mod fill_null;
-pub(crate) mod filter;
+pub mod filter;
 mod mask;
 pub mod rules;
 mod slice;
