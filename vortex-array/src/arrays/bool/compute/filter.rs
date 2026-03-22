@@ -59,6 +59,31 @@ pub fn filter_bitbuffer_by_mask(
     mask_buf: &BitBuffer,
     true_count: usize,
 ) -> BitBuffer {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("bmi2") {
+            // SAFETY: BMI2 confirmed available; the inner function is compiled with BMI2.
+            return unsafe { filter_pext_bmi2(src, mask_buf, true_count) };
+        }
+    }
+    filter_pext_software(src, mask_buf, true_count)
+}
+
+/// BMI2-native filter: entire function compiled with BMI2+POPCNT enabled.
+///
+/// The compiler generates PEXT for bit extraction, SHLX/SHRX for flag-free
+/// shifts, and POPCNT for population count — no runtime feature checks in
+/// the hot loop.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2,popcnt")]
+unsafe fn filter_pext_bmi2(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+    filter_inner(src, mask_buf, true_count, |src, mask| {
+        std::arch::x86_64::_pext_u64(src, mask)
+    })
+}
+
+/// Software fallback filter using byte-LUT PEXT.
+fn filter_pext_software(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
     filter_inner(src, mask_buf, true_count, pext_fallback)
 }
 

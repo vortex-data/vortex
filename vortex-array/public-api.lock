@@ -842,6 +842,38 @@ pub mod vortex_array::arrays
 
 pub mod vortex_array::arrays::bool
 
+pub mod vortex_array::arrays::bool::compute
+
+pub mod vortex_array::arrays::bool::compute::filter
+
+pub fn vortex_array::arrays::bool::compute::filter::filter_bitbuffer_by_mask(src: &vortex_buffer::bit::buf::BitBuffer, mask_buf: &vortex_buffer::bit::buf::BitBuffer, true_count: usize) -> vortex_buffer::bit::buf::BitBuffer
+
+pub fn vortex_array::arrays::bool::compute::filter::filter_bitbuffer_by_mask_software(src: &vortex_buffer::bit::buf::BitBuffer, mask_buf: &vortex_buffer::bit::buf::BitBuffer, true_count: usize, pext_fn: fn(u64, u64) -> u64) -> vortex_buffer::bit::buf::BitBuffer
+
+pub fn vortex_array::arrays::bool::compute::filter::pext_fallback(src: u64, mask: u64) -> u64
+
+pub fn vortex_array::arrays::bool::compute::filter::pext_parallel_prefix(src: u64, mask: u64) -> u64
+
+pub fn vortex_array::arrays::bool::compute::filter::pext_serial(src: u64, mask: u64) -> u64
+
+pub mod vortex_array::arrays::bool::compute::rules
+
+pub struct vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
+
+impl core::default::Default for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
+
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::default() -> vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
+
+impl core::fmt::Debug for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
+
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
+
+pub type vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
+
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub struct vortex_array::arrays::bool::Bool
 
 impl vortex_array::arrays::Bool
@@ -864,11 +896,11 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
+impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
 
-pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
+pub type vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
 
-pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Bool
 
@@ -1038,19 +1070,19 @@ pub vortex_array::arrays::bool::BoolArrayParts::validity: vortex_array::validity
 
 pub struct vortex_array::arrays::bool::BoolMaskedValidityRule
 
-impl core::default::Default for vortex_array::arrays::bool::BoolMaskedValidityRule
+impl core::default::Default for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
 
-pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::default() -> vortex_array::arrays::bool::BoolMaskedValidityRule
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::default() -> vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
 
-impl core::fmt::Debug for vortex_array::arrays::bool::BoolMaskedValidityRule
+impl core::fmt::Debug for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
 
-pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
+impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
 
-pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
+pub type vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
 
-pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::arrays::chunked
 
@@ -4994,11 +5026,11 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
+impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
 
-pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
+pub type vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
 
-pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Bool
 
@@ -14702,11 +14734,11 @@ pub type vortex_array::optimizer::rules::ArrayParentReduceRule::Parent: vortex_a
 
 pub fn vortex_array::optimizer::rules::ArrayParentReduceRule::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::BoolMaskedValidityRule
+impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Bool> for vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule
 
-pub type vortex_array::arrays::bool::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
+pub type vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::Parent = vortex_array::arrays::Masked
 
-pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::bool::compute::rules::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Decimal> for vortex_array::arrays::decimal::DecimalMaskedValidityRule
 
