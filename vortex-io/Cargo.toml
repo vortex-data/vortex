@@ -44,6 +44,7 @@ vortex-session = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }
+libc = "0.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm

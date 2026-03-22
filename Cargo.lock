@@ -10267,6 +10267,7 @@ dependencies = [
  "handle",
  "itertools 0.14.0",
  "kanal",
+ "libc",
  "object_store",
  "oneshot 0.2.1",
  "parking_lot",

@@ -230,10 +230,6 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn use_scan_api() -> bool {
-    std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
-}
-
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
@@ -241,7 +237,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 ) -> anyhow::Result<()> {
     match format {
         Format::Arrow => register_arrow_tables(session, benchmark).await,
-        _ if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
+        Format::OnDiskVortex | Format::VortexCompact => {
             register_v2_tables(session, benchmark, format).await
         }
         _ => {
