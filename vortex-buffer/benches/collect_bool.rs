@@ -61,25 +61,7 @@ fn expensive(i: usize) -> bool {
     x & 1 == 0
 }
 
-// ============ Old baseline (u64-at-a-time) ============
-
-#[divan::bench(args = SIZES)]
-fn collect_bool_u64_cheap(bencher: Bencher, n: usize) {
-    bencher.bench(|| BitBufferMut::collect_bool_u64(n, cheap));
-}
-
-#[divan::bench(args = SIZES)]
-fn collect_bool_u64_with_load(bencher: Bencher, n: usize) {
-    let data: Vec<u8> = (0..n).map(|i| (i & 0xFF) as u8).collect();
-    bencher.bench(|| BitBufferMut::collect_bool_u64(n, |i| with_load(&data, i)));
-}
-
-#[divan::bench(args = SIZES)]
-fn collect_bool_u64_expensive(bencher: Bencher, n: usize) {
-    bencher.bench(|| BitBufferMut::collect_bool_u64(n, expensive));
-}
-
-// ============ New default (u8 byte packing) ============
+// ============ 1. Unrolled u8x2 (current default) ============
 
 #[divan::bench(args = SIZES)]
 fn collect_bool_cheap(bencher: Bencher, n: usize) {
@@ -97,20 +79,110 @@ fn collect_bool_expensive(bencher: Bencher, n: usize) {
     bencher.bench(|| BitBufferMut::collect_bool(n, expensive));
 }
 
-// ============ SIMD: temp buffer + pack ============
+// ============ 2. u8 loop (previous default) ============
 
 #[divan::bench(args = SIZES)]
-fn collect_bool_simd_cheap(bencher: Bencher, n: usize) {
+fn u8_loop_cheap(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u8_loop(n, cheap));
+}
+
+#[divan::bench(args = SIZES)]
+fn u8_loop_with_load(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| (i & 0xFF) as u8).collect();
+    bencher.bench(|| BitBufferMut::collect_bool_u8_loop(n, |i| with_load(&data, i)));
+}
+
+#[divan::bench(args = SIZES)]
+fn u8_loop_expensive(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u8_loop(n, expensive));
+}
+
+// ============ 3. u16 packing ============
+
+#[divan::bench(args = SIZES)]
+fn u16_cheap(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u16(n, cheap));
+}
+
+#[divan::bench(args = SIZES)]
+fn u16_with_load(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| (i & 0xFF) as u8).collect();
+    bencher.bench(|| BitBufferMut::collect_bool_u16(n, |i| with_load(&data, i)));
+}
+
+#[divan::bench(args = SIZES)]
+fn u16_expensive(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u16(n, expensive));
+}
+
+// ============ 4. u64 packing (original baseline) ============
+
+#[divan::bench(args = SIZES)]
+fn u64_cheap(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u64(n, cheap));
+}
+
+#[divan::bench(args = SIZES)]
+fn u64_with_load(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| (i & 0xFF) as u8).collect();
+    bencher.bench(|| BitBufferMut::collect_bool_u64(n, |i| with_load(&data, i)));
+}
+
+#[divan::bench(args = SIZES)]
+fn u64_expensive(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u64(n, expensive));
+}
+
+// ============ 5. u8x4 unrolled ============
+
+#[divan::bench(args = SIZES)]
+fn u8x4_cheap(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u8x4(n, cheap));
+}
+
+#[divan::bench(args = SIZES)]
+fn u8x4_with_load(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| (i & 0xFF) as u8).collect();
+    bencher.bench(|| BitBufferMut::collect_bool_u8x4(n, |i| with_load(&data, i)));
+}
+
+#[divan::bench(args = SIZES)]
+fn u8x4_expensive(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_u8x4(n, expensive));
+}
+
+// ============ 6. block64 (cache-line temp buffer) ============
+
+#[divan::bench(args = SIZES)]
+fn block64_cheap(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_block64(n, cheap));
+}
+
+#[divan::bench(args = SIZES)]
+fn block64_with_load(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| (i & 0xFF) as u8).collect();
+    bencher.bench(|| BitBufferMut::collect_bool_block64(n, |i| with_load(&data, i)));
+}
+
+#[divan::bench(args = SIZES)]
+fn block64_expensive(bencher: Bencher, n: usize) {
+    bencher.bench(|| BitBufferMut::collect_bool_block64(n, expensive));
+}
+
+// ============ 7. block512 (SIMD temp buffer) ============
+
+#[divan::bench(args = SIZES)]
+fn block512_cheap(bencher: Bencher, n: usize) {
     bencher.bench(|| BitBufferMut::collect_bool_simd(n, cheap));
 }
 
 #[divan::bench(args = SIZES)]
-fn collect_bool_simd_with_load(bencher: Bencher, n: usize) {
+fn block512_with_load(bencher: Bencher, n: usize) {
     let data: Vec<u8> = (0..n).map(|i| (i & 0xFF) as u8).collect();
     bencher.bench(|| BitBufferMut::collect_bool_simd(n, |i| with_load(&data, i)));
 }
 
 #[divan::bench(args = SIZES)]
-fn collect_bool_simd_expensive(bencher: Bencher, n: usize) {
+fn block512_expensive(bencher: Bencher, n: usize) {
     bencher.bench(|| BitBufferMut::collect_bool_simd(n, expensive));
 }
