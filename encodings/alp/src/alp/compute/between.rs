@@ -3,32 +3,29 @@
 
 use std::fmt::Debug;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::BetweenKernel;
-use vortex_array::compute::BetweenKernelAdapter;
-use vortex_array::compute::BetweenOptions;
-use vortex_array::compute::StrictComparison;
-use vortex_array::compute::between;
-use vortex_array::register_kernel;
-use vortex_dtype::NativeDType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::NativeDType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::between::BetweenOptions;
+use vortex_array::scalar_fn::fns::between::BetweenReduce;
+use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
+use crate::ALP;
 use crate::ALPArray;
 use crate::ALPFloat;
-use crate::ALPVTable;
 use crate::match_each_alp_float_ptype;
 
-impl BetweenKernel for ALPVTable {
+impl BetweenReduce for ALP {
     fn between(
-        &self,
         array: &ALPArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
@@ -41,12 +38,11 @@ impl BetweenKernel for ALPVTable {
 
         let nullability =
             array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
-
         match_each_alp_float_ptype!(array.ptype(), |F| {
             between_impl::<F>(
                 array,
-                F::try_from(lower)?,
-                F::try_from(upper)?,
+                F::try_from(&lower)?,
+                F::try_from(&upper)?,
                 nullability,
                 options,
             )
@@ -54,8 +50,6 @@ impl BetweenKernel for ALPVTable {
         .map(Some)
     }
 }
-
-register_kernel!(BetweenKernelAdapter(ALPVTable).lift());
 
 fn between_impl<T: NativePType + ALPFloat>(
     array: &ALPArray,
@@ -90,37 +84,35 @@ where
         upper_strict,
     };
 
-    between(
-        array.encoded(),
-        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).as_ref(),
-        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).as_ref(),
-        &options,
+    array.encoded().clone().between(
+        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).into_array(),
+        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).into_array(),
+        options,
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::BetweenOptions;
-    use vortex_array::compute::StrictComparison;
-    use vortex_dtype::Nullability;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
 
     use crate::ALPArray;
     use crate::alp::compute::between::between_impl;
     use crate::alp_encode;
 
-    fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
-        let res = between_impl(arr, lower, upper, Nullability::Nullable, options)
-            .unwrap()
-            .to_bool()
-            .bit_buffer()
-            .iter()
-            .collect_vec();
-        assert_eq!(res.len(), 1);
-
-        res[0]
+    fn assert_between(
+        arr: &ALPArray,
+        lower: f32,
+        upper: f32,
+        options: &BetweenOptions,
+        expected: bool,
+    ) {
+        let res = between_impl(arr, lower, upper, Nullability::Nullable, options).unwrap();
+        assert_arrays_eq!(res, BoolArray::from_iter([Some(expected)]));
     }
 
     #[test]
@@ -129,12 +121,8 @@ mod tests {
         let array = PrimitiveArray::from_iter([value; 1]);
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
-        assert_eq!(
-            encoded.encoded().to_primitive().as_slice::<i32>(),
-            vec![605; 1]
-        );
 
-        assert!(between_test(
+        assert_between(
             &encoded,
             0.0605_f32,
             0.0605,
@@ -142,9 +130,10 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-        ));
+            true,
+        );
 
-        assert!(!between_test(
+        assert_between(
             &encoded,
             0.0605_f32,
             0.0605,
@@ -152,9 +141,10 @@ mod tests {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
             },
-        ));
+            false,
+        );
 
-        assert!(!between_test(
+        assert_between(
             &encoded,
             0.0605_f32,
             0.0605,
@@ -162,9 +152,10 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-        ));
+            false,
+        );
 
-        assert!(between_test(
+        assert_between(
             &encoded,
             0.060499_f32,
             0.06051,
@@ -172,9 +163,10 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-        ));
+            true,
+        );
 
-        assert!(between_test(
+        assert_between(
             &encoded,
             0.06_f32,
             0.06051,
@@ -182,6 +174,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-        ))
+            true,
+        );
     }
 }

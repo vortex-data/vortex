@@ -4,28 +4,28 @@
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::expr::Arity;
-use vortex_array::expr::ChildName;
-use vortex_array::expr::EmptyOptions;
-use vortex_array::expr::ExecutionArgs;
-use vortex_array::expr::ExprId;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
-use vortex_array::expr::VTable;
-use vortex_array::expr::VTableExt;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Datum;
 
+#[derive(Clone)]
 pub struct RowIdx;
 
-impl VTable for RowIdx {
+impl ScalarFnVTable for RowIdx {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ExprId {
-        ExprId::from("vortex.row_idx")
+    fn id(&self) -> ScalarFnId {
+        ScalarFnId::from("vortex.row_idx")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -49,20 +49,14 @@ impl VTable for RowIdx {
         Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         _options: &Self::Options,
-        _expr: &Expression,
-        _scope: &ArrayRef,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut vortex_array::ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!(
-            "RowIdxExpr should not be evaluated directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
-        );
-    }
-
-    fn execute(&self, _options: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        vortex_bail!(
-            "RowIdxExpr should not be eecuted directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
+            "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );
     }
 }

@@ -4,21 +4,19 @@
 mod between;
 mod cast;
 mod fill_null;
-mod filter;
-mod is_constant;
-mod is_sorted;
-mod min_max;
-mod sum;
+mod mask;
+pub mod rules;
 mod take;
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::DecimalDType;
     use crate::validity::Validity;
 
     #[rstest]
@@ -55,6 +53,6 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_decimal_consistency(#[case] array: DecimalArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

@@ -8,7 +8,7 @@ apply(plugin = "com.vanniktech.maven.publish")
 plugins {
     `java-library`
     `jvm-test-suite`
-    id("com.gradleup.shadow") version "9.2.2"
+    id("com.gradleup.shadow") version "9.4.0"
 }
 
 dependencies {
@@ -29,7 +29,7 @@ testing {
             useJUnitJupiter()
 
             dependencies {
-                implementation("org.junit.jupiter:junit-jupiter:6.0.2")
+                implementation("org.junit.jupiter:junit-jupiter:6.0.3")
                 implementation("org.apache.spark:spark-core_2.13")
                 implementation("org.apache.spark:spark-sql_2.13")
                 runtimeOnly("org.slf4j:slf4j-simple:2.0.17")

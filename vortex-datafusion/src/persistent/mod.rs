@@ -7,6 +7,7 @@ mod cache;
 mod format;
 pub mod metrics;
 mod opener;
+mod reader;
 mod sink;
 mod source;
 mod stream;
@@ -14,51 +15,16 @@ mod stream;
 pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
-pub use format::VortexOptions;
+pub use format::VortexTableOptions;
 pub use source::VortexSource;
 
 #[cfg(test)]
-/// Utility function to register Vortex with a [`SessionStateBuilder`]
-fn register_vortex_format_factory(
-    factory: VortexFormatFactory,
-    session_state_builder: &mut datafusion::execution::SessionStateBuilder,
-) {
-    if let Some(table_factories) = session_state_builder.table_factories() {
-        table_factories.insert(
-            datafusion::common::GetExt::get_ext(&factory).to_uppercase(), // Has to be uppercase
-            std::sync::Arc::new(datafusion::datasource::provider::DefaultTableFactory::new()),
-        );
-    }
-
-    if let Some(file_formats) = session_state_builder.file_formats() {
-        file_formats.push(std::sync::Arc::new(factory));
-    }
-}
-
-#[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
-    use arrow_schema::DataType;
-    use arrow_schema::Field;
-    use arrow_schema::Schema;
-    use datafusion::arrow::array::Int8Array;
-    use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::util::pretty::pretty_format_batches;
-    use datafusion::datasource::listing::ListingOptions;
-    use datafusion::datasource::listing::ListingTable;
-    use datafusion::datasource::listing::ListingTableConfig;
-    use datafusion::datasource::listing::ListingTableUrl;
-    use datafusion::execution::SessionStateBuilder;
-    use datafusion::prelude::SessionContext;
-    use datafusion_datasource::file_format::format_as_file_type;
-    use datafusion_expr::LogicalPlanBuilder;
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use tempfile::TempDir;
-    use tempfile::tempdir;
-    use tokio::fs::OpenOptions;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::arrays::ChunkedArray;
@@ -67,17 +33,19 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::file::WriteOptionsSessionExt;
+    use vortex::io::VortexWrite;
+    use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
 
-    use crate::VortexFormatFactory;
-    use crate::persistent::VortexFormat;
-    use crate::persistent::register_vortex_format_factory;
+    use crate::common_tests::TestSessionContext;
 
     #[rstest]
     #[tokio::test]
     async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+
         let session = VortexSession::default();
-        let temp_dir = tempdir()?;
+
         let strings = ChunkedArray::from_iter([
             VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
             VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -97,95 +65,53 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(temp_dir.path().join("data.vortex"))
-            .await?;
+        let mut writer = ObjectStoreWrite::new(ctx.store.clone(), &"test.vortex".into()).await?;
 
         let summary = session
             .write_options()
-            .write(&mut f, st.to_array_stream())
+            .write(&mut writer, st.to_array_stream())
             .await?;
+
+        writer.shutdown().await?;
 
         assert_eq!(summary.row_count(), 8);
 
-        // For reasons I don't understand, this is suddenly important on windows
-        drop(f);
-
-        let ctx = SessionContext::default();
-        let format = Arc::new(VortexFormat::new(session));
-
-        let table_url = ListingTableUrl::parse(temp_dir.path().to_str().unwrap())?;
-        assert!(table_url.is_collection());
-
-        let config = ListingTableConfig::new(table_url)
-            .with_listing_options(
-                ListingOptions::new(format).with_session_config_options(ctx.state().config()),
-            )
-            .infer_schema(&ctx.state())
-            .await?;
-
-        let listing_table = Arc::new(ListingTable::try_new(config)?);
-
-        ctx.register_table("vortex_tbl", listing_table as _)?;
-        let total_row_count = ctx.table("vortex_tbl").await?.count().await?;
-        assert_eq!(total_row_count, 8);
-
-        let row_count = ctx
-            .table("vortex_tbl")
+        let read_row_count = ctx
+            .session
+            .sql("SELECT * from '/test.vortex'")
             .await?
             .limit(0, limit)?
             .count()
             .await?;
 
-        assert_eq!(row_count, limit.unwrap_or(total_row_count));
+        assert_eq!(read_row_count, limit.unwrap_or(8));
 
         Ok(())
     }
 
     #[tokio::test]
     async fn test_addition_pushdown() -> anyhow::Result<()> {
-        let dir = TempDir::new()?;
+        let ctx = TestSessionContext::default();
+        dbg!(&ctx.store);
 
-        let factory = VortexFormatFactory::new();
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
+        ctx.session
+            .sql(
+                "CREATE EXTERNAL TABLE written_data \
+                    (a TINYINT NOT NULL) \
+                STORED AS vortex \
+                LOCATION '/test/'",
+            )
+            .await?;
 
-        let data = session.read_batch(RecordBatch::try_new(
-            Arc::new(Schema::new(vec![Field::new("a", DataType::Int8, false)])),
-            vec![Arc::new(Int8Array::from_iter_values(0_i8..5))],
-        )?)?;
-
-        let logical_plan = LogicalPlanBuilder::copy_to(
-            data.logical_plan().clone(),
-            dir.path().to_str().unwrap().to_string(),
-            format_as_file_type(Arc::new(VortexFormatFactory::new())),
-            Default::default(),
-            vec![],
-        )?
-        .build()?;
-
-        session
-            .execute_logical_plan(logical_plan)
+        ctx.session
+            .sql("INSERT INTO written_data VALUES (0), (1), (2), (3), (4)")
             .await?
             .collect()
             .await?;
 
-        // Validate the output by reading back the written files
-        session
-            .sql(&format!(
-                "CREATE EXTERNAL TABLE written_data \
-                    (a TINYINT NOT NULL) \
-                STORED AS vortex
-                LOCATION '{}/';",
-                dir.path().to_str().unwrap()
-            ))
-            .await?;
-
-        let result = session
-            .sql("SELECT a, a + 5 as five, a + 6 as six FROM written_data WHERE a + 5 > 7;")
+        let result = ctx
+            .session
+            .sql("SELECT a, a + 5 as five, a + 6 as six FROM written_data WHERE a + 5 > 7")
             .await?
             .collect()
             .await?;
@@ -204,48 +130,47 @@ mod tests {
 
     #[tokio::test]
     async fn create_table_ordered_by() -> anyhow::Result<()> {
-        let dir = TempDir::new().unwrap();
-
-        let factory: VortexFormatFactory = VortexFormatFactory::new();
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
+        let ctx = TestSessionContext::default();
 
         // Vortex
-        session
-            .sql(&format!(
+        ctx.session
+            .sql(
                 "CREATE EXTERNAL TABLE my_tbl_vx \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex  \
                 WITH ORDER (c1 ASC)
-                LOCATION '{}/vx/'",
-                dir.path().to_str().unwrap()
-            ))
+                LOCATION '/test/'",
+            )
             .await?;
 
-        session
+        ctx.session
             .sql("INSERT INTO my_tbl_vx VALUES ('air', 5), ('balloon', 42)")
             .await?
             .collect()
             .await?;
 
-        session
+        ctx.session
             .sql("INSERT INTO my_tbl_vx VALUES ('zebra', 5)")
             .await?
             .collect()
             .await?;
 
-        session
+        ctx.session
             .sql("INSERT INTO my_tbl_vx VALUES ('texas', 2000), ('alabama', 2000)")
             .await?
             .collect()
             .await?;
 
-        let df = session
+        let df = ctx
+            .session
             .sql("SELECT * FROM my_tbl_vx ORDER BY c1 ASC limit 3")
             .await?;
-        let (state, plan) = df.clone().into_parts();
-        let physical_plan = state.create_physical_plan(&plan).await?;
+
+        let physical_plan = ctx
+            .session
+            .state()
+            .create_physical_plan(df.logical_plan())
+            .await?;
 
         insta::assert_snapshot!(DisplayableExecutionPlan::new(physical_plan.as_ref())
                 .tree_render().to_string(), @r"
@@ -274,6 +199,76 @@ mod tests {
         | alabama | 2000 |
         | balloon | 42   |
         +---------+------+
+        ");
+
+        Ok(())
+    }
+
+    /// Doc example: demonstrates creating, writing, reading, and filtering a Vortex table.
+    #[tokio::test]
+    async fn doc_example() -> anyhow::Result<()> {
+        // [setup]
+        use std::sync::Arc;
+
+        use datafusion::datasource::provider::DefaultTableFactory;
+        use datafusion::execution::SessionStateBuilder;
+        use datafusion::prelude::SessionContext;
+        use datafusion_common::GetExt;
+        use object_store::memory::InMemory;
+
+        use crate::VortexFormatFactory;
+
+        let factory = Arc::new(VortexFormatFactory::new());
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_table_factory(
+                factory.get_ext().to_uppercase(),
+                Arc::new(DefaultTableFactory::new()),
+            )
+            .with_file_formats(vec![factory])
+            .build();
+        let ctx = SessionContext::new_with_state(state).enable_url_table();
+        // [setup]
+
+        // Register an in-memory object store for the test.
+        let store = Arc::new(InMemory::new());
+        ctx.register_object_store(&url::Url::try_from("file://").unwrap(), store);
+
+        // [create]
+        ctx.sql(
+            "CREATE EXTERNAL TABLE my_table \
+                (name VARCHAR NOT NULL, age INT NOT NULL) \
+            STORED AS vortex \
+            LOCATION '/demo/'",
+        )
+        .await?;
+        // [create]
+
+        // [write]
+        ctx.sql(
+            "INSERT INTO my_table VALUES \
+                ('Alice', 30), ('Bob', 25), ('Charlie', 35), ('Diana', 28)",
+        )
+        .await?
+        .collect()
+        .await?;
+        // [write]
+
+        // [query]
+        let result = ctx
+            .sql("SELECT name, age FROM my_table WHERE age > 28 ORDER BY age")
+            .await?
+            .collect()
+            .await?;
+        // [query]
+
+        assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +---------+-----+
+        | name    | age |
+        +---------+-----+
+        | Alice   | 30  |
+        | Charlie | 35  |
+        +---------+-----+
         ");
 
         Ok(())

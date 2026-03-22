@@ -8,6 +8,7 @@ use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -37,7 +38,7 @@ pub struct BufferHandle(Inner);
 enum Inner {
     /// On the host/cpu.
     Host(ByteBuffer),
-    /// On the device.
+    /// On the device/gpu.
     Device(Arc<dyn DeviceBuffer>),
 }
 
@@ -49,6 +50,9 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
 
+    /// Returns the alignment of the buffer.
+    fn alignment(&self) -> Alignment;
+
     /// Returns true if the buffer is empty.
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -59,11 +63,49 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// # Errors
     ///
     /// This operation may fail, depending on the device implementation and the underlying hardware.
-    fn copy_to_host(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
+    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
+
+    /// Copies the device buffer to a host buffer asynchronously.
+    ///
+    /// Schedules an async copy and returns a future that completes when the copy is finished.
+    ///
+    /// # Arguments
+    ///
+    /// * `alignment` - The memory alignment to use for the host buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the async copy operation fails.
+    fn copy_to_host(
+        &self,
+        alignment: Alignment,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>>;
 
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
+    ///
+    /// Note that slice indices are in byte units.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+
+    /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer cannot be aligned (e.g., allocation or copy failure).
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>>;
+}
+
+pub trait DeviceBufferExt: DeviceBuffer {
+    /// Slice a range of elements `T` out of the device buffer.
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+}
+
+impl<B: DeviceBuffer> DeviceBufferExt for B {
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+        let start_bytes = range.start * size_of::<T>();
+        let end_bytes = range.end * size_of::<T>();
+        self.slice(start_bytes..end_bytes)
+    }
 }
 
 impl Hash for dyn DeviceBuffer {
@@ -113,6 +155,29 @@ impl BufferHandle {
         }
     }
 
+    /// Returns the alignment of the buffer.
+    pub fn alignment(&self) -> Alignment {
+        match &self.0 {
+            Inner::Host(bytes) => bytes.alignment(),
+            Inner::Device(device) => device.alignment(),
+        }
+    }
+
+    /// Returns true if the buffer is aligned to the given alignment.
+    pub fn is_aligned_to(&self, alignment: Alignment) -> bool {
+        self.alignment().is_aligned_to(alignment)
+    }
+
+    /// Ensure the buffer satisfies the requested alignment.
+    ///
+    /// Both host and device buffers will be copied if necessary to satisfy the alignment.
+    pub fn ensure_aligned(self, alignment: Alignment) -> VortexResult<Self> {
+        match self.0 {
+            Inner::Host(buffer) => Ok(BufferHandle::new_host(buffer.aligned(alignment))),
+            Inner::Device(device) => Ok(BufferHandle::new_device(device.aligned(alignment)?)),
+        }
+    }
+
     /// Check if the buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -147,7 +212,7 @@ impl BufferHandle {
     /// let values = buffer![1u32, 2u32, 3u32, 4u32];
     /// let handle = BufferHandle::new_host(values.into_byte_buffer());
     /// let sliced = handle.slice_typed::<u32>(1..4);
-    /// let result = Buffer::<u32>::from_byte_buffer(sliced.to_host());
+    /// let result = Buffer::<u32>::from_byte_buffer(sliced.to_host_sync());
     /// assert_eq!(result, buffer![2, 3, 4]);
     /// ```
     pub fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Self {
@@ -199,6 +264,18 @@ impl BufferHandle {
         }
     }
 
+    /// A version of [`as_host_opt`][Self::as_host_opt] that panics if the allocation is
+    /// not a host allocation.
+    pub fn as_host(&self) -> &ByteBuffer {
+        self.as_host_opt().vortex_expect("expected host buffer")
+    }
+
+    /// A version of [`as_device_opt`][Self::as_device_opt] that panics if the allocation is
+    /// not a device allocation.
+    pub fn as_device(&self) -> &Arc<dyn DeviceBuffer> {
+        self.as_device_opt().vortex_expect("expected device buffer")
+    }
+
     /// Returns a host-resident copy of the data in the buffer.
     ///
     /// If the data was already host-resident, this is trivial.
@@ -214,8 +291,8 @@ impl BufferHandle {
     /// result in a panic.
     ///
     /// See also: [`try_to_host`][Self::try_to_host].
-    pub fn to_host(&self) -> ByteBuffer {
-        self.try_to_host()
+    pub fn to_host_sync(&self) -> ByteBuffer {
+        self.try_to_host_sync()
             .vortex_expect("to_host: copy from device to host failed")
     }
 
@@ -228,8 +305,8 @@ impl BufferHandle {
     /// # Panics
     ///
     /// See the panic documentation on [`to_host`][Self::to_host].
-    pub fn into_host(self) -> ByteBuffer {
-        self.try_into_host()
+    pub fn into_host_sync(self) -> ByteBuffer {
+        self.try_into_host_sync()
             .vortex_expect("into_host: copy from device to host failed")
     }
 
@@ -239,21 +316,92 @@ impl BufferHandle {
     ///
     /// If it is a device allocation, then this issues an operation that attempts to copy the data
     /// from the device into a host-resident buffer, and returns a handle to that buffer.
-    pub fn try_to_host(&self) -> VortexResult<ByteBuffer> {
+    pub fn try_to_host_sync(&self) -> VortexResult<ByteBuffer> {
         match &self.0 {
             Inner::Host(b) => Ok(b.clone()),
-            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
         }
     }
 
     /// Attempts to load this buffer into a host-resident allocation, consuming the handle.
     ///
     /// See also [`try_to_host`][Self::try_to_host].
-    pub fn try_into_host(self) -> VortexResult<ByteBuffer> {
+    pub fn try_into_host_sync(self) -> VortexResult<ByteBuffer> {
         match self.0 {
             Inner::Host(b) => Ok(b),
+            Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
+        }
+    }
+
+    /// Asynchronously copies the buffer to the host.
+    ///
+    /// This is a no-op if the buffer is already on the host.
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to the host buffer when the copy completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the async copy operation fails.
+    pub fn try_to_host(&self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        match &self.0 {
+            Inner::Host(b) => {
+                let buffer = b.clone();
+                Ok(Box::pin(async move { Ok(buffer) }))
+            }
             Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
         }
+    }
+
+    /// Asynchronously copies the buffer to the host, consuming the handle.
+    ///
+    /// This is a no-op if the buffer is already on the host.
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to the host buffer when the copy completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the async copy operation fails.
+    pub fn try_into_host(self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        match self.0 {
+            Inner::Host(b) => Ok(Box::pin(async move { Ok(b) })),
+            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+        }
+    }
+
+    /// Asynchronously copies the buffer to the host.
+    ///
+    /// # Panics
+    ///
+    /// Any errors triggered by the copying from device to host will result in a panic.
+    pub fn to_host(&self) -> BoxFuture<'static, ByteBuffer> {
+        let future = self
+            .try_to_host()
+            .vortex_expect("to_host: failed to initiate copy from device to host");
+        Box::pin(async move {
+            future
+                .await
+                .vortex_expect("to_host: copy from device to host failed")
+        })
+    }
+
+    /// Asynchronously copies the buffer to the host, consuming the handle.
+    ///
+    /// # Panics
+    ///
+    /// Any errors triggered by the copying from device to host will result in a panic.
+    pub fn into_host(self) -> BoxFuture<'static, ByteBuffer> {
+        let future = self
+            .try_into_host()
+            .vortex_expect("into_host: failed to initiate copy from device to host");
+        Box::pin(async move {
+            future
+                .await
+                .vortex_expect("into_host: copy from device to host failed")
+        })
     }
 }
 

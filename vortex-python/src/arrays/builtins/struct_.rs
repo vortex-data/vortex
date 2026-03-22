@@ -6,26 +6,27 @@ use pyo3::PyRef;
 use pyo3::PyResult;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::array::arrays::StructVTable;
+use vortex::array::arrays::Struct;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
+use crate::error::PyVortexResult;
 
 /// Concrete class for arrays with `vortex.struct` encoding.
 #[pyclass(name = "StructArray", module = "vortex", extends=PyNativeArray, frozen)]
 pub(crate) struct PyStructArray;
 
 impl EncodingSubclass for PyStructArray {
-    type VTable = StructVTable;
+    type VTable = Struct;
 }
 
 #[pymethods]
 impl PyStructArray {
     /// Returns the given field of the struct array.
-    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyArrayRef> {
-        let field = self_.as_array_ref().field_by_name(name)?.clone();
+    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyVortexResult<PyArrayRef> {
+        let field = self_.as_array_ref().unmasked_field_by_name(name)?.clone();
         Ok(PyArrayRef::from(field))
     }
 

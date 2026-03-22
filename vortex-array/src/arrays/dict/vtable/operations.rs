@@ -2,23 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
-use super::DictVTable;
-use crate::Array;
-use crate::arrays::dict::DictArray;
+use super::Dict;
+use crate::DynArray;
+use crate::arrays::DictArray;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<DictVTable> for DictVTable {
-    fn scalar_at(array: &DictArray, index: usize) -> Scalar {
-        let Some(dict_index) = array.codes().scalar_at(index).as_primitive().as_::<usize>() else {
-            return Scalar::null(array.dtype().clone());
+impl OperationsVTable<Dict> for Dict {
+    fn scalar_at(array: &DictArray, index: usize) -> VortexResult<Scalar> {
+        let Some(dict_index) = array
+            .codes()
+            .scalar_at(index)?
+            .as_primitive()
+            .as_::<usize>()
+        else {
+            return Ok(Scalar::null(array.dtype().clone()));
         };
 
-        array
+        Ok(array
             .values()
-            .scalar_at(dict_index)
+            .scalar_at(dict_index)?
             .cast(array.dtype())
-            .vortex_expect("Array dtype will only differ by nullability")
+            .vortex_expect("Array dtype will only differ by nullability"))
     }
 }

@@ -24,7 +24,8 @@ public:
         std::string test_data_path = GetTestDataPath("test_data.vortex");
         auto stream = vortex::testing::CreateTestDataStream();
         auto write_options = vortex::ffi::write_options_new();
-        vortex::ffi::write_array_stream(std::move(write_options), reinterpret_cast<uint8_t *>(&stream),
+        vortex::ffi::write_array_stream(std::move(write_options),
+                                        reinterpret_cast<uint8_t *>(&stream),
                                         test_data_path.c_str());
     }
 
@@ -90,7 +91,8 @@ protected:
 
     /// Both array are struct of int64
     void ValidateArray(const nanoarrow::UniqueArray &actual_array,
-                       const nanoarrow::UniqueSchema &actual_schema, const nanoarrow::UniqueArray &ref_array,
+                       const nanoarrow::UniqueSchema &actual_schema,
+                       const nanoarrow::UniqueArray &ref_array,
                        const nanoarrow::UniqueSchema &ref_schema) {
         // Basic properties validation
         ASSERT_EQ(actual_schema->n_children, ref_schema->n_children);
@@ -189,7 +191,8 @@ protected:
     void
     RunScanBuilderTest(const std::function<ArrowArrayStream(vortex::ScanBuilder &)> &configureScanBuilder,
                        ArrowArrayStream expected_stream,
-                       const std::vector<int64_t> &expected_row_indices = {}, bool selection = false) {
+                       const std::vector<int64_t> &expected_row_indices = {},
+                       bool selection = false) {
 
         auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
         auto [ref_array, ref_schema] = ReadFirstArrayFromStream(expected_stream);
@@ -201,7 +204,8 @@ protected:
     // New helper for projection tests
     void RunScanBuilderProjectionTest(
         const std::function<ArrowArrayStream(vortex::ScanBuilder &)> &configureScanBuilder,
-        ArrowArrayStream expected_stream, const std::vector<int64_t> &field_idxs) {
+        ArrowArrayStream expected_stream,
+        const std::vector<int64_t> &field_idxs) {
 
         auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
         auto [ref_array, ref_schema] = ReadFirstArrayFromStream(expected_stream);
@@ -222,7 +226,9 @@ TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
         [](vortex::ScanBuilder &scan_builder) {
             return std::move(scan_builder.WithLimit(2).WithRowRange(1, 4)).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {1, 2}, true);
+        vortex::testing::CreateTestDataStream(),
+        {1, 2},
+        true);
 }
 
 TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
@@ -234,7 +240,9 @@ TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
                        scan_builder.WithIncludeByIndex(include_by_index.data(), include_by_index.size()))
                 .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {1, 3}, true);
+        vortex::testing::CreateTestDataStream(),
+        {1, 3},
+        true);
 }
 
 TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
@@ -246,7 +254,9 @@ TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
                                                                                 include_by_index.size()))
                 .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {3, 4}, true);
+        vortex::testing::CreateTestDataStream(),
+        {3, 4},
+        true);
 }
 
 TEST_F(VortexTest, WriteArrayStream) {
@@ -273,7 +283,8 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
     std::string test_data_path_1m = GetTestDataPath("test_data_1m.vortex");
     auto stream_1m = vortex::testing::CreateTestData1MStream();
     auto write_options = vortex::ffi::write_options_new();
-    vortex::ffi::write_array_stream(std::move(write_options), reinterpret_cast<uint8_t *>(&stream_1m),
+    vortex::ffi::write_array_stream(std::move(write_options),
+                                    reinterpret_cast<uint8_t *>(&stream_1m),
                                     test_data_path_1m.c_str());
 
     auto file = vortex::VortexFile::Open(test_data_path_1m);
@@ -332,14 +343,17 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
 
     // Combine all batches from both threads
     std::vector<BatchData> all_batches;
-    all_batches.insert(all_batches.end(), std::make_move_iterator(thread1_batches.begin()),
+    all_batches.insert(all_batches.end(),
+                       std::make_move_iterator(thread1_batches.begin()),
                        std::make_move_iterator(thread1_batches.end()));
-    all_batches.insert(all_batches.end(), std::make_move_iterator(thread2_batches.begin()),
+    all_batches.insert(all_batches.end(),
+                       std::make_move_iterator(thread2_batches.begin()),
                        std::make_move_iterator(thread2_batches.end()));
 
     // Sort batches by first ID to ensure proper validation order
-    std::sort(all_batches.begin(), all_batches.end(),
-              [](const BatchData &a, const BatchData &b) { return a.first_id < b.first_id; });
+    std::sort(all_batches.begin(), all_batches.end(), [](const BatchData &a, const BatchData &b) {
+        return a.first_id < b.first_id;
+    });
 
     // Create reference data for validation
     auto [ref_array, ref_schema] = ReadFirstArrayFromStream(vortex::testing::CreateTestData1MStream());
@@ -390,7 +404,9 @@ TEST_F(VortexTest, ScanBuilderWithFilter) {
             auto filter = ve::eq(ve::column("a"), ve::literal(vs::int32(30)));
             return std::move(scan_builder.WithFilter(std::move(filter))).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+        vortex::testing::CreateTestDataStream(),
+        {2},
+        true); // Row index 2 corresponds to value 30
 }
 
 TEST_F(VortexTest, ScanBuilderWithFilterLvalueref) {
@@ -400,7 +416,9 @@ TEST_F(VortexTest, ScanBuilderWithFilterLvalueref) {
             const auto filter = ve::eq(ve::column("a"), ve::literal(vs::int32(30)));
             return std::move(scan_builder.WithFilter(filter)).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+        vortex::testing::CreateTestDataStream(),
+        {2},
+        true); // Row index 2 corresponds to value 30
 }
 
 TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
@@ -412,7 +430,9 @@ TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
             );
             return std::move(scan_builder.WithFilter(std::move(filter))).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {}, true); // No matching rows
+        vortex::testing::CreateTestDataStream(),
+        {},
+        true); // No matching rows
 }
 
 TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {
@@ -436,7 +456,9 @@ TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {
             auto filter = ve::eq(ve::column("a"), ve::literal(std::move(test_scalar)));
             return std::move(scan_builder.WithFilter(std::move(filter))).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+        vortex::testing::CreateTestDataStream(),
+        {2},
+        true); // Row index 2 corresponds to value 30
 }
 
 TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
@@ -446,14 +468,16 @@ TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
             auto projection = ve::select({"a"}, ve::root());
             return std::move(scan_builder.WithProjection(std::move(projection))).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {0});
+        vortex::testing::CreateTestDataStream(),
+        {0});
 }
 
 TEST_F(VortexTest, OpenFromBuffer) {
     std::string test_file_path = GetTestDataPath("test_buffer.vortex");
     auto stream = vortex::testing::CreateTestDataStream();
     auto write_options = vortex::ffi::write_options_new();
-    vortex::ffi::write_array_stream(std::move(write_options), reinterpret_cast<uint8_t *>(&stream),
+    vortex::ffi::write_array_stream(std::move(write_options),
+                                    reinterpret_cast<uint8_t *>(&stream),
                                     test_file_path.c_str());
 
     std::ifstream file(test_file_path, std::ios::binary | std::ios::ate);
@@ -463,7 +487,7 @@ TEST_F(VortexTest, OpenFromBuffer) {
     file.seekg(0, std::ios::beg);
 
     std::vector<uint8_t> buffer(file_size);
-    ASSERT_TRUE(file.read(reinterpret_cast<char*>(buffer.data()), file_size))
+    ASSERT_TRUE(file.read(reinterpret_cast<char *>(buffer.data()), file_size))
         << "Failed to read file into buffer";
     file.close();
 

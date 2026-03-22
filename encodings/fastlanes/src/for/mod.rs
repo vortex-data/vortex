@@ -4,7 +4,7 @@
 mod array;
 pub use array::FoRArray;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::FoRVTable;
+pub use vtable::FoR;

@@ -7,12 +7,11 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::DictReader;
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -20,6 +19,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -34,7 +34,7 @@ use crate::vtable;
 
 vtable!(Dict);
 
-impl VTable for DictVTable {
+impl VTable for Dict {
     type Layout = DictLayout;
     type Encoding = DictLayoutEncoding;
     type Metadata = ProstMetadata<DictLayoutMetadata>;
@@ -101,16 +101,6 @@ impl VTable for DictVTable {
         )?))
     }
 
-    #[cfg(gpu_unstable)]
-    fn new_gpu_reader(
-        _layout: &Self::Layout,
-        _name: Arc<str>,
-        _segment_source: Arc<dyn SegmentSource>,
-        _ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        todo!()
-    }
-
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
@@ -118,7 +108,7 @@ impl VTable for DictVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContext,
+        _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         let values = children.child(0, dtype)?;
         let codes_nullable = metadata
@@ -126,7 +116,7 @@ impl VTable for DictVTable {
             .map(Nullability::from)
             // The old behaviour (without `is_nullable_codes` metadata) used the nullability
             // of the values (and whole array).
-            // see [`SerdeVTable<DictVTable>::build`].
+            // see [`SerdeVTable<Dict>::build`].
             .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
         Ok(unsafe {
@@ -155,6 +145,10 @@ impl VTable for DictVTable {
 #[derive(Debug)]
 pub struct DictLayoutEncoding;
 
+/// Stores a shared dictionary of values alongside compact integer codes that index into it.
+///
+/// Useful for columns with many repeated values, where storing each value once and
+/// referencing it by index saves significant space.
 #[derive(Clone, Debug)]
 pub struct DictLayout {
     values: LayoutRef,

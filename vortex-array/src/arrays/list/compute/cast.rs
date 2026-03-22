@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::compute::cast;
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for ListVTable {
-    fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for List {
+    fn cast(array: &ListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
@@ -24,16 +23,12 @@ impl CastKernel for ListVTable {
             .clone()
             .cast_nullability(dtype.nullability(), array.len())?;
 
-        ListArray::try_new(
-            cast(array.elements(), target_element_type)?,
-            array.offsets().clone(),
-            validity,
-        )
-        .map(|a| Some(a.to_array()))
+        let new_elements = array.elements().cast((**target_element_type).clone())?;
+
+        ListArray::try_new(new_elements, array.offsets().clone(), validity)
+            .map(|a| Some(a.into_array()))
     }
 }
-
-register_kernel!(CastKernelAdapter(ListVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -41,17 +36,20 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::RecursiveCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
-    use crate::compute::cast;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[test]
@@ -68,7 +66,11 @@ mod tests {
             Nullability::Nullable,
         );
 
-        let result = cast(list.to_array().as_ref(), &target_dtype).unwrap();
+        let result = list
+            .clone()
+            .into_array()
+            .cast(target_dtype.clone())
+            .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), list.len());
     }
@@ -85,7 +87,10 @@ mod tests {
         let target_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
         // can't cast list to u64
 
-        let result = cast(list.to_array().as_ref(), &target_dtype);
+        let result = list
+            .into_array()
+            .cast(target_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
     }
 
@@ -97,7 +102,7 @@ mod tests {
         let list = ListArray::try_new(
             buffer![0i32, 2, 3, 4].into_array().to_array(),
             buffer![0, 2, 3].into_array().to_array(),
-            Validity::Array(BoolArray::from_iter(vec![false, true]).to_array()),
+            Validity::Array(BoolArray::from_iter(vec![false, true]).into_array()),
         )
         .unwrap();
 
@@ -106,12 +111,16 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = cast(list.to_array().as_ref(), &target_dtype);
+        let result = list
+            .into_array()
+            .cast(target_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
 
-        // Nulls in list element array
+        // Nulls in list element array — the inner cast error is deferred until
+        // the elements are executed.
         let list = ListArray::try_new(
-            PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).to_array(),
+            PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).into_array(),
             buffer![0, 2, 3].into_array().to_array(),
             Validity::NonNullable,
         )
@@ -122,7 +131,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = cast(list.to_array().as_ref(), &target_dtype);
+        let result = list.into_array().cast(target_dtype).and_then(|a| {
+            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .map(|c| c.0.into_array())
+        });
         assert!(result.is_err());
     }
 
@@ -133,7 +145,7 @@ mod tests {
     #[case(create_nested_list())]
     #[case(create_empty_lists())]
     fn test_cast_list_conformance(#[case] array: ListArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 
     fn create_simple_list() -> ListArray {

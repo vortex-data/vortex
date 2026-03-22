@@ -11,17 +11,15 @@ inputs:
     required: false
   components:
     description: "optional override for the components to install for the step (e.g. clippy, rustfmt, miri)"
+    default: "clippy, rustfmt"
     required: false
   targets:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
-  cache-suffix:
-    description: "optional suffix for cache key to isolate builds with different RUSTFLAGS (e.g. 'sanitizer')"
+  enable-sccache:
+    description: "Should sccache be enabled, true by default."
     required: false
-    default: ""
-  timestamp:
-    description: "Timestamp cache with cargo sweep"
-    default: "false"
+    default: "true"
 
 runs:
   using: "composite"
@@ -40,32 +38,54 @@ runs:
       if: runner.os == 'Linux'
       uses: rui314/setup-mold@v1
 
+    - name: Check for rustup
+      id: check-rustup
+      shell: bash
+      run: echo "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+
     - name: Rust Toolchain
       id: rust-toolchain
       uses: dtolnay/rust-toolchain@stable
-      if: steps.rustup-cache.outputs.cache-hit != 'true'
+      if: steps.check-rustup.outputs.exists != 'true'
       with:
         toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
         targets: "${{ inputs.targets }}"
-        components: "${{ inputs.components || 'clippy, rustfmt' }}"
+        components: "${{ inputs.components }}"
 
-    - name: Rust Dependency Cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        save-if: ${{ github.ref_name == 'develop' }}
-        # os and arch by default
-        shared-key: "rust-cache-${{ github.job }}-${{ runner.environment }}-${{ steps.rust-toolchain.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
-        env-vars: "RUSTFLAGS"
+    - name: Install additional targets and components
+      if: steps.check-rustup.outputs.exists == 'true'
+      shell: bash
+      run: |
+        rustup toolchain install "$TOOLCHAIN"
+        [[ -n "$TARGETS" ]] && rustup target add --toolchain "$TOOLCHAIN" ${TARGETS//,/ }
+        [[ -n "$COMPONENTS" ]] && rustup component add --toolchain "$TOOLCHAIN" ${COMPONENTS//,/ }
+      env:
+        TOOLCHAIN: ${{ steps.toolchain-config.outputs.toolchain }}
+        TARGETS: ${{ inputs.targets }}
+        COMPONENTS: ${{ inputs.components }}
+
+    - name: Configure sccache timeout
+      if: inputs.enable-sccache == 'true'
+      shell: bash
+      run: |
+        mkdir -p ~/.config/sccache
+        echo 'server_startup_timeout_ms = 15000' > ~/.config/sccache/config
 
     - name: Rust Compile Cache
+      if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
+
+    - name: Pre-start sccache server
+      if: inputs.enable-sccache == 'true'
+      shell: bash
+      run: sccache --start-server &
 
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
-      uses: arduino/setup-protoc@v3
-      with:
-        version: "29.3"
-        repo-token: ${{ inputs.repo-token }}
+      uses: ./.github/actions/setup-protoc
+
+    - name: Install Ninja (for DuckDB build system)
+      uses: seanmiddleditch/gha-setup-ninja@v6
 
     - name: Install Sweep
       shell: bash

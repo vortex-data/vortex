@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_vector::binaryview::BinaryView;
-
 use crate::ToCanonical;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
 
 #[test]
@@ -21,7 +20,8 @@ pub fn varbin_view() {
 pub fn slice_array() {
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
-            .slice(1..2);
+            .slice(1..2)
+            .unwrap();
     assert_arrays_eq!(
         binary_arr,
         VarBinViewArray::from_iter_str(["hello world this is a long string"])

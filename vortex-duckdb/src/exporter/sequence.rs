@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use bitvec::macros::internal::funty::Fundamental;
+use vortex::array::ExecutionCtx;
 use vortex::encodings::sequence::SequenceArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct SequenceExporter {
@@ -25,7 +26,13 @@ pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn Column
 }
 
 impl ColumnExporter for SequenceExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let offset = offset.as_i64();
         let start = (offset * self.step) + self.start;
 
@@ -37,25 +44,32 @@ impl ColumnExporter for SequenceExporter {
 #[cfg(test)]
 mod tests {
     use vortex::dtype::Nullability;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
+    use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
 
     #[test]
     fn test_sequence() {
-        let arr = SequenceArray::typed_new(2, 5, Nullability::NonNullable, 100).unwrap();
+        let arr = SequenceArray::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr)
             .unwrap()
-            .export(0, 4, &mut chunk.get_vector(0))
+            .export(
+                0,
+                4,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - SEQUENCE INTEGER: 4 = [ 2, 7, 12, 17]
 "#

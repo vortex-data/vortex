@@ -6,14 +6,14 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
+use crate::dtype::DType;
 use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 
@@ -92,11 +92,11 @@ pub trait ArrayIteratorExt: ArrayIterator {
 
 impl<I: ArrayIterator> ArrayIteratorExt for I {}
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Create an [`ArrayIterator`] over the array.
     pub fn to_array_iterator(&self) -> impl ArrayIterator + 'static {
         let dtype = self.dtype().clone();
-        let iter = if let Some(chunked) = self.as_opt::<ChunkedVTable>() {
+        let iter = if let Some(chunked) = self.as_opt::<Chunked>() {
             ArrayChunkIterator::Chunked(Arc::new(chunked.clone()), 0)
         } else {
             ArrayChunkIterator::Single(Some(self.to_array()))

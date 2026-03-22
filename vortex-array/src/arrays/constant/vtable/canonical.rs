@@ -6,41 +6,35 @@ use std::sync::Arc;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_decimal_value;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::BinaryScalar;
-use vortex_scalar::BoolScalar;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::ExtScalar;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
-use vortex_scalar::StructScalar;
-use vortex_scalar::Utf8Scalar;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::NullArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::varbinview::BinaryView;
 use crate::builders::builder_with_capacity;
+use crate::dtype::DType;
+use crate::dtype::DecimalType;
+use crate::dtype::Nullability;
+use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
-pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {
@@ -53,12 +47,8 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
 
     Ok(match array.dtype() {
         DType::Null => Canonical::Null(NullArray::new(array.len())),
-        DType::Bool(..) => Canonical::Bool(BoolArray::from_bit_buffer(
-            if BoolScalar::try_from(scalar)
-                .vortex_expect("must be bool")
-                .value()
-                .unwrap_or_default()
-            {
+        DType::Bool(..) => Canonical::Bool(BoolArray::new(
+            if scalar.as_bool().value().unwrap_or_default() {
                 BitBuffer::new_set(array.len())
             } else {
                 BitBuffer::new_unset(array.len())
@@ -111,9 +101,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             Canonical::Decimal(decimal_array)
         }
         DType::Utf8(_) => {
-            let value = Utf8Scalar::try_from(scalar)
-                .vortex_expect("Must be a utf8 scalar")
-                .value();
+            let value = scalar.as_utf8().value();
             let const_value = value.as_ref().map(|v| v.as_bytes());
             Canonical::VarBinView(constant_canonical_byte_view(
                 const_value,
@@ -122,9 +110,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             ))
         }
         DType::Binary(_) => {
-            let value = BinaryScalar::try_from(scalar)
-                .vortex_expect("must be a binary scalar")
-                .value();
+            let value = scalar.as_binary().value().cloned();
             let const_value = value.as_ref().map(|v| v.as_slice());
             Canonical::VarBinView(constant_canonical_byte_view(
                 const_value,
@@ -133,18 +119,21 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             ))
         }
         DType::Struct(struct_dtype, _) => {
-            let value = StructScalar::try_from(scalar).vortex_expect("must be struct");
-            let fields: Vec<_> = match value.fields() {
+            let value = scalar.as_struct();
+            let fields: Vec<_> = match value.fields_iter() {
                 Some(fields) => fields
                     .into_iter()
                     .map(|s| ConstantArray::new(s, array.len()).into_array())
                     .collect(),
                 None => {
-                    assert!(validity.all_invalid(array.len()));
+                    assert!(matches!(validity, Validity::AllInvalid));
+                    // The struct is entirely null, so fields just need placeholder values with the
+                    // correct dtype. We use `default_value` which returns a zero for non-nullable
+                    // dtypes and null for nullable dtypes, preserving each field's nullability.
                     struct_dtype
                         .fields()
                         .map(|dt| {
-                            let scalar = Scalar::default_value(dt);
+                            let scalar = Scalar::default_value(&dt);
                             ConstantArray::new(scalar, array.len()).into_array()
                         })
                         .collect()
@@ -158,7 +147,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
         DType::FixedSizeList(element_dtype, list_size, _) => {
-            let value = ListScalar::try_from(scalar).vortex_expect("must be list");
+            let value = scalar.as_list();
 
             Canonical::FixedSizeList(constant_canonical_fixed_size_list_array(
                 value.elements(),
@@ -169,11 +158,16 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             ))
         }
         DType::Extension(ext_dtype) => {
-            let s = ExtScalar::try_from(scalar).vortex_expect("must be an extension scalar");
+            let s = scalar.as_extension();
 
-            let storage_scalar = s.storage();
+            let storage_scalar = s.to_storage_scalar();
             let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
+        }
+        DType::Variant(_) => {
+            unimplemented!(
+                "TODO(variant): canonicalization will use the child-array design in a follow-up"
+            )
         }
     })
 }
@@ -227,7 +221,7 @@ fn constant_canonical_byte_view(
 /// We basically just project the list scalar value into list view components. If the caller wants
 /// a fully decompressed and non-overlapping array, they can rebuild the array.
 fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
-    let list = ListScalar::try_from(scalar).vortex_expect("must be list");
+    let list = scalar.as_list();
 
     // Since "canonicalize" only applies to the top level array, we can simply have 1 scalar in our
     // child `elements` and have all list views point to that scalar.
@@ -323,22 +317,23 @@ mod tests {
 
     use enum_iterator::all;
     use itertools::Itertools;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::half::f16;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
-    use crate::arrays::ListViewRebuildMode;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::listview::ListViewRebuildMode;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::half::f16;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -347,21 +342,15 @@ mod tests {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.to_null();
         assert_eq!(actual.len(), 42);
-        assert_eq!(actual.scalar_at(33), Scalar::null(DType::Null));
+        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
     }
 
     #[test]
     fn test_canonicalize_const_str() {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
-        // Check all values correct.
-        let canonical = const_array.to_varbinview();
-
-        assert_eq!(canonical.len(), 4);
-
-        for i in 0..=3 {
-            assert_eq!(canonical.scalar_at(i), "four".into());
-        }
+        let expected = VarBinArray::from(vec!["four", "four", "four", "four"]);
+        assert_arrays_eq!(const_array, expected);
     }
 
     #[test]
@@ -400,7 +389,7 @@ mod tests {
         let canonical_const = const_array.to_primitive();
 
         // Verify the scalar value is preserved through canonicalization
-        assert_eq!(canonical_const.scalar_at(0), f16_scalar);
+        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
     }
 
     #[test]
@@ -482,9 +471,11 @@ mod tests {
 
         let struct_array = array.to_struct();
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(struct_array.valid_count(), 0);
+        assert_eq!(struct_array.valid_count().unwrap(), 0);
 
-        let field = struct_array.field_by_name("non_null_field").unwrap();
+        let field = struct_array
+            .unmasked_field_by_name("non_null_field")
+            .unwrap();
 
         assert_eq!(
             field.dtype(),
@@ -510,11 +501,11 @@ mod tests {
 
         assert_eq!(canonical.len(), 4);
         assert_eq!(canonical.list_size(), 3);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
-            let list = canonical.fixed_size_list_elements_at(i);
+            let list = canonical.fixed_size_list_elements_at(i).unwrap();
             let list_primitive = list.to_primitive();
             assert_arrays_eq!(list_primitive, PrimitiveArray::from_iter([10i32, 20, 30]));
         }
@@ -537,7 +528,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 2);
-        assert_eq!(canonical.validity(), &Validity::AllValid);
+        assert!(matches!(canonical.validity(), Validity::AllValid));
 
         // Check elements.
         let elements = canonical.elements().to_primitive();
@@ -561,7 +552,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 5);
         assert_eq!(canonical.list_size(), 4);
-        assert_eq!(canonical.validity(), &Validity::AllInvalid);
+        assert!(matches!(canonical.validity(), Validity::AllInvalid));
 
         // Elements should be defaults (zeros).
         let elements = canonical.elements().to_primitive();
@@ -583,7 +574,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 10);
         assert_eq!(canonical.list_size(), 0);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Elements array should be empty.
         assert!(canonical.elements().is_empty());
@@ -606,10 +597,10 @@ mod tests {
 
         // Check elements are repeated correctly.
         let elements = canonical.elements().to_varbinview();
-        assert_eq!(elements.scalar_at(0), "hello".into());
-        assert_eq!(elements.scalar_at(1), "world".into());
-        assert_eq!(elements.scalar_at(2), "hello".into());
-        assert_eq!(elements.scalar_at(3), "world".into());
+        assert_eq!(elements.scalar_at(0).unwrap(), "hello".into());
+        assert_eq!(elements.scalar_at(1).unwrap(), "world".into());
+        assert_eq!(elements.scalar_at(2).unwrap(), "hello".into());
+        assert_eq!(elements.scalar_at(3).unwrap(), "world".into());
     }
 
     #[test]
@@ -649,27 +640,27 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 3);
-        assert_eq!(canonical.validity(), &Validity::NonNullable);
+        assert!(matches!(canonical.validity(), Validity::NonNullable));
 
         // Check elements including nulls.
         let elements = canonical.elements().to_primitive();
-        assert_eq!(elements.scalar_at(0), Scalar::from(100i32));
+        assert_eq!(elements.scalar_at(0).unwrap(), Scalar::from(100i32));
         assert_eq!(
-            elements.scalar_at(1),
+            elements.scalar_at(1).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
-        assert_eq!(elements.scalar_at(2), Scalar::from(200i32));
+        assert_eq!(elements.scalar_at(2).unwrap(), Scalar::from(200i32));
 
         // Check element validity.
         let element_validity = elements.validity();
-        assert!(element_validity.is_valid(0));
-        assert!(!element_validity.is_valid(1));
-        assert!(element_validity.is_valid(2));
+        assert!(element_validity.is_valid(0).unwrap());
+        assert!(!element_validity.is_valid(1).unwrap());
+        assert!(element_validity.is_valid(2).unwrap());
 
         // Pattern should repeat.
-        assert!(element_validity.is_valid(3));
-        assert!(!element_validity.is_valid(4));
-        assert!(element_validity.is_valid(5));
+        assert!(element_validity.is_valid(3).unwrap());
+        assert!(!element_validity.is_valid(4).unwrap());
+        assert!(element_validity.is_valid(5).unwrap());
     }
 
     #[test]
@@ -699,11 +690,11 @@ mod tests {
         // Check pattern repeats correctly.
         for i in 0..1000 {
             let base = i * 5;
-            assert_eq!(elements.scalar_at(base), Scalar::from(1u8));
-            assert_eq!(elements.scalar_at(base + 1), Scalar::from(2u8));
-            assert_eq!(elements.scalar_at(base + 2), Scalar::from(3u8));
-            assert_eq!(elements.scalar_at(base + 3), Scalar::from(4u8));
-            assert_eq!(elements.scalar_at(base + 4), Scalar::from(5u8));
+            assert_eq!(elements.scalar_at(base).unwrap(), Scalar::from(1u8));
+            assert_eq!(elements.scalar_at(base + 1).unwrap(), Scalar::from(2u8));
+            assert_eq!(elements.scalar_at(base + 2).unwrap(), Scalar::from(3u8));
+            assert_eq!(elements.scalar_at(base + 3).unwrap(), Scalar::from(4u8));
+            assert_eq!(elements.scalar_at(base + 4).unwrap(), Scalar::from(5u8));
         }
     }
 }

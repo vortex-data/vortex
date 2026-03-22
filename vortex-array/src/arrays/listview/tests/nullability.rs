@@ -5,15 +5,15 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_scalar::Scalar;
 
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 #[test]
@@ -33,9 +33,9 @@ fn test_nullable_listview_comprehensive() {
     assert_eq!(listview.len(), 3);
 
     // Check validity.
-    assert!(listview.is_valid(0));
-    assert!(listview.is_invalid(1));
-    assert!(listview.is_valid(2));
+    assert!(listview.is_valid(0).unwrap());
+    assert!(listview.is_invalid(1).unwrap());
+    assert!(listview.is_valid(2).unwrap());
 
     // Check dtype reflects nullability.
     assert!(matches!(
@@ -44,7 +44,7 @@ fn test_nullable_listview_comprehensive() {
     ));
 
     // Test scalar_at with nulls.
-    let first = listview.scalar_at(0);
+    let first = listview.scalar_at(0).unwrap();
     assert!(!first.is_null());
     assert_eq!(
         first,
@@ -55,10 +55,10 @@ fn test_nullable_listview_comprehensive() {
         )
     );
 
-    let second = listview.scalar_at(1);
+    let second = listview.scalar_at(1).unwrap();
     assert!(second.is_null());
 
-    let third = listview.scalar_at(2);
+    let third = listview.scalar_at(2).unwrap();
     assert!(!third.is_null());
     assert_eq!(
         third,
@@ -70,10 +70,10 @@ fn test_nullable_listview_comprehensive() {
     );
 
     // list_elements_at still returns data even for null lists.
-    let null_list_data = listview.list_elements_at(1);
+    let null_list_data = listview.list_elements_at(1).unwrap();
     assert_eq!(null_list_data.len(), 2);
-    assert_eq!(null_list_data.scalar_at(0), 3i32.into());
-    assert_eq!(null_list_data.scalar_at(1), 4i32.into());
+    assert_eq!(null_list_data.scalar_at(0).unwrap(), 3i32.into());
+    assert_eq!(null_list_data.scalar_at(1).unwrap(), 4i32.into());
 }
 
 // Parameterized tests for different null patterns.
@@ -90,7 +90,7 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
     let listview = unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) };
 
     for (i, &expected) in expected_validity.iter().enumerate() {
-        assert_eq!(listview.is_valid(i), expected);
+        assert_eq!(listview.is_valid(i).unwrap(), expected);
     }
 }
 
@@ -110,24 +110,24 @@ fn test_nullable_elements() {
     };
 
     // First list: [Some(1), None].
-    let first_list = listview.list_elements_at(0);
+    let first_list = listview.list_elements_at(0).unwrap();
     assert_eq!(first_list.len(), 2);
-    assert!(!first_list.scalar_at(0).is_null());
-    assert_eq!(first_list.scalar_at(0), 1i32.into());
-    assert!(first_list.scalar_at(1).is_null());
+    assert!(!first_list.scalar_at(0).unwrap().is_null());
+    assert_eq!(first_list.scalar_at(0).unwrap(), 1i32.into());
+    assert!(first_list.scalar_at(1).unwrap().is_null());
 
     // Second list: [Some(3), None].
-    let second_list = listview.list_elements_at(1);
-    assert!(!second_list.scalar_at(0).is_null());
-    assert_eq!(second_list.scalar_at(0), 3i32.into());
-    assert!(second_list.scalar_at(1).is_null());
+    let second_list = listview.list_elements_at(1).unwrap();
+    assert!(!second_list.scalar_at(0).unwrap().is_null());
+    assert_eq!(second_list.scalar_at(0).unwrap(), 3i32.into());
+    assert!(second_list.scalar_at(1).unwrap().is_null());
 
     // Third list: [Some(5), Some(6)].
-    let third_list = listview.list_elements_at(2);
-    assert!(!third_list.scalar_at(0).is_null());
-    assert_eq!(third_list.scalar_at(0), 5i32.into());
-    assert!(!third_list.scalar_at(1).is_null());
-    assert_eq!(third_list.scalar_at(1), 6i32.into());
+    let third_list = listview.list_elements_at(2).unwrap();
+    assert!(!third_list.scalar_at(0).unwrap().is_null());
+    assert_eq!(third_list.scalar_at(0).unwrap(), 5i32.into());
+    assert!(!third_list.scalar_at(1).unwrap().is_null());
+    assert_eq!(third_list.scalar_at(1).unwrap(), 6i32.into());
 
     // Check dtype of elements.
     assert!(matches!(

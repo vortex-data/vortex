@@ -5,15 +5,11 @@ use std::any::Any;
 use std::mem;
 
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::BoolScalar;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -22,6 +18,9 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::scalar::Scalar;
 
 pub struct BoolBuilder {
     dtype: DType,
@@ -63,7 +62,7 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        BoolArray::from_bit_buffer(
+        BoolArray::new(
             mem::take(&mut self.inner).freeze(),
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
@@ -99,13 +98,12 @@ impl ArrayBuilder for BoolBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "BoolBuilder expected scalar with dtype {:?}, got {:?}",
+            "BoolBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
 
-        let bool_scalar = BoolScalar::try_from(scalar)?;
-        match bool_scalar.value() {
+        match scalar.as_bool().value() {
             Some(value) => self.append_value(value),
             None => self.append_null(),
         }
@@ -113,11 +111,15 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let bool_array = array.to_bool();
 
-        self.inner.append_buffer(bool_array.bit_buffer());
-        self.nulls.append_validity_mask(bool_array.validity_mask());
+        self.inner.append_buffer(&bool_array.to_bit_buffer());
+        self.nulls.append_validity_mask(
+            bool_array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -141,26 +143,26 @@ impl ArrayBuilder for BoolBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
+    use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::array::Array;
-    use crate::arrays::BoolArray;
+    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BoolBuilder;
+    use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
@@ -186,16 +188,21 @@ mod tests {
         let chunk_count = 10;
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .clone()
-            .append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
 
         let canon_into = builder.finish().to_bool();
         let into_canon = chunk.to_bool();
 
-        assert_eq!(canon_into.validity(), into_canon.validity());
-        assert_eq!(canon_into.bit_buffer(), into_canon.bit_buffer());
+        assert!(
+            canon_into
+                .validity()
+                .mask_eq(into_canon.validity(), &mut ctx)?
+        );
+        assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())
     }
 

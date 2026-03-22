@@ -4,7 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
+use crate::DynArray;
 use crate::array::ArrayRef;
 
 pub mod rules;
@@ -46,6 +46,7 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         }
 
         // Apply parent reduction rules to each child in the context of the current array.
+        // Its important to take all children here, as `current_array` can change inside the loop.
         for (idx, child) in current_array.children().iter().enumerate() {
             if let Some(new_array) = child.vtable().reduce_parent(child, &current_array, idx)? {
                 // If the parent was replaced, then we attempt to reduce it again.

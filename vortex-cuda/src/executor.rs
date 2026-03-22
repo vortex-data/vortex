@@ -2,31 +2,41 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::mem::size_of;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaSlice;
-use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
-use cudarc::driver::ValidAsZeroBits;
-use cudarc::driver::sys::CUevent_flags;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::VortexSessionExecute;
-use vortex_array::buffer::BufferHandle;
-use vortex_dtype::PType;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_session::VortexSession;
+use cudarc::driver::LaunchConfig;
+use futures::future::BoxFuture;
+use tracing::debug;
+use tracing::trace;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::DynArray;
+use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
+use vortex::array::arrays::Struct;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::buffer::BufferHandle;
+use vortex::dtype::PType;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
-use crate::CudaDeviceBuffer;
 use crate::CudaSession;
+use crate::ExportDeviceArray;
+use crate::kernel::DefaultLaunchStrategy;
+use crate::kernel::LaunchStrategy;
+use crate::kernel::LaunchStrategyExt;
+use crate::kernel::launch_cuda_kernel_impl;
+use crate::kernel::launch_cuda_kernel_with_config;
 use crate::session::CudaSessionExt;
+use crate::stream::VortexCudaStream;
 
 /// CUDA kernel events recorded before and after kernel launch.
 #[derive(Debug)]
@@ -37,89 +47,12 @@ pub struct CudaKernelEvents {
     pub after_launch: CudaEvent,
 }
 
-/// Convenience macro to launch a CUDA kernel.
-///
-/// The kernel gets launched on the stream of the execution context.
-///
-/// The kernel launch config:
-/// LaunchConfig {
-///     grid_dim: (array.len() / 2048, 1, 1),
-///     block_dim: (64, 1, 1),
-///     shared_mem_bytes: 0,
-/// };
-/// 64 threads are used per block which corresponds to 2 warps.
-/// Each block handles 2048 elements. Each thread handles 32 elements.
-/// The last block and thread are allowed to have less elements.
-///
-/// Note: A macro is necessary to unroll the launch builder arguments.
-///
-/// # Returns
-///
-/// A pair of CUDA events submitted before and after the kernel.
-/// Depending on `CUevent_flags` these events can contain timestamps. Use
-/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
-/// enable timestamps.
-#[macro_export]
-macro_rules! launch_cuda_kernel {
-    (
-        execution_ctx: $ctx:expr,
-        module: $module:expr,
-        ptypes: $ptypes:expr,
-        launch_args: [$($arg:expr),* $(,)?],
-        event_recording: $event_recording:expr,
-        array_len: $len:expr
-    ) => {{
-        let cuda_function = $ctx.load_function($module, $ptypes)?;
-        let mut launch_builder = $ctx.launch_builder(&cuda_function);
-
-        $(
-            launch_builder.arg(&$arg);
-        )*
-
-        $crate::executor::launch_cuda_kernel_impl(&mut launch_builder, $event_recording, $len)?
-    }};
-}
-
-/// Launches a CUDA kernel with the passed launch builder.
-///
-/// # Arguments
-///
-/// * `launch_builder` - Configured launch builder
-/// * `array_len` - Length of the array to process
-///
-/// # Returns
-///
-/// A pair of CUDA events submitted before and after the kernel.
-/// Depending on `CUevent_flags` these events can contain timestamps. Use
-/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
-/// enable timestamps.
-pub fn launch_cuda_kernel_impl(
-    launch_builder: &mut LaunchArgs,
-    event_flags: CUevent_flags,
-    array_len: usize,
-) -> VortexResult<CudaKernelEvents> {
-    let num_chunks = u32::try_from(array_len.div_ceil(2048))?;
-
-    let config = cudarc::driver::LaunchConfig {
-        grid_dim: (num_chunks, 1, 1),
-        block_dim: (64, 1, 1),
-        shared_mem_bytes: 0,
-    };
-
-    launch_builder.record_kernel_launch(event_flags);
-
-    unsafe {
-        launch_builder
-            .launch(config)
-            .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))
-            .and_then(|events| {
-                events
-                    .ok_or_else(|| vortex_err!("CUDA events not recorded"))
-                    .map(|(before_launch, after_launch)| CudaKernelEvents {
-                        before_launch,
-                        after_launch,
-                    })
-            })
+impl CudaKernelEvents {
+    pub fn duration(&self) -> VortexResult<Duration> {
+        self.before_launch
+            .elapsed_ms(&self.after_launch) // synchronizes
+            .map_err(|e| vortex_err!("failed to get elapsed time: {}", e))
+            .map(|f| Duration::from_secs_f32(f / 1000.0))
     }
 }
 
@@ -128,36 +61,100 @@ pub fn launch_cuda_kernel_impl(
 /// Provides access to the CUDA context and stream for kernel execution.
 /// Handles memory allocation and data transfers between host and device.
 pub struct CudaExecutionCtx {
-    stream: Arc<CudaStream>,
-    vortex_session: VortexSession,
+    stream: VortexCudaStream,
+    ctx: ExecutionCtx,
     cuda_session: CudaSession,
+    strategy: Arc<dyn LaunchStrategy>,
 }
 
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
-    pub(crate) fn new(stream: Arc<CudaStream>, vortex_session: VortexSession) -> Self {
-        let cuda_session = vortex_session.cuda_session().clone();
+    pub(crate) fn new(stream: VortexCudaStream, ctx: ExecutionCtx) -> Self {
+        let cuda_session = ctx.session().cuda_session().clone();
         Self {
             stream,
-            vortex_session,
+            ctx,
             cuda_session,
+            strategy: Arc::new(DefaultLaunchStrategy),
         }
     }
 
-    /// Allocates a typed buffer on the GPU.
-    pub fn alloc<T: DeviceRepr + ValidAsZeroBits>(&self, len: usize) -> VortexResult<CudaSlice<T>> {
-        // SAFETY: No safety guarantees for allocations on the GPU.
-        unsafe {
-            self.stream
-                // Note that alloc is async in case the device and driver support this.
-                //
-                // The condition for alloc to be async is support for memory pools:
-                // `CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED`. Any kernel
-                // submitted to the stream after alloc can safely use the memory,
-                // as operations on the stream are ordered sequentially.
-                .alloc::<T>(len)
-                .map_err(|e| vortex_err!("Failed to allocate device memory: {}", e))
-        }
+    /// Get a mutable handle to the CPU execution context.
+    pub fn execution_ctx(&mut self) -> &mut ExecutionCtx {
+        &mut self.ctx
+    }
+
+    /// Set the launch strategy for the execution context.
+    ///
+    /// This can only be set on setup (an "owned" context) and not from within
+    /// a kernel execution.
+    pub fn with_launch_strategy(mut self, launch_strategy: Arc<dyn LaunchStrategy>) -> Self {
+        self.strategy = launch_strategy;
+        self
+    }
+
+    /// Perform an external kernel launch, with events created and logged via the configured
+    /// [`LaunchStrategy`].
+    ///
+    /// We use CUB and NVCOMP routines, and those don't match the normal `cudarc` entrypoints, so
+    /// to inject the configured launch strategy we need to bracket it ourselves.
+    pub fn launch_external<F: FnMut() -> VortexResult<()>>(
+        &self,
+        len: usize,
+        function: F,
+    ) -> VortexResult<()> {
+        self.strategy
+            .as_ref()
+            .with_strategy(&self.stream, len, function)
+    }
+
+    /// Launch a Kernel function with args setup done by the provided `build_args` closure.
+    ///
+    /// Kernels launched this way will use the default launch configuration, which provides no
+    /// shared memory bytes, and uses grid parameters based on the ideal thread block size for
+    /// the given `len`.
+    pub fn launch_kernel<'a, F>(
+        &'a mut self,
+        function: &'a CudaFunction,
+        len: usize,
+        build_args: F,
+    ) -> VortexResult<()>
+    where
+        F: FnOnce(&mut LaunchArgs<'a>),
+    {
+        let mut launcher = self.launch_builder(function);
+        build_args(&mut launcher);
+
+        let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
+        self.strategy.on_complete(&events, len)?;
+
+        drop(events);
+
+        Ok(())
+    }
+
+    /// Launch a function with args provided by the `build_args` closure, with an explicit
+    /// [`LaunchConfig`], for kernels which need specific grid and shared memory configuration.
+    pub fn launch_kernel_config<'a, F>(
+        &'a mut self,
+        function: &'a CudaFunction,
+        cfg: LaunchConfig,
+        len: usize,
+        build_args: F,
+    ) -> VortexResult<()>
+    where
+        F: FnOnce(&mut LaunchArgs<'a>),
+    {
+        let mut launcher = self.launch_builder(function);
+        build_args(&mut launcher);
+
+        let events =
+            launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
+        self.strategy.on_complete(&events, len)?;
+
+        drop(events);
+
+        Ok(())
     }
 
     /// Loads a CUDA kernel function by module name and ptype(s).
@@ -171,7 +168,37 @@ impl CudaExecutionCtx {
     ///
     /// Returns an error if kernel loading fails.
     pub fn load_function(&self, module_name: &str, ptypes: &[PType]) -> VortexResult<CudaFunction> {
-        self.cuda_session.load_function(module_name, ptypes)
+        let type_suffixes: Vec<String> = ptypes.iter().map(|ptype| ptype.to_string()).collect();
+        self.load_function_with_suffixes(
+            module_name,
+            type_suffixes
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+    }
+
+    /// Loads a CUDA kernel function by module name and type suffixes.
+    ///
+    /// This is a lower-level version of [`load_function`][Self::load_function] that accepts
+    /// string suffixes directly, useful for types that don't have a `PType` (e.g., i128, i256).
+    ///
+    /// # Arguments
+    ///
+    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `type_suffixes` - List of type suffix strings for the kernel name
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if kernel loading fails.
+    pub(crate) fn load_function_with_suffixes(
+        &self,
+        module_name: &str,
+        type_suffixes: &[&str],
+    ) -> VortexResult<CudaFunction> {
+        self.cuda_session
+            .load_function_with_suffixes(module_name, type_suffixes)
     }
 
     /// Returns a launch builder for a CUDA kernel function.
@@ -185,46 +212,102 @@ impl CudaExecutionCtx {
         self.stream.launch_builder(func)
     }
 
-    /// Copies host data to the device, returning a [`CudaDeviceBuffer`].
-    pub fn copy_buffer_to_device<T: DeviceRepr>(
+    /// Allocates a typed buffer on the GPU.
+    pub fn device_alloc<T: DeviceRepr + Send + Sync + 'static>(
         &self,
-        data: &[T],
-    ) -> VortexResult<CudaDeviceBuffer<T>> {
-        let cuda_slice = self
-            .stream
-            .clone_htod(data)
-            .map_err(|e| vortex_err!("Failed to copy to device: {}", e))?;
-        Ok(CudaDeviceBuffer::new(cuda_slice))
+        len: usize,
+    ) -> VortexResult<CudaSlice<T>> {
+        self.stream.device_alloc(len)
     }
 
-    /// Ensures the buffer is on the CUDA device.
+    /// Copies host data to the device.
     ///
-    /// Copies the data from host to device if the input buffer is on the host.
-    pub fn ensure_on_device<T: DeviceRepr + Send + Sync + 'static>(
+    /// For **pageable** host memory the source is staged synchronously; for
+    /// **pinned** memory the transfer is async. In both cases `data` is
+    /// kept alive by the returned future until the copy completes.
+    pub fn copy_to_device<T, D>(
         &self,
-        handle: &BufferHandle,
-    ) -> VortexResult<BufferHandle> {
-        if handle.is_on_device() {
-            return Ok(handle.clone());
-        }
+        data: D,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
+    where
+        T: DeviceRepr + Debug + Send + Sync + 'static,
+        D: AsRef<[T]> + Send + 'static,
+    {
+        self.stream.copy_to_device(data)
+    }
 
+    /// Ensures a buffer is resident on the device, copying from host if necessary.
+    ///
+    /// If the buffer is already on the device it is returned as-is. Otherwise
+    /// copies from host to device.
+    pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
+        if handle.is_on_device() {
+            return Ok(handle);
+        }
         let host_buffer = handle
             .as_host_opt()
-            .ok_or_else(|| vortex_err!("Buffer is neither on host nor device"))?;
+            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
+            .clone();
+        self.stream.copy_to_device(host_buffer)?.await
+    }
 
-        let typed_slice: &[T] = unsafe {
-            std::slice::from_raw_parts(
-                host_buffer.as_ptr().cast(),
-                host_buffer.len() / size_of::<T>(),
-            )
-        };
+    /// Returns a reference to the underlying [`VortexCudaStream`].
+    ///
+    /// Through [`Deref`][std::ops::Deref], this also provides access to the
+    /// inner [`Arc<CudaStream>`] and all of cudarc's stream methods.
+    pub fn stream(&self) -> &VortexCudaStream {
+        &self.stream
+    }
 
-        let cuda_buf = self.copy_buffer_to_device(typed_slice)?;
-        Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+    /// Returns the Vortex session backing this CUDA execution context.
+    #[cfg(feature = "unstable_encodings")]
+    pub(crate) fn session(&self) -> &vortex::session::VortexSession {
+        self.ctx.session()
+    }
+
+    /// Get a handle to the exporter that can convert arrays into `ArrowDeviceArray`.
+    pub fn exporter(&self) -> &Arc<dyn ExportDeviceArray> {
+        self.cuda_session.export_device_array()
+    }
+
+    pub fn synchronize_stream(&self) -> VortexResult<()> {
+        self.stream
+            .synchronize()
+            .map_err(|e| vortex_err!("cuda error: {e}"))
     }
 }
 
 /// Support trait for CUDA-accelerated decompression of arrays.
+///
+/// # Execution model
+///
+/// Work is enqueued onto a single CUDA stream and executes in FIFO order.
+/// Kernel launches are synchronous fire-and-forget: They enqueue work and
+/// return immediately. The returned [`Canonical`] may reference device buffers
+/// with in-flight writes.
+///
+/// ## Pageable vs. page-locked (pinned) host memory
+///
+/// Whether the H2D transfer is asynchronous depends on whether the source
+/// memory is page-locked:
+///
+/// - **Page-locked memory** (allocated via `cuMemAllocHost` / `cudaMallocHost`):
+///   the GPU's DMA engine holds a stable physical address for the allocation and
+///   can transfer directly without CPU involvement. The call returns immediately
+///   and the copy proceeds in parallel with subsequent CPU work.
+///
+/// - **Pageable memory** (ordinary `malloc` / Rust allocator): CUDA must first
+///   stage the data through an internal page-locked bounce buffer, performing a
+///   CPU `memcpy` into that buffer before the DMA can begin. The `memcpy_htod_async`
+///   call blocks until the staging copy finishes, making the transfer effectively
+///   synchronous from the caller's perspective, though the DMA itself still runs
+///   on the stream.
+///
+///
+/// ## Synchronisation
+///
+/// To insert an explicit sync point, use `await_stream_callback`, which completes
+/// when all preceding stream work — including in-flight kernels — has finished.
 #[async_trait]
 pub trait CudaExecute: 'static + Send + Sync + Debug {
     /// Executes the array on CUDA, returning a canonical array.
@@ -238,31 +321,58 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
 
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
-pub trait CudaArrayExt: Array {
-    /// Recursively executes the array on CUDA, returning a canonical array.
+pub trait CudaArrayExt: DynArray {
+    /// Recursively walks the encoding tree, dispatching each layer to its
+    /// registered [`CudaExecute`] implementation and returning a canonical array
+    /// on the device.
     ///
-    /// If no CUDA support is registered for the encoding, falls back to CPU execution
-    /// and logs a debug message.
+    /// See [`CudaExecute`] for details on the execution model.
+    ///
+    /// Falls back to CPU execution if no CUDA support is registered for the
+    /// encoding.
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>;
 }
 
 #[async_trait]
 impl CudaArrayExt for ArrayRef {
+    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.is_canonical() {
-            return self.to_canonical();
+        if self.encoding_id() == Struct::ID {
+            let len = self.len();
+            let StructArrayParts {
+                fields,
+                struct_fields,
+                validity,
+                ..
+            } = self.try_into::<Struct>().unwrap().into_parts();
+
+            let mut cuda_fields = Vec::with_capacity(fields.len());
+            for field in fields.iter() {
+                cuda_fields.push(field.clone().execute_cuda(ctx).await?.into_array());
+            }
+
+            return Ok(Canonical::Struct(StructArray::new(
+                struct_fields.names().clone(),
+                cuda_fields,
+                len,
+                validity,
+            )));
+        }
+
+        if self.is_canonical() || self.is_empty() {
+            trace!(encoding = ?self.encoding_id(), "skipping canonical");
+            return self.execute(&mut ctx.ctx);
         }
 
         let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
-            tracing::debug!(
+            debug!(
                 encoding = %self.encoding_id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
             );
-            let mut array_ctx = ctx.vortex_session.create_execution_ctx();
-            return self.execute(&mut array_ctx);
+            return self.execute(&mut ctx.ctx);
         };
 
-        tracing::debug!(
+        debug!(
             encoding = %self.encoding_id(),
             "Executing array on CUDA device"
         );

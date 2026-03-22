@@ -7,12 +7,13 @@ use fastlanes::RLE;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
@@ -31,13 +32,14 @@ impl RLEArray {
 fn rle_encode_typed<T>(array: &PrimitiveArray) -> VortexResult<RLEArray>
 where
     T: NativePType + RLE,
+    NativeValue<T>: RLE,
 {
     let values = array.as_slice::<T>();
     let len = values.len();
     let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
     // Allocate capacity up to the next multiple of chunk size.
-    let mut values_buf = BufferMut::<T>::with_capacity(padded_len);
+    let mut values_buf = BufferMut::<NativeValue<T>>::with_capacity(padded_len);
     let mut indices_buf = BufferMut::<u16>::with_capacity(padded_len);
 
     // Pre-allocate for one offset per chunk.
@@ -50,8 +52,11 @@ where
     let mut chunks = values.chunks_exact(FL_CHUNK_SIZE);
 
     let mut process_chunk = |chunk_start_idx: usize, input: &[T; FL_CHUNK_SIZE]| {
-        // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
-        let rle_vals: &mut [T] =
+        // SAFETY: NativeValue is repr(transparent)
+        let input: &[NativeValue<T>; FL_CHUNK_SIZE] = unsafe { std::mem::transmute(input) };
+
+        // SAFETY: `MaybeUninit<NativeValue<T>>` and `NativeValue<T>` have the same layout.
+        let rle_vals: &mut [NativeValue<T>] =
             unsafe { std::mem::transmute(&mut values_uninit[value_count_acc..][..FL_CHUNK_SIZE]) };
 
         // SAFETY: `MaybeUninit<u16>` and `u16` have the same layout.
@@ -62,7 +67,7 @@ where
         // returned from `T::encode` are relative to the chunk.
         values_idx_offsets.push(value_count_acc as u64);
 
-        let value_count = T::encode(
+        let value_count = NativeValue::<T>::encode(
             input,
             array_mut_ref![rle_vals, 0, FL_CHUNK_SIZE],
             array_mut_ref![rle_idxs, 0, FL_CHUNK_SIZE],
@@ -92,6 +97,9 @@ where
         indices_buf.set_len(padded_len);
     }
 
+    // SAFETY: NativeValue<T> is repr(transparent) to T.
+    let values_buf = unsafe { values_buf.transmute::<T>().freeze() };
+
     RLEArray::try_new(
         values_buf.into_array(),
         PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
@@ -118,7 +126,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
             let mut builder = BitBufferMut::with_capacity(padded_len);
 
             let bool_array = validity_array.to_bool();
-            builder.append_buffer(bool_array.bit_buffer());
+            builder.append_buffer(&bool_array.to_bit_buffer());
             builder.append_n(false, padded_len - len);
 
             Validity::from(builder.freeze())
@@ -132,8 +140,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::half::f16;
     use vortex_buffer::Buffer;
-    use vortex_dtype::half::f16;
 
     use super::*;
 
@@ -253,5 +261,18 @@ mod tests {
         let decoded = result.to_primitive();
         let expected = PrimitiveArray::new(values, primitive.validity().clone());
         assert_arrays_eq!(decoded, expected);
+    }
+
+    // Regression test: RLE compression properly supports decoding pos/neg zeros
+    // See <https://github.com/vortex-data/vortex/issues/6491>
+    #[rstest]
+    #[case(vec![f16::ZERO, f16::NEG_ZERO])]
+    #[case(vec![0f32, -0f32])]
+    #[case(vec![0f64, -0f64])]
+    fn test_float_zeros<T: NativePType + RLE>(#[case] values: Vec<T>) {
+        let primitive = PrimitiveArray::from_iter(values);
+        let rle = RLEArray::encode(&primitive).unwrap();
+        let decoded = rle.to_primitive();
+        assert_arrays_eq!(primitive, decoded);
     }
 }

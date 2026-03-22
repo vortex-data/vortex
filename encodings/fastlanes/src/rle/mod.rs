@@ -8,4 +8,4 @@ mod compute;
 mod kernel;
 
 mod vtable;
-pub use vtable::RLEVTable;
+pub use vtable::RLE;

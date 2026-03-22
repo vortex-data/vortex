@@ -4,18 +4,19 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::pruning::field_path_stat_field_name;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
-use vortex_dtype::Field;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
-use vortex_dtype::FieldPath;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -30,7 +31,7 @@ pub fn extract_relevant_file_stats_as_struct_row(
 ) -> VortexResult<Option<ArrayRef>> {
     if access.is_empty() {
         return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
-            .map(|s| Some(s.to_array()));
+            .map(|s| Some(s.into_array()));
     }
 
     let mut columns: Vec<(FieldName, ArrayRef)> = Vec::with_capacity(access.len() * 2);
@@ -64,7 +65,7 @@ pub fn extract_relevant_file_stats_as_struct_row(
                 };
                 columns.push((
                     field_path_stat_field_name(field_path, *stat),
-                    ConstantArray::new(stat_value, 1).to_array(),
+                    ConstantArray::new(stat_value, 1).into_array(),
                 ));
             } else {
                 todo!("unsupported file prune stat {stat}")
@@ -72,6 +73,6 @@ pub fn extract_relevant_file_stats_as_struct_row(
         }
     }
     Ok(Some(
-        StructArray::from_fields(columns.as_slice())?.to_array(),
+        StructArray::from_fields(columns.as_slice())?.into_array(),
     ))
 }

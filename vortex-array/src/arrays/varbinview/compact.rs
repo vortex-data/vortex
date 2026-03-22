@@ -9,9 +9,10 @@ use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::Ref;
 
+use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::Ref;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 
@@ -26,7 +27,7 @@ impl VarBinViewArray {
     /// well-utilized buffers unchanged.
     pub fn compact_buffers(&self) -> VortexResult<VarBinViewArray> {
         // If there is nothing to be gained by compaction, return the original array untouched.
-        if !self.should_compact() {
+        if !self.should_compact()? {
             return Ok(self.clone());
         }
 
@@ -34,35 +35,35 @@ impl VarBinViewArray {
         self.compact_with_threshold(1.0)
     }
 
-    fn should_compact(&self) -> bool {
+    fn should_compact(&self) -> VortexResult<bool> {
         let nbuffers = self.nbuffers();
 
         // If the array is entirely inlined strings, do not attempt to compact.
         if nbuffers == 0 {
-            return false;
+            return Ok(false);
         }
 
         // These will fail to write, so in most cases we want to compact this.
         if nbuffers > u16::MAX as usize {
-            return true;
+            return Ok(true);
         }
 
-        let bytes_referenced: u64 = self.count_referenced_bytes();
+        let bytes_referenced: u64 = self.count_referenced_bytes()?;
         let buffer_total_bytes: u64 = self.buffers.iter().map(|buf| buf.len() as u64).sum();
 
         // If there is any wasted space, we want to repack.
         // This is very aggressive.
-        bytes_referenced < buffer_total_bytes || buffer_total_bytes == 0
+        Ok(bytes_referenced < buffer_total_bytes || buffer_total_bytes == 0)
     }
 
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
     #[inline(always)]
-    fn iter_valid_views<F>(&self, mut f: F)
+    fn iter_valid_views<F>(&self, mut f: F) -> VortexResult<()>
     where
         F: FnMut(&Ref),
     {
-        match self.validity_mask() {
+        match self.validity_mask()? {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {
                     if !view.is_inlined() {
@@ -79,17 +80,18 @@ impl VarBinViewArray {
                 }
             }
         }
+        Ok(())
     }
 
     /// Count the number of bytes addressed by the views, not including null
     /// values or any inlined strings.
-    fn count_referenced_bytes(&self) -> u64 {
+    fn count_referenced_bytes(&self) -> VortexResult<u64> {
         let mut total = 0u64;
-        self.iter_valid_views(|view| total += view.size as u64);
-        total
+        self.iter_valid_views(|view| total += view.size as u64)?;
+        Ok(total)
     }
 
-    pub(crate) fn buffer_utilizations(&self) -> Vec<BufferUtilization> {
+    pub(crate) fn buffer_utilizations(&self) -> VortexResult<Vec<BufferUtilization>> {
         let mut utilizations: Vec<BufferUtilization> = self
             .buffers()
             .iter()
@@ -101,9 +103,9 @@ impl VarBinViewArray {
 
         self.iter_valid_views(|view| {
             utilizations[view.buffer_index as usize].add(view.offset, view.size);
-        });
+        })?;
 
-        utilizations
+        Ok(utilizations)
     }
 
     /// Returns a compacted copy of the input array using selective buffer compaction.
@@ -129,7 +131,7 @@ impl VarBinViewArray {
             self.len(),
             buffer_utilization_threshold,
         );
-        builder.extend_from_array(self.as_ref());
+        builder.extend_from_array(&self.clone().into_array());
         Ok(builder.finish_into_varbinview())
     }
 }
@@ -186,12 +188,13 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::VarBinViewVTable;
     use crate::assert_arrays_eq;
-    use crate::compute::take;
-
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     #[test]
     fn test_optimize_compacts_buffers() {
         // Create a VarBinViewArray with some long strings that will create multiple buffers
@@ -209,14 +212,15 @@ mod tests {
 
         // Take only the first and last elements (indices 0 and 4)
         let indices = buffer![0u32, 4u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
-
+        let taken = original.take(indices.to_array()).unwrap();
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // The taken array should still have the same number of buffers
-        assert_eq!(taken_array.nbuffers(), original_buffers);
+        assert_eq!(taken.nbuffers(), original_buffers);
 
         // Now optimize the taken array
-        let optimized_array = taken_array.compact_buffers().unwrap();
+        let optimized_array = taken.compact_buffers().unwrap();
 
         // The optimized array should have compacted buffers
         // Since both remaining strings are short, they should be inlined
@@ -247,8 +251,10 @@ mod tests {
 
         // Take only the first and third long strings (indices 0 and 2)
         let indices = buffer![0u32, 2u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
+        let taken = original.take(indices.to_array()).unwrap();
+        let taken_array = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Optimize the taken array
         let optimized_array = taken_array.compact_buffers().unwrap();
@@ -311,14 +317,15 @@ mod tests {
 
         // Take only first element
         let indices = buffer![0u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
-
+        let taken = original.take(indices.to_array()).unwrap();
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // Compact with threshold=0 (should not compact)
-        let compacted = taken_array.compact_with_threshold(0.0).unwrap();
+        let compacted = taken.compact_with_threshold(0.0).unwrap();
 
         // Should still have the same number of buffers as the taken array
-        assert_eq!(compacted.nbuffers(), taken_array.nbuffers());
+        assert_eq!(compacted.nbuffers(), taken.nbuffers());
 
         // Verify correctness
         assert_arrays_eq!(compacted, taken);
@@ -335,13 +342,16 @@ mod tests {
 
         // Take only first and last elements
         let indices = buffer![0u32, 2u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
+        let taken = original.take(indices.to_array()).unwrap();
+        let taken = taken
+            .clone()
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
-        let original_buffers = taken_array.nbuffers();
+        let original_buffers = taken.nbuffers();
 
         // Compact with threshold=1.0 (aggressive compaction)
-        let compacted = taken_array.compact_with_threshold(1.0).unwrap();
+        let compacted = taken.compact_with_threshold(1.0).unwrap();
 
         // Should have compacted buffers
         assert!(compacted.nbuffers() <= original_buffers);
@@ -388,14 +398,19 @@ mod tests {
 
         // Take every other element to create mixed utilization
         let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
-        let taken = take(original.as_ref(), &indices_array).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
+        let taken = original.take(indices_array.to_array()).unwrap();
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Compact with moderate threshold
-        let compacted = taken_array.compact_with_threshold(0.7).unwrap();
+        let compacted = taken.compact_with_threshold(0.7).unwrap();
 
-        // Verify correctness
-        assert_arrays_eq!(compacted, taken);
+        let expected = VarBinViewArray::from_iter(
+            [0, 2, 4, 6, 8].map(|i| Some(strings[i].as_str())),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        assert_arrays_eq!(expected, compacted);
     }
 
     #[test]
@@ -409,16 +424,17 @@ mod tests {
 
         // Take only the first 5 elements - they should be in a contiguous range at the start
         let indices_array = buffer![0u32, 1u32, 2u32, 3u32, 4u32].into_array();
-        let taken = take(original.as_ref(), &indices_array).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
-
+        let taken = original.take(indices_array.to_array()).unwrap();
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // Get buffer stats before compaction
-        let utils_before = taken_array.buffer_utilizations();
-        let original_buffer_count = taken_array.nbuffers();
+        let utils_before = taken.buffer_utilizations().unwrap();
+        let original_buffer_count = taken.nbuffers();
 
         // Compact with a threshold that should trigger slicing
         // The range utilization should be high even if overall utilization is low
-        let compacted = taken_array.compact_with_threshold(0.8).unwrap();
+        let compacted = taken.compact_with_threshold(0.8).unwrap();
 
         // After compaction, we should still have buffers (sliced, not rewritten)
         assert!(
@@ -459,9 +475,10 @@ mod tests {
         #[case] expected_bytes: u64,
         #[case] expected_utils: &[f64],
     ) {
-        assert_eq!(arr.count_referenced_bytes(), expected_bytes);
+        assert_eq!(arr.count_referenced_bytes().unwrap(), expected_bytes);
         let utils: Vec<f64> = arr
             .buffer_utilizations()
+            .unwrap()
             .iter()
             .map(|u| u.overall_utilization())
             .collect();

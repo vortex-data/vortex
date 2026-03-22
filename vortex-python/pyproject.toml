@@ -33,6 +33,9 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
+[project.scripts]
+vx = "vortex.cli:main"
+
 [project.optional-dependencies]
 polars = ["polars>=1.31.0"]
 pandas = ["pandas>=2.2.0"]
@@ -56,13 +59,16 @@ managed = true
 [tool.maturin]
 python-source = "python"
 module-name = "vortex._lib"
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "mimalloc"]
 compatibility = "manylinux2014"
 include = [
     { path = "rust-toolchain.toml", format = "sdist" },
     { path = "README.md", format = "sdist" },
     { path = "python/vortex/py.typed", format = "sdist" },
 ]
+
+[tool.basedpyright]
+exclude = ["python/vortex/_lib/store/**.pyi"]
 
 [dependency-groups]
 dev = [

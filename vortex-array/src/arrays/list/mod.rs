@@ -5,10 +5,10 @@ mod array;
 pub use array::ListArray;
 pub use array::ListArrayParts;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::ListVTable;
+pub use vtable::List;
 
 #[cfg(feature = "_test-harness")]
 mod test_harness;

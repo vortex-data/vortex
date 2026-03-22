@@ -1,49 +1,54 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::max;
-use std::ops::Range;
+use std::hash::Hash;
 
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
+use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexError;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
+use vortex_array::vtable::validity_nchildren;
+use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::rules::RULES;
-use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
-
-mod array;
+use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
+use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
+mod rules;
 mod validity;
-mod visitor;
 
 vtable!(BitPacked);
 
@@ -57,19 +62,112 @@ pub struct BitPackedMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
-impl VTable for BitPackedVTable {
+impl VTable for BitPacked {
     type Array = BitPackedArray;
 
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &BitPacked
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &BitPackedArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &BitPackedArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &BitPackedArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &BitPackedArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.offset.hash(state);
+        array.len.hash(state);
+        array.dtype.hash(state);
+        array.bit_width.hash(state);
+        array.packed.array_hash(state, precision);
+        array.patches.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &BitPackedArray, other: &BitPackedArray, precision: Precision) -> bool {
+        array.offset == other.offset
+            && array.len == other.len
+            && array.dtype == other.dtype
+            && array.bit_width == other.bit_width
+            && array.packed.array_eq(&other.packed, precision)
+            && array.patches.array_eq(&other.patches, precision)
+            && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &BitPackedArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &BitPackedArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => array.packed().clone(),
+            _ => vortex_panic!("BitPackedArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &BitPackedArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("packed".to_string()),
+            _ => None,
+        }
+    }
+
+    fn nchildren(array: &BitPackedArray) -> usize {
+        array.patches().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &BitPackedArray, idx: usize) -> ArrayRef {
+        let pc = array.patches().map_or(0, patches_nchildren);
+        if idx < pc {
+            patches_child(
+                array
+                    .patches()
+                    .vortex_expect("BitPackedArray child index out of bounds"),
+                idx,
+            )
+        } else if idx < pc + validity_nchildren(&array.validity) {
+            validity_to_child(&array.validity, array.len)
+                .vortex_expect("BitPackedArray child index out of bounds")
+        } else {
+            vortex_panic!("BitPackedArray child index {idx} out of bounds")
+        }
+    }
+
+    fn child_name(array: &BitPackedArray, idx: usize) -> String {
+        let pc = array.patches().map_or(0, patches_nchildren);
+        if idx < pc {
+            patches_child_name(idx).to_string()
+        } else {
+            "validity".to_string()
+        }
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -111,7 +209,7 @@ impl VTable for BitPackedVTable {
                 patch_indices,
                 patch_values,
                 patch_chunk_offsets,
-            ))
+            )?)
         } else {
             None
         };
@@ -156,8 +254,14 @@ impl VTable for BitPackedVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<BitPackedMetadata> as DeserializeMetadata>::deserialize(buffer)?;
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        let inner = <ProstMetadata<BitPackedMetadata> as DeserializeMetadata>::deserialize(bytes)?;
         Ok(ProstMetadata(inner))
     }
 
@@ -176,7 +280,7 @@ impl VTable for BitPackedVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let packed = buffers[0].clone().try_to_host()?;
+        let packed = buffers[0].clone();
 
         let load_validity = |child_idx: usize| {
             if children.len() == child_idx {
@@ -196,7 +300,7 @@ impl VTable for BitPackedVTable {
 
         let validity_idx = match &metadata.patches {
             None => 0,
-            Some(patches_meta) if patches_meta.chunk_offsets_dtype().is_some() => 3,
+            Some(patches_meta) if patches_meta.chunk_offsets_dtype()?.is_some() => 3,
             Some(_) => 2,
         };
 
@@ -205,20 +309,14 @@ impl VTable for BitPackedVTable {
         let patches = metadata
             .patches
             .map(|p| {
-                let indices = children.get(0, &p.indices_dtype(), p.len())?;
-                let values = children.get(1, dtype, p.len())?;
+                let indices = children.get(0, &p.indices_dtype()?, p.len()?)?;
+                let values = children.get(1, dtype, p.len()?)?;
                 let chunk_offsets = p
-                    .chunk_offsets_dtype()
+                    .chunk_offsets_dtype()?
                     .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
                     .transpose()?;
 
-                Ok::<_, VortexError>(Patches::new(
-                    len,
-                    p.offset(),
-                    indices,
-                    values,
-                    chunk_offsets,
-                ))
+                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
             })
             .transpose()?;
 
@@ -260,8 +358,8 @@ impl VTable for BitPackedVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(unpack_array(array, ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(unpack_array(array, ctx)?.into_array()))
     }
 
     fn execute_parent(
@@ -269,49 +367,14 @@ impl VTable for BitPackedVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
-    }
-
-    // TODO(joe): fix me https://github.com/vortex-data/vortex/pull/5958#discussion_r2696436008
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let offset_start = range.start + array.offset() as usize;
-        let offset_stop = range.end + array.offset() as usize;
-        let offset = offset_start % 1024;
-        let block_start = max(0, offset_start - offset);
-        let block_stop = offset_stop.div_ceil(1024) * 1024;
-
-        let encoded_start = (block_start / 8) * array.bit_width() as usize;
-        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
-
-        // slice the buffer using the encoded start/stop values
-        // SAFETY: slicing packed values without decoding preserves invariants
-        Ok(Some(unsafe {
-            BitPackedArray::new_unchecked(
-                array.packed().slice(encoded_start..encoded_stop),
-                array.dtype.clone(),
-                array.validity().slice(range.clone()),
-                array.patches().and_then(|p| p.slice(range.clone())),
-                array.bit_width(),
-                range.len(),
-                offset as u16,
-            )
-            .into_array()
-        }))
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
 #[derive(Debug)]
-pub struct BitPackedVTable;
+pub struct BitPacked;
 
-impl BitPackedVTable {
+impl BitPacked {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
 }

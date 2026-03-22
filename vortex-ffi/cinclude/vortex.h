@@ -5,7 +5,6 @@
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
 
-
 #pragma once
 
 #include <stdarg.h>
@@ -15,129 +14,134 @@
 #include <stdlib.h>
 
 /**
+ * Maximum size of an inlined binary value.
+ */
+#define BinaryView_MAX_INLINED_SIZE 12
+
+/**
  * Variant enum for Vortex primitive types.
  */
 typedef enum {
-  /**
-   * Unsigned 8-bit integer
-   */
-  PTYPE_U8 = 0,
-  /**
-   * Unsigned 16-bit integer
-   */
-  PTYPE_U16 = 1,
-  /**
-   * Unsigned 32-bit integer
-   */
-  PTYPE_U32 = 2,
-  /**
-   * Unsigned 64-bit integer
-   */
-  PTYPE_U64 = 3,
-  /**
-   * Signed 8-bit integer
-   */
-  PTYPE_I8 = 4,
-  /**
-   * Signed 16-bit integer
-   */
-  PTYPE_I16 = 5,
-  /**
-   * Signed 32-bit integer
-   */
-  PTYPE_I32 = 6,
-  /**
-   * Signed 64-bit integer
-   */
-  PTYPE_I64 = 7,
-  /**
-   * 16-bit floating point number
-   */
-  PTYPE_F16 = 8,
-  /**
-   * 32-bit floating point number
-   */
-  PTYPE_F32 = 9,
-  /**
-   * 64-bit floating point number
-   */
-  PTYPE_F64 = 10,
+    /**
+     * Unsigned 8-bit integer
+     */
+    PTYPE_U8 = 0,
+    /**
+     * Unsigned 16-bit integer
+     */
+    PTYPE_U16 = 1,
+    /**
+     * Unsigned 32-bit integer
+     */
+    PTYPE_U32 = 2,
+    /**
+     * Unsigned 64-bit integer
+     */
+    PTYPE_U64 = 3,
+    /**
+     * Signed 8-bit integer
+     */
+    PTYPE_I8 = 4,
+    /**
+     * Signed 16-bit integer
+     */
+    PTYPE_I16 = 5,
+    /**
+     * Signed 32-bit integer
+     */
+    PTYPE_I32 = 6,
+    /**
+     * Signed 64-bit integer
+     */
+    PTYPE_I64 = 7,
+    /**
+     * 16-bit floating point number
+     */
+    PTYPE_F16 = 8,
+    /**
+     * 32-bit floating point number
+     */
+    PTYPE_F32 = 9,
+    /**
+     * 64-bit floating point number
+     */
+    PTYPE_F64 = 10,
 } vx_ptype;
 
 /**
  * The variant tag for a Vortex data type.
  */
 typedef enum {
-  /**
-   * Null type.
-   */
-  DTYPE_NULL = 0,
-  /**
-   * Boolean type.
-   */
-  DTYPE_BOOL = 1,
-  /**
-   * Primitive types (e.g., u8, i16, f32, etc.).
-   */
-  DTYPE_PRIMITIVE = 2,
-  /**
-   * Variable-length UTF-8 string type.
-   */
-  DTYPE_UTF8 = 3,
-  /**
-   * Variable-length binary data type.
-   */
-  DTYPE_BINARY = 4,
-  /**
-   * Nested struct type.
-   */
-  DTYPE_STRUCT = 5,
-  /**
-   * Nested list type.
-   */
-  DTYPE_LIST = 6,
-  /**
-   * User-defined extension type.
-   */
-  DTYPE_EXTENSION = 7,
-  /**
-   * Decimal type with fixed precision and scale.
-   */
-  DTYPE_DECIMAL = 8,
-  /**
-   * Nested fixed-size list type.
-   */
-  DTYPE_FIXED_SIZE_LIST = 9,
+    /**
+     * Null type.
+     */
+    DTYPE_NULL = 0,
+    /**
+     * Boolean type.
+     */
+    DTYPE_BOOL = 1,
+    /**
+     * Primitive types (e.g., u8, i16, f32, etc.).
+     */
+    DTYPE_PRIMITIVE = 2,
+    /**
+     * Variable-length UTF-8 string type.
+     */
+    DTYPE_UTF8 = 3,
+    /**
+     * Variable-length binary data type.
+     */
+    DTYPE_BINARY = 4,
+    /**
+     * Nested struct type.
+     */
+    DTYPE_STRUCT = 5,
+    /**
+     * Nested list type.
+     */
+    DTYPE_LIST = 6,
+    /**
+     * User-defined extension type.
+     */
+    DTYPE_EXTENSION = 7,
+    /**
+     * Decimal type with fixed precision and scale.
+     */
+    DTYPE_DECIMAL = 8,
+    /**
+     * Nested fixed-size list type.
+     */
+    DTYPE_FIXED_SIZE_LIST = 9,
 } vx_dtype_variant;
 
 /**
  * Log levels for the Vortex library.
  */
 typedef enum {
-  /**
-   * No logging will be performed.
-   */
-  LOG_LEVEL_OFF = 0,
-  /**
-   * Only error messages will be logged.
-   */
-  LOG_LEVEL_ERROR = 1,
-  /**
-   * Warnings and error messages will be logged.
-   */
-  LOG_LEVEL_WARN = 2,
-  /**
-   * Informational messages, warnings, and error messages will be logged.
-   */
-  LOG_LEVEL_INFO = 3,
-  /**
-   * Debug messages, informational messages, warnings, and error messages will be logged.
-   */
-  LOG_LEVEL_DEBUG = 4,
-  /**
-   * All messages, including trace messages, will be logged.
-   */
-  LOG_LEVEL_TRACE = 5,
+    /**
+     * No logging will be performed.
+     */
+    LOG_LEVEL_OFF = 0,
+    /**
+     * Only error messages will be logged.
+     */
+    LOG_LEVEL_ERROR = 1,
+    /**
+     * Warnings and error messages will be logged.
+     */
+    LOG_LEVEL_WARN = 2,
+    /**
+     * Informational messages, warnings, and error messages will be logged.
+     */
+    LOG_LEVEL_INFO = 3,
+    /**
+     * Debug messages, informational messages, warnings, and error messages will be logged.
+     */
+    LOG_LEVEL_DEBUG = 4,
+    /**
+     * All messages, including trace messages, will be logged.
+     */
+    LOG_LEVEL_TRACE = 5,
 } vx_log_level;
 
 /**
@@ -145,53 +149,53 @@ typedef enum {
  */
 enum PType
 #ifdef __cplusplus
-  : uint8_t
+    : uint8_t
 #endif // __cplusplus
- {
-  /**
-   * An 8-bit unsigned integer
-   */
-  U8 = 0,
-  /**
-   * A 16-bit unsigned integer
-   */
-  U16 = 1,
-  /**
-   * A 32-bit unsigned integer
-   */
-  U32 = 2,
-  /**
-   * A 64-bit unsigned integer
-   */
-  U64 = 3,
-  /**
-   * An 8-bit signed integer
-   */
-  I8 = 4,
-  /**
-   * A 16-bit signed integer
-   */
-  I16 = 5,
-  /**
-   * A 32-bit signed integer
-   */
-  I32 = 6,
-  /**
-   * A 64-bit signed integer
-   */
-  I64 = 7,
-  /**
-   * A 16-bit floating point number
-   */
-  F16 = 8,
-  /**
-   * A 32-bit floating point number
-   */
-  F32 = 9,
-  /**
-   * A 64-bit floating point number
-   */
-  F64 = 10,
+{
+    /**
+     * An 8-bit unsigned integer
+     */
+    U8 = 0,
+    /**
+     * A 16-bit unsigned integer
+     */
+    U16 = 1,
+    /**
+     * A 32-bit unsigned integer
+     */
+    U32 = 2,
+    /**
+     * A 64-bit unsigned integer
+     */
+    U64 = 3,
+    /**
+     * An 8-bit signed integer
+     */
+    I8 = 4,
+    /**
+     * A 16-bit signed integer
+     */
+    I16 = 5,
+    /**
+     * A 32-bit signed integer
+     */
+    I32 = 6,
+    /**
+     * A 64-bit signed integer
+     */
+    I64 = 7,
+    /**
+     * A 16-bit floating point number
+     */
+    F16 = 8,
+    /**
+     * A 32-bit floating point number
+     */
+    F32 = 9,
+    /**
+     * A 64-bit floating point number
+     */
+    F64 = 10,
 };
 #ifndef __cplusplus
 typedef uint8_t PType;
@@ -228,6 +232,8 @@ typedef struct DType DType;
  * Whether an instance of a DType can be `null or not
  */
 typedef struct Nullability Nullability;
+
+typedef struct Primitive Primitive;
 
 /**
  * Base type for all Vortex arrays.
@@ -320,65 +326,63 @@ typedef struct vx_struct_fields_builder vx_struct_fields_builder;
  * Options supplied for opening a file.
  */
 typedef struct {
-  /**
-   * URI for opening the file.
-   * This must be a valid URI, even for files (file:///path/to/file)
-   */
-  const char *uri;
-  /**
-   * Additional configuration for the file source (e.g. "s3.accessKey").
-   * This may be null, in which case it is treated as empty.
-   */
-  const char *const *property_keys;
-  /**
-   * Additional configuration values for the file source (e.g. S3 credentials).
-   */
-  const char *const *property_vals;
-  /**
-   * Number of properties in `property_keys` and `property_vals`.
-   */
-  int property_len;
+    /**
+     * URI for opening the file.
+     * This must be a valid URI, even for files (file:///path/to/file)
+     */
+    const char *uri;
+    /**
+     * Additional configuration for the file source (e.g. "s3.accessKey").
+     * This may be null, in which case it is treated as empty.
+     */
+    const char *const *property_keys;
+    /**
+     * Additional configuration values for the file source (e.g. S3 credentials).
+     */
+    const char *const *property_vals;
+    /**
+     * Number of properties in `property_keys` and `property_vals`.
+     */
+    int property_len;
 } vx_file_open_options;
 
 /**
  * Scan options provided by an FFI client calling the `vx_file_scan` function.
  */
 typedef struct {
-  /**
-   * Column names to project out in the scan. These must be null-terminated C strings.
-   */
-  const char *projection_expression;
-  /**
-   * Number of columns in `projection`.
-   */
-  unsigned int projection_expr_len;
-  /**
-   * Serialized expressions for pushdown
-   */
-  const char *filter_expression;
-  /**
-   * The len in bytes of the filter expression
-   */
-  unsigned int filter_expression_len;
-  /**
-   * Splits the file into chunks of this size, if zero then we use the write layout.
-   */
-  int split_by_row_count;
-  /**
-   * First row of a range to scan.
-   */
-  unsigned long row_range_start;
-  /**
-   * Last row of a range to scan.
-   */
-  unsigned long row_range_end;
-  /**
-   * The row offset of the file in a multi-file scan.
-   */
-  unsigned long row_offset;
+    /**
+     * Column names to project out in the scan. These must be null-terminated C strings.
+     */
+    const char *projection_expression;
+    /**
+     * Number of columns in `projection`.
+     */
+    unsigned int projection_expr_len;
+    /**
+     * Serialized expressions for pushdown
+     */
+    const char *filter_expression;
+    /**
+     * The len in bytes of the filter expression
+     */
+    unsigned int filter_expression_len;
+    /**
+     * Splits the file into chunks of this size, if zero then we use the write layout.
+     */
+    int split_by_row_count;
+    /**
+     * First row of a range to scan.
+     */
+    unsigned long row_range_start;
+    /**
+     * Last row of a range to scan.
+     */
+    unsigned long row_range_end;
+    /**
+     * The row offset of the file in a multi-file scan.
+     */
+    unsigned long row_offset;
 } vx_file_scan_options;
-
-
 
 #ifdef __cplusplus
 extern "C" {
@@ -412,10 +416,7 @@ const vx_dtype *vx_array_dtype(const vx_array *array);
 
 const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error_out);
 
-const vx_array *vx_array_slice(const vx_array *array,
-                               uint32_t start,
-                               uint32_t stop,
-                               vx_error **_error_out);
+const vx_array *vx_array_slice(const vx_array *array, uint32_t start, uint32_t stop, vx_error **error_out);
 
 bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **_error_out);
 
@@ -469,15 +470,13 @@ double vx_array_get_storage_f64(const vx_array *array, uint32_t index);
  * Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
  * The caller must free the returned pointer.
  */
-const vx_string *vx_array_get_utf8(const vx_array *array,
-                                   uint32_t index);
+const vx_string *vx_array_get_utf8(const vx_array *array, uint32_t index);
 
 /**
  * Return the binary at `index` in the array. The pointer will be null if the value at `index` is null.
  * The caller must free the returned pointer.
  */
-const vx_binary *vx_array_get_binary(const vx_array *array,
-                                     uint32_t index);
+const vx_binary *vx_array_get_binary(const vx_array *array, uint32_t index);
 
 /**
  * Free an owned [`vx_array_iterator`] object.
@@ -492,8 +491,7 @@ void vx_array_iterator_free(vx_array_iterator *ptr);
  *
  * It is an error to call this function again after the iterator is finished.
  */
-const vx_array *vx_array_iterator_next(vx_array_iterator *iter,
-                                       vx_error **error_out);
+const vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_binary`], returning an owned [`vx_binary`].
@@ -573,9 +571,7 @@ const vx_dtype *vx_dtype_new_list(const vx_dtype *element, bool is_nullable);
  *
  * Takes ownership of the `element` pointer.
  */
-const vx_dtype *vx_dtype_new_fixed_size_list(const vx_dtype *element,
-                                             uint32_t size,
-                                             bool is_nullable);
+const vx_dtype *vx_dtype_new_fixed_size_list(const vx_dtype *element, uint32_t size, bool is_nullable);
 
 /**
  * Create a new struct data type.
@@ -697,9 +693,8 @@ void vx_file_free(const vx_file *ptr);
 /**
  * Open a file at the given path on the file system.
  */
-const vx_file *vx_file_open_reader(const vx_session *session,
-                                   const vx_file_open_options *options,
-                                   vx_error **error_out);
+const vx_file *
+vx_file_open_reader(const vx_session *session, const vx_file_open_options *options, vx_error **error_out);
 
 void vx_file_write_array(const vx_session *session,
                          const char *path,
@@ -870,5 +865,5 @@ void vx_struct_fields_builder_add_field(vx_struct_fields_builder *builder,
 const vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *builder);
 
 #ifdef __cplusplus
-}  // extern "C"
-#endif  // __cplusplus
+} // extern "C"
+#endif // __cplusplus

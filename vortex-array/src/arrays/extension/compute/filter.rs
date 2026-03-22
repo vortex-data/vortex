@@ -6,21 +6,18 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::arrays::filter::FilterReduce;
 
-impl FilterKernel for ExtensionVTable {
-    fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            compute::filter(array.storage(), mask)?,
-        )
-        .into_array())
+impl FilterReduce for Extension {
+    fn filter(array: &ExtensionArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ExtensionArray::new(
+                array.ext_dtype().clone(),
+                array.storage_array().filter(mask.clone())?,
+            )
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(FilterKernelAdapter(ExtensionVTable).lift());

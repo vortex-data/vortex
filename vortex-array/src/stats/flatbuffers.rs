@@ -2,20 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use flatbuffers::FlatBufferBuilder;
-use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
-use vortex_scalar::ScalarValue;
+use vortex_session::VortexSession;
 
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+use crate::scalar::ScalarValue;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 
@@ -26,7 +25,7 @@ impl WriteFlatBuffer for StatsSetRef<'_> {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         self.with_typed_stats_set(|stats_set| stats_set.values.write_flatbuffer(fbb))
     }
 }
@@ -38,7 +37,7 @@ impl WriteFlatBuffer for StatsSet {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let (min_precision, min) = self
             .get(Stat::Min)
             .map(|min| {
@@ -48,7 +47,11 @@ impl WriteFlatBuffer for StatsSet {
                     } else {
                         fba::Precision::Inexact
                     },
-                    Some(fbb.create_vector(&min.into_inner().to_protobytes::<Vec<u8>>())),
+                    Some(
+                        fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+                            &min.into_inner(),
+                        ))),
+                    ),
                 )
             })
             .unwrap_or_else(|| (fba::Precision::Inexact, None));
@@ -62,7 +65,11 @@ impl WriteFlatBuffer for StatsSet {
                     } else {
                         fba::Precision::Inexact
                     },
-                    Some(fbb.create_vector(&max.into_inner().to_protobytes::<Vec<u8>>())),
+                    Some(
+                        fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+                            &max.into_inner(),
+                        ))),
+                    ),
                 )
             })
             .unwrap_or_else(|| (fba::Precision::Inexact, None));
@@ -70,7 +77,7 @@ impl WriteFlatBuffer for StatsSet {
         let sum = self
             .get(Stat::Sum)
             .and_then(Precision::as_exact)
-            .map(|sum| fbb.create_vector(&sum.to_protobytes::<Vec<u8>>()));
+            .map(|sum| fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&sum))));
 
         let stat_args = &fba::ArrayStatsArgs {
             min,
@@ -98,20 +105,22 @@ impl WriteFlatBuffer for StatsSet {
                 .and_then(Precision::as_exact),
         };
 
-        fba::ArrayStats::create(fbb, stat_args)
+        Ok(fba::ArrayStats::create(fbb, stat_args))
     }
 }
 
-impl ReadFlatBuffer for StatsSet {
-    type Source<'a> = fba::ArrayStats<'a>;
-    type Error = VortexError;
-
-    fn read_flatbuffer<'buf>(
-        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
-    ) -> Result<Self, Self::Error> {
+impl StatsSet {
+    /// Creates a [`StatsSet`] from a flatbuffers array [`fba::ArrayStats<'a>`].
+    pub fn from_flatbuffer<'a>(
+        fb: &fba::ArrayStats<'a>,
+        array_dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
         let mut stats_set = StatsSet::default();
 
         for stat in Stat::all() {
+            let stat_dtype = stat.dtype(array_dtype);
+
             match stat {
                 Stat::IsConstant => {
                     if let Some(is_constant) = fb.is_constant() {
@@ -132,8 +141,15 @@ impl ReadFlatBuffer for StatsSet {
                     }
                 }
                 Stat::Max => {
-                    if let Some(max) = fb.max() {
-                        let value = ScalarValue::from_protobytes(max.bytes())?;
+                    if let Some(max) = fb.max()
+                        && let Some(stat_dtype) = stat_dtype
+                    {
+                        let value =
+                            ScalarValue::from_proto_bytes(max.bytes(), &stat_dtype, session)?;
+                        let Some(value) = value else {
+                            continue;
+                        };
+
                         stats_set.set(
                             Stat::Max,
                             match fb.max_precision() {
@@ -145,8 +161,15 @@ impl ReadFlatBuffer for StatsSet {
                     }
                 }
                 Stat::Min => {
-                    if let Some(min) = fb.min() {
-                        let value = ScalarValue::from_protobytes(min.bytes())?;
+                    if let Some(min) = fb.min()
+                        && let Some(stat_dtype) = stat_dtype
+                    {
+                        let value =
+                            ScalarValue::from_proto_bytes(min.bytes(), &stat_dtype, session)?;
+                        let Some(value) = value else {
+                            continue;
+                        };
+
                         stats_set.set(
                             Stat::Min,
                             match fb.min_precision() {
@@ -171,11 +194,16 @@ impl ReadFlatBuffer for StatsSet {
                     }
                 }
                 Stat::Sum => {
-                    if let Some(sum) = fb.sum() {
-                        stats_set.set(
-                            Stat::Sum,
-                            Precision::Exact(ScalarValue::from_protobytes(sum.bytes())?),
-                        );
+                    if let Some(sum) = fb.sum()
+                        && let Some(stat_dtype) = stat_dtype
+                    {
+                        let value =
+                            ScalarValue::from_proto_bytes(sum.bytes(), &stat_dtype, session)?;
+                        let Some(value) = value else {
+                            continue;
+                        };
+
+                        stats_set.set(Stat::Sum, Precision::Exact(value));
                     }
                 }
                 Stat::NaNCount => {

@@ -10,7 +10,9 @@ on:
   workflow_dispatch: { }
 
 permissions:
-  contents: read
+  # Weirdly, we need write permissions to see draft releases.
+  # See https://github.com/cli/cli/issues/3037
+  contents: write
 
 jobs:
   build:
@@ -21,6 +23,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -31,6 +34,12 @@ jobs:
         with:
           sync: false
           prune-cache: false
+      - name: Generate changelog from GitHub releases
+        run: uv run --no-project docs/generate_changelog.py
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Doxygen
+        uses: ssciwr/doxygen-install@v2
       - name: Generate Javadoc for Java projects
         run: |
           cd java
@@ -62,7 +71,7 @@ jobs:
     steps:
       # Note, since we provide the job with a CloudFlare scoped API token, we run it in a separate job that doesn't
       # execute any repository code.
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: github-pages
       - name: Extract Pages Artifact

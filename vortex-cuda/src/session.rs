@@ -5,17 +5,24 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
-use vortex_array::vtable::ArrayId;
-use vortex_dtype::PType;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_session::Ref;
-use vortex_session::SessionExt;
-use vortex_utils::aliases::dash_map::DashMap;
+use vortex::array::VortexSessionExecute;
+use vortex::array::vtable::ArrayId;
+use vortex::error::VortexResult;
+use vortex::session::Ref;
+use vortex::session::SessionExt;
+use vortex::utils::aliases::dash_map::DashMap;
 
+use crate::ExportDeviceArray;
+use crate::arrow::CanonicalDeviceArrayExport;
 use crate::executor::CudaExecute;
-use crate::executor::CudaExecutionCtx;
+pub use crate::executor::CudaExecutionCtx;
+use crate::initialize_cuda;
 use crate::kernel::KernelLoader;
+use crate::stream::VortexCudaStream;
+use crate::stream_pool::VortexCudaStreamPool;
+
+/// Default maximum number of streams in the pool.
+const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
 
 /// CUDA session for GPU accelerated execution.
 ///
@@ -25,29 +32,51 @@ use crate::kernel::KernelLoader;
 pub struct CudaSession {
     context: Arc<CudaContext>,
     kernels: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
+    export_device_array: Arc<dyn ExportDeviceArray>,
     kernel_loader: Arc<KernelLoader>,
+    stream_pool: Arc<VortexCudaStreamPool>,
 }
 
 impl CudaSession {
-    /// Creates a new CUDA session with the provided context.
+    /// Creates a new CUDA session with the provided context and default stream pool capacity.
     pub fn new(context: Arc<CudaContext>) -> Self {
+        Self::with_stream_pool_capacity(context, DEFAULT_STREAM_POOL_CAPACITY)
+    }
+
+    /// Creates a new CUDA session with the provided context and stream pool capacity.
+    pub fn with_stream_pool_capacity(
+        context: Arc<CudaContext>,
+        stream_pool_capacity: usize,
+    ) -> Self {
+        let stream_pool = Arc::new(VortexCudaStreamPool::new(
+            Arc::clone(&context),
+            stream_pool_capacity,
+        ));
         Self {
             context,
             kernels: Arc::new(DashMap::default()),
             kernel_loader: Arc::new(KernelLoader::new()),
+            export_device_array: Arc::new(CanonicalDeviceArrayExport),
+            stream_pool,
         }
     }
 
     /// Creates a new CUDA execution context.
-    pub fn new_ctx(
-        vortex_session: vortex_session::VortexSession,
+    pub fn create_execution_ctx(
+        vortex_session: &vortex::session::VortexSession,
     ) -> VortexResult<CudaExecutionCtx> {
-        let stream = vortex_session
-            .cuda_session()
-            .context
-            .new_stream()
-            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
-        Ok(CudaExecutionCtx::new(stream, vortex_session))
+        let stream = vortex_session.cuda_session().stream()?;
+        Ok(CudaExecutionCtx::new(
+            stream,
+            vortex_session.create_execution_ctx(),
+        ))
+    }
+
+    /// Returns a CUDA stream from the pool.
+    ///
+    /// The pool reuses existing streams in round-robin fashion.
+    pub fn stream(&self) -> VortexResult<VortexCudaStream> {
+        self.stream_pool.stream()
     }
 
     /// Registers CUDA support for an array encoding.
@@ -69,30 +98,38 @@ impl CudaSession {
         self.kernels.get(array_id).map(|entry| *entry.value())
     }
 
-    /// Loads a CUDA kernel function by module name and ptypes.
+    /// Loads a CUDA kernel function by module name and type suffixes.
     ///
-    /// The kernel name is generated as `{module_name}_{ptype[0]}_{ptype[1]}...`
+    /// This is a lower-level version of `load_function` that accepts string suffixes
+    /// directly, useful for types that don't have a `PType` (e.g., i128, i256).
+    ///
+    /// The kernel name is generated as `{module_name}_{suffix[0]}_{suffix[1]}...`
     ///
     /// # Arguments
     ///
     /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
-    /// * `ptypes` - List of ptype strings to generate kernel name
+    /// * `type_suffixes` - List of type suffix strings to generate kernel name
     ///
     /// # Errors
     ///
     /// Returns an error if PTX file cannot be read or kernel cannot be loaded.
-    pub fn load_function(
+    pub fn load_function_with_suffixes(
         &self,
         module_name: &str,
-        ptypes: &[PType],
+        type_suffixes: &[&str],
     ) -> VortexResult<cudarc::driver::CudaFunction> {
         self.kernel_loader
-            .load_function(module_name, ptypes, &self.context)
+            .load_function(module_name, type_suffixes, &self.context)
+    }
+
+    /// Get a handle to the exporter that converts Vortex arrays to `ArrowDeviceArray`.
+    pub fn export_device_array(&self) -> &Arc<dyn ExportDeviceArray> {
+        &self.export_device_array
     }
 }
 
 impl Default for CudaSession {
-    /// Creates a default CUDA session using device 0.
+    /// Creates a default CUDA session using device 0, with all GPU array kernels preloaded.
     ///
     /// # Panics
     ///
@@ -100,7 +137,9 @@ impl Default for CudaSession {
     fn default() -> Self {
         #[expect(clippy::expect_used)]
         let context = CudaContext::new(0).expect("Failed to initialize CUDA device 0");
-        Self::new(context)
+        let this = Self::new(context);
+        initialize_cuda(&this);
+        this
     }
 }
 

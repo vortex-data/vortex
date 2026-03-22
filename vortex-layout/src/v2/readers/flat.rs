@@ -7,13 +7,14 @@ use std::ops::Range;
 use futures::future::BoxFuture;
 use moka::future::FutureExt;
 use vortex_array::ArrayRef;
-use vortex_dtype::DType;
+use vortex_array::MaskFuture;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
+use crate::v2::reader::MaskStreamRef;
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderStream;
 use crate::v2::reader::ReaderStreamRef;
@@ -37,7 +38,7 @@ impl Reader for FlatReader {
         self.len as u64
     }
 
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
+    fn project(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         // We need to share the same array future
         let array_fut = self.array_fut.clone();
 
@@ -61,6 +62,10 @@ impl Reader for FlatReader {
             offset: start,
             remaining: end - start,
         }))
+    }
+
+    fn filter(&self, _row_range: Range<u64>) -> VortexResult<MaskStreamRef> {
+        todo!("FlatReader::filter")
     }
 }
 
@@ -86,27 +91,29 @@ impl ReaderStream for FlatLayoutReaderStream {
 
     fn next_chunk(
         &mut self,
-        selection: &Mask,
+        mask: &MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        if selection.len() > self.remaining {
+        let mask_len = mask.len();
+        if mask_len > self.remaining {
             vortex_bail!(
-                "Selection mask length {} exceeds remaining rows {}",
-                selection.len(),
+                "Mask length {} exceeds remaining rows {}",
+                mask_len,
                 self.remaining
             );
         }
 
         let array_fut = self.array_fut.clone();
         let offset = self.offset;
-        let selection = selection.clone();
+        let mask = mask.clone();
 
-        self.offset += selection.len();
-        self.remaining -= selection.len();
+        self.offset += mask_len;
+        self.remaining -= mask_len;
 
         Ok(async move {
             let array = array_fut.await?;
-            let sliced_array = array.slice(offset..offset + selection.len());
-            let selected_array = sliced_array.filter(selection.clone())?;
+            let sliced_array = array.slice(offset..offset + mask.len())?;
+            let selection = mask.await?;
+            let selected_array = sliced_array.filter(selection)?;
             Ok(selected_array)
         }
         .boxed())

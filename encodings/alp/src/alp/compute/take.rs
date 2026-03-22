@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
+use crate::ALP;
 use crate::ALPArray;
-use crate::ALPVTable;
 
-impl TakeKernel for ALPVTable {
-    fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_encoded = take(array.encoded(), indices)?;
+impl TakeExecute for ALP {
+    fn take(
+        array: &ALPArray,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let taken_encoded = array.encoded().take(indices.to_array())?;
         let taken_patches = array
             .patches()
-            .map(|p| p.take(indices))
+            .map(|p| p.take(indices, ctx))
             .transpose()?
             .flatten()
             .map(|patches| {
@@ -29,11 +31,11 @@ impl TakeKernel for ALPVTable {
                 )
             })
             .transpose()?;
-        Ok(ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array())
+        Ok(Some(
+            ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -53,6 +55,6 @@ mod test {
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_take_conformance(alp.as_ref());
+        test_take_conformance(&alp.into_array());
     }
 }

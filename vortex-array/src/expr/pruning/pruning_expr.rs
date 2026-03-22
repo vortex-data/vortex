@@ -5,17 +5,17 @@ use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
-use vortex_dtype::Field;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldPath;
-use vortex_dtype::FieldPathSet;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
+use crate::dtype::Field;
+use crate::dtype::FieldName;
+use crate::dtype::FieldPath;
+use crate::dtype::FieldPathSet;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
-use crate::expr::exprs::get_item::get_item;
-use crate::expr::exprs::root::root;
+use crate::expr::get_item;
+use crate::expr::root;
 use crate::expr::stats::Stat;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
@@ -23,7 +23,7 @@ pub type RequiredStats = Relation<FieldPath, Stat>;
 // A catalog that return a stat column whenever it is required, tracking all accessed
 // stats and returning them later.
 #[derive(Default)]
-struct TrackingStatsCatalog {
+pub(crate) struct TrackingStatsCatalog {
     usage: RefCell<HashMap<(FieldPath, Stat), Expression>>,
 }
 
@@ -37,7 +37,7 @@ impl TrackingStatsCatalog {
 
 // A catalog that return a stat column if it exists in the given scope.
 struct ScopeStatsCatalog<'a> {
-    any_catalog: TrackingStatsCatalog,
+    inner: TrackingStatsCatalog,
     available_stats: &'a FieldPathSet,
 }
 
@@ -46,7 +46,7 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
         let stat_path = field_path.clone().push(stat.name());
 
         if self.available_stats.contains(&stat_path) {
-            self.any_catalog.stats_ref(field_path, stat)
+            self.inner.stats_ref(field_path, stat)
         } else {
             None
         }
@@ -93,7 +93,7 @@ pub fn checked_pruning_expr(
     available_stats: &FieldPathSet,
 ) -> Option<(Expression, RequiredStats)> {
     let catalog = ScopeStatsCatalog {
-        any_catalog: Default::default(),
+        inner: Default::default(),
         available_stats,
     };
 
@@ -101,7 +101,7 @@ pub fn checked_pruning_expr(
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<FieldPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.any_catalog.into_usages() {
+    for ((field_path, stat), _) in catalog.inner.into_usages() {
         relation.insert(field_path, stat)
     }
 
@@ -112,35 +112,35 @@ pub fn checked_pruning_expr(
 mod tests {
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::FieldPath;
-    use vortex_dtype::FieldPathSet;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::StructFields;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::HashMap;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
-    use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::gt;
-    use crate::expr::exprs::binary::gt_eq;
-    use crate::expr::exprs::binary::lt;
-    use crate::expr::exprs::binary::lt_eq;
-    use crate::expr::exprs::binary::not_eq;
-    use crate::expr::exprs::binary::or;
-    use crate::expr::exprs::cast::cast;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::root::root;
+    use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::FieldNames;
+    use crate::dtype::FieldPath;
+    use crate::dtype::FieldPathSet;
+    use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
+    use crate::expr::and;
+    use crate::expr::between;
+    use crate::expr::cast;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::gt_eq;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::lt_eq;
+    use crate::expr::not_eq;
+    use crate::expr::or;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::pruning::field_path_stat_field_name;
+    use crate::expr::root;
     use crate::expr::stats::Stat;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
 
     // Implement some checked pruning expressions.
     #[fixture]

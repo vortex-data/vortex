@@ -4,10 +4,10 @@
 mod array;
 pub use array::StructArray;
 pub use array::StructArrayParts;
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::StructVTable;
+pub use vtable::Struct;
 
 #[cfg(test)]
 mod tests;

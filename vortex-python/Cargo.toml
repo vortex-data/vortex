@@ -21,6 +21,18 @@ workspace = true
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+[features]
+default = ["extension-module", "tui"]
+# Enable this feature when building the standalone Python extension.
+# Disable it when using vortex-python as a library dependency to avoid
+# duplicate PyInit__lib symbols.
+extension-module = []
+tui = ["dep:vortex-tui"]
+# Set the default allocator to mimalloc, this is enabled by default
+# for the maturin wheels, but it is not a default feature to not conflict
+# with users that set a different global allocator.
+mimalloc = ["dep:mimalloc"]
+
 [dependencies]
 arrow-array = { workspace = true }
 arrow-data = { workspace = true }
@@ -28,6 +40,7 @@ arrow-schema = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+mimalloc = { workspace = true, optional = true }
 object_store = { workspace = true, features = [
     "fs",
     "aws",
@@ -39,11 +52,8 @@ parking_lot = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-bytes = { workspace = true }
 pyo3-log = { workspace = true }
+pyo3-object_store = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
-# This feature makes the underlying tracing logs to be emitted as `log` events
-tracing = { workspace = true, features = ["std", "log"] }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store", "python", "tokio"] }
-
-[dev-dependencies]
-vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex = { workspace = true, features = ["object_store", "tokio"] }
+vortex-tui = { workspace = true, optional = true }

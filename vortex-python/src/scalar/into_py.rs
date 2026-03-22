@@ -9,25 +9,26 @@ use pyo3::PyAny;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::Python;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::prelude::PyDictMethods;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
 use pyo3::types::PyList;
 use pyo3::types::PyString;
+use vortex::array::match_each_decimal_value;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::dtype::half::f16;
-use vortex::dtype::match_each_decimal_value;
+use vortex::dtype::i256;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::ListScalar;
 use vortex::scalar::Scalar;
 use vortex::scalar::StructScalar;
-use vortex::scalar::i256;
 
 use crate::PyVortex;
 
@@ -64,13 +65,30 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                     Some(value) => decimal_value_to_py(py, decimal_type.scale(), value),
                 }
             }
-            DType::Utf8(_) => self.0.as_utf8().value().map(PyVortex).into_pyobject(py),
-            DType::Binary(_) => self.0.as_binary().value().map(PyVortex).into_pyobject(py),
+            DType::Utf8(_) => self
+                .0
+                .as_utf8()
+                .value()
+                .cloned()
+                .map(PyVortex)
+                .into_pyobject(py),
+            DType::Binary(_) => self
+                .0
+                .as_binary()
+                .value()
+                .cloned()
+                .map(PyVortex)
+                .into_pyobject(py),
             DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
             DType::List(..) | DType::FixedSizeList(..) => {
                 PyVortex(self.0.as_list()).into_pyobject(py)
             }
-            DType::Extension(_) => PyVortex(&self.0.as_extension().storage()).into_pyobject(py),
+            DType::Extension(_) => {
+                PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
+            }
+            DType::Variant(_) => Err(PyValueError::new_err(
+                "Variant scalars are not supported in Python yet",
+            )),
         }
     }
 }
@@ -100,7 +118,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<StructScalar<'_>> {
     type Error = PyErr;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let Some(fields) = self.0.fields() else {
+        let Some(fields) = self.0.fields_iter() else {
             return Ok(py.None().into_pyobject(py)?);
         };
 

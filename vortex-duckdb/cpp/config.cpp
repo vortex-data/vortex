@@ -2,8 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "include/duckdb_vx/config.h"
+
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.hpp"
+#include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/config.hpp"
+DUCKDB_INCLUDES_END
+
 #include <string>
 #include <memory>
 #include <cstdlib>
@@ -13,6 +19,16 @@
 using namespace duckdb;
 
 extern "C" {
+
+duckdb_config duckdb_vx_database_get_config(duckdb_database database) {
+    if (!database) {
+        return nullptr;
+    }
+
+    auto wrapper = reinterpret_cast<DatabaseWrapper *>(database);
+    auto &config = DBConfig::GetConfig(*wrapper->database->instance);
+    return reinterpret_cast<duckdb_config>(&config);
+}
 
 duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char *key, duckdb_value *out_value) {
     if (!config || !key || !out_value) {
@@ -29,17 +45,16 @@ duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char *key, d
 
         std::string key_str(key);
 
-        // First check set_variables (the primary location for config values)
-        auto set_it = db_config->options.set_variables.find(key_str);
-        if (set_it != db_config->options.set_variables.end()) {
-            *out_value = reinterpret_cast<duckdb_value>(new Value(set_it->second));
+        // First check set_variable_defaults (the primary location for config values)
+        if (db_config->options.set_variable_defaults.contains(key_str)) {
+            *out_value =
+                reinterpret_cast<duckdb_value>(new Value(db_config->options.set_variable_defaults[key_str]));
             return DuckDBSuccess;
         }
 
         // Then check user_options
-        auto user_it = db_config->options.user_options.find(key_str);
-        if (user_it != db_config->options.user_options.end()) {
-            *out_value = reinterpret_cast<duckdb_value>(new Value(user_it->second));
+        if (db_config->options.user_options.contains(key_str)) {
+            *out_value = reinterpret_cast<duckdb_value>(new Value(db_config->options.user_options[key_str]));
             return DuckDBSuccess;
         }
 
@@ -64,13 +79,13 @@ int duckdb_vx_config_has_key(duckdb_config config, const char *key) {
 
         std::string key_str(key);
 
-        // Check if the key exists in set_variables (primary location)
-        if (db_config->options.set_variables.find(key_str) != db_config->options.set_variables.end()) {
+        // Check if the key exists in set_variable_defaults (primary location)
+        if (db_config->options.set_variable_defaults.contains(key_str)) {
             return 1;
         }
 
         // Check if the key exists in user_options
-        if (db_config->options.user_options.find(key_str) != db_config->options.user_options.end()) {
+        if (db_config->options.user_options.contains(key_str)) {
             return 1;
         }
 
@@ -97,9 +112,8 @@ char *duckdb_vx_value_to_string(duckdb_value value) {
         // Use the ToString method to get the string representation
         std::string str_value = ddb_value->ToString();
 
-        // Allocate memory for the C string using malloc (compatible with duckdb_free)
         size_t str_len = str_value.length() + 1;
-        char *result = static_cast<char *>(malloc(str_len));
+        char *result = static_cast<char *>(duckdb_malloc(str_len));
         if (!result) {
             return nullptr;
         }
@@ -114,10 +128,10 @@ char *duckdb_vx_value_to_string(duckdb_value value) {
 }
 
 duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
-                                             const char *name,
-                                             const char *description,
-                                             duckdb_logical_type logical_type,
-                                             duckdb_value default_value) {
+                                            const char *name,
+                                            const char *description,
+                                            duckdb_logical_type logical_type,
+                                            duckdb_value default_value) {
     if (!name || !description || !logical_type || !default_value) {
         return DuckDBError;
     }
@@ -131,12 +145,7 @@ duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
         auto *type = reinterpret_cast<LogicalType *>(logical_type);
         auto *value = reinterpret_cast<Value *>(default_value);
 
-        db_config->AddExtensionOption(
-            string(name),
-            string(description),
-            *type,
-            *value
-        );
+        db_config->AddExtensionOption(string(name), string(description), *type, *value);
 
         return DuckDBSuccess;
     } catch (...) {

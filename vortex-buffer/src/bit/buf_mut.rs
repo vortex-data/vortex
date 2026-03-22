@@ -16,6 +16,61 @@ use crate::bit::set_bit_unchecked;
 use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
 
+/// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
+#[inline(always)]
+fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
+    if start_bit >= end_bit {
+        return;
+    }
+
+    let fill_byte: u8 = if value { 0xFF } else { 0x00 };
+
+    let start_byte = start_bit / 8;
+    let start_rem = start_bit % 8;
+    let end_byte = end_bit / 8;
+    let end_rem = end_bit % 8;
+
+    if start_byte == end_byte {
+        // All bits are in the same byte
+        let mask = ((1u8 << (end_rem - start_rem)) - 1) << start_rem;
+        if value {
+            slice[start_byte] |= mask;
+        } else {
+            slice[start_byte] &= !mask;
+        }
+    } else {
+        // First partial byte
+        if start_rem != 0 {
+            let mask = !((1u8 << start_rem) - 1);
+            if value {
+                slice[start_byte] |= mask;
+            } else {
+                slice[start_byte] &= !mask;
+            }
+        }
+
+        // Middle bytes
+        let fill_start = if start_rem != 0 {
+            start_byte + 1
+        } else {
+            start_byte
+        };
+        if fill_start < end_byte {
+            slice[fill_start..end_byte].fill(fill_byte);
+        }
+
+        // Last partial byte
+        if end_rem != 0 {
+            let mask = (1u8 << end_rem) - 1;
+            if value {
+                slice[end_byte] |= mask;
+            } else {
+                slice[end_byte] &= !mask;
+            }
+        }
+    }
+}
+
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
 ///
@@ -124,7 +179,16 @@ impl BitBufferMut {
         }
     }
 
+    /// Create a bit buffer of `len` with `indices` set as true.
+    pub fn from_indices(len: usize, indices: &[usize]) -> BitBufferMut {
+        let mut buf = BitBufferMut::new_unset(len);
+        // TODO(ngates): for dense indices, we can do better by collecting into u64s.
+        indices.iter().for_each(|&idx| buf.set(idx));
+        buf
+    }
+
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
+    #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
         let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);
 
@@ -389,13 +453,13 @@ impl BitBufferMut {
     /// the length will be incremented by `n`.
     ///
     /// Panics if the buffer does not have `n` slots left.
+    #[inline]
     pub fn append_n(&mut self, value: bool, n: usize) {
         if n == 0 {
             return;
         }
 
-        let start_bit_pos = self.offset + self.len;
-        let end_bit_pos = start_bit_pos + n;
+        let end_bit_pos = self.offset + self.len + n;
         let required_bytes = end_bit_pos.div_ceil(8);
 
         // Ensure buffer has enough bytes
@@ -403,58 +467,38 @@ impl BitBufferMut {
             self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        let fill_byte = if value { 0xFF } else { 0x00 };
-
-        // Calculate byte positions
-        let start_byte = start_bit_pos / 8;
-        let start_bit = start_bit_pos % 8;
-        let end_byte = end_bit_pos / 8;
-        let end_bit = end_bit_pos % 8;
-
-        let slice = self.buffer.as_mut_slice();
-
-        if start_byte == end_byte {
-            // All bits are in the same byte
-            let mask = ((1u8 << (end_bit - start_bit)) - 1) << start_bit;
-            if value {
-                slice[start_byte] |= mask;
-            } else {
-                slice[start_byte] &= !mask;
-            }
-        } else {
-            // Fill the first partial byte
-            if start_bit != 0 {
-                let mask = !((1u8 << start_bit) - 1);
-                if value {
-                    slice[start_byte] |= mask;
-                } else {
-                    slice[start_byte] &= !mask;
-                }
-            }
-
-            // Fill the complete middle bytes
-            let fill_start = if start_bit != 0 {
-                start_byte + 1
-            } else {
-                start_byte
-            };
-            let fill_end = end_byte;
-            if fill_start < fill_end {
-                slice[fill_start..fill_end].fill(fill_byte);
-            }
-
-            // Fill the last partial byte
-            if end_bit != 0 {
-                let mask = (1u8 << end_bit) - 1;
-                if value {
-                    slice[end_byte] |= mask;
-                } else {
-                    slice[end_byte] &= !mask;
-                }
-            }
-        }
-
+        let start = self.len;
         self.len += n;
+        self.fill_range(start, self.len, value);
+    }
+
+    /// Sets all bits in the range `[start, end)` to `value`.
+    ///
+    /// This operates on an arbitrary range within the existing length of the buffer.
+    /// Panics if `end > self.len` or `start > end`.
+    #[inline(always)]
+    pub fn fill_range(&mut self, start: usize, end: usize, value: bool) {
+        assert!(end <= self.len, "end {end} exceeds len {}", self.len);
+        assert!(start <= end, "start {start} exceeds end {end}");
+
+        // SAFETY: assertions above guarantee start <= end <= self.len,
+        // so offset + end fits within the buffer.
+        unsafe { self.fill_range_unchecked(start, end, value) }
+    }
+
+    /// Sets all bits in the range `[start, end)` to `value` without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `start <= end <= self.len`.
+    #[inline(always)]
+    pub unsafe fn fill_range_unchecked(&mut self, start: usize, end: usize, value: bool) {
+        fill_bits(
+            self.buffer.as_mut_slice(),
+            self.offset + start,
+            self.offset + end,
+            value,
+        );
     }
 
     /// Append a [`BitBuffer`] to this [`BitBufferMut`]
@@ -603,6 +647,7 @@ impl Default for BitBufferMut {
 impl Not for BitBufferMut {
     type Output = BitBufferMut;
 
+    #[inline]
     fn not(mut self) -> Self::Output {
         ops::bitwise_unary_op_mut(&mut self, |b| !b);
         self

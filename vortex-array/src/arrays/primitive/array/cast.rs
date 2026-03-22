@@ -2,17 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::PrimitiveArray;
-use crate::compute::cast;
-use crate::compute::min_max;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
@@ -66,7 +69,8 @@ impl PrimitiveArray {
             return Ok(self.clone());
         }
 
-        let Some(min_max) = min_max(self.as_ref())? else {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Some(min_max) = min_max(&self.clone().into_array(), &mut ctx)? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 self.validity.clone(),
@@ -75,62 +79,70 @@ impl PrimitiveArray {
 
         // If we can't cast to i64, then leave the array as its original type.
         // It's too big to downcast anyway.
-        let Ok(min) = min_max.min.cast(&PType::I64.into()).and_then(i64::try_from) else {
+        let Ok(min) = min_max
+            .min
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
             return Ok(self.clone());
         };
-        let Ok(max) = min_max.max.cast(&PType::I64.into()).and_then(i64::try_from) else {
+        let Ok(max) = min_max
+            .max
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
             return Ok(self.clone());
         };
 
         if min < 0 || max < 0 {
             // Signed
             if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-                return Ok(cast(
-                    self.as_ref(),
-                    &DType::Primitive(PType::I8, self.dtype().nullability()),
-                )?
-                .to_primitive());
+                return Ok(self
+                    .clone()
+                    .into_array()
+                    .cast(DType::Primitive(PType::I8, self.dtype().nullability()))?
+                    .to_primitive());
             }
 
             if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-                return Ok(cast(
-                    self.as_ref(),
-                    &DType::Primitive(PType::I16, self.dtype().nullability()),
-                )?
-                .to_primitive());
+                return Ok(self
+                    .clone()
+                    .into_array()
+                    .cast(DType::Primitive(PType::I16, self.dtype().nullability()))?
+                    .to_primitive());
             }
 
             if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-                return Ok(cast(
-                    self.as_ref(),
-                    &DType::Primitive(PType::I32, self.dtype().nullability()),
-                )?
-                .to_primitive());
+                return Ok(self
+                    .clone()
+                    .into_array()
+                    .cast(DType::Primitive(PType::I32, self.dtype().nullability()))?
+                    .to_primitive());
             }
         } else {
             // Unsigned
             if max <= u8::MAX as i64 {
-                return Ok(cast(
-                    self.as_ref(),
-                    &DType::Primitive(PType::U8, self.dtype().nullability()),
-                )?
-                .to_primitive());
+                return Ok(self
+                    .clone()
+                    .into_array()
+                    .cast(DType::Primitive(PType::U8, self.dtype().nullability()))?
+                    .to_primitive());
             }
 
             if max <= u16::MAX as i64 {
-                return Ok(cast(
-                    self.as_ref(),
-                    &DType::Primitive(PType::U16, self.dtype().nullability()),
-                )?
-                .to_primitive());
+                return Ok(self
+                    .clone()
+                    .into_array()
+                    .cast(DType::Primitive(PType::U16, self.dtype().nullability()))?
+                    .to_primitive());
             }
 
             if max <= u32::MAX as i64 {
-                return Ok(cast(
-                    self.as_ref(),
-                    &DType::Primitive(PType::U32, self.dtype().nullability()),
-                )?
-                .to_primitive());
+                return Ok(self
+                    .clone()
+                    .into_array()
+                    .cast(DType::Primitive(PType::U32, self.dtype().nullability()))?
+                    .to_primitive());
             }
         }
 
@@ -143,11 +155,11 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[test]
@@ -162,7 +174,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
-        assert_eq!(result.validity, Validity::AllInvalid);
+        assert!(matches!(result.validity, Validity::AllInvalid));
     }
 
     #[rstest]
@@ -245,7 +257,7 @@ mod tests {
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
         let result2 = array2.narrow().unwrap();
         // Empty arrays should not have their validity changed
-        assert_eq!(result.validity, Validity::AllInvalid);
-        assert_eq!(result2.validity, Validity::NonNullable);
+        assert!(matches!(result.validity, Validity::AllInvalid));
+        assert!(matches!(result2.validity, Validity::NonNullable));
     }
 }

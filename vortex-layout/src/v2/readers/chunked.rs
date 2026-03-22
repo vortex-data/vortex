@@ -9,14 +9,15 @@ use futures::future::try_join_all;
 use moka::future::FutureExt;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
+use crate::v2::reader::MaskStreamRef;
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderRef;
 use crate::v2::reader::ReaderStream;
@@ -41,7 +42,7 @@ impl Reader for ChunkedReader {
         self.row_count
     }
 
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
+    fn project(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         let mut remaining_start = row_range.start;
         let mut remaining_end = row_range.end;
         let mut streams = Vec::new();
@@ -63,7 +64,7 @@ impl Reader for ChunkedReader {
                 chunk_row_count
             };
 
-            streams.push(chunk.execute(start_in_chunk..end_in_chunk)?);
+            streams.push(chunk.project(start_in_chunk..end_in_chunk)?);
 
             remaining_start = 0;
             if remaining_end <= chunk_row_count {
@@ -77,6 +78,10 @@ impl Reader for ChunkedReader {
             dtype: self.dtype.clone(),
             chunks: streams,
         }))
+    }
+
+    fn filter(&self, _row_range: Range<u64>) -> VortexResult<MaskStreamRef> {
+        todo!("ChunkedReader::filter")
     }
 }
 
@@ -100,7 +105,7 @@ impl ReaderStream for ChunkedReaderStream {
 
     fn next_chunk(
         &mut self,
-        selection: &Mask,
+        mask: &MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // Remove any chunks that are already exhausted
         loop {
@@ -119,35 +124,37 @@ impl ReaderStream for ChunkedReaderStream {
             .next_chunk_len()
             .ok_or_else(|| vortex_err!("Early termination of chunked layout"))?;
 
-        if selection.len() <= next_len {
-            // The selection is smaller than the next chunk length, therefore we only need one chunk
-            return self.chunks[0].next_chunk(selection);
+        if mask.len() <= next_len {
+            // The mask is smaller than the next chunk length, therefore we only need one chunk
+            return self.chunks[0].next_chunk(mask);
         }
 
         // Otherwise, we need to gather from multiple chunks
-        let mut selection = selection.clone();
+        let mut remaining = mask.len();
         let mut futs = vec![];
-        while !selection.is_empty() {
+        while remaining > 0 {
             if self.chunks.is_empty() {
                 vortex_bail!("Early termination of chunked layout");
             }
 
-            // Slice off the right amount of selection for this chunk
-            let next_sel = selection.slice(..next_len);
-            selection = selection.slice(next_len..);
+            let chunk_len = next_len.min(remaining);
+            let chunk_mask = mask.slice(mask.len() - remaining..mask.len() - remaining + chunk_len);
+            remaining -= chunk_len;
 
-            let fut = self.chunks[0].next_chunk(&next_sel)?;
+            let fut = self.chunks[0].next_chunk(&chunk_mask)?;
             futs.push(fut);
 
             // Remove any chunks that are already exhausted
             loop {
                 if self.chunks.is_empty() {
-                    vortex_bail!("Early termination of chunked layout");
+                    break;
                 }
                 if self.chunks[0].next_chunk_len().is_none() {
                     self.chunks.remove(0);
+                } else {
+                    next_len = self.chunks[0].next_chunk_len().vortex_expect("non-none");
+                    break;
                 }
-                next_len = self.chunks[0].next_chunk_len().vortex_expect("non-none");
             }
         }
 

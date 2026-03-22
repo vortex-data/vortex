@@ -319,7 +319,10 @@ impl<T> Buffer<T> {
         let end_byte = end * size_of::<T>();
 
         if !begin_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range start must be aligned to {alignment:?}");
+            vortex_panic!(
+                "range start must be aligned to {alignment:?}, byte {}",
+                begin_byte
+            );
         }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Slice alignment must at least align to type T")
@@ -642,9 +645,11 @@ impl Buf for ByteBuffer {
 }
 
 /// Owned iterator over a [`Buffer`].
-pub struct BufferIterator<T> {
-    buffer: Buffer<T>,
-    index: usize,
+pub struct BufferIterator<T: Copy> {
+    // Keep the buffer alive for the duration of the iteration.
+    _buffer: Buffer<T>,
+    ptr: *const T,
+    end: *const T,
 }
 
 impl<T: Copy> Iterator for BufferIterator<T> {
@@ -652,19 +657,24 @@ impl<T: Copy> Iterator for BufferIterator<T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        (self.index < self.buffer.len()).then(move || {
-            let value = self.buffer[self.index];
-            self.index += 1;
-            value
-        })
+        if self.ptr == self.end {
+            None
+        } else {
+            // SAFETY: ptr is within the buffer and has not reached end.
+            let value = unsafe { self.ptr.read() };
+            self.ptr = unsafe { self.ptr.add(1) };
+            Some(value)
+        }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.buffer.len() - self.index;
+        let remaining = unsafe { self.end.offset_from(self.ptr) } as usize;
         (remaining, Some(remaining))
     }
 }
+
+impl<T: Copy> ExactSizeIterator for BufferIterator<T> {}
 
 impl<T: Copy> IntoIterator for Buffer<T> {
     type Item = T;
@@ -672,9 +682,12 @@ impl<T: Copy> IntoIterator for Buffer<T> {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
+        let ptr = self.as_slice().as_ptr();
+        let end = unsafe { ptr.add(self.len()) };
         BufferIterator {
-            buffer: self,
-            index: 0,
+            _buffer: self,
+            ptr,
+            end,
         }
     }
 }

@@ -2,42 +2,37 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::fill_null;
-use crate::compute::take;
-use crate::register_kernel;
+use crate::arrays::dict::TakeReduce;
+use crate::builtins::ArrayBuiltins;
+use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for MaskedVTable {
-    fn take(&self, array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_child = if !indices.all_valid() {
-            // This is safe because we'll mask out these positions in the validity
-            let filled_take = fill_null(
-                indices,
-                &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
-            )?;
-            take(&array.child, &filled_take)?
+impl TakeReduce for Masked {
+    fn take(array: &MaskedArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let taken_child = if !indices.all_valid()? {
+            // This is safe because we'll mask out these positions in the validity.
+            let fill_scalar = Scalar::zero_value(indices.dtype());
+            let filled_take_indices = indices.to_array().fill_null(fill_scalar)?;
+            array.child.take(filled_take_indices)?
         } else {
-            take(&array.child, indices)?
+            array.child.take(indices.to_array())?
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity
         let taken_validity = array.validity().take(indices)?;
 
         // Construct new MaskedArray
-        Ok(MaskedArray::try_new(taken_child, taken_validity)?.into_array())
+        Ok(Some(
+            MaskedArray::try_new(taken_child, taken_validity)?.into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(MaskedVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -69,6 +64,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_take_masked_conformance(#[case] array: MaskedArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

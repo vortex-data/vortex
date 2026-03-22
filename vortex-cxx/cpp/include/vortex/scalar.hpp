@@ -8,7 +8,6 @@
 #include "vortex_cxx_bridge/lib.h"
 
 namespace vortex::scalar {
-using dtype::DType;
 class Scalar {
 public:
     Scalar() = delete;
@@ -44,5 +43,5 @@ Scalar float64(double value);
 Scalar string(std::string_view value);
 Scalar binary(const uint8_t *data, size_t length);
 /// TODO: Other Scalars are only supported by casting for now.
-Scalar cast(Scalar scalar, DType dtype);
+Scalar cast(Scalar scalar, dtype::DType dtype);
 } // namespace vortex::scalar

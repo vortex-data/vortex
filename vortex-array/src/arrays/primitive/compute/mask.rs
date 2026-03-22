@@ -2,39 +2,37 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskKernel for PrimitiveVTable {
-    fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let validity = array.validity().mask(mask);
-
+impl MaskReduce for Primitive {
+    fn mask(array: &PrimitiveArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: validity and data buffer still have same length
-        Ok(unsafe {
+        Ok(Some(unsafe {
             PrimitiveArray::new_unchecked_from_handle(
                 array.buffer_handle().clone(),
                 array.ptype(),
-                validity,
+                array
+                    .validity()
+                    .clone()
+                    .and(Validity::Array(mask.clone()))?,
             )
             .into_array()
-        })
+        }))
     }
 }
-
-register_kernel!(MaskKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
@@ -47,6 +45,6 @@ mod test {
     #[case(PrimitiveArray::from_iter([0.1f32, 0.2, 0.3, 0.4, 0.5]))]
     #[case(PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]))]
     fn test_mask_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.into_array());
     }
 }

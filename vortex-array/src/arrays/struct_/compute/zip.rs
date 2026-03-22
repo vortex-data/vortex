@@ -6,27 +6,25 @@ use std::ops::BitOr;
 use std::ops::Not;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
-use crate::compute::ZipKernel;
-use crate::compute::ZipKernelAdapter;
-use crate::compute::zip;
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl ZipKernel for StructVTable {
+impl ZipKernel for Struct {
     fn zip(
-        &self,
         if_true: &StructArray,
-        if_false: &dyn Array,
-        mask: &Mask,
+        if_false: &ArrayRef,
+        mask: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<StructVTable>() else {
+        let Some(if_false) = if_false.as_opt::<Struct>() else {
             return Ok(None);
         };
         assert_eq!(
@@ -36,10 +34,10 @@ impl ZipKernel for StructVTable {
         );
 
         let fields = if_true
-            .fields()
+            .unmasked_fields()
             .iter()
-            .zip(if_false.fields().iter())
-            .map(|(t, f)| zip(t, f, mask))
+            .zip(if_false.unmasked_fields().iter())
+            .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let validity = match (if_true.validity(), if_false.validity()) {
@@ -48,10 +46,11 @@ impl ZipKernel for StructVTable {
             (&Validity::AllInvalid, &Validity::AllInvalid) => Validity::AllInvalid,
 
             (v1, v2) => {
-                let v1m = v1.to_mask(if_true.len());
-                let v2m = v2.to_mask(if_false.len());
+                let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;
+                let v1m = v1.execute_mask(if_true.len(), ctx)?;
+                let v2m = v2.execute_mask(if_false.len(), ctx)?;
 
-                let combined = (v1m.bitand(mask)).bitor(&v2m.bitand(&mask.not()));
+                let combined = (v1m.bitand(&mask_mask)).bitor(&v2m.bitand(&mask_mask.not()));
                 Validity::from_mask(
                     combined,
                     if_true.dtype.nullability() | if_false.dtype.nullability(),
@@ -61,22 +60,20 @@ impl ZipKernel for StructVTable {
 
         Ok(Some(
             StructArray::try_new(if_true.names().clone(), fields, if_true.len(), validity)?
-                .to_array(),
+                .into_array(),
         ))
     }
 }
 
-register_kernel!(ZipKernelAdapter(StructVTable).lift());
-
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::FieldNames;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
-    use crate::compute::zip;
+    use crate::builtins::ArrayBuiltins;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]
@@ -100,7 +97,10 @@ mod tests {
 
         let mask = Mask::from_iter([false, false, true, false]);
 
-        let result = zip(&if_true, &if_false, &mask).unwrap();
+        let result = mask
+            .into_array()
+            .zip(if_true.clone(), if_false.clone())
+            .unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐
@@ -137,7 +137,10 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, false, false]);
 
-        let result = zip(&if_true, &if_false, &mask).unwrap();
+        let result = mask
+            .into_array()
+            .zip(if_true.clone(), if_false.clone())
+            .unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐

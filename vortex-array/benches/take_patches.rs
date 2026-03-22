@@ -5,12 +5,14 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;
 
@@ -24,10 +26,6 @@ const BENCH_ARGS: &[(f64, f64)] = &[
     (0.1, 0.5),
     (0.1, 0.1),
     (0.1, 0.05),
-    (0.05, 1.0),
-    (0.05, 0.5),
-    (0.05, 0.1),
-    (0.05, 0.05),
     (0.01, 1.0),
     (0.01, 0.5),
     (0.01, 0.1),
@@ -49,8 +47,10 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices))
-        .bench_refs(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, indices, ctx)| {
+            patches.take_search(indices.to_primitive(), false, ctx)
+        });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -64,8 +64,10 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices))
-        .bench_refs(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, indices, ctx)| {
+            patches.take_search(indices.to_primitive(), false, ctx)
+        });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -79,8 +81,8 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices))
-        .bench_refs(|(patches, indices)| patches.take_map(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, indices, ctx)| patches.take_map(indices.to_primitive(), false, ctx));
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
@@ -98,6 +100,7 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         // TODO(0ax1): handle chunk offsets
         None,
     )
+    .unwrap()
 }
 
 fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
@@ -124,6 +127,7 @@ fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Pa
         values,
         Some(Buffer::from(chunk_offsets).into_array()),
     )
+    .unwrap()
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {

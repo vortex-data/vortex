@@ -12,28 +12,83 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
+publish = false
 
 [lints]
 workspace = true
 
+[features]
+default = []
+_test-harness = []
+unstable_encodings = ["vortex/unstable_encodings"]
+
 [dependencies]
+arc-swap = { workspace = true }
 async-trait = { workspace = true }
-cudarc = { workspace = true }
-tracing = { workspace = true }
-vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true }
-vortex-error = { workspace = true }
-vortex-fastlanes = { workspace = true }
-vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
+bytes = { workspace = true }
+cudarc = { workspace = true, features = ["f16"] }
+futures = { workspace = true, features = ["executor"] }
+kanal = { workspace = true }
+object_store = { workspace = true, features = ["fs"] }
+parking_lot = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tracing = { workspace = true, features = ["std", "attributes"] }
+vortex = { workspace = true, features = ["zstd"] }
+vortex-array = { workspace = true, features = ["cudarc"] }
+vortex-cub = { path = "cub" }
+vortex-cuda-macros = { workspace = true }
+vortex-error = { workspace = true, features = ["object_store"] }
+vortex-nvcomp = { path = "nvcomp" }
 
 [dev-dependencies]
-criterion = { workspace = true }
+criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
+futures = { workspace = true, features = ["executor"] }
+rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-cuda = { path = ".", features = ["_test-harness"] }
 
 [build-dependencies]
+bindgen = { workspace = true }
+fastlanes = { workspace = true }
 
 [[bench]]
 name = "for_cuda"
+harness = false
+
+[[bench]]
+name = "dict_cuda"
+harness = false
+
+[[bench]]
+name = "zstd_cuda"
+harness = false
+
+[[bench]]
+name = "filter_cuda"
+harness = false
+
+[[bench]]
+name = "runend_cuda"
+harness = false
+
+[[bench]]
+name = "date_time_parts_cuda"
+harness = false
+
+[[bench]]
+name = "bitpacked_cuda"
+harness = false
+
+[[bench]]
+name = "dynamic_dispatch_cuda"
+harness = false
+
+[[bench]]
+name = "throughput_cuda"
+harness = false
+
+[[bench]]
+name = "transpose_patches"
 harness = false

@@ -1,3 +1,13 @@
+/* -- Landing page wordmark ------------------------------------------------ */
+
+.vortex-wordmark {
+    display: block;
+    max-width: min(400px, 100%);
+    margin: 1.5rem auto 2.5rem;
+}
+
+/* -- Headings ------------------------------------------------------------- */
+
 h2 {
     font-size: 1.75rem;
 }
@@ -8,4 +18,29 @@ h3 {
 
 h4 {
     font-size: 1.25rem;
+}
+
+/* -- Landing page cards --------------------------------------------------- */
+
+.sd-card .sd-card-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--pst-color-primary);
+    border-bottom: 1px solid var(--pst-color-border);
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.6rem;
+}
+
+.sd-card .sd-card-body {
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+
+.sd-card {
+    transition: box-shadow 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+.sd-card:hover {
+    border-color: var(--pst-color-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }

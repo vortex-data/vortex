@@ -7,19 +7,19 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::ReduceCtx;
-use crate::expr::ReduceNode;
-use crate::expr::ReduceNodeRef;
-use crate::expr::Root;
-use crate::expr::ScalarFn;
-use crate::expr::SimplifyCtx;
 use crate::expr::transform::match_between::find_between;
+use crate::scalar_fn::ReduceCtx;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::fns::root::Root;
 
 impl Expression {
     /// Optimize the root expression node only, iterating to convergence.
@@ -60,14 +60,14 @@ impl Expression {
             let mut changed = false;
 
             // Try simplify_untyped
-            if let Some(simplified) = current.vtable().as_dyn().simplify_untyped(&current)? {
+            if let Some(simplified) = current.scalar_fn().simplify_untyped(&current)? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
             }
 
             // Try simplify (typed)
-            if let Some(simplified) = current.vtable().as_dyn().simplify(&current, &cache)? {
+            if let Some(simplified) = current.scalar_fn().simplify(&current, &cache)? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
@@ -183,19 +183,17 @@ impl Expression {
                 let new_expr = expr.clone().with_children(new_children)?;
                 Ok(Some(
                     new_expr
-                        .vtable()
-                        .as_dyn()
+                        .scalar_fn()
                         .simplify_untyped(&new_expr)?
                         .unwrap_or(new_expr),
                 ))
             } else {
-                expr.vtable().as_dyn().simplify_untyped(expr)
+                expr.scalar_fn().simplify_untyped(expr)
             }
         }
 
         let simplified = self
-            .vtable()
-            .as_dyn()
+            .scalar_fn()
             .simplify_untyped(self)?
             .unwrap_or_else(|| self.clone());
 
@@ -251,7 +249,7 @@ impl ReduceNode for ExpressionReduceNode {
         self.expression.return_dtype(&self.scope)
     }
 
-    fn scalar_fn(&self) -> Option<&ScalarFn> {
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
         Some(self.expression.scalar_fn())
     }
 
@@ -273,7 +271,7 @@ struct ExpressionReduceCtx {
 impl ReduceCtx for ExpressionReduceCtx {
     fn new_node(
         &self,
-        scalar_fn: ScalarFn,
+        scalar_fn: ScalarFnRef,
         children: &[ReduceNodeRef],
     ) -> VortexResult<ReduceNodeRef> {
         let expression = Expression::try_new(

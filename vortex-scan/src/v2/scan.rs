@@ -8,12 +8,12 @@ use std::task::Poll;
 
 use futures::Stream;
 use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::v2::reader::ReaderRef;
 use vortex_session::VortexSession;
@@ -91,22 +91,20 @@ impl ScanBuilder2 {
         let dtype = projection.return_dtype(self.reader.dtype())?;
 
         // So we wrap the reader for filtering.
-        let filter_reader = filter.as_ref().map(|f| self.reader.apply(&f)).transpose()?;
-        let projection_reader = self.reader.apply(&projection)?;
-
-        // And finally, we wrap the reader for pruning.
-        let pruning_reader = filter
+        let filter_reader = filter
             .as_ref()
-            .map(|f| {
-                // TODO(ngates): wrap filter in `falsify` expression.
-                let f = f.falsify()?;
-                self.reader.apply(&f)
-            })
+            .map(|f| self.reader.clone().apply(f))
             .transpose()?;
+        let projection_reader = self.reader.clone().apply(&projection)?;
 
-        let reader_stream = self.reader.execute(self.row_range)?;
+        // TODO(ngates): wrap filter in `falsify` expression for pruning.
 
-        Ok(Scan { dtype })
+        let reader_stream = self.reader.project(self.row_range)?;
+
+        Ok(Scan {
+            dtype,
+            stream: todo!("construct scan stream"),
+        })
     }
 }
 

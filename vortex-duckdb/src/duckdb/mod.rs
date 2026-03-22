@@ -8,15 +8,16 @@ mod copy_function;
 mod data;
 mod data_chunk;
 mod database;
+mod ddb_string;
 mod expr;
-pub mod footer_cache;
+mod file_system;
 mod logical_type;
 mod macro_;
 mod object_cache;
 mod query_result;
+mod reusable_dict;
 mod scalar_function;
 mod selection_vector;
-mod string;
 mod table_filter;
 mod table_function;
 mod value;
@@ -33,13 +34,15 @@ pub use copy_function::*;
 pub use data::*;
 pub use data_chunk::*;
 pub use database::*;
+pub use ddb_string::*;
 pub use expr::*;
+pub use file_system::*;
 pub use logical_type::*;
 pub use object_cache::*;
 pub use query_result::*;
+pub use reusable_dict::*;
 pub use scalar_function::*;
 pub use selection_vector::*;
-pub use string::*;
 pub use table_filter::*;
 pub use table_function::*;
 pub use value::*;
@@ -50,7 +53,6 @@ use vortex::error::VortexResult;
 use crate::cpp;
 
 /// Try to execute a Rust function, or else return a null pointer and set the error.
-#[inline]
 pub(crate) fn try_or_null<T>(
     error_out: *mut cpp::duckdb_vx_error,
     function: impl FnOnce() -> VortexResult<*mut T>,
@@ -70,7 +72,6 @@ pub(crate) fn try_or_null<T>(
 }
 
 /// Try to execute a Rust function, or else return the default value and set the error.
-#[inline]
 pub(crate) fn try_or<T: Default>(
     error_out: *mut cpp::duckdb_vx_error,
     function: impl FnOnce() -> VortexResult<T>,

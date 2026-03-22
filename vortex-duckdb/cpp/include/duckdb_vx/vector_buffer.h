@@ -3,7 +3,12 @@
 
 #pragma once
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
+DUCKDB_INCLUDES_END
+
 #include "duckdb_vx/data.h"
 #include "duckdb_vx/error.h"
 
@@ -13,7 +18,8 @@ extern "C" {
 
 typedef struct duckdb_vx_vector_buffer_ *duckdb_vx_vector_buffer;
 
-// Create a external vector buffer from an existing data buffer, used to allow DuckDB to keep a reference to the buffer.
+// Create a external vector buffer from an existing data buffer, used to allow DuckDB to keep a reference to
+// the buffer.
 duckdb_vx_vector_buffer duckdb_vx_vector_buffer_create(duckdb_vx_data buffer);
 
 // Destroy the vector buffer.

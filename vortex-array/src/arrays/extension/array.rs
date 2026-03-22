@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
-use vortex_dtype::ExtID;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::dtype::DType;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
 
 /// An extension array that wraps another array with additional type information.
@@ -48,79 +47,82 @@ use crate::stats::ArrayStats;
 /// - Validity is inherited from the underlying storage
 /// - Slicing preserves the extension type
 /// - Scalar access wraps storage scalars with extension metadata
-///
-/// # Examples
-///
-/// ```
-/// use std::sync::Arc;
-/// use vortex_array::arrays::{ExtensionArray, PrimitiveArray};
-/// use vortex_dtype::{ExtDType, ExtID, DType, Nullability, PType};
-/// use vortex_array::validity::Validity;
-/// use vortex_array::IntoArray;
-/// use vortex_buffer::buffer;
-///
-/// // Define a custom extension type for representing currency values
-/// let currency_id = ExtID::from("example.currency");
-/// let currency_dtype = Arc::new(ExtDType::new(
-///     currency_id,
-///     Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)), // Storage as i64 cents
-///     None, // No additional metadata needed
-/// ));
-///
-/// // Create storage array with currency values in cents
-/// let cents_storage = PrimitiveArray::new(
-///     buffer![12345i64, 67890, 99999], // $123.45, $678.90, $999.99
-///     Validity::NonNullable
-/// );
-///
-/// // Wrap with extension type
-/// let currency_array = ExtensionArray::new(
-///     currency_dtype.clone(),
-///     cents_storage.into_array()
-/// );
-///
-/// assert_eq!(currency_array.len(), 3);
-/// assert_eq!(currency_array.id().as_ref(), "example.currency");
-///
-/// // Access maintains extension type information
-/// let first_value = currency_array.scalar_at(0);
-/// assert!(first_value.as_extension_opt().is_some());
-/// ```
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
+    /// The storage dtype. This **must** be a [`Extension::DType`] variant.
     pub(super) dtype: DType,
-    pub(super) storage: ArrayRef,
+
+    /// The backing storage array for this extension array.
+    pub(super) storage_array: ArrayRef,
+
+    /// The stats for this array.
     pub(super) stats_set: ArrayStats,
 }
 
 impl ExtensionArray {
-    pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayRef) -> Self {
+    /// Constructs a new `ExtensionArray`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the storage array in not compatible with the extension dtype.
+    pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
+        Self::try_new(ext_dtype, storage_array).vortex_expect("Failed to create `ExtensionArray`")
+    }
+
+    /// Tries to construct a new `ExtensionArray`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage array in not compatible with the extension dtype.
+    pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
+        // TODO(connor): Replace these statements once we add `validate_storage_array`.
+        // ext_dtype.validate_storage_array(&storage_array)?;
         assert_eq!(
             ext_dtype.storage_dtype(),
-            storage.dtype(),
+            storage_array.dtype(),
             "ExtensionArray: storage_dtype must match storage array DType",
         );
+
+        // SAFETY: we validate that the inputs are valid above.
+        Ok(unsafe { Self::new_unchecked(ext_dtype, storage_array) })
+    }
+
+    /// Creates a new `ExtensionArray`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the storage array is compatible with the extension dtype. In
+    /// other words, they must know that `ext_dtype.validate_storage_array(&storage_array)` has been
+    /// called successfully on this storage array.
+    pub unsafe fn new_unchecked(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
+        // TODO(connor): Replace these statements once we add `validate_storage_array`.
+        // #[cfg(debug_assertions)]
+        // ext_dtype
+        //     .validate_storage_array(&storage_array)
+        //     .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
+        debug_assert_eq!(
+            ext_dtype.storage_dtype(),
+            storage_array.dtype(),
+            "ExtensionArray: storage_dtype must match storage array DType",
+        );
+
         Self {
             dtype: DType::Extension(ext_dtype),
-            storage,
+            storage_array,
             stats_set: ArrayStats::default(),
         }
     }
 
-    pub fn ext_dtype(&self) -> &Arc<ExtDType> {
+    /// The extension dtype of this array.
+    pub fn ext_dtype(&self) -> &ExtDTypeRef {
         let DType::Extension(ext) = &self.dtype else {
             unreachable!("ExtensionArray: dtype must be an ExtDType")
         };
+
         ext
     }
 
-    pub fn storage(&self) -> &ArrayRef {
-        &self.storage
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    pub fn id(&self) -> &ExtID {
-        self.ext_dtype().id()
+    pub fn storage_array(&self) -> &ArrayRef {
+        &self.storage_array
     }
 }

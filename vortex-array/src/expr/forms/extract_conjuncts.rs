@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::expr::Expression;
-use crate::expr::exprs::binary::Binary;
-use crate::expr::exprs::operators::Operator;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Converting an expression to a conjunctive normal form can lead to a large number of expression
 /// nodes.

@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(feature = "arbitrary")]
+mod arbitrary;
+#[cfg(feature = "arbitrary")]
+pub use arbitrary::ArbitraryRunEndArray;
 pub use array::*;
 pub use iter::trimmed_ends_iter;
 
@@ -9,6 +13,7 @@ mod array;
 mod arrow;
 pub mod compress;
 mod compute;
+pub mod decompress_bool;
 mod iter;
 mod kernel;
 mod ops;
@@ -16,37 +21,46 @@ mod rules;
 
 #[doc(hidden)]
 pub mod _benchmarking {
-    pub use compute::filter::filter_run_end;
     pub use compute::take::take_indices_unchecked;
 
     use super::*;
 }
 
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::vtable::VisitorVTable;
 use vortex_session::VortexSession;
-
-impl VisitorVTable<RunEndVTable> for RunEndVTable {
-    fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("ends", array.ends());
-        visitor.visit_child("values", array.values());
-    }
-}
 
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(RunEndVTable::ID, RunEndVTable);
+    session.arrays().register(RunEnd);
+
+    // Register the RunEnd-specific aggregate kernels.
+    session.aggregate_fns().register_aggregate_kernel(
+        RunEnd::ID,
+        Some(MinMax.id()),
+        &compute::min_max::RunEndMinMaxKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        RunEnd::ID,
+        Some(IsConstant.id()),
+        &compute::is_constant::RunEndIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        RunEnd::ID,
+        Some(IsSorted.id()),
+        &compute::is_sorted::RunEndIsSortedKernel,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::ProstMetadata;
+    use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
-    use vortex_dtype::PType;
 
     use crate::RunEndMetadata;
 

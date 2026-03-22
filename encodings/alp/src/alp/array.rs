@@ -3,22 +3,21 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
-use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -26,40 +25,107 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::VisitorVTable;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
-use vortex_error::VortexError;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
+use crate::alp::rules::PARENT_KERNELS;
+use crate::alp::rules::RULES;
 
 vtable!(ALP);
 
-impl VTable for ALPVTable {
+impl VTable for ALP {
     type Array = ALPArray;
 
     type Metadata = ProstMetadata<ALPMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ALP
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ALPArray) -> usize {
+        array.encoded.len()
+    }
+
+    fn dtype(array: &ALPArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.encoded.array_hash(state, precision);
+        array.exponents.hash(state);
+        array.patches.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.encoded.array_eq(&other.encoded, precision)
+            && array.exponents == other.exponents
+            && array.patches.array_eq(&other.patches, precision)
+    }
+
+    fn nbuffers(_array: &ALPArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ALPArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ALPArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ALPArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(array: &ALPArray) -> usize {
+        1 + array.patches().map_or(0, patches_nchildren)
+    }
+
+    fn child(array: &ALPArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.encoded().clone(),
+            _ => {
+                let patches = array
+                    .patches()
+                    .unwrap_or_else(|| vortex_panic!("ALPArray child index {idx} out of bounds"));
+                patches_child(patches, idx - 1)
+            }
+        }
+    }
+
+    fn child_name(array: &ALPArray, idx: usize) -> String {
+        match idx {
+            0 => "encoded".to_string(),
+            _ => {
+                if array.patches().is_none() {
+                    vortex_panic!("ALPArray child_name index {idx} out of bounds");
+                }
+                patches_child_name(idx - 1).to_string()
+            }
+        }
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -78,9 +144,15 @@ impl VTable for ALPVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<ALPMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+            <ProstMetadata<ALPMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))
     }
 
@@ -101,20 +173,14 @@ impl VTable for ALPVTable {
         let patches = metadata
             .patches
             .map(|p| {
-                let indices = children.get(1, &p.indices_dtype(), p.len())?;
-                let values = children.get(2, dtype, p.len())?;
+                let indices = children.get(1, &p.indices_dtype()?, p.len()?)?;
+                let values = children.get(2, dtype, p.len()?)?;
                 let chunk_offsets = p
-                    .chunk_offsets_dtype()
+                    .chunk_offsets_dtype()?
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Ok::<_, VortexError>(Patches::new(
-                    len,
-                    p.offset(),
-                    indices,
-                    values,
-                    chunk_offsets,
-                ))
+                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
             })
             .transpose()?;
 
@@ -167,29 +233,34 @@ impl VTable for ALPVTable {
                 indices,
                 values,
                 chunk_offsets,
-            ));
+            )?);
         }
 
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         // TODO(joe): take by value
-        Ok(Canonical::Primitive(execute_decompress(
-            array.clone(),
-            ctx,
-        )?))
+        Ok(ExecutionStep::Done(
+            execute_decompress(array.clone(), ctx)?.into_array(),
+        ))
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ALPArray::new(
-                array.encoded().slice(range.clone()),
-                array.exponents(),
-                array.patches().and_then(|p| p.slice(range)),
-            )
-            .into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -203,9 +274,9 @@ pub struct ALPArray {
 }
 
 #[derive(Debug)]
-pub struct ALPVTable;
+pub struct ALP;
 
-impl ALPVTable {
+impl ALP {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
 }
 
@@ -221,7 +292,7 @@ pub struct ALPMetadata {
 
 impl ALPArray {
     fn validate(
-        encoded: &dyn Array,
+        encoded: &ArrayRef,
         exponents: Exponents,
         patches: Option<&Patches>,
     ) -> VortexResult<()> {
@@ -272,7 +343,7 @@ impl ALPArray {
     }
 
     /// Validate that any patches provided are valid for the ALPArray.
-    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &dyn Array) -> VortexResult<()> {
+    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             patches.array_len() == encoded.len(),
             "patches array_len != encoded len: {} != {}",
@@ -349,7 +420,7 @@ impl ALPArray {
     ///     None
     /// ).unwrap();
     ///
-    /// assert_eq!(value.scalar_at(0), 0f32.into());
+    /// assert_eq!(value.scalar_at(0).unwrap(), 0f32.into());
     /// ```
     pub fn try_new(
         encoded: ArrayRef,
@@ -416,48 +487,9 @@ impl ALPArray {
     }
 }
 
-impl ValidityChild<ALPVTable> for ALPVTable {
+impl ValidityChild<ALP> for ALP {
     fn validity_child(array: &ALPArray) -> &ArrayRef {
         array.encoded()
-    }
-}
-
-impl BaseArrayVTable<ALPVTable> for ALPVTable {
-    fn len(array: &ALPArray) -> usize {
-        array.encoded.len()
-    }
-
-    fn dtype(array: &ALPArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
-        array.exponents.hash(state);
-        array.patches.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.encoded.array_eq(&other.encoded, precision)
-            && array.exponents == other.exponents
-            && array.patches.array_eq(&other.patches, precision)
-    }
-}
-
-impl VisitorVTable<ALPVTable> for ALPVTable {
-    fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", array.encoded());
-        if let Some(patches) = array.patches() {
-            visitor.visit_patches(patches);
-        }
     }
 }
 
@@ -467,7 +499,9 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -499,10 +533,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -523,10 +562,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -553,10 +597,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -581,10 +630,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -612,10 +666,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -642,7 +701,7 @@ mod tests {
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end);
+        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -653,7 +712,7 @@ mod tests {
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity().is_valid(idx);
+            let result_valid = result_primitive.validity().is_valid(idx).unwrap();
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),
@@ -689,14 +748,14 @@ mod tests {
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end);
+        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
         let result_primitive = sliced_encoded.to_primitive();
 
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity_mask().value(idx);
+            let result_valid = result_primitive.validity_mask().unwrap().value(idx);
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),
@@ -745,7 +804,8 @@ mod tests {
             original_patches.indices().clone(),
             original_patches.values().clone(),
             None, // NO chunk_offsets - this triggers the bug!
-        );
+        )
+        .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
         let alp_without_chunk_offsets = ALPArray::new(
@@ -755,7 +815,11 @@ mod tests {
         );
 
         // The legacy decompress_into_array path should work correctly.
-        let result_legacy = decompress_into_array(alp_without_chunk_offsets.clone());
+        let result_legacy = decompress_into_array(
+            alp_without_chunk_offsets.clone(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let legacy_slice = result_legacy.as_slice::<f64>();
 
         // Verify the legacy path produces correct values.

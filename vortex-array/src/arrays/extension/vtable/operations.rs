@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
-use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::ExtensionVTable;
+use crate::DynArray;
+use crate::arrays::Extension;
+use crate::arrays::ExtensionArray;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
-    fn scalar_at(array: &ExtensionArray, index: usize) -> Scalar {
-        Scalar::extension(array.ext_dtype().clone(), array.storage().scalar_at(index))
+impl OperationsVTable<Extension> for Extension {
+    fn scalar_at(array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::extension_ref(
+            array.ext_dtype().clone(),
+            array.storage_array().scalar_at(index)?,
+        ))
     }
 }

@@ -29,7 +29,6 @@ once_cell = { workspace = true, features = ["parking_lot"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
-pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
@@ -40,20 +39,14 @@ uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-decimal-byte-parts = { workspace = true }
-vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
-vortex-pco = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
-vortex-vector = { workspace = true }
-vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
@@ -66,7 +59,6 @@ vortex-utils = { workspace = true, features = ["_test-harness"] }
 [features]
 _test-harness = []
 tokio = ["dep:tokio", "vortex-error/tokio"]
-zstd = ["dep:vortex-zstd"]
 
 [lints]
 workspace = true

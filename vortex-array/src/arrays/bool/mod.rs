@@ -7,11 +7,11 @@ mod patch;
 pub use array::BoolArray;
 pub use array::BoolArrayParts;
 
-pub mod compute;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::BoolMaskedValidityRule;
-pub use vtable::BoolVTable;
+pub use compute::rules::BoolMaskedValidityRule;
+pub use vtable::Bool;
 
 #[cfg(feature = "_test-harness")]
 mod test_harness;

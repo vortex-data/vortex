@@ -6,10 +6,10 @@ use std::marker::PhantomData;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::match_each_integer_ptype;
 use vortex::array::search_sorted::SearchSorted;
 use vortex::array::search_sorted::SearchSortedSide;
 use vortex::dtype::IntegerPType;
-use vortex::dtype::match_each_integer_ptype;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayParts;
 use vortex::error::VortexExpect;
@@ -17,7 +17,7 @@ use vortex::error::VortexResult;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::SelectionVector;
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::new_array_exporter;
@@ -54,7 +54,13 @@ pub(crate) fn new_exporter(
 }
 
 impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let ends_slice = self.ends.as_slice::<E>();
 
         // Adjust offset to account for the run-end offset.
@@ -65,7 +71,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         // Find the run that contains the start offset.
         let start_run_idx = ends_slice
-            .search_sorted(&offset, SearchSortedSide::Right)
+            .search_sorted(&offset, SearchSortedSide::Right)?
             .to_ends_index(ends_slice.len());
 
         // Find the final run in case we can short-circuit and return a constant vector.
@@ -73,13 +79,13 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
             .search_sorted(
                 &offset.add(E::from_usize(len).vortex_expect("len out of bounds")),
                 SearchSortedSide::Right,
-            )
+            )?
             .to_ends_index(ends_slice.len());
 
         if start_run_idx == end_run_idx {
             // NOTE(ngates): would be great if we could just export and set type == CONSTANT
             // self.values_exporter.export(start_run_idx, 1, vector, cache);
-            let constant = self.values.scalar_at(start_run_idx);
+            let constant = self.values.scalar_at(start_run_idx)?;
             let value = constant.try_to_duckdb_scalar()?;
             vector.reference_value(&value);
             return Ok(());
@@ -115,7 +121,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         // Export the run-end values into the vector, and then turn it into a dictionary vector.
         self.values_exporter
-            .export(start_run_idx, values_len as usize, vector)?;
+            .export(start_run_idx, values_len as usize, vector, ctx)?;
         vector.dictionary(vector, values_len as usize, &sel_vec, len as _);
 
         Ok(())

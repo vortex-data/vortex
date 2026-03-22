@@ -5,13 +5,13 @@ use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::expr::GetItem;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
 use vortex_array::expr::Statistic;
 use vortex_array::expr::stats::Stat;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 
+use crate::v2::reader::MaskStreamRef;
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderRef;
 use crate::v2::reader::ReaderStreamRef;
@@ -49,7 +49,8 @@ impl Reader for ZonedReader {
 
             // We know the statistic is present; so we return a new reader that pulls the value
             // from the zone map.
-            let zoned_statistic = GetItem.new_reader(
+            let get_item = vortex_array::scalar_fn::fns::get_item::GetItem;
+            let zoned_statistic = get_item.new_reader(
                 // FIXME(ngates): construct the field name properly
                 FieldName::from(stat.name()),
                 vec![self.zone_map.clone()],
@@ -70,9 +71,13 @@ impl Reader for ZonedReader {
         Ok(None)
     }
 
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
+    fn project(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         // By default, a zoned reader is just a pass-through.
-        self.data.execute(row_range)
+        self.data.project(row_range)
+    }
+
+    fn filter(&self, row_range: Range<u64>) -> VortexResult<MaskStreamRef> {
+        self.data.filter(row_range)
     }
 }
 
@@ -98,7 +103,11 @@ impl Reader for ZonedExpansionReader {
         self.row_count
     }
 
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
+    fn project(&self, _row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
+        todo!()
+    }
+
+    fn filter(&self, _row_range: Range<u64>) -> VortexResult<MaskStreamRef> {
         todo!()
     }
 }

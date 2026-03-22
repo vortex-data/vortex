@@ -1,33 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
-use vortex_array::compute::IsConstantKernel;
-use vortex_array::compute::IsConstantKernelAdapter;
-use vortex_array::compute::IsConstantOpts;
-use vortex_array::compute::is_constant_opts;
-use vortex_array::expr::stats::Stat;
-use vortex_array::register_kernel;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
-use crate::RunEndVTable;
+use crate::RunEnd;
 
-impl IsConstantKernel for RunEndVTable {
-    fn is_constant(
+/// RunEnd-specific is_constant kernel.
+///
+/// If the values array of a run-end array is constant, the entire array is constant.
+#[derive(Debug)]
+pub(crate) struct RunEndIsConstantKernel;
+
+impl DynAggregateKernel for RunEndIsConstantKernel {
+    fn aggregate(
         &self,
-        array: &Self::Array,
-        opts: &IsConstantOpts,
-    ) -> VortexResult<Option<bool>> {
-        // If there are known to be me 0 len runs then we can check if constant on the values.
-        debug_assert_eq!(
-            array
-                .ends()
-                .statistics()
-                .compute_as::<bool>(Stat::IsStrictSorted),
-            Some(true)
-        );
-        is_constant_opts(array.values(), opts)
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<IsConstant>() {
+            return Ok(None);
+        }
+
+        let Some(array) = batch.as_opt::<RunEnd>() else {
+            return Ok(None);
+        };
+
+        let result = is_constant(array.values(), ctx)?;
+        Ok(Some(IsConstant::make_partial(batch, result)?))
     }
 }
-
-register_kernel!(IsConstantKernelAdapter(RunEndVTable).lift());

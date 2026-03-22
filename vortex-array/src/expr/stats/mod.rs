@@ -9,12 +9,10 @@ use enum_iterator::Sequence;
 use enum_iterator::all;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::MAX_PRECISION;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::PType;
+
+use crate::dtype::DType;
+use crate::dtype::Nullability::NonNullable;
+use crate::dtype::PType;
 
 mod bound;
 mod precision;
@@ -25,6 +23,10 @@ pub use bound::*;
 pub use precision::*;
 pub use provider::*;
 pub use stat_bound::*;
+
+use crate::aggregate_fn;
+use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::EmptyOptions;
 
 #[derive(
     Debug,
@@ -44,9 +46,11 @@ pub enum Stat {
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
     IsConstant = 0,
-    /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
+    /// Whether the non-null values in the array are sorted in ascending order (i.e., we skip nulls)
+    /// This may later be extended to support descending order, but for now we only support ascending order.
     IsSorted = 1,
-    /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
+    /// Whether the non-null values in the array are strictly sorted in ascending order (i.e., sorted with no duplicates)
+    /// This may later be extended to support descending order, but for now we only support ascending order.
     IsStrictSorted = 2,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
     Max = 3,
@@ -171,47 +175,11 @@ impl Stat {
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
             Self::NaNCount => {
-                // Only floating points support NaN counts.
-                if let DType::Primitive(ptype, ..) = data_type
-                    && ptype.is_float()
-                {
-                    DType::Primitive(PType::U64, NonNullable)
-                } else {
-                    return None;
-                }
+                return aggregate_fn::fns::nan_count::NanCount
+                    .return_dtype(&EmptyOptions, data_type);
             }
             Self::Sum => {
-                // Any array that cannot be summed has a sum DType of null.
-                // Any array that can be summed, but overflows, has a sum _value_ of null.
-                // Therefore, we make integer sum stats nullable.
-                match data_type {
-                    DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
-                    DType::Primitive(ptype, _) => match ptype {
-                        PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
-                            DType::Primitive(PType::U64, Nullable)
-                        }
-                        PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
-                            DType::Primitive(PType::I64, Nullable)
-                        }
-                        PType::F16 | PType::F32 | PType::F64 => {
-                            // Float sums cannot overflow, but all null floats still end up as null
-                            DType::Primitive(PType::F64, Nullable)
-                        }
-                    },
-                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
-                    DType::Decimal(decimal_dtype, _) => {
-                        // Both Spark and DataFusion use this heuristic.
-                        // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
-                        // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
-                        let precision = u8::min(MAX_PRECISION, decimal_dtype.precision() + 10);
-                        DType::Decimal(
-                            DecimalDType::new(precision, decimal_dtype.scale()),
-                            Nullable,
-                        )
-                    }
-                    // Unsupported types
-                    _ => return None,
-                }
+                return aggregate_fn::fns::sum::Sum.return_dtype(&EmptyOptions, data_type);
             }
         })
     }

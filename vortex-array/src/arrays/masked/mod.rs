@@ -4,13 +4,13 @@
 mod array;
 pub use array::MaskedArray;
 
-mod compute;
+pub(crate) mod compute;
 mod execute;
 
 pub use execute::mask_validity_canonical;
 
 mod vtable;
-pub use vtable::MaskedVTable;
+pub use vtable::Masked;
 
 #[cfg(test)]
 mod tests;

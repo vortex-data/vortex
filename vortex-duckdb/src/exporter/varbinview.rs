@@ -4,20 +4,19 @@
 use std::ffi::c_char;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::varbinview::BinaryView;
+use vortex::array::arrays::varbinview::Inlined;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::vector::binaryview::BinaryView;
-use vortex::vector::binaryview::Inlined;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -41,23 +40,31 @@ pub(crate) fn new_exporter(
     } = array.into_parts();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(
-            len,
-            &LogicalType::try_from(dtype)?,
-        ));
+        let ltype = LogicalType::try_from(dtype)?;
+        return Ok(all_invalid::new_exporter(len, &ltype));
     }
+
+    let buffers: Vec<_> = buffers.iter().cloned().map(|b| b.unwrap_host()).collect();
+    let buffers: Arc<[ByteBuffer]> = Arc::from(buffers);
+
     Ok(validity::new_exporter(
         validity,
         Box::new(VarBinViewExporter {
-            views,
-            buffers: buffers.clone(),
-            vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect_vec(),
+            views: Buffer::<BinaryView>::from_byte_buffer(views.unwrap_host()),
+            vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect(),
+            buffers,
         }),
     ))
 }
 
 impl ColumnExporter for VarBinViewExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Copy the views into place.
         for (mut_view, view) in unsafe { vector.as_slice_mut::<PtrBinaryView>(len) }
             .iter_mut()
@@ -138,9 +145,9 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
 
-    use crate::LogicalType;
     use crate::SESSION;
     use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
     use crate::exporter::varbinview::new_exporter;
 
     #[test]
@@ -148,16 +155,13 @@ mod tests {
         let arr = VarBinViewArray::from_iter([Option::<&str>::None; 4], DType::Utf8(Nullable));
 
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
-            0,
-            3,
-            &mut chunk.get_vector(0),
-        )?;
+        new_exporter(arr, &mut ctx)?.export(0, 3, chunk.get_vector_mut(0), &mut ctx)?;
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 3 = [ NULL]
 "#
@@ -171,16 +175,13 @@ mod tests {
             VarBinViewArray::from_iter([None, None, None, Some("Hey")], DType::Utf8(Nullable));
 
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
-            0,
-            3,
-            &mut chunk.get_vector(0),
-        )?;
+        new_exporter(arr, &mut ctx)?.export(0, 3, chunk.get_vector_mut(0), &mut ctx)?;
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 3 = [ NULL]
 "#
@@ -196,16 +197,13 @@ mod tests {
         );
 
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
-            0,
-            3,
-            &mut chunk.get_vector(0),
-        )?;
+        new_exporter(arr, &mut ctx)?.export(0, 3, chunk.get_vector_mut(0), &mut ctx)?;
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT VARCHAR: 3 = [ NULL, NULL, Hi]
 "#

@@ -9,10 +9,11 @@ use std::fmt::Debug;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
-use crate::Connection;
 use crate::cpp;
-use crate::duckdb::DataChunk;
-use crate::duckdb::LogicalType;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::DatabaseRef;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::copy_function::callback::bind_callback;
 use crate::duckdb::copy_function::callback::copy_to_finalize_callback;
 use crate::duckdb::copy_function::callback::copy_to_sink_callback;
@@ -28,15 +29,15 @@ pub trait CopyFunction: Sized + Debug {
     /// This function is used for determining the schema of a file produced by the function.
     fn bind(
         column_names: Vec<String>,
-        column_types: Vec<LogicalType>,
+        column_types: Vec<&LogicalTypeRef>,
     ) -> VortexResult<Self::BindData>;
 
     /// The function is called during query execution and is responsible for consuming the output
     fn copy_to_sink(
         bind_data: &Self::BindData,
-        init_global: &mut Self::GlobalState,
+        init_global: &Self::GlobalState,
         init_local: &mut Self::LocalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()>;
 
     fn copy_to_finalize(
@@ -49,6 +50,7 @@ pub trait CopyFunction: Sized + Debug {
     /// The global operator state is used to keep track of the progress in the copy function and
     /// is shared between all threads working on the copy function.
     fn init_global(
+        client_context: &ClientContextRef,
         bind_data: &Self::BindData,
         file_path: String,
     ) -> VortexResult<Self::GlobalState>;
@@ -62,13 +64,13 @@ pub trait CopyFunction: Sized + Debug {
     // TODO(joe): there are many more callbacks that can be configured.
 }
 
-impl Connection {
+impl DatabaseRef {
     pub fn register_copy_function<T: CopyFunction>(
         &self,
         name: &CStr,
         extension: &CStr,
     ) -> VortexResult<()> {
-        let vtab =
+        let vtab: &mut cpp::duckdb_vx_copy_func_vtab_t =
             unsafe { cpp::get_vtab_one().as_mut() }.vortex_expect("copy vtab cannot be null");
 
         vtab.name = name.as_ptr();

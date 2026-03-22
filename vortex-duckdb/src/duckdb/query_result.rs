@@ -3,15 +3,17 @@
 
 use std::ffi::CStr;
 
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::DataChunk;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper! {
+lifetime_wrapper! {
     /// A wrapper around a DuckDB query result.
     #[derive(Debug)]
     QueryResult,
@@ -34,7 +36,9 @@ impl QueryResult {
         let boxed = Box::new(result);
         unsafe { Self::own(Box::into_raw(boxed)) }
     }
+}
 
+impl QueryResultRef {
     /// Get the number of columns in the result.
     pub fn column_count(&self) -> u64 {
         unsafe { cpp::duckdb_column_count(self.as_ptr()) }
@@ -67,10 +71,21 @@ impl QueryResult {
     }
 
     /// Get the type of a column by index.
-    pub fn column_type(&self, col_idx: usize) -> cpp::DUCKDB_TYPE {
-        unsafe { cpp::duckdb_column_type(self.as_ptr(), col_idx as u64) }
+    pub fn column_type(&self, col_idx: usize) -> LogicalType {
+        let dtype = unsafe { cpp::duckdb_column_type(self.as_ptr(), col_idx as u64) };
+        if dtype == DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL {
+            let lt = unsafe { cpp::duckdb_column_logical_type(self.as_ptr(), col_idx as u64) };
+            let precision = unsafe { cpp::duckdb_decimal_width(lt) };
+            let scale = unsafe { cpp::duckdb_decimal_scale(lt) };
+
+            LogicalType::decimal_type(precision, scale).vortex_expect("valid decimal")
+        } else {
+            LogicalType::new(dtype)
+        }
     }
 }
+
+use crate::duckdb::LogicalType;
 
 impl IntoIterator for QueryResult {
     type Item = DataChunk;

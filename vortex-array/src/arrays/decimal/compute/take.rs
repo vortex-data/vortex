@@ -2,26 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::ToCanonical;
+use crate::IntoArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::TakeExecute;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativeDecimalType;
+use crate::executor::ExecutionCtx;
+use crate::match_each_decimal_value_type;
+use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for DecimalVTable {
-    fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
-        let validity = array.validity().take(indices.as_ref())?;
+impl TakeExecute for Decimal {
+    fn take(
+        array: &DecimalArray,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let validity = array.validity().take(&indices.clone().into_array())?;
 
         // TODO(joe): if the true count of take indices validity is low, only take array values with
         // valid indices.
@@ -35,13 +38,10 @@ impl TakeKernel for DecimalVTable {
             })
         });
 
-        Ok(decimal.to_array())
+        Ok(Some(decimal.into_array()))
     }
 }
 
-register_kernel!(TakeKernelAdapter(DecimalVTable).lift());
-
-#[inline]
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {
     indices.iter().map(|idx| values[idx.as_()]).collect()
 }
@@ -51,66 +51,45 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::DecimalArray;
-    use crate::arrays::DecimalVTable;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
+    use crate::dtype::DecimalDType;
     use crate::validity::Validity;
 
     #[test]
     fn test_take() {
+        let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![10i128, 11i128, 12i128, 13i128],
-            DecimalDType::new(19, 1),
+            ddtype,
             Validity::NonNullable,
         );
 
         let indices = buffer![0, 2, 3].into_array();
-        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
-        let taken_decimals = taken.as_::<DecimalVTable>();
-        assert_eq!(
-            taken_decimals.buffer::<i128>(),
-            buffer![10i128, 12i128, 13i128]
-        );
-        assert_eq!(taken_decimals.decimal_dtype(), DecimalDType::new(19, 1));
+        let taken = array.take(indices.to_array()).unwrap();
+
+        let expected = DecimalArray::from_iter([10i128, 12, 13], ddtype);
+        assert_arrays_eq!(expected, taken);
     }
 
     #[test]
     fn test_take_null_indices() {
+        let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![i128::MAX, 11i128, 12i128, 13i128],
-            DecimalDType::new(19, 1),
+            ddtype,
             Validity::NonNullable,
         );
 
         let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
-        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
+        let taken = array.take(indices.to_array()).unwrap();
 
-        assert!(taken.scalar_at(0).is_null());
-        assert_eq!(
-            taken.scalar_at(1),
-            Scalar::decimal(
-                DecimalValue::I128(12i128),
-                array.decimal_dtype(),
-                Nullability::Nullable
-            )
-        );
-
-        assert_eq!(
-            taken.scalar_at(2),
-            Scalar::decimal(
-                DecimalValue::I128(13i128),
-                array.decimal_dtype(),
-                Nullability::Nullable
-            )
-        );
+        let expected = DecimalArray::from_option_iter([None, Some(12i128), Some(13)], ddtype);
+        assert_arrays_eq!(expected, taken);
     }
 
     #[rstest]
@@ -148,6 +127,6 @@ mod tests {
         )
     })]
     fn test_take_decimal_conformance(#[case] array: DecimalArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

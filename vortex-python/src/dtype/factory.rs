@@ -12,15 +12,17 @@ use pyo3::pyfunction;
 use pyo3::types::PyDict;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::ExtDType;
-use vortex::dtype::ExtID;
-use vortex::dtype::ExtMetadata;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
 
 use crate::dtype::PyDType;
+use crate::error::PyVortexResult;
 
 /// Construct the data type for a column containing only the null value.
 ///
@@ -260,9 +262,9 @@ pub(super) fn dtype_decimal(
     precision: u8,
     scale: i8,
     nullable: bool,
-) -> PyResult<Bound<'_, PyDType>> {
+) -> PyVortexResult<Bound<'_, PyDType>> {
     let decimal_type = DType::Decimal(DecimalDType::try_new(precision, scale)?, nullable.into());
-    PyDType::init(py, decimal_type)
+    Ok(PyDType::init(py, decimal_type)?)
 }
 
 /// Construct a UTF-8-encoded string data type.
@@ -457,34 +459,134 @@ pub(super) fn dtype_fixed_size_list<'py>(
     )
 }
 
-/// Construct an extension data type.
+fn parse_time_unit(unit: &str) -> PyResult<TimeUnit> {
+    match unit {
+        "ns" => Ok(TimeUnit::Nanoseconds),
+        "us" => Ok(TimeUnit::Microseconds),
+        "ms" => Ok(TimeUnit::Milliseconds),
+        "s" => Ok(TimeUnit::Seconds),
+        "days" => Ok(TimeUnit::Days),
+        _ => Err(PyValueError::new_err(format!(
+            "Invalid time unit: '{unit}'. Expected one of: 'ns', 'us', 'ms', 's', 'days'"
+        ))),
+    }
+}
+
+/// Construct a date data type.
 ///
 /// Parameters
 /// ----------
-/// id : :class:`str`
-///     The extension identifier.
-/// storage : :class:`DType`
-///     The underlying storage type.
-/// metadata : :class:`bytes`
-///    The extension type metadata.
+/// unit : :class:`str`
+///     The time unit for the date. Must be one of ``'ms'`` or ``'days'``.
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
 ///
 /// Returns
 /// -------
 /// :class:`vortex.DType`
-#[pyfunction(name = "ext")]
-#[pyo3(signature = (id, storage, *, metadata = None))]
-pub(super) fn dtype_ext<'py>(
+///
+/// Examples
+/// --------
+///
+/// A data type representing dates as days since the UNIX epoch.
+///
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.date("days")
+/// ext("vortex.date", int(32, nullable=False), days)
+/// ```
+#[pyfunction(name = "date")]
+#[pyo3(signature = (unit, *, nullable = false))]
+pub(super) fn dtype_date<'py>(
     py: Python<'py>,
-    id: &'py str,
-    storage: PyDType,
-    metadata: Option<&'py [u8]>,
+    unit: &str,
+    nullable: bool,
+) -> PyVortexResult<Bound<'py, PyDType>> {
+    let time_unit = parse_time_unit(unit)?;
+    let ext = Date::try_new(time_unit, nullable.into())?;
+    Ok(PyDType::init(py, DType::Extension(ext.erased()))?)
+}
+
+/// Construct a time-of-day data type.
+///
+/// Parameters
+/// ----------
+/// unit : :class:`str`
+///     The time unit for the time. Must be one of ``'s'``, ``'ms'``, ``'us'``, or ``'ns'``.
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type representing time of day in microseconds.
+///
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.time("us")
+/// ext("vortex.time", int(64, nullable=False), µs)
+/// ```
+#[pyfunction(name = "time")]
+#[pyo3(signature = (unit, *, nullable = false))]
+pub(super) fn dtype_time<'py>(
+    py: Python<'py>,
+    unit: &str,
+    nullable: bool,
+) -> PyVortexResult<Bound<'py, PyDType>> {
+    let time_unit = parse_time_unit(unit)?;
+    let ext = Time::try_new(time_unit, nullable.into())?;
+    Ok(PyDType::init(py, DType::Extension(ext.erased()))?)
+}
+
+/// Construct a timestamp data type.
+///
+/// Parameters
+/// ----------
+/// unit : :class:`str`
+///     The time unit for the timestamp. Must be one of ``'s'``, ``'ms'``, ``'us'``, or ``'ns'``.
+///
+/// tz : :class:`str` or :obj:`None`
+///     An optional timezone string (e.g. ``"UTC"``).
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A non-nullable timestamp in microseconds with no timezone.
+///
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.timestamp("us")
+/// ext("vortex.timestamp", int(64, nullable=False), µs)
+/// ```
+///
+/// A nullable timestamp in seconds with a UTC timezone.
+///
+/// ```python
+/// >>> vx.timestamp("s", tz="UTC", nullable=True)
+/// ext("vortex.timestamp", int(64, nullable=True), s, tz=UTC)
+/// ```
+#[pyfunction(name = "timestamp")]
+#[pyo3(signature = (unit, *, tz = None, nullable = false))]
+pub(super) fn dtype_timestamp<'py>(
+    py: Python<'py>,
+    unit: &str,
+    tz: Option<&str>,
+    nullable: bool,
 ) -> PyResult<Bound<'py, PyDType>> {
-    PyDType::init(
-        py,
-        DType::Extension(Arc::new(ExtDType::new(
-            ExtID::new(id.into()),
-            Arc::new(storage.into_inner()),
-            metadata.map(|bytes| ExtMetadata::new(bytes.into())),
-        ))),
-    )
+    let time_unit = parse_time_unit(unit)?;
+    let ext = Timestamp::new_with_tz(time_unit, tz.map(Arc::from), nullable.into());
+    PyDType::init(py, DType::Extension(ext.erased()))
 }

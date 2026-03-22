@@ -14,6 +14,11 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
 use vortex_array::expr::root;
@@ -23,11 +28,6 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Field;
-use vortex_dtype::FieldMask;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -38,7 +38,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
 use crate::RepeatedScan;
@@ -66,11 +66,11 @@ pub struct ScanBuilder<A> {
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    metrics: VortexMetrics,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
-    limit: Option<usize>,
+    limit: Option<u64>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
@@ -91,7 +91,7 @@ impl ScanBuilder<ArrayRef> {
             // without too much impact on work-stealing.
             concurrency: 4,
             map_fn: Arc::new(Ok),
-            metrics: Default::default(),
+            metrics_registry: None,
             file_stats: None,
             limit: None,
             row_offset: 0,
@@ -137,6 +137,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn ordered(&self) -> bool {
+        self.ordered
+    }
+
     pub fn with_ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
         self
@@ -167,6 +171,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
     /// The number of row splits to make progress on concurrently per-thread, must
     /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
@@ -175,12 +183,22 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = metrics;
+    pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
+        self.metrics_registry = metrics;
         self
     }
 
-    pub fn with_limit(mut self, limit: usize) -> Self {
+    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.metrics_registry = Some(metrics);
+        self
+    }
+
+    pub fn with_some_limit(mut self, limit: Option<u64>) -> Self {
+        self.limit = limit;
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
         self.limit = Some(limit);
         self
     }
@@ -211,7 +229,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             selection: self.selection,
             split_by: self.split_by,
             concurrency: self.concurrency,
-            metrics: self.metrics,
+            metrics_registry: self.metrics_registry,
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
@@ -450,11 +468,11 @@ mod test {
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldMask;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::Expression;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldMask;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;

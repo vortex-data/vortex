@@ -11,10 +11,10 @@ use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictArray;
@@ -22,11 +22,10 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::vtable::ValidityHelper;
-use vortex::compute::cast;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
-use vortex::dtype::datetime::TimeUnit;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::encodings::datetime_parts::split_temporal;
@@ -35,6 +34,7 @@ use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEndArray;
+use vortex::extension::datetime::TimeUnit;
 use vortex_fastlanes::BitPackedArray;
 
 #[global_allocator]
@@ -44,7 +44,7 @@ fn main() {
     divan::main();
 }
 
-const NUM_VALUES: u64 = 1_000_000;
+const NUM_VALUES: u64 = 100_000;
 
 // Helper function to conditionally add counter based on codspeed cfg
 fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
@@ -68,10 +68,16 @@ mod setup {
         let mut rng = StdRng::seed_from_u64(0);
         let uint_array =
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
-        let int_array = cast(uint_array.as_ref(), PType::I32.into())
+        let int_array = uint_array
+            .clone()
+            .into_array()
+            .cast(PType::I32.into())
             .unwrap()
             .to_primitive();
-        let float_array = cast(uint_array.as_ref(), PType::F64.into())
+        let float_array = uint_array
+            .clone()
+            .into_array()
+            .cast(PType::F64.into())
             .unwrap()
             .to_primitive();
         (uint_array, int_array, float_array)
@@ -131,7 +137,7 @@ mod setup {
         let codes_prim = PrimitiveArray::from_iter(codes);
 
         // Compress codes with BitPacked (6 bits should be enough for ~50 unique values)
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), 6)
+        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), 6)
             .unwrap()
             .into_array();
 
@@ -176,7 +182,7 @@ mod setup {
 
         // Compress the values with BitPacked
         let values_prim = runend.values().to_primitive();
-        let compressed_values = BitPackedArray::encode(values_prim.as_ref(), 8)
+        let compressed_values = BitPackedArray::encode(&values_prim.into_array(), 8)
             .unwrap()
             .into_array();
 
@@ -240,7 +246,7 @@ mod setup {
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();
         let offsets_prim = codes.offsets().to_primitive();
-        let offsets_bp = BitPackedArray::encode(offsets_prim.as_ref(), 20).unwrap();
+        let offsets_bp = BitPackedArray::encode(&offsets_prim.into_array(), 20).unwrap();
 
         // Rebuild VarBin with compressed offsets
         let compressed_codes = VarBinArray::try_new(

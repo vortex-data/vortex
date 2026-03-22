@@ -5,13 +5,14 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
+use crate::dtype::DType;
 use crate::expr::stats::precision::Precision::Exact;
 use crate::expr::stats::precision::Precision::Inexact;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// A statistic has a precision `Exact` or `Inexact`. This represents uncertainty in that value.
 /// Exact values are computed, where can inexact values are likely inferred from compute functions.
@@ -20,26 +21,16 @@ use crate::expr::stats::precision::Precision::Inexact;
 /// This is statistic specific, for max this will be an upper bound. Meaning that the actual max
 /// in an array is guaranteed to be less than or equal to the inexact value, but equal to the exact
 /// value.
-#[derive(Debug, PartialEq, Eq)]
+///
+// TODO(ngates): should we model Unknown as a variant of Precision? Or have Option<Precision<T>>?
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Precision<T> {
     Exact(T),
     Inexact(T),
 }
 
-impl<T> Clone for Precision<T>
-where
-    T: Clone,
-{
-    fn clone(&self) -> Self {
-        match self {
-            Exact(e) => Exact(e.clone()),
-            Inexact(ie) => Inexact(ie.clone()),
-        }
-    }
-}
-
 impl<T> Precision<Option<T>> {
-    /// Transpose the `Option<Precision<T>>` into `Option<Precision<T>>`.
+    /// Transpose the `Precision<Option<T>>` into `Option<Precision<T>>`.
     pub fn transpose(self) -> Option<Precision<T>> {
         match self {
             Exact(Some(x)) => Some(Exact(x)),
@@ -167,13 +158,22 @@ impl<T: PartialEq> PartialEq<T> for Precision<T> {
 }
 
 impl Precision<ScalarValue> {
+    /// Convert this [`Precision<ScalarValue>`] into a [`Precision<Scalar>`] with the given
+    /// [`DType`].
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
-        self.map(|v| Scalar::new(dtype, v))
+        self.map(|v| {
+            Scalar::try_new(dtype, Some(v)).vortex_expect("`Precision<ScalarValue>` was invalid")
+        })
     }
 }
 
 impl Precision<&ScalarValue> {
+    /// Convert this [`Precision<&ScalarValue>`] into a [`Precision<Scalar>`] with the given
+    /// [`DType`].
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
-        self.map(|v| Scalar::new(dtype, v.clone()))
+        self.map(|v| {
+            Scalar::try_new(dtype, Some(v.clone()))
+                .vortex_expect("`Precision<ScalarValue>` was invalid")
+        })
     }
 }

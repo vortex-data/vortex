@@ -41,16 +41,25 @@ typedef struct {
     // The extension of the files written by the copy function.
     const char *extension;
 
-    duckdb_vx_data (*bind)(duckdb_vx_copy_func_bind_input input, const char *const *column_names,
-                           unsigned long column_name_count, const duckdb_logical_type *column_types,
-                           unsigned long column_type_count, duckdb_vx_error *error_out);
+    duckdb_vx_data (*bind)(duckdb_vx_copy_func_bind_input input,
+                           const char *const *column_names,
+                           unsigned long column_name_count,
+                           const duckdb_logical_type *column_types,
+                           unsigned long column_type_count,
+                           duckdb_vx_error *error_out);
 
-    duckdb_vx_data (*init_global)(const void *bind_data, const char *file_path, duckdb_vx_error *error_out);
+    duckdb_vx_data (*init_global)(duckdb_client_context ctx,
+                                  const void *bind_data,
+                                  const char *file_path,
+                                  duckdb_vx_error *error_out);
 
     duckdb_vx_data (*init_local)(const void *bind_data, duckdb_vx_error *error_out);
 
-    void (*copy_to_sink)(const void *bind_data, void *global_data, void *local_data,
-                         duckdb_data_chunk data_chunk_out, duckdb_vx_error *error_out);
+    void (*copy_to_sink)(const void *bind_data,
+                         void *global_data,
+                         void *local_data,
+                         duckdb_data_chunk data_chunk_out,
+                         duckdb_vx_error *error_out);
 
     void (*copy_to_finalize)(const void *bind_data, void *global_data, duckdb_vx_error *error_out);
 
@@ -63,7 +72,7 @@ typedef struct {
 duckdb_vx_copy_func_vtab_t *get_vtab_one();
 
 // A single function for configuring the DuckDB table function vtable.
-duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection ffi_conn);
+duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_database ffi_db);
 
 #ifdef __cplusplus /* End C ABI */
 };

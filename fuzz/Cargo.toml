@@ -18,10 +18,11 @@ version = { workspace = true }
 cargo-fuzz = true
 
 [features]
-default = ["native"]
+default = ["native", "vortex/unstable_encodings"]
 native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
-zstd = ["vortex/zstd"]
+zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
+cuda = ["vortex-cuda", "tokio"]
 
 [dependencies]
 # Always needed - arbitrary is used for input generation
@@ -34,18 +35,24 @@ vortex = { path = "../vortex", default-features = false }
 vortex-array = { workspace = true, features = ["arbitrary", "_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
+vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
-vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true, features = ["arbitrary"] }
+vortex-runend = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 # Native-only: libfuzzer harness and file IO (won't compile to WASM)
 libfuzzer-sys = { workspace = true, optional = true }
 vortex-file = { workspace = true, optional = true }
+
+# GPU support dependencies (optional, only for CUDA fuzzing)
+tokio = { workspace = true, features = ["rt", "macros"], optional = true }
+vortex-cuda = { workspace = true, optional = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true
@@ -73,3 +80,27 @@ name = "array_ops_wasm"
 path = "fuzz_targets/array_ops_wasm.rs"
 test = false
 required-features = ["wasmfuzz"]
+
+[[bin]]
+bench = false
+doc = false
+name = "compress_roundtrip"
+path = "fuzz_targets/compress_roundtrip.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "fsst_like"
+path = "fuzz_targets/fsst_like.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "compress_gpu"
+path = "fuzz_targets/compress_gpu.rs"
+test = false
+required-features = ["native", "cuda"]

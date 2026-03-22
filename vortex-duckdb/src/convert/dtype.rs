@@ -33,7 +33,6 @@ use std::sync::Arc;
 
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::ExtDType;
 use vortex::dtype::FieldName;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -48,30 +47,31 @@ use vortex::dtype::PType::U16;
 use vortex::dtype::PType::U32;
 use vortex::dtype::PType::U64;
 use vortex::dtype::StructFields;
-use vortex::dtype::datetime;
-use vortex::dtype::datetime::DATE_ID;
-use vortex::dtype::datetime::TIME_ID;
-use vortex::dtype::datetime::TIMESTAMP_ID;
-use vortex::dtype::datetime::TemporalMetadata;
-use vortex::dtype::datetime::TimeUnit;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::TemporalMetadata;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 
 pub trait FromLogicalType {
     fn from_logical_type(
-        logical_type: LogicalType,
+        logical_type: &LogicalTypeRef,
         nullability: Nullability,
     ) -> VortexResult<DType>;
 }
 
 impl FromLogicalType for DType {
     fn from_logical_type(
-        logical_type: LogicalType,
+        logical_type: &LogicalTypeRef,
         nullability: Nullability,
     ) -> VortexResult<DType> {
         Ok(match logical_type.as_type_id() {
@@ -99,64 +99,54 @@ impl FromLogicalType for DType {
                     nullability,
                 )
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_DATE => DType::Extension(Arc::new(ExtDType::new(
-                DATE_ID.clone(),
-                Arc::new(DType::Primitive(I32, nullability)),
-                Some(TemporalMetadata::Date(TimeUnit::Days).into()),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIME => DType::Extension(Arc::new(ExtDType::new(
-                TIME_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(TemporalMetadata::Date(TimeUnit::Microseconds).into()),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => DType::Extension(Arc::new(ExtDType::new(
-                TIME_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(TemporalMetadata::Date(TimeUnit::Nanoseconds).into()),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Seconds, None).into()),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Microseconds, None).into()),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(
-                    TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string()))
-                        .into(),
-                ),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
-            ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => DType::FixedSizeList(
-                Arc::new(DType::from_logical_type(
-                    logical_type.array_child_type(),
-                    Nullability::Nullable,
-                )?),
-                logical_type.array_type_array_size(),
-                nullability,
+            DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
+                DType::Extension(Date::new(TimeUnit::Days, nullability).erased())
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
+                DType::Extension(Time::new(TimeUnit::Microseconds, nullability).erased())
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => {
+                DType::Extension(Time::new(TimeUnit::Nanoseconds, nullability).erased())
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
+                DType::Extension(Timestamp::new(TimeUnit::Seconds, nullability).erased())
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
+                DType::Extension(Timestamp::new(TimeUnit::Milliseconds, nullability).erased())
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
+                DType::Extension(Timestamp::new(TimeUnit::Microseconds, nullability).erased())
+            }
+            // NOTE(ngates): DuckDB's TIMESTAMP_TZ does not actually have configurable timezones.
+            //  Instead, it implies the values is timezone-aware and stored in UTC.
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => DType::Extension(
+                Timestamp::new_with_tz(TimeUnit::Microseconds, Some("UTC".into()), nullability)
+                    .erased(),
             ),
-            DUCKDB_TYPE::DUCKDB_TYPE_LIST => DType::List(
-                Arc::new(DType::from_logical_type(
-                    logical_type.list_child_type(),
-                    Nullability::Nullable,
-                )?),
-                nullability,
-            ),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
+                DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, nullability).erased())
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
+                let child_type = logical_type.array_child_type();
+                DType::FixedSizeList(
+                    Arc::new(DType::from_logical_type(
+                        &child_type,
+                        Nullability::Nullable,
+                    )?),
+                    logical_type.array_type_array_size(),
+                    nullability,
+                )
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
+                let child_type = logical_type.list_child_type();
+                DType::List(
+                    Arc::new(DType::from_logical_type(
+                        &child_type,
+                        Nullability::Nullable,
+                    )?),
+                    nullability,
+                )
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => DType::Struct(
                 (0..logical_type.struct_type_child_count())
                     .map(|i| {
@@ -164,7 +154,7 @@ impl FromLogicalType for DType {
                         let child_type = logical_type.struct_child_type(i);
                         Ok((
                             child_name,
-                            DType::from_logical_type(child_type, Nullability::Nullable)?,
+                            DType::from_logical_type(&child_type, Nullability::Nullable)?,
                         ))
                     })
                     .collect::<VortexResult<_>>()?,
@@ -185,9 +175,9 @@ impl FromLogicalType for DType {
     }
 }
 
-pub fn from_duckdb_table<I, S>(iter: I) -> VortexResult<StructFields>
+pub fn from_duckdb_table<'a, I, S>(iter: I) -> VortexResult<StructFields>
 where
-    I: Iterator<Item = (S, LogicalType, Nullability)>,
+    I: Iterator<Item = (S, &'a LogicalTypeRef, Nullability)>,
     S: AsRef<str>,
 {
     iter.map(|(name, type_, nullability)| {
@@ -246,11 +236,43 @@ impl TryFrom<&DType> for LogicalType {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::array_type(element_logical_type, *list_size);
             }
+            DType::Variant(_) => {
+                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
+            }
             DType::Extension(ext_dtype) => {
-                if datetime::is_temporal_ext_type(ext_dtype.id()) {
-                    return LogicalType::try_from(ext_dtype.as_ref());
-                } else {
-                    vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
+                let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
+                    vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
+                };
+
+                match temporal {
+                    TemporalMetadata::Timestamp(unit, None) => match unit {
+                        TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
+                        TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
+                        TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
+                        TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
+                        _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
+                    },
+                    TemporalMetadata::Timestamp(unit, Some(tz)) => {
+                        if tz.as_ref() != "UTC" {
+                            vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
+                        }
+                        if unit != &TimeUnit::Microseconds {
+                            vortex_bail!(
+                                "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
+                                unit
+                            );
+                        }
+                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
+                    }
+                    TemporalMetadata::Date(unit) => match unit {
+                        TimeUnit::Days => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
+                        _ => vortex_bail!("Invalid TimeUnit {} for date", unit),
+                    },
+                    TemporalMetadata::Time(unit) => match unit {
+                        TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
+                        TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS,
+                        _ => vortex_bail!("Invalid TimeUnit {} for time", unit),
+                    },
                 }
             }
         };
@@ -289,55 +311,6 @@ impl TryFrom<&StructFields> for LogicalType {
     }
 }
 
-/// Converts temporal extension types to corresponding DuckDB types.
-///
-/// # Arguments
-///
-/// * `ext_dtype` - A reference to the extension data type containing temporal metadata.
-///
-/// # Supported Temporal Types
-///
-/// - **Date**: Must use `TimeUnit::D`
-/// - **Time**: Must use `TimeUnit::Us`
-/// - **Timestamp**: Supports `TimeUnit::Ns`, `Us`, `Ms`, `S`
-impl TryFrom<&ExtDType> for LogicalType {
-    type Error = VortexError;
-
-    fn try_from(ext_dtype: &ExtDType) -> Result<Self, Self::Error> {
-        let temporal_metadata = TemporalMetadata::try_from(ext_dtype)
-            .map_err(|e| vortex_err!("Failed to extract temporal metadata: {}", e))?;
-
-        let duckdb_type = match temporal_metadata {
-            TemporalMetadata::Date(TimeUnit::Days) => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
-            TemporalMetadata::Date(time_unit) => {
-                vortex_bail!("Invalid TimeUnit {} for date", time_unit);
-            }
-            TemporalMetadata::Time(TimeUnit::Microseconds) => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
-            TemporalMetadata::Time(time_unit) => {
-                vortex_bail!("Invalid TimeUnit {} for time", time_unit);
-            }
-            TemporalMetadata::Timestamp(time_unit, tz) => match time_unit {
-                TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
-                TimeUnit::Microseconds => {
-                    if let Some(tz) = tz {
-                        if tz != "UTC" {
-                            vortex_bail!("Invalid timezone for timestamp: {tz}");
-                        }
-                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-                    } else {
-                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
-                    }
-                }
-                TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
-                TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
-                _ => vortex_bail!("Invalid TimeUnit {} for timestamp", time_unit),
-            },
-        };
-
-        Ok(Self::new(duckdb_type))
-    }
-}
-
 impl TryFrom<PType> for LogicalType {
     type Error = VortexError;
 
@@ -369,6 +342,15 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
+    use vortex::dtype::extension::ExtDType;
+    use vortex::dtype::extension::ExtId;
+    use vortex::dtype::extension::ExtVTable;
+    use vortex::error::VortexResult;
+    use vortex::extension::EmptyMetadata;
+    use vortex::extension::datetime::Date;
+    use vortex::extension::datetime::Time;
+    use vortex::extension::datetime::Timestamp;
+    use vortex::scalar::ScalarValue;
 
     use crate::cpp;
     use crate::duckdb::LogicalType;
@@ -504,20 +486,9 @@ mod tests {
 
     #[test]
     fn test_date_extension_type() {
-        use std::sync::Arc;
+        use vortex::extension::datetime::TimeUnit;
 
-        use vortex::dtype::ExtDType;
-        use vortex::dtype::PType;
-        use vortex::dtype::datetime::DATE_ID;
-        use vortex::dtype::datetime::TemporalMetadata;
-        use vortex::dtype::datetime::TimeUnit;
-
-        let ext_dtype = ExtDType::new(
-            DATE_ID.clone(),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Some(TemporalMetadata::Date(TimeUnit::Days).into()),
-        );
-        let dtype = DType::Extension(Arc::new(ext_dtype));
+        let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
         let logical_type = LogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
@@ -528,20 +499,10 @@ mod tests {
 
     #[test]
     fn test_time_extension_type() {
-        use std::sync::Arc;
+        use vortex::extension::datetime::TimeUnit;
 
-        use vortex::dtype::ExtDType;
-        use vortex::dtype::PType;
-        use vortex::dtype::datetime::TIME_ID;
-        use vortex::dtype::datetime::TemporalMetadata;
-        use vortex::dtype::datetime::TimeUnit;
-
-        let ext_dtype = ExtDType::new(
-            TIME_ID.clone(),
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            Some(TemporalMetadata::Time(TimeUnit::Microseconds).into()),
-        );
-        let dtype = DType::Extension(Arc::new(ext_dtype));
+        let dtype =
+            DType::Extension(Time::new(TimeUnit::Microseconds, Nullability::NonNullable).erased());
         let logical_type = LogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
@@ -552,13 +513,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_extension_types() {
-        use std::sync::Arc;
-
-        use vortex::dtype::ExtDType;
-        use vortex::dtype::PType;
-        use vortex::dtype::datetime::TIMESTAMP_ID;
-        use vortex::dtype::datetime::TemporalMetadata;
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
 
         let test_cases = [
             (
@@ -577,12 +532,8 @@ mod tests {
         ];
 
         for (time_unit, expected_type) in test_cases {
-            let ext_dtype = ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-                Some(TemporalMetadata::Timestamp(time_unit, None).into()),
-            );
-            let dtype = DType::Extension(Arc::new(ext_dtype));
+            let dtype =
+                DType::Extension(Timestamp::new(time_unit, Nullability::NonNullable).erased());
             let logical_type = LogicalType::try_from(&dtype).unwrap();
 
             assert_eq!(logical_type.as_type_id(), expected_type);
@@ -591,22 +542,16 @@ mod tests {
 
     #[test]
     fn test_timestamp_with_timezone() {
-        use std::sync::Arc;
+        use vortex::extension::datetime::TimeUnit;
 
-        use vortex::dtype::ExtDType;
-        use vortex::dtype::PType;
-        use vortex::dtype::datetime::TIMESTAMP_ID;
-        use vortex::dtype::datetime::TemporalMetadata;
-        use vortex::dtype::datetime::TimeUnit;
-
-        let ext_dtype = ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            Some(
-                TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string())).into(),
-            ),
+        let dtype = DType::Extension(
+            Timestamp::new_with_tz(
+                TimeUnit::Microseconds,
+                Some("UTC".into()),
+                Nullability::NonNullable,
+            )
+            .erased(),
         );
-        let dtype = DType::Extension(Arc::new(ext_dtype));
 
         assert_eq!(
             LogicalType::try_from(&dtype).unwrap().as_type_id(),
@@ -616,46 +561,58 @@ mod tests {
 
     #[test]
     fn test_temporal_extension_invalid_time_units() {
-        use std::sync::Arc;
-
-        use vortex::dtype::ExtDType;
-        use vortex::dtype::PType;
-        use vortex::dtype::datetime::DATE_ID;
-        use vortex::dtype::datetime::TIME_ID;
-        use vortex::dtype::datetime::TemporalMetadata;
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
 
         // Invalid DATE time unit
-        let ext_dtype = ExtDType::new(
-            DATE_ID.clone(),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Some(TemporalMetadata::Date(TimeUnit::Milliseconds).into()),
-        );
-        let dtype = DType::Extension(Arc::new(ext_dtype));
+        let dtype =
+            DType::Extension(Date::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
         assert!(LogicalType::try_from(&dtype).is_err());
 
         // Invalid TIME time unit
-        let ext_dtype = ExtDType::new(
-            TIME_ID.clone(),
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            Some(TemporalMetadata::Time(TimeUnit::Milliseconds).into()),
-        );
-        let dtype = DType::Extension(Arc::new(ext_dtype));
+        let dtype =
+            DType::Extension(Time::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
         assert!(LogicalType::try_from(&dtype).is_err());
     }
 
     #[test]
     fn test_unsupported_extension_type() {
-        use vortex::dtype::ExtDType;
-        use vortex::dtype::ExtID;
-        use vortex::dtype::PType;
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+        struct TestExt;
+        impl ExtVTable for TestExt {
+            type Metadata = EmptyMetadata;
+            type NativeValue<'a> = &'a str;
 
-        let ext_dtype = ExtDType::new(
-            ExtID::from("unknown.extension"),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        );
-        let dtype = DType::Extension(Arc::new(ext_dtype));
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("unknown.extension")
+            }
+
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+                Ok(vec![])
+            }
+
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+                Ok(EmptyMetadata)
+            }
+
+            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+                Ok(())
+            }
+
+            fn unpack_native<'a>(
+                _ext_dtype: &'a ExtDType<Self>,
+                _storage_value: &'a ScalarValue,
+            ) -> VortexResult<Self::NativeValue<'a>> {
+                Ok("")
+            }
+        }
+
+        let ext_dtype = ExtDType::<TestExt>::try_new(
+            EmptyMetadata,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+        .unwrap()
+        .erased();
+        let dtype = DType::Extension(ext_dtype);
 
         assert!(LogicalType::try_from(&dtype).is_err());
     }

@@ -18,8 +18,8 @@ use jni::sys::jboolean;
 use jni::sys::jlong;
 use object_store::path::Path;
 use url::Url;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
@@ -28,8 +28,8 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
-use vortex::io::ObjectStoreWriter;
 use vortex::io::VortexWrite;
+use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -88,7 +88,7 @@ impl NativeWriter {
     /// Write an Arrow record batch to the writer stream.
     pub fn write_record_batch(&self, batch: RecordBatch) -> VortexResult<()> {
         // We do not allow top-level nulls
-        let vortex_batch = ArrayRef::from_arrow(batch, false);
+        let vortex_batch = ArrayRef::from_arrow(batch, false)?;
 
         // Validate schema conforms
         if !vortex_batch.dtype().eq(&self.write_schema) {
@@ -176,7 +176,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create(
 
         let (store, _scheme) = make_object_store(&url, &properties)?;
         let write_handle = SESSION.handle().spawn(async move {
-            let mut write = ObjectStoreWriter::new(store, &path).await?;
+            let mut write = ObjectStoreWrite::new(store, &path).await?;
             let summary = SESSION.write_options().write(&mut write, w).await?;
             write.shutdown().await?;
             Ok(summary)

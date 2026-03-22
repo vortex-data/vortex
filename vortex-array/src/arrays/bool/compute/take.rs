@@ -5,47 +5,51 @@ use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::get_bit;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::fill_null;
-use crate::register_kernel;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::TakeExecute;
+use crate::builtins::ArrayBuiltins;
+use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
+use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for BoolVTable {
-    fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices_nulls_zeroed = match indices.validity_mask() {
+impl TakeExecute for Bool {
+    fn take(
+        array: &BoolArray,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),
             Mask::AllFalse(_) => {
-                return Ok(ConstantArray::new(
-                    Scalar::null(array.dtype().as_nullable()),
-                    indices.len(),
-                )
-                .into_array());
+                return Ok(Some(
+                    ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                        .into_array(),
+                ));
             }
-            Mask::Values(_) => fill_null(indices, &Scalar::from(0).cast(indices.dtype())?)?,
+            Mask::Values(_) => indices
+                .to_array()
+                .fill_null(Scalar::from(0).cast(indices.dtype())?)?,
         };
-        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive();
+        let indices_nulls_zeroed = indices_nulls_zeroed.execute::<PrimitiveArray>(ctx)?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
-            take_valid_indices(array.bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
+            take_valid_indices(&array.to_bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });
 
-        Ok(BoolArray::from_bit_buffer(buffer, array.validity().take(indices)?).to_array())
+        Ok(Some(
+            BoolArray::new(buffer, array.validity().take(indices)?).into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(BoolVTable).lift());
 
 fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
     // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
@@ -54,7 +58,7 @@ fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -
         let bools = bools.iter().collect_vec();
         take_byte_bool(bools, indices)
     } else {
-        take_bool(bools, indices)
+        take_bool_impl(bools, indices)
     }
 }
 
@@ -64,7 +68,7 @@ fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> Bit
     })
 }
 
-fn take_bool<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
+fn take_bool_impl<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
     // We dereference to underlying buffer to avoid access cost on every index.
     let buffer = bools.inner().as_ref();
     BitBuffer::collect_bool(indices.len(), |idx| {
@@ -79,14 +83,13 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -99,16 +102,17 @@ mod test {
             Some(false),
         ]);
 
-        let b = take(reference.as_ref(), buffer![0, 3, 4].into_array().as_ref())
+        let b = reference
+            .take(buffer![0, 3, 4].into_array())
             .unwrap()
             .to_bool();
         assert_eq!(
-            b.bit_buffer(),
-            BoolArray::from_iter([Some(false), None, Some(false)]).bit_buffer()
+            b.to_bit_buffer(),
+            BoolArray::from_iter([Some(false), None, Some(false)]).to_bit_buffer()
         );
 
-        let all_invalid_indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]);
-        let b = take(reference.as_ref(), all_invalid_indices.as_ref()).unwrap();
+        let all_invalid_indices = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
+        let b = reference.take(all_invalid_indices.into_array()).unwrap();
         assert_arrays_eq!(b, BoolArray::from_iter([None, None, None]));
     }
 
@@ -117,9 +121,9 @@ mod test {
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
+            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
+        let actual = values.take(indices.into_array()).unwrap();
 
         // position 3 is null, the third index is null
         assert_arrays_eq!(actual, BoolArray::from_iter([Some(false), None, None]));
@@ -130,9 +134,9 @@ mod test {
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
+            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
+        let actual = values.take(indices.into_array()).unwrap();
         // the third index is null
         assert_arrays_eq!(
             actual,
@@ -145,9 +149,9 @@ mod test {
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([false, false, false]).to_array()),
+            Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
         );
-        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
+        let actual = values.take(indices.into_array()).unwrap();
         assert_arrays_eq!(actual, BoolArray::from_iter([None, None, None]));
     }
 
@@ -156,9 +160,9 @@ mod test {
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([false, false, false]).to_array()),
+            Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
         );
-        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
+        let actual = values.take(indices.into_array()).unwrap();
         assert_arrays_eq!(actual, BoolArray::from_iter([None, None, None]));
     }
 
@@ -168,6 +172,6 @@ mod test {
     #[case(BoolArray::from_iter([true, false]))]
     #[case(BoolArray::from_iter([true]))]
     fn test_take_bool_conformance(#[case] array: BoolArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

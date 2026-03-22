@@ -7,10 +7,9 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use vortex::dtype::DType;
-use vortex::dtype::ExtID;
-use vortex::dtype::ExtMetadata;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::extension::ExtId;
 
 pub trait PythonRepr {
     fn python_repr(&self) -> impl Display;
@@ -24,6 +23,7 @@ impl PythonRepr for DType {
     }
 }
 
+// TODO(connor): We should probably just use the `Display` impl on `DType`.
 impl Display for DTypePythonRepr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let DTypePythonRepr(dtype) = self;
@@ -93,16 +93,17 @@ impl Display for DTypePythonRepr<'_> {
             DType::Extension(ext) => {
                 write!(
                     f,
-                    "ext(\"{}\", {}, ",
+                    "ext({}, {}",
                     ext.id().python_repr(),
                     ext.storage_dtype().python_repr()
                 )?;
-                match ext.metadata() {
-                    None => write!(f, "None")?,
-                    Some(metadata) => write!(f, "{}", metadata.python_repr())?,
-                };
+                let opts = ext.display_metadata().to_string();
+                if !opts.is_empty() {
+                    write!(f, ", {}", opts)?
+                }
                 write!(f, ")")
             }
+            DType::Variant(_) => write!(f, "variant()"),
         }
     }
 }
@@ -125,32 +126,17 @@ impl Display for NullabilityPythonRepr<'_> {
     }
 }
 
-struct ExtMetadataPythonRepr<'a>(&'a ExtMetadata);
+struct ExtIdPythonRepr<'a>(&'a ExtId);
 
-impl PythonRepr for ExtMetadata {
+impl PythonRepr for ExtId {
     fn python_repr(&self) -> impl Display {
-        ExtMetadataPythonRepr(self)
+        ExtIdPythonRepr(self)
     }
 }
 
-impl Display for ExtMetadataPythonRepr<'_> {
+impl Display for ExtIdPythonRepr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ExtMetadataPythonRepr(metadata) = self;
-        write!(f, "\"{}\"", metadata.as_ref().escape_ascii())
-    }
-}
-
-struct ExtIDPythonRepr<'a>(&'a ExtID);
-
-impl PythonRepr for ExtID {
-    fn python_repr(&self) -> impl Display {
-        ExtIDPythonRepr(self)
-    }
-}
-
-impl Display for ExtIDPythonRepr<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ExtIDPythonRepr(ext_id) = self;
+        let ExtIdPythonRepr(ext_id) = self;
         write!(f, "\"{}\"", ext_id.as_ref().escape_default())
     }
 }

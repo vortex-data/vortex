@@ -3,68 +3,72 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::register_kernel;
+use crate::scalar::Scalar;
+use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl FillNullKernel for BoolVTable {
-    fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+impl FillNullKernel for Bool {
+    fn fill_null(
+        array: &BoolArray,
+        fill_value: &Scalar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let fill = fill_value
             .as_bool()
             .value()
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
-        Ok(match array.validity() {
+        Ok(Some(match array.validity() {
             Validity::Array(v) => {
+                let v_bool = v.clone().execute::<BoolArray>(ctx)?;
                 let bool_buffer = if fill {
-                    array.bit_buffer() | &!v.to_bool().bit_buffer()
+                    array.to_bit_buffer() | &!v_bool.to_bit_buffer()
                 } else {
-                    array.bit_buffer() & v.to_bool().bit_buffer()
+                    array.to_bit_buffer() & v_bool.to_bit_buffer()
                 };
-                BoolArray::from_bit_buffer(bool_buffer, fill_value.dtype().nullability().into())
-                    .into_array()
+                BoolArray::new(bool_buffer, fill_value.dtype().nullability().into()).into_array()
             }
             _ => unreachable!("checked in entry point"),
-        })
+        }))
     }
 }
-
-register_kernel!(FillNullKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::bitbuffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::fill_null;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[rstest]
     #[case(true, bitbuffer![true, true, false, true])]
     #[case(false, bitbuffer![true, false, false, false])]
     fn bool_fill_null(#[case] fill_value: bool, #[case] expected: BitBuffer) {
-        let bool_array = BoolArray::from_bit_buffer(
+        let bool_array = BoolArray::new(
             BitBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         );
-        let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
+        let non_null_array = bool_array
+            .into_array()
+            .fill_null(Scalar::from(fill_value))
             .unwrap()
             .to_bool();
-        assert_eq!(non_null_array.bit_buffer(), &expected);
+        assert_eq!(non_null_array.to_bit_buffer(), expected);
         assert_eq!(
             non_null_array.dtype(),
             &DType::Bool(Nullability::NonNullable)

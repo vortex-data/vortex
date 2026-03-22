@@ -1,37 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::type_name;
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::GenericListArray;
 use arrow_array::OffsetSizeTrait;
+use arrow_buffer::OffsetBuffer;
 use arrow_schema::FieldRef;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
-use crate::IntoArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewArrayParts;
-use crate::arrays::ListViewVTable;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
-use crate::validity::Validity;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
@@ -41,37 +38,34 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // If the Vortex array is already in List format, we can directly convert it.
-    if let Some(array) = array.as_opt::<ListVTable>() {
+    if let Some(array) = array.as_opt::<List>() {
         return list_to_list::<O>(array, elements_field, ctx);
     }
 
-    // If the Vortex array is a ListViewArray, we check for our magic cheap conversion flag.
-    let array = match array.try_into::<ListViewVTable>() {
+    // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
+    let array = match array.try_into::<ListView>() {
         Ok(array) => {
-            if array.is_zero_copy_to_list() {
-                return list_view_zctl::<O>(array, elements_field, ctx);
+            let zctl = if array.is_zero_copy_to_list() {
+                array
             } else {
-                return list_view_to_list::<O>(array, elements_field, ctx);
-            }
+                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+            };
+            return list_view_zctl::<O>(zctl, elements_field, ctx);
         }
         Err(a) => a,
     };
 
-    // TODO(ngates): we should do the slightly more expensive thing which is to verify ZCTL.
-    //  In other words, check that offsets + sizes are monotonically increasing.
-
-    // Otherwise, we execute the array to become a ListViewArray.
+    // Otherwise, we execute the array to become a ListViewArray, then rebuild to ZCTL.
+    // Note: arrow_cast::cast supports ListView → List (apache/arrow-rs#8735), but it
+    // unconditionally uses take. Our rebuild uses a heuristic that picks list-by-list
+    // for large lists, which avoids materializing a large index buffer.
     let list_view = array.execute::<ListViewArray>(ctx)?;
-    list_view_to_list::<O>(list_view, elements_field, ctx)
-
-    // FIXME(ngates): we need this PR from arrow-rs:
-    //  https://github.com/apache/arrow-rs/pull/8735
-    // let list_view = array.execute(session)?.into_arrow()?;
-    // match O::IS_LARGE {
-    //     true => arrow_cast::cast(&list_view, &DataType::LargeList(elements_field.clone())),
-    //     false => arrow_cast::cast(&list_view, &DataType::List(elements_field.clone())),
-    // }
-    // .map_err(VortexError::from)
+    let zctl = if list_view.is_zero_copy_to_list() {
+        list_view
+    } else {
+        list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+    };
+    list_view_zctl::<O>(zctl, elements_field, ctx)
 }
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
@@ -116,6 +110,19 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     assert!(array.is_zero_copy_to_list());
 
+    if array.is_empty() {
+        let elements = array
+            .elements()
+            .clone()
+            .execute_arrow(Some(elements_field.data_type()), ctx)?;
+        return Ok(Arc::new(GenericListArray::<O>::new(
+            elements_field.clone(),
+            OffsetBuffer::new_empty(),
+            elements,
+            None,
+        )));
+    }
+
     let ListViewArrayParts {
         elements,
         offsets,
@@ -125,8 +132,9 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     } = array.into_parts();
 
     // For ZCTL, we know that we only care about the final size.
+    assert!(!sizes.is_empty());
     let final_size = sizes
-        .scalar_at(sizes.len() - 1)
+        .scalar_at(sizes.len() - 1)?
         .cast(&DType::Primitive(O::PTYPE, Nullability::NonNullable))?;
     let final_size = final_size
         .as_primitive()
@@ -171,83 +179,25 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     )))
 }
 
-fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
-    array: ListViewArray,
-    elements_field: &FieldRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrowArrayRef> {
-    let ListViewArrayParts {
-        elements,
-        offsets,
-        sizes,
-        validity,
-        ..
-    } = array.into_parts();
-
-    let offsets = offsets
-        .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute::<Canonical>(ctx)?
-        .into_primitive()
-        .to_buffer::<O>();
-    let sizes = sizes
-        .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute::<Canonical>(ctx)?
-        .into_primitive()
-        .to_buffer::<O>();
-
-    // We create a new offsets buffer for the final list array.
-    // And we also create an `indices` buffer for taking the elements.
-    let mut new_offsets = BufferMut::<O>::with_capacity(offsets.len() + 1);
-    let mut take_indices = BufferMut::<u32>::with_capacity(elements.len());
-
-    // Add the offset for the first subarray
-    new_offsets.push(O::zero());
-    for (offset, size) in offsets.iter().zip(sizes.iter()) {
-        let offset = offset.as_usize();
-        let size = size.as_usize();
-        let end = offset + size;
-        for j in offset..end {
-            take_indices.push(u32::try_from(j).map_err(|_| {
-                vortex_err!("List array too large for {} indices", type_name::<O>())
-            })?);
-        }
-        new_offsets.push(O::usize_as(take_indices.len()));
-    }
-    assert_eq!(new_offsets.len(), offsets.len() + 1);
-
-    // Now we can "take" the elements using the computed indices.
-    let elements =
-        elements.take(PrimitiveArray::new(take_indices, Validity::NonNullable).into_array())?;
-
-    let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
-    vortex_ensure!(
-        elements_field.is_nullable() || elements.null_count() == 0,
-        "Cannot convert to non-nullable Arrow array with null elements"
-    );
-
-    let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;
-
-    Ok(Arc::new(GenericListArray::<O>::new(
-        elements_field.clone(),
-        new_offsets.freeze().into_arrow_offset_buffer(),
-        elements,
-        null_buffer,
-    )))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use arrow_array::Array;
     use arrow_array::GenericListArray;
+    use arrow_array::Int32Array;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::Canonical;
     use crate::IntoArray;
-    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrow::IntoArrowArray;
+    use crate::arrow::executor::list::ListViewArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
     use crate::validity::Validity;
 
     #[test]
@@ -288,10 +238,7 @@ mod tests {
         // Verify the values in the first list.
         let first_list = list.value(0);
         assert_eq!(first_list.len(), 3);
-        let first_values = first_list
-            .as_any()
-            .downcast_ref::<arrow_array::Int32Array>()
-            .unwrap();
+        let first_values = first_list.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(first_values.value(0), 1);
         assert_eq!(first_values.value(1), 2);
         assert_eq!(first_values.value(2), 3);
@@ -299,10 +246,7 @@ mod tests {
         // Verify the values in the second list.
         let second_list = list.value(1);
         assert_eq!(second_list.len(), 2);
-        let second_values = second_list
-            .as_any()
-            .downcast_ref::<arrow_array::Int32Array>()
-            .unwrap();
+        let second_values = second_list.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(second_values.value(0), 4);
         assert_eq!(second_values.value(1), 5);
         Ok(())
@@ -342,6 +286,63 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert!(!list.is_null(0));
         assert!(!list.is_null(1));
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_list_non_zctl() -> VortexResult<()> {
+        // Overlapping lists are NOT zero-copy-to-list, so this exercises the rebuild path.
+        // Elements: [1, 2, 3, 4], List 0: [1,2,3], List 1: [2,3,4] (overlap at indices 1-2)
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 1], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![3i32, 3], Validity::NonNullable);
+
+        let list_array = ListViewArray::new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::NonNullable,
+        );
+        assert!(!list_array.is_zero_copy_to_list());
+
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 2);
+
+        let first = list.value(0);
+        assert_eq!(first.len(), 3);
+        let first_vals = first.as_any().downcast_ref::<Int32Array>().unwrap();
+        assert_eq!(first_vals.values(), &[1, 2, 3]);
+
+        let second = list.value(1);
+        assert_eq!(second.len(), 3);
+        let second_vals = second.as_any().downcast_ref::<Int32Array>().unwrap();
+        assert_eq!(second_vals.values(), &[2, 3, 4]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_list_empty_zctl() -> VortexResult<()> {
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(crate::dtype::PType::I32, NonNullable)),
+            NonNullable,
+        );
+        let list_array = unsafe {
+            Canonical::empty(&dtype)
+                .into_listview()
+                .with_zero_copy_to_list(true)
+        };
+
+        let arrow_dt = DataType::List(Field::new("item", DataType::Int32, false).into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+        assert_eq!(arrow_array.len(), 0);
         Ok(())
     }
 }

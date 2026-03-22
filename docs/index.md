@@ -1,148 +1,106 @@
+---
+sd_hide_title: true
+---
+
 # Vortex
 
-Vortex is an extensible, state-of-the-art format for columnar data. It includes
-specifications & tools for manipulating possibly-compressed arrays in-memory,
-on-disk (file format), and over-the-wire (IPC format). Vortex is built around the
-latest research from the database community.
+:::{image} _static/vortex_wordmark.svg
+:class: only-light vortex-wordmark
+:alt: Vortex
+:align: center
+:::
 
-## In-memory
+:::{image} _static/vortex_wordmark_dark_theme.svg
+:class: only-dark vortex-wordmark
+:alt: Vortex
+:align: center
+:::
 
-Vortex in-memory arrays support:
+An extensible ecosystem for compressed columnar data. Spans in-memory arrays,
+on-disk file formats, over-the-wire protocols, and integrations with query engines — all built
+around the latest research from the database community.
 
-* Zero-copy interoperability with [Apache Arrow](https://arrow.apache.org).
-* Cascading compression with lightweight, vectorized encodings such as
+## Where to start
+
+::::{grid} 1 2 2 3
+:gutter: 3
+
+:::{grid-item-card} Read & write Vortex files
+:link: getting-started/index
+:link-type: doc
+
+Get started with Vortex in **Python**, **Rust**, or **Java**. Convert from Parquet, compress
+your data, and query it.
+:::
+
+:::{grid-item-card} Use with a query engine
+:link: user-guide/index
+:link-type: doc
+
+Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, **Trino**, or **Ray** for
+accelerated queries over compressed data.
+:::
+
+:::{grid-item-card} Understand the architecture
+:link: concepts/index
+:link-type: doc
+
+Learn how **DTypes**, **Arrays**, **Encodings**, **Layouts**, and the **Scan API** fit together
+as building blocks.
+:::
+
+:::{grid-item-card} Extend Vortex
+:link: developer-guide/index
+:link-type: doc
+
+Write your own **encodings**, **layouts**, **compute functions**, or **extension types** from
+Rust or Python.
+:::
+
+:::{grid-item-card} Create an engine integration
+:link: developer-guide/index
+:link-type: doc
+
+Build a **query engine connector** or **data source** using the **Scan API**, **C FFI**, or
+**C++ wrapper**.
+:::
+
+:::{grid-item-card} Internals
+:link: developer-guide/index
+:link-type: doc
+
+Explore the **crate architecture**, **async runtime**, **session system**, and integration
+internals. Build and benchmark locally.
+:::
+
+::::
+
+## Highlights
+
+- **Compressed arrays**: Operate directly on compressed data with encodings like
   [FastLanes](https://github.com/spiraldb/fastlanes),
-  [FSST](https://github.com/spiraldb/fsst),
-  and [ALP](https://github.com/spiraldb/alp).
-* Fast random access to compressed data.
-* Compute push-down over compressed data.
-* Array statistics for efficient compute.
+  [FSST](https://github.com/spiraldb/fsst), and
+  [ALP](https://github.com/spiraldb/alp) — no decompression needed for many operations.
 
-## On-disk
+- **Extensible file format**: Zero-allocation reads, FlatBuffer metadata for O(1) column access,
+  and optional WASM decompression kernels for forward compatibility.
 
-Vortex ships with an extensible file format supporting:
+- **Query engine integration**: Filter and projection pushdown through the Scan API, with native
+  integrations for DataFusion, DuckDB, Spark, Trino, and Ray.
 
-* Zero-allocation reads, deferring both deserialization and decompression.
-* Zero-copy reads from memory-mapped files.
-* FlatBuffer metadata to support ultra-wide schemas (>>100k columns) with O(1) column access.
-* Fully customizable layouts and encodings (row-groups, column-groups -- the writer decides).
-* Forwards compatibility by optionally embedding [WASM](https://webassembly.org/) decompression kernels for new
-  encodings.
-
-## Over-the-wire
-
-Vortex defines a work-in-progress IPC format for sending possibly compressed arrays over the wire.
-
-* Zero-copy serialization and deserialization.
-* Support for both compressed and uncompressed data.
-* Enables partial compute push-down to storage servers.
-* Enables client-side browser decompression with Vortex WASM.
-
-## Extensibility
-
-Vortex is designed to be incredibly extensible. Almost all reader and writer logic is extensible at compile-time
-by providing various implementations of Rust traits, and encodings and layouts are extensible at runtime with
-dynamically loaded libraries or WebAssembly kernels.
-
-Please reach out to us if you'd like to extend Vortex with your own encodings, layouts, or other functionality.
-
-## Concepts
-
-It can be useful to view Vortex as an ecosystem of building blocks rather than a singular specific format. Almost
-everything in Vortex is extensible, enabling it to be used for both general-purpose columnar data processing, and niche
-embedded use-cases where specific encodings and performance characteristics are required.
-
-This section of the documentation covers the core concepts of Vortex and how they fit together.
-
-```{toctree}
----
-maxdepth: 3
-includehidden:
-caption: Concepts
----
-
-Arrays <concepts/arrays>
-Layouts <concepts/layouts>
-Data Types <concepts/dtypes>
-Compute <concepts/compute>
-```
-
-## Quickstarts
-
-Vortex is currently available for both Python and Rust. To get started, we recommend the language-specific quickstarts.
-
-```{toctree}
----
-maxdepth: 1
-includehidden:
-caption: Quickstarts
----
-
-Python <quickstart/python>
-Rust <quickstart/rust>
-```
-
-## API Documentation
-
-Vortex is primarily written in Rust, and the Rust API is the most complete API for Vortex.
-The Vortex Python bindings provide a more usable Python interface to the Vortex Rust library.
-
-```{toctree}
----
-maxdepth: 2
-caption: API Documentation
----
-
-Python API <api/python/index>
-Rust API <https://docs.rs/vortex>
-C FFI API <api/c/index>
-Java API <api/java/index>
-```
-
-## User Guides
-
-These user guides provide end-to-end overviews of how to use or extend Vortex
-in your own projects. We intend to extend this collection of guides to cover more
-use-cases in the future.
-
-```{toctree}
----
-maxdepth: 1
-caption: User Guides
----
-
-guides/wip-lazy-evaluation
-guides/python-integrations
-guides/writing-an-encoding
-```
-
-## Specifications
-
-Vortex currently defines two serialization formats: a file format and an IPC format. The file format is designed for
-efficient access to [Vortex Layouts](/concepts/layouts) on disk, while the IPC format is designed to send
-possibly compressed [Vortex Arrays](/concepts/arrays) over the wire.
-
-```{toctree}
----
-maxdepth: 3
-includehidden:
-caption: Specifications
----
-
-specs/file-format
-specs/ipc-format
-specs/dtype-format
-```
+- **Language bindings**: First-class support for Python (PyO3), Java (JNI + Spark/Trino connectors),
+  and C/C++ (FFI).
 
 ```{toctree}
 ---
 hidden:
-caption: Project Links
 ---
 
-references
-Spiral <https://spiraldb.com>
-GitHub <https://github.com/spiraldb/vortex>
-PyPI <https://pypi.org/project/vortex-data>
-Crates <https://crates.io/crates/vortex>
+getting-started/index
+concepts/index
+user-guide/index
+developer-guide/index
+specs/index
+api/index
+project/index
 ```

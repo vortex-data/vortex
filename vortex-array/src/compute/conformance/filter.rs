@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
-use crate::Array;
+use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::assert_arrays_eq;
-use crate::compute::filter;
+use crate::dtype::DType;
 
 // Standard test array sizes
 pub const SMALL_SIZE: usize = 5;
@@ -17,7 +17,7 @@ pub const LARGE_SIZE: usize = 1024;
 
 /// Test filter compute function with various array sizes and patterns.
 /// The input array can be of any length.
-pub fn test_filter_conformance(array: &dyn Array) {
+pub fn test_filter_conformance(array: &ArrayRef) {
     let len = array.len();
 
     // Test with arrays of any size
@@ -60,23 +60,27 @@ pub fn create_runs_pattern(len: usize, run_length: usize) -> Vec<bool> {
 }
 
 /// Tests that filtering with an all-true mask returns all elements unchanged
-fn test_all_filter(array: &dyn Array) {
+fn test_all_filter(array: &ArrayRef) {
     let len = array.len();
     let mask = Mask::new_true(len);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_arrays_eq!(filtered, array);
 }
 
 /// Tests that filtering with an all-false mask returns an empty array with the same dtype
-fn test_none_filter(array: &dyn Array) {
+fn test_none_filter(array: &ArrayRef) {
     let len = array.len();
     let mask = Mask::new_false(len);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 0);
     assert_eq!(filtered.dtype(), array.dtype());
 }
 
-fn test_selective_filter(array: &dyn Array) {
+fn test_selective_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 2 {
         return; // Skip for very small arrays
@@ -86,12 +90,21 @@ fn test_selective_filter(array: &dyn Array) {
     let mask_values: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let expected_count = mask_values.iter().filter(|&&v| v).count();
     let mask = Mask::from_iter(mask_values);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 
     // Verify correct elements are kept
     for (filtered_idx, i) in (0..len).step_by(2).enumerate() {
-        assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
+        assert_eq!(
+            filtered
+                .scalar_at(filtered_idx)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 
     // Test first and last only
@@ -100,15 +113,30 @@ fn test_selective_filter(array: &dyn Array) {
         mask_values[0] = true;
         mask_values[len - 1] = true;
         let mask = Mask::from_iter(mask_values);
-        let filtered =
-            filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+        let filtered = array
+            .filter(mask)
+            .vortex_expect("filter should succeed in conformance test");
         assert_eq!(filtered.len(), 2);
-        assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
-        assert_eq!(filtered.scalar_at(1), array.scalar_at(len - 1));
+        assert_eq!(
+            filtered
+                .scalar_at(0)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(0)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
+        assert_eq!(
+            filtered
+                .scalar_at(1)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(len - 1)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
-fn test_single_element_filter(array: &dyn Array) {
+fn test_single_element_filter(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -118,19 +146,36 @@ fn test_single_element_filter(array: &dyn Array) {
     let mut mask_values = vec![false; len];
     mask_values[0] = true;
     let mask = Mask::from_iter(mask_values);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
+    assert_eq!(
+        filtered
+            .scalar_at(0)
+            .vortex_expect("scalar_at should succeed in conformance test"),
+        array
+            .scalar_at(0)
+            .vortex_expect("scalar_at should succeed in conformance test")
+    );
 
     // Test selecting only the last element
     if len > 1 {
         let mut mask_values = vec![false; len];
         mask_values[len - 1] = true;
         let mask = Mask::from_iter(mask_values);
-        let filtered =
-            filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+        let filtered = array
+            .filter(mask)
+            .vortex_expect("filter should succeed in conformance test");
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered.scalar_at(0), array.scalar_at(len - 1));
+        assert_eq!(
+            filtered
+                .scalar_at(0)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(len - 1)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -139,23 +184,25 @@ fn test_empty_array_filter(dtype: &DType) {
 
     let empty_array = Canonical::empty(dtype).into_array();
     let empty_mask = Mask::new_false(0);
-    let filtered = filter(&empty_array, &empty_mask)
+    let filtered = empty_array
+        .filter(empty_mask)
         .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 0);
 
     let empty_mask = Mask::new_true(0);
-    let filtered = filter(&empty_array, &empty_mask)
+    let filtered = empty_array
+        .filter(empty_mask)
         .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 0);
 }
 
-fn test_mismatched_lengths(array: &dyn Array) {
+fn test_mismatched_lengths(array: &ArrayRef) {
     let len = array.len();
 
     // Test mask shorter than array
     if len > 0 {
         let short_mask = Mask::new_true(len - 1);
-        let result = filter(array, &short_mask);
+        let result = array.filter(short_mask);
         assert!(
             result.is_err(),
             "Filter should fail with mismatched lengths"
@@ -164,7 +211,7 @@ fn test_mismatched_lengths(array: &dyn Array) {
 
     // Test mask longer than array
     let long_mask = Mask::new_true(len + 1);
-    let result = filter(array, &long_mask);
+    let result = array.filter(long_mask);
     assert!(
         result.is_err(),
         "Filter should fail with mismatched lengths"
@@ -172,27 +219,36 @@ fn test_mismatched_lengths(array: &dyn Array) {
 }
 
 /// Tests filtering with alternating true/false pattern
-fn test_alternating_pattern_filter(array: &dyn Array) {
+fn test_alternating_pattern_filter(array: &ArrayRef) {
     let len = array.len();
     let pattern = create_alternating_pattern(len);
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
     let mask = Mask::from_iter(pattern.clone());
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 
     // Verify correct elements are kept
     let mut filtered_idx = 0;
     for (i, &keep) in pattern.iter().enumerate() {
         if keep {
-            assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
+            assert_eq!(
+                filtered
+                    .scalar_at(filtered_idx)
+                    .vortex_expect("scalar_at should succeed in conformance test"),
+                array
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test")
+            );
             filtered_idx += 1;
         }
     }
 }
 
 /// Tests filtering with runs of true/false values
-fn test_runs_pattern_filter(array: &dyn Array) {
+fn test_runs_pattern_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 4 {
         return; // Skip for very small arrays
@@ -203,12 +259,14 @@ fn test_runs_pattern_filter(array: &dyn Array) {
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
     let mask = Mask::from_iter(pattern);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }
 
 /// Tests filtering with sparse true values (mostly false)
-fn test_sparse_true_filter(array: &dyn Array) {
+fn test_sparse_true_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 10 {
         return; // Skip for small arrays
@@ -219,12 +277,14 @@ fn test_sparse_true_filter(array: &dyn Array) {
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
     let mask = Mask::from_iter(pattern);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }
 
 /// Tests filtering with sparse false values (mostly true)
-fn test_sparse_false_filter(array: &dyn Array) {
+fn test_sparse_false_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 10 {
         return; // Skip for small arrays
@@ -235,12 +295,14 @@ fn test_sparse_false_filter(array: &dyn Array) {
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
     let mask = Mask::from_iter(pattern);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }
 
 /// Tests filtering with random pattern
-fn test_random_pattern_filter(array: &dyn Array) {
+fn test_random_pattern_filter(array: &ArrayRef) {
     let len = array.len();
 
     // Create a pseudo-random pattern based on array length
@@ -250,6 +312,8 @@ fn test_random_pattern_filter(array: &dyn Array) {
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
     let mask = Mask::from_iter(pattern);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }

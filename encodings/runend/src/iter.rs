@@ -3,10 +3,9 @@
 
 use std::cmp::min;
 
-use vortex_dtype::IntegerPType;
+use vortex_array::dtype::IntegerPType;
 use vortex_error::vortex_panic;
 
-#[inline]
 pub fn trimmed_ends_iter<E: IntegerPType>(
     run_ends: &[E],
     offset: usize,

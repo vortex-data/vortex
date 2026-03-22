@@ -26,6 +26,7 @@ use pyo3::PyClass;
 use pyo3::PyClassInitializer;
 use pyo3::PyResult;
 use pyo3::Python;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyModule;
 use pyo3::prelude::PyModuleMethods;
 use pyo3::pyclass;
@@ -47,6 +48,7 @@ use crate::dtype::null::PyNullDType;
 use crate::dtype::primitive::PyPrimitiveDType;
 use crate::dtype::struct_::PyStructDType;
 use crate::dtype::utf8::PyUtf8DType;
+use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 
@@ -82,13 +84,23 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_struct, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_fixed_size_list, &m)?)?;
-    m.add_function(wrap_pyfunction!(factory::dtype_ext, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_date, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_time, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_timestamp, &m)?)?;
 
     Ok(())
 }
 
 /// Base class for all Vortex data types.
-#[pyclass(name = "DType", module = "vortex", frozen, eq, hash, subclass)]
+#[pyclass(
+    name = "DType",
+    module = "vortex",
+    frozen,
+    eq,
+    hash,
+    subclass,
+    from_py_object
+)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
 
@@ -121,6 +133,9 @@ impl PyDType {
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
+            DType::Variant(_) => Err(PyValueError::new_err(
+                "Variant DType is not supported in Python yet",
+            )),
         }
     }
 
@@ -145,7 +160,6 @@ impl PyDType {
     }
 
     /// Return the inner [`DType`] value.
-    #[allow(dead_code)]
     pub fn into_inner(self) -> DType {
         self.0
     }
@@ -153,12 +167,12 @@ impl PyDType {
 
 #[pymethods]
 impl PyDType {
-    fn to_arrow_type(&self, py: Python) -> PyResult<Py<PyAny>> {
-        self.0.to_arrow_dtype()?.to_pyarrow(py)
+    fn to_arrow_type(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
+        Ok(self.0.to_arrow_dtype()?.to_pyarrow(py)?)
     }
 
-    fn to_arrow_schema(&self, py: Python) -> PyResult<Py<PyAny>> {
-        self.0.to_arrow_schema()?.to_pyarrow(py)
+    fn to_arrow_schema(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
+        Ok(self.0.to_arrow_schema()?.to_pyarrow(py)?)
     }
 
     fn __str__(&self) -> String {

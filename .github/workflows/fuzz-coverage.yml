@@ -1,0 +1,122 @@
+name: Fuzz Coverage Report
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # daily at 6am UTC
+  workflow_dispatch: { }
+
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
+jobs:
+  coverage:
+    name: "Coverage: ${{ matrix.fuzz_target }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzz_target: [array_ops, file_io, compress_roundtrip]
+    timeout-minutes: 60
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-medium/disk=large', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          components: clippy, rustfmt, llvm-tools
+
+      - name: Ensure llvm-tools are installed
+        run: |
+          rustup component add llvm-tools --toolchain $NIGHTLY_TOOLCHAIN || \
+            rustup component add llvm-tools-preview --toolchain $NIGHTLY_TOOLCHAIN
+
+          # Verify llvm-profdata is accessible (cargo-fuzz needs it for coverage merging)
+          LLVM_PROFDATA="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)/lib/rustlib/$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')/bin/llvm-profdata"
+          if [ ! -f "$LLVM_PROFDATA" ]; then
+            echo "ERROR: llvm-profdata not found at $LLVM_PROFDATA"
+            echo "Listing bin directory:"
+            ls -la "$(dirname "$LLVM_PROFDATA")" || echo "Directory does not exist"
+            exit 1
+          fi
+          echo "Found llvm-profdata at $LLVM_PROFDATA"
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
+        with:
+          tool: cargo-fuzz
+
+      - name: Download corpus from R2
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+        run: |
+          CORPUS_KEY="${{ matrix.fuzz_target }}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${{ matrix.fuzz_target }}"
+
+          if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
+            echo "Downloaded corpus successfully"
+            tar -xf "$CORPUS_KEY"
+          else
+            echo "No corpus found for ${{ matrix.fuzz_target }}, creating empty directory"
+            mkdir -p "$CORPUS_DIR"
+          fi
+
+      - name: Generate coverage data
+        run: |
+          RUSTFLAGS="--cfg vortex_nightly" \
+            cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
+            ${{ matrix.fuzz_target }} \
+            -- -rss_limit_mb=4096
+
+      - name: Generate coverage report
+        run: |
+          COVERAGE_DIR="fuzz/coverage/${{ matrix.fuzz_target }}"
+
+          # llvm tools are installed via rustup's llvm-tools component
+          LLVM_TOOLS_BIN="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)/lib/rustlib/$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')/bin"
+
+          TARGET_TRIPLE=$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')
+
+          # cargo-fuzz coverage places the binary at:
+          #   target/<triple>/coverage/<triple>/release/<fuzz_target>
+          FUZZ_BIN="target/${TARGET_TRIPLE}/coverage/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
+
+          if [ ! -f "$FUZZ_BIN" ]; then
+            echo "ERROR: Could not find fuzz binary at $FUZZ_BIN"
+            echo "Searching for binary in target directories..."
+            find target -name "${{ matrix.fuzz_target }}" -type f 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Using fuzz binary: $FUZZ_BIN"
+
+          # HTML report for download
+          "$LLVM_TOOLS_BIN/llvm-cov" show "$FUZZ_BIN" \
+            --format=html \
+            --instr-profile="$COVERAGE_DIR/coverage.profdata" \
+            --ignore-filename-regex='(\.cargo|rustc|registry)' \
+            --output-dir=coverage_html/
+
+          # Text summary to job log
+          "$LLVM_TOOLS_BIN/llvm-cov" report "$FUZZ_BIN" \
+            --instr-profile="$COVERAGE_DIR/coverage.profdata" \
+            --ignore-filename-regex='(\.cargo|rustc|registry)'
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.fuzz_target }}-coverage
+          path: coverage_html/
+          retention-days: 30

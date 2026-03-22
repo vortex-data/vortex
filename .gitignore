@@ -12,6 +12,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+ninja-build/
 develop-eggs/
 dist/
 downloads/
@@ -218,8 +219,12 @@ profile.json.gz
 # Clang compilation database (https://clang.llvm.org/docs/JSONCompilationDatabase.html)
 compile_commands.json
 
-# Claude
+# Commands
+/justfile
+
+# AI Agents
 .claude
+.opencode
 
 # cargo sweep output
 sweep.timestamp
@@ -229,3 +234,7 @@ sweep.timestamp
 
 # CUDA
 *.ptx
+
+# Perfetto
+trace*.json
+trace*.pb

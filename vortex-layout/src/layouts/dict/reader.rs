@@ -11,19 +11,18 @@ use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::try_join;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::SharedArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -39,7 +38,6 @@ use crate::segments::SegmentSource;
 
 pub struct DictReader {
     layout: DictLayout,
-    #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
     session: VortexSession,
 
@@ -88,7 +86,6 @@ impl DictReader {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
-        let session = self.session.clone();
         self.values_array
             .get_or_init(move || {
                 self.values
@@ -100,10 +97,8 @@ impl DictReader {
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
                     .map(move |array| {
-                        // We execute the array to avoid re-evaluating for every split.
                         let array = array?;
-                        let mut ctx = ExecutionCtx::new(session);
-                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
+                        Ok(SharedArray::new(array).into_array())
                     })
                     .boxed()
                     .shared()
@@ -111,21 +106,43 @@ impl DictReader {
             .clone()
     }
 
+    // This is the dict values array without canonicalization, if not already canonical
+    fn values_array_uncanonical(&self) -> SharedArrayFuture {
+        // We capture the name, so it may be wrong if we re-use the same reader within multiple
+        // different parent readers. But that's rare...
+        let values_len = self.values_len;
+        self.values_array.get().cloned().unwrap_or_else(|| {
+            self.values
+                .projection_evaluation(
+                    &(0..values_len as u64),
+                    &root(),
+                    MaskFuture::new_true(values_len),
+                )
+                .vortex_expect("must construct dict values array evaluation")
+                .map_err(Arc::new)
+                .boxed()
+                .shared()
+        })
+    }
+
     fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
-        let session = self.session.clone();
+
+        // Check cache first with read-only lock
+        if let Some(fut) = self.values_evals.get(&expr) {
+            return fut.clone();
+        }
+
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
-                self.values_array()
+                self.values_array_uncanonical()
                     .map(move |array| {
                         let array = array?.apply(&expr)?;
-                        // We execute the array to avoid re-evaluating for every split.
-                        let mut ctx = ExecutionCtx::new(session);
-                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
+                        Ok(SharedArray::new(array).into_array())
                     })
                     .boxed()
                     .shared()
@@ -208,7 +225,7 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
-        let values_eval = self.values_eval(root());
+        let values_eval = self.values_array();
         let codes_eval = self
             .codes
             .projection_evaluation(row_range, &root(), mask)
@@ -220,7 +237,7 @@ impl LayoutReader for DictReader {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
             // SAFETY: Layout was validated at write time.
-            //  * The codes dtype is guaranteed to be an unsigned integer type from the layout
+            //  * The codes dtype is guaranteed to be an integer type from the layout
             //  * The codes child reader ensures the correct dtype.
             //  * The layout stores `all_values_referenced` and if this is malicious then it must
             //    only affect correctness not memory safety.
@@ -228,7 +245,7 @@ impl LayoutReader for DictReader {
                 DictArray::new_unchecked(codes, values)
                     .set_all_values_referenced(all_values_referenced)
             }
-            .to_array()
+            .into_array()
             .optimize()?;
 
             array.apply(&expr)
@@ -245,9 +262,14 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::expr::eq;
     use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
@@ -255,10 +277,6 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
@@ -299,7 +317,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+            .into_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -383,7 +401,8 @@ mod tests {
                 DictLayoutOptions::default(),
             );
 
-            let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
+            let array =
+                VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).into_array();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -404,7 +423,7 @@ mod tests {
 
             let filter = eq(
                 root(),
-                lit(vortex_scalar::Scalar::utf8(
+                lit(vortex_array::scalar::Scalar::utf8(
                     filter_value,
                     Nullability::Nullable,
                 )),
@@ -417,7 +436,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(mask.to_bit_buffer().iter().collect::<Vec<_>>(), expected);
+            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected));
         })
     }
 
@@ -445,7 +464,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+            .into_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
 
@@ -479,7 +498,7 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
-            let expected = array.validity_mask().into_array();
+            let expected = array.validity_mask().unwrap().into_array();
             assert_arrays_eq!(
                 actual
                     .to_canonical()

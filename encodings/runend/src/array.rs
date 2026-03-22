@@ -4,20 +4,24 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
@@ -26,24 +30,19 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
-use vortex_scalar::PValue;
+use vortex_session::VortexSession;
 
-use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
+use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
+use crate::decompress_bool::runend_decode_bools;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
@@ -59,19 +58,77 @@ pub struct RunEndMetadata {
     pub offset: u64,
 }
 
-impl VTable for RunEndVTable {
+impl VTable for RunEnd {
     type Array = RunEndArray;
 
     type Metadata = ProstMetadata<RunEndMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &RunEnd
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &RunEndArray) -> usize {
+        array.length
+    }
+
+    fn dtype(array: &RunEndArray) -> &DType {
+        array.values.dtype()
+    }
+
+    fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
+        array.ends.array_hash(state, precision);
+        array.values.array_hash(state, precision);
+        array.offset.hash(state);
+        array.length.hash(state);
+    }
+
+    fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
+        array.ends.array_eq(&other.ends, precision)
+            && array.values.array_eq(&other.values, precision)
+            && array.offset == other.offset
+            && array.length == other.length
+    }
+
+    fn nbuffers(_array: &RunEndArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &RunEndArray, idx: usize) -> BufferHandle {
+        vortex_panic!("RunEndArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &RunEndArray, idx: usize) -> Option<String> {
+        vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(_array: &RunEndArray) -> usize {
+        2
+    }
+
+    fn child(array: &RunEndArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.ends().clone(),
+            1 => array.values().clone(),
+            _ => vortex_panic!("RunEndArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &RunEndArray, idx: usize) -> String {
+        match idx {
+            0 => "ends".to_string(),
+            1 => "values".to_string(),
+            _ => vortex_panic!("RunEndArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -87,8 +144,14 @@ impl VTable for RunEndVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<RunEndMetadata> as DeserializeMetadata>::deserialize(buffer)?;
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        let inner = <ProstMetadata<RunEndMetadata> as DeserializeMetadata>::deserialize(bytes)?;
         Ok(ProstMetadata(inner))
     }
 
@@ -140,12 +203,12 @@ impl VTable for RunEndVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        run_end_canonicalize(array, ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        run_end_canonicalize(array, ctx).map(ExecutionStep::Done)
     }
 }
 
@@ -164,16 +227,16 @@ pub struct RunEndArrayParts {
 }
 
 #[derive(Debug)]
-pub struct RunEndVTable;
+pub struct RunEnd;
 
-impl RunEndVTable {
+impl RunEnd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
 }
 
 impl RunEndArray {
     fn validate(
-        ends: &dyn Array,
-        values: &dyn Array,
+        ends: &ArrayRef,
+        values: &ArrayRef,
         offset: usize,
         length: usize,
     ) -> VortexResult<()> {
@@ -183,12 +246,6 @@ impl RunEndArray {
             "run ends must be unsigned integers, was {}",
             ends.dtype(),
         );
-        vortex_ensure!(
-            values.dtype().is_primitive() || values.dtype().is_boolean(),
-            "RunEnd array can only have Bool or Primitive values, {} given",
-            values.dtype()
-        );
-
         vortex_ensure!(
             ends.len() == values.len(),
             "run ends len != run values len, {} != {}",
@@ -214,15 +271,35 @@ impl RunEndArray {
             return Ok(());
         }
 
+        debug_assert!({
+            // Run ends must be strictly sorted for binary search to work correctly.
+            let pre_validation = ends.statistics().to_owned();
+
+            let is_sorted = ends
+                .statistics()
+                .compute_is_strict_sorted()
+                .unwrap_or(false);
+
+            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
+            // We don't want to run with different stats in debug mode and outside.
+            ends.statistics().inherit(pre_validation.iter());
+            is_sorted
+        });
+
+        // Skip host-only validation when ends are not host-resident.
+        if !ends.is_host() {
+            return Ok(());
+        }
+
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
-            let first_run_end: usize = ends.scalar_at(0).as_ref().try_into()?;
+            let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
         }
 
-        let last_run_end: usize = ends.scalar_at(ends.len() - 1).as_ref().try_into()?;
+        let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1)?)?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
             vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
@@ -244,15 +321,19 @@ impl RunEndArray {
     /// # use vortex_array::arrays::BoolArray;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
+    /// # use vortex_error::VortexResult;
     /// # use vortex_runend::RunEndArray;
+    /// # fn main() -> VortexResult<()> {
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
     /// let run_end = RunEndArray::new(ends, values);
     ///
     /// // Array encodes
-    /// assert_eq!(run_end.scalar_at(0), false.into());
-    /// assert_eq!(run_end.scalar_at(1), false.into());
-    /// assert_eq!(run_end.scalar_at(2), true.into());
+    /// assert_eq!(run_end.scalar_at(0)?, false.into());
+    /// assert_eq!(run_end.scalar_at(1)?, false.into());
+    /// assert_eq!(run_end.scalar_at(2)?, true.into());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new(ends: ArrayRef, values: ArrayRef) -> Self {
         Self::try_new(ends, values).vortex_expect("RunEndArray new")
@@ -262,37 +343,12 @@ impl RunEndArray {
     ///
     /// # Validation
     ///
-    /// The `ends` must be non-nullable unsigned integers. The values may be `Bool` or `Primitive`
-    /// types.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use vortex_array::arrays::{BoolArray, VarBinViewArray};
-    /// # use vortex_array::IntoArray;
-    /// # use vortex_buffer::buffer;
-    /// # use vortex_runend::RunEndArray;
-    ///
-    /// // Error to provide incorrectly-typed values!
-    /// let result = RunEndArray::try_new(
-    ///     buffer![1u8, 2u8].into_array(),
-    ///     VarBinViewArray::from_iter_str(["bad", "dtype"]).into_array(),
-    /// );
-    /// assert!(result.is_err());
-    ///
-    /// // This array is happy
-    /// let result = RunEndArray::try_new(
-    ///     buffer![1u8, 2u8].into_array(),
-    ///     BoolArray::from_iter([false, true]).into_array(),
-    /// );
-    ///
-    /// assert!(result.is_ok());
-    /// ```
+    /// The `ends` must be non-nullable unsigned integers.
     pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         let length: usize = if ends.is_empty() {
             0
         } else {
-            ends.scalar_at(ends.len() - 1).as_ref().try_into()?
+            usize::try_from(&ends.scalar_at(ends.len() - 1)?)?
         };
 
         Self::try_new_offset_length(ends, values, 0, length)
@@ -342,19 +398,20 @@ impl RunEndArray {
     }
 
     /// Convert the given logical index to an index into the `values` array
-    pub fn find_physical_index(&self, index: usize) -> usize {
-        self.ends()
+    pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
+        Ok(self
+            .ends()
             .as_primitive_typed()
             .search_sorted(
                 &PValue::from(index + self.offset()),
                 SearchSortedSide::Right,
-            )
-            .to_ends_index(self.ends().len())
+            )?
+            .to_ends_index(self.ends().len()))
     }
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+        if let Some(parray) = array.as_opt::<Primitive>() {
             let (ends, values) = runend_encode(parray);
             // SAFETY: runend_encode handles this
             unsafe {
@@ -400,41 +457,13 @@ impl RunEndArray {
     #[inline]
     pub fn into_parts(self) -> RunEndArrayParts {
         RunEndArrayParts {
-            values: self.values,
             ends: self.ends,
+            values: self.values,
         }
     }
 }
 
-impl BaseArrayVTable<RunEndVTable> for RunEndVTable {
-    fn len(array: &RunEndArray) -> usize {
-        array.length
-    }
-
-    fn dtype(array: &RunEndArray) -> &DType {
-        array.values.dtype()
-    }
-
-    fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
-        array.ends.array_hash(state, precision);
-        array.values.array_hash(state, precision);
-        array.offset.hash(state);
-        array.length.hash(state);
-    }
-
-    fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
-        array.ends.array_eq(&other.ends, precision)
-            && array.values.array_eq(&other.values, precision)
-            && array.offset == other.offset
-            && array.length == other.length
-    }
-}
-
-impl ValidityVTable<RunEndVTable> for RunEndVTable {
+impl ValidityVTable<RunEnd> for RunEnd {
     fn validity(array: &RunEndArray) -> VortexResult<Validity> {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,
@@ -450,65 +479,44 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
             }),
         })
     }
-
-    fn validity_mask(array: &RunEndArray) -> Mask {
-        match array.values().validity_mask() {
-            Mask::AllTrue(_) => Mask::AllTrue(array.len()),
-            Mask::AllFalse(_) => Mask::AllFalse(array.len()),
-            Mask::Values(values) => {
-                // SAFETY: we preserve ends from an existing validated RunEndArray.
-                //  Validity is checked on construction to have the correct len.
-                let ree_validity = unsafe {
-                    RunEndArray::new_unchecked(
-                        array.ends().clone(),
-                        values.into_array(),
-                        array.offset(),
-                        array.len(),
-                    )
-                    .into_array()
-                };
-                Mask::from_buffer(ree_validity.to_bool().bit_buffer().clone())
-            }
-        }
-    }
 }
 
 pub(super) fn run_end_canonicalize(
     array: &RunEndArray,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Canonical> {
-    let pends = array.ends().clone().execute(ctx)?;
+) -> VortexResult<ArrayRef> {
+    let pends = array.ends().clone().execute_as("ends", ctx)?;
+
     Ok(match array.dtype() {
         DType::Bool(_) => {
-            let bools = array.values().clone().execute(ctx)?;
-            Canonical::Bool(runend_decode_bools(
-                pends,
-                bools,
-                array.offset(),
-                array.len(),
-            ))
+            let bools = array.values().clone().execute_as("values", ctx)?;
+            runend_decode_bools(pends, bools, array.offset(), array.len())?
         }
         DType::Primitive(..) => {
-            let pvalues = array.values().clone().execute(ctx)?;
-            Canonical::Primitive(runend_decode_primitive(
-                pends,
-                pvalues,
-                array.offset(),
-                array.len(),
-            ))
+            let pvalues = array.values().clone().execute_as("values", ctx)?;
+            runend_decode_primitive(pends, pvalues, array.offset(), array.len())?.into_array()
         }
-        _ => vortex_panic!("Only Primitive and Bool values are supported"),
+        DType::Utf8(_) | DType::Binary(_) => {
+            let values = array
+                .values()
+                .clone()
+                .execute_as::<VarBinViewArray>("values", ctx)?;
+            runend_decode_varbinview(pends, values, array.offset(), array.len())?.into_array()
+        }
+        _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::RunEndArray;
 
@@ -528,6 +536,35 @@ mod tests {
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
         let expected = buffer![1, 1, 2, 2, 2, 3, 3, 3, 3, 3].into_array();
-        assert_arrays_eq!(arr.to_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected);
+    }
+
+    #[test]
+    fn test_runend_utf8() {
+        let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+        let arr = RunEndArray::new(buffer![2u32, 5, 10].into_array(), values);
+        assert_eq!(arr.len(), 10);
+        assert_eq!(arr.dtype(), &DType::Utf8(Nullability::NonNullable));
+
+        let expected =
+            VarBinViewArray::from_iter_str(["a", "a", "b", "b", "b", "c", "c", "c", "c", "c"])
+                .into_array();
+        assert_arrays_eq!(arr.into_array(), expected);
+    }
+
+    #[test]
+    fn test_runend_dict() {
+        let dict_values = VarBinViewArray::from_iter_str(["x", "y", "z"]).into_array();
+        let dict_codes = buffer![0u32, 1, 2].into_array();
+        let dict = DictArray::try_new(dict_codes, dict_values).unwrap();
+
+        let arr =
+            RunEndArray::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array()).unwrap();
+        assert_eq!(arr.len(), 10);
+
+        let expected =
+            VarBinViewArray::from_iter_str(["x", "x", "y", "y", "y", "z", "z", "z", "z", "z"])
+                .into_array();
+        assert_arrays_eq!(arr.into_array(), expected);
     }
 }

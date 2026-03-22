@@ -8,12 +8,12 @@ use bytes::Bytes;
 use bytes::BytesMut;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::session::ArrayRegistry;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::messages::DecoderMessage;
 use crate::messages::EncoderMessage;
@@ -24,19 +24,22 @@ use crate::messages::SyncMessageReader;
 pub struct SyncIPCReader<R: Read> {
     reader: SyncMessageReader<R>,
     dtype: DType,
-    registry: ArrayRegistry,
+    session: VortexSession,
 }
 
 impl<R: Read> SyncIPCReader<R> {
-    pub fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
+    pub fn try_new(read: R, session: &VortexSession) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read);
         match reader.next().transpose()? {
             Some(msg) => match msg {
-                DecoderMessage::DType(dtype) => Ok(SyncIPCReader {
-                    reader,
-                    dtype,
-                    registry,
-                }),
+                DecoderMessage::DType(fb_dtype) => {
+                    let dtype = DType::from_flatbuffer(fb_dtype, session)?;
+                    Ok(SyncIPCReader {
+                        reader,
+                        dtype,
+                        session: session.clone(),
+                    })
+                }
                 msg => {
                     vortex_bail!("Expected DType message, got {:?}", msg);
                 }
@@ -60,7 +63,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
             Ok(msg) => match msg {
                 DecoderMessage::Array((array_parts, ctx, row_count)) => Some(
                     array_parts
-                        .decode(&self.dtype, row_count, &ctx, &self.registry)
+                        .decode(&self.dtype, row_count, &ctx, &self.session)
                         .and_then(|array| {
                             if array.dtype() != self.dtype() {
                                 Err(vortex_err!(
@@ -82,7 +85,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
 
 /// A trait for converting an [`ArrayIterator`] into an IPC stream.
 pub trait ArrayIteratorIPC {
-    fn into_ipc(self) -> ArrayIteratorIPCBytes
+    fn into_ipc(self) -> VortexResult<ArrayIteratorIPCBytes>
     where
         Self: Sized;
 
@@ -92,24 +95,24 @@ pub trait ArrayIteratorIPC {
 }
 
 impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
-    fn into_ipc(self) -> ArrayIteratorIPCBytes
+    fn into_ipc(self) -> VortexResult<ArrayIteratorIPCBytes>
     where
         Self: Sized,
     {
         let mut encoder = MessageEncoder::default();
-        let buffers = encoder.encode(EncoderMessage::DType(self.dtype()));
-        ArrayIteratorIPCBytes {
+        let buffers = encoder.encode(EncoderMessage::DType(self.dtype()))?;
+        Ok(ArrayIteratorIPCBytes {
             inner: Box::new(self),
             encoder,
             buffers,
-        }
+        })
     }
 
     fn write_ipc<W: Write>(self, mut write: W) -> VortexResult<W>
     where
         Self: Sized,
     {
-        let mut stream = self.into_ipc();
+        let mut stream = self.into_ipc()?;
         for buffer in &mut stream {
             write.write_all(buffer?.as_ref())?;
         }
@@ -145,11 +148,12 @@ impl Iterator for ArrayIteratorIPCBytes {
         }
 
         // Or else try to serialize the next array
-        match self.inner.next()? {
-            Ok(chunk) => {
-                self.buffers
-                    .extend(self.encoder.encode(EncoderMessage::Array(&chunk)));
-            }
+        match self
+            .inner
+            .next()?
+            .and_then(|chunk| self.encoder.encode(EncoderMessage::Array(&chunk)))
+        {
+            Ok(buffers) => self.buffers.extend(buffers),
             Err(e) => return Some(Err(e)),
         }
 
@@ -168,33 +172,25 @@ mod test {
     use std::io::Cursor;
 
     use vortex_array::IntoArray as _;
-    use vortex_array::ToCanonical;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::iter::ArrayIterator;
     use vortex_array::iter::ArrayIteratorExt;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::test::SESSION;
 
     #[test]
-    fn test_sync_stream() {
-        let session = ArraySession::default();
-
+    fn test_sync_stream() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
-        let ipc_buffer = array
-            .to_array_iterator()
-            .into_ipc()
-            .collect_to_buffer()
-            .unwrap();
+        let ipc_buffer = array.to_array_iterator().into_ipc()?.collect_to_buffer()?;
 
-        let reader =
-            SyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone()).unwrap();
+        let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), &SESSION)?;
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.read_all().unwrap().to_primitive();
-        assert_eq!(
-            array.to_primitive().as_slice::<i32>(),
-            result.as_slice::<i32>()
-        );
+        let result = reader.read_all()?;
+        assert_arrays_eq!(result, array);
+
+        Ok(())
     }
 }

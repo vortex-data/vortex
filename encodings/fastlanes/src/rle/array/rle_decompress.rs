@@ -5,14 +5,15 @@ use arrayref::array_mut_ref;
 use arrayref::array_ref;
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_native_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -102,6 +103,6 @@ where
         buffer
             .freeze()
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
-        Validity::copy_from_array(array.as_ref()),
+        Validity::copy_from_array(&array.clone().into_array())?,
     ))
 }

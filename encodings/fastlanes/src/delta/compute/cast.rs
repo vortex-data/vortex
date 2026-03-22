@@ -3,20 +3,18 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability::NonNullable;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::delta::Delta;
 use crate::delta::DeltaArray;
-use crate::delta::DeltaVTable;
 
-impl CastKernel for DeltaVTable {
-    fn cast(&self, array: &DeltaArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for Delta {
+    fn cast(array: &DeltaArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Delta encoding stores differences between consecutive values, which requires
         // unsigned integers to avoid overflow issues. Signed integers could produce
         // negative deltas that wouldn't fit in the unsigned delta representation.
@@ -35,45 +33,50 @@ impl CastKernel for DeltaVTable {
         }
 
         // Cast both bases and deltas to the target type
-        let casted_bases = cast(array.bases(), &dtype.with_nullability(NonNullable))?;
-        let casted_deltas = cast(array.deltas(), dtype)?;
+        let casted_bases = array.bases().cast(dtype.with_nullability(NonNullable))?;
+        let casted_deltas = array.deltas().cast(dtype.clone())?;
 
-        // Create a new DeltaArray with the casted components
+        // Create a new DeltaArray with the casted components, preserving offset and logical length
         Ok(Some(
-            DeltaArray::try_from_delta_compress_parts(casted_bases, casted_deltas)?.into_array(),
+            DeltaArray::try_new(casted_bases, casted_deltas, array.offset(), array.len())?
+                .into_array(),
         ))
     }
 }
 
-register_kernel!(CastKernelAdapter(DeltaVTable).lift());
-
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_buffer::Buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::session::ArraySession;
+    use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::delta::DeltaArray;
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_cast_delta_u8_to_u32() {
-        let primitive = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u8, 20, 30, 40, 50]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
+        let primitive = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50]);
+        let array =
+            DeltaArray::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
+                .unwrap();
 
-        let casted = cast(
-            array.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = array
+            .into_array()
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
@@ -88,16 +91,17 @@ mod tests {
         // DeltaArray doesn't support nullable arrays - the validity is handled at the DeltaArray level
         // Create a non-nullable array and then add validity to the DeltaArray
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![100u16, 0, 200, 300, 0]),
+            buffer![100u16, 0, 200, 300, 0],
             vortex_array::validity::Validity::NonNullable,
         );
-        let array = DeltaArray::try_from_primitive_array(&values).unwrap();
+        let array =
+            DeltaArray::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())
+                .unwrap();
 
-        let casted = cast(
-            array.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = array
+            .into_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
@@ -107,30 +111,32 @@ mod tests {
     #[rstest]
     #[case::u8(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u8, 10, 20, 30, 40, 50]),
+            buffer![0u8, 10, 20, 30, 40, 50],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     #[case::u16(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u16, 100, 200, 300, 400, 500]),
+            buffer![0u16, 100, 200, 300, 400, 500],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     #[case::u32(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u32, 1000, 2000, 3000, 4000]),
+            buffer![0u32, 1000, 2000, 3000, 4000],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     #[case::u64(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u64, 10000, 20000, 30000]),
+            buffer![0u64, 10000, 20000, 30000],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
-        let delta_array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
-        test_cast_conformance(delta_array.as_ref());
+        let delta_array =
+            DeltaArray::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
+                .unwrap();
+        test_cast_conformance(&delta_array.into_array());
     }
 }

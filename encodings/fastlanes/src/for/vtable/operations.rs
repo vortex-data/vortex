@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
-use super::FoRVTable;
+use super::FoR;
 use crate::FoRArray;
 
-impl OperationsVTable<FoRVTable> for FoRVTable {
-    fn scalar_at(array: &FoRArray, index: usize) -> Scalar {
-        let encoded_pvalue = array.encoded().scalar_at(index);
+impl OperationsVTable<FoR> for FoR {
+    fn scalar_at(array: &FoRArray, index: usize) -> VortexResult<Scalar> {
+        let encoded_pvalue = array.encoded().scalar_at(index)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let reference = array.reference_scalar();
         let reference = reference.as_primitive();
 
-        match_each_integer_ptype!(array.ptype(), |P| {
+        Ok(match_each_integer_ptype!(array.ptype(), |P| {
             encoded_pvalue
                 .typed_value::<P>()
                 .map(|v| {
@@ -28,7 +29,7 @@ impl OperationsVTable<FoRVTable> for FoRVTable {
                 })
                 .map(|v| Scalar::primitive::<P>(v, array.reference_scalar().dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.reference_scalar().dtype().clone()))
-        })
+        }))
     }
 }
 

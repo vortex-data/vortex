@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::Null;
 use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::dict::TakeReduceAdaptor;
+use crate::match_each_integer_ptype;
+use crate::optimizer::rules::ParentRuleSet;
 
-impl TakeKernel for NullVTable {
+impl TakeReduce for Null {
     #[allow(clippy::cast_possible_truncation)]
-    fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    fn take(array: &NullArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
 
         // Enforce all indices are valid
@@ -29,8 +28,11 @@ impl TakeKernel for NullVTable {
             }
         });
 
-        Ok(NullArray::new(indices.len()).into_array())
+        Ok(Some(NullArray::new(indices.len()).into_array()))
     }
 }
 
-register_kernel!(TakeKernelAdapter(NullVTable).lift());
+impl Null {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}

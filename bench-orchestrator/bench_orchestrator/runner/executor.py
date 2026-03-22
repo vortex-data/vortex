@@ -35,6 +35,8 @@ class BenchmarkExecutor:
         options: dict[str, str] | None = None,
         track_memory: bool = False,
         samply: bool = False,
+        sample_rate: int | None = None,
+        tracing: bool = False,
         on_result: Callable[[str], None] | None = None,
     ) -> list[str]:
         """
@@ -71,12 +73,23 @@ class BenchmarkExecutor:
             cmd.extend(["--exclude-queries", ",".join(map(str, exclude_queries))])
         if track_memory:
             cmd.append("--track-memory")
+        if tracing:
+            cmd.append("--tracing")
         if options:
             for k, v in options.items():
                 cmd.extend(["--opt", f"{k}={v}"])
 
         if samply:
-            cmd = ["samply", "record", "--"] + cmd
+            cmd = ["--"] + cmd
+            cmd_prefix = ["samply", "record"]
+            if sample_rate:
+                cmd = cmd_prefix + ["--rate", sample_rate] + cmd
+            else:
+                cmd = cmd_prefix + cmd
+
+        if samply and self.engine == Engine.DUCKDB:
+            # Re-use the same DuckDB instance across runs make samply output readable
+            cmd += ["--reuse"]
 
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")

@@ -6,29 +6,26 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::compute::filter;
-use crate::register_kernel;
+use crate::arrays::filter::FilterReduce;
 use crate::vtable::ValidityHelper;
 
-impl FilterKernel for MaskedVTable {
-    fn filter(&self, array: &MaskedArray, mask: &Mask) -> VortexResult<ArrayRef> {
+impl FilterReduce for Masked {
+    fn filter(array: &MaskedArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         // Filter the validity to get the new validity
         let filtered_validity = array.validity().filter(mask)?;
 
         // Filter the child array
         // The child is guaranteed to have no nulls, so filtering it is straightforward
-        let filtered_child = filter(&array.child, mask)?;
+        let filtered_child = array.child.filter(mask.clone())?;
 
         // Construct new MaskedArray
-        Ok(MaskedArray::try_new(filtered_child, filtered_validity)?.into_array())
+        Ok(Some(
+            MaskedArray::try_new(filtered_child, filtered_validity)?.into_array(),
+        ))
     }
 }
-
-register_kernel!(FilterKernelAdapter(MaskedVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -60,6 +57,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_filter_masked_conformance(#[case] array: MaskedArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

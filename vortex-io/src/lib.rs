@@ -12,20 +12,21 @@
 
 pub use io_buf::*;
 pub use limit::*;
-#[cfg(feature = "object_store")]
-pub use object_store::*;
-pub use read::*;
+pub use read_at::*;
 pub use write::*;
 
-pub mod file;
+pub mod compat;
+pub mod filesystem;
 mod io_buf;
 pub mod kanal_ext;
 mod limit;
 #[cfg(feature = "object_store")]
-mod object_store;
-mod read;
+pub mod object_store;
+mod read_at;
 pub mod runtime;
 pub mod session;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod std_file;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;

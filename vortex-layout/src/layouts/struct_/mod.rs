@@ -7,14 +7,13 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::StructReader;
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
-use vortex_dtype::DType;
-use vortex_dtype::Field;
-use vortex_dtype::FieldMask;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -22,6 +21,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -37,7 +37,7 @@ use crate::vtable;
 
 vtable!(Struct);
 
-impl VTable for StructVTable {
+impl VTable for Struct {
     type Layout = StructLayout;
     type Encoding = StructLayoutEncoding;
     type Metadata = EmptyMetadata;
@@ -124,23 +124,6 @@ impl VTable for StructVTable {
         )?))
     }
 
-    #[cfg(gpu_unstable)]
-    fn new_gpu_reader(
-        layout: &Self::Layout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        Ok(Arc::new(
-            crate::gpu::layouts::struct_::GpuStructReader::try_new(
-                layout.clone(),
-                name,
-                segment_source,
-                ctx,
-            )?,
-        ))
-    }
-
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
@@ -148,7 +131,7 @@ impl VTable for StructVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContext,
+        _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         let struct_dt = dtype
             .as_struct_fields_opt()
@@ -191,6 +174,9 @@ impl VTable for StructVTable {
 #[derive(Debug)]
 pub struct StructLayoutEncoding;
 
+/// Decomposes a struct-typed column into one child per field, enabling columnar projection.
+///
+/// Queries that only need a subset of fields can skip reading the rest entirely.
 #[derive(Clone, Debug)]
 pub struct StructLayout {
     row_count: u64,

@@ -22,16 +22,36 @@ pub fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display
 #[macro_export]
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
+        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
+    };
+}
+
+/// Asserts that the scalar at position `$n` in array `$arr` is null.
+///
+/// # Example
+///
+/// ```ignore
+/// let arr = PrimitiveArray::from_option_iter([Some(1), None, Some(3)]);
+/// assert_nth_scalar_null!(arr, 1);
+/// ```
+#[macro_export]
+macro_rules! assert_nth_scalar_is_null {
+    ($arr:expr, $n:expr) => {
+        assert!(
+            $arr.scalar_at($n).unwrap().is_null(),
+            "expected scalar at index {} to be null, but was {:?}",
+            $n,
+            $arr.scalar_at($n).unwrap()
+        );
     };
 }
 
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
-       let left = $left.clone();
-       let right = $right.clone();
-       if left.dtype() != right.dtype() {
+        let left = $left.clone();
+        let right = $right.clone();
+        if left.dtype() != right.dtype() {
             panic!(
                 "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
                 left.dtype(),
@@ -50,9 +70,10 @@ macro_rules! assert_arrays_eq {
                 right.display_values()
             )
         }
+
         let n = left.len();
         let mismatched_indices = (0..n)
-            .filter(|i| left.scalar_at(*i) != right.scalar_at(*i))
+            .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
             .collect::<Vec<_>>();
         if mismatched_indices.len() != 0 {
             panic!(

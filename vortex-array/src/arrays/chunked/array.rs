@@ -10,15 +10,15 @@ use std::fmt::Debug;
 use futures::stream;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::DType;
 use crate::iter::ArrayIterator;
 use crate::iter::ArrayIteratorAdapter;
 use crate::search_sorted::SearchSorted;
@@ -107,8 +107,8 @@ impl ChunkedArray {
     #[inline]
     pub fn chunk(&self, idx: usize) -> &ArrayRef {
         assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
-
-        &self.chunks[idx]
+        // SAFETY: bounds checked by the assert above.
+        unsafe { self.chunks.get_unchecked(idx) }
     }
 
     pub fn nchunks(&self) -> usize {
@@ -120,7 +120,7 @@ impl ChunkedArray {
         self.chunk_offsets.to_buffer()
     }
 
-    pub(crate) fn find_chunk_idx(&self, index: usize) -> (usize, usize) {
+    pub(crate) fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
         assert!(index <= self.len(), "Index out of bounds of the array");
         let index = index as u64;
 
@@ -128,14 +128,14 @@ impl ChunkedArray {
         // and take the last chunk (we subtract 1 since there's a leading 0)
         let index_chunk = self
             .chunk_offsets()
-            .search_sorted(&index, SearchSortedSide::Right)
+            .search_sorted(&index, SearchSortedSide::Right)?
             .to_ends_index(self.nchunks() + 1)
             .saturating_sub(1);
         let chunk_start = self.chunk_offsets()[index_chunk];
 
         let index_in_chunk =
             usize::try_from(index - chunk_start).vortex_expect("Index is too large for usize");
-        (index_chunk, index_in_chunk)
+        Ok((index_chunk, index_in_chunk))
     }
 
     pub fn chunks(&self) -> &[ArrayRef] {
@@ -224,49 +224,17 @@ impl FromIterator<ArrayRef> for ChunkedArray {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
-    use crate::array::Array;
-    use crate::arrays::ChunkedVTable;
+    use crate::array::DynArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
-    use crate::compute::sub_scalar;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
-
-    fn chunked_array() -> ChunkedArray {
-        ChunkedArray::try_new(
-            vec![
-                buffer![1u64, 2, 3].into_array(),
-                buffer![4u64, 5, 6].into_array(),
-                buffer![7u64, 8, 9].into_array(),
-            ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn test_scalar_subtract() {
-        let chunked = chunked_array().into_array();
-        let to_subtract = 1u64;
-        let array = sub_scalar(&chunked, to_subtract.into()).unwrap();
-
-        let chunked = array.as_::<ChunkedVTable>();
-        let chunks_out = chunked.chunks();
-
-        let results = chunks_out[0].to_primitive().as_slice::<u64>().to_vec();
-        assert_eq!(results, &[0u64, 1, 2]);
-        let results = chunks_out[1].to_primitive().as_slice::<u64>().to_vec();
-        assert_eq!(results, &[3u64, 4, 5]);
-        let results = chunks_out[2].to_primitive().as_slice::<u64>().to_vec();
-        assert_eq!(results, &[6u64, 7, 8]);
-    }
 
     #[test]
     fn test_rechunk_one_chunk() {
@@ -348,8 +316,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid());
-        assert!(!chunked.all_invalid());
+        assert!(chunked.all_valid().unwrap());
+        assert!(!chunked.all_invalid().unwrap());
 
         Ok(())
     }
@@ -368,8 +336,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid());
-        assert!(chunked.all_invalid());
+        assert!(!chunked.all_valid().unwrap());
+        assert!(chunked.all_invalid().unwrap());
 
         Ok(())
     }
@@ -388,8 +356,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid());
-        assert!(!chunked.all_invalid());
+        assert!(!chunked.all_valid().unwrap());
+        assert!(!chunked.all_invalid().unwrap());
 
         Ok(())
     }

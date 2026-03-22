@@ -4,160 +4,116 @@
 mod cast;
 mod compare;
 mod filter;
-mod is_constant;
-mod is_sorted;
 mod mask;
-mod min_max;
-mod sum;
+pub(crate) mod rules;
+mod slice;
 mod take;
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtID;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::IntoArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::Nullability;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     #[test]
     fn test_filter_extension_array() {
-        // Create a simple extension type (e.g., UUID represented as u64)
-        let ext_dtype = ExtDType::new(
-            ExtID::new("uuid".into()),
-            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
-            None,
-        );
+        let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
 
         // Create storage array
-        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
-        let array = ExtensionArray::new(Arc::new(ext_dtype), storage);
-        test_filter_conformance(array.as_ref());
+        let storage = buffer![1i32, 2, 3, 4, 5].into_array();
+        let array = ExtensionArray::new(ext_dtype.clone(), storage);
+        test_filter_conformance(&array.into_array());
 
         // Test with nullable extension type
-        let ext_dtype_nullable = ExtDType::new(
-            ExtID::new("uuid".into()),
-            Arc::new(DType::Primitive(PType::U64, Nullability::Nullable)),
-            None,
-        );
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let ext_dtype_nullable = ext_dtype.with_nullability(Nullability::Nullable);
+        let storage = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None])
             .into_array();
-        let array = ExtensionArray::new(Arc::new(ext_dtype_nullable), storage);
-        test_filter_conformance(array.as_ref());
+        let array = ExtensionArray::new(ext_dtype_nullable, storage);
+        test_filter_conformance(&array.into_array());
     }
 
     #[rstest]
     #[case({
-        // Simple extension type (non-nullable u64)
-        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
-        let ext_dtype = ExtDType::new(
-            ExtID::new("uuid".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype), storage)
+        // Simple extension type (non-nullable i64)
+        let storage = buffer![1i64, 2, 3, 4, 5].into_array();
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+        ExtensionArray::new(ext_dtype, storage)
     })]
     #[case({
         // Nullable extension type
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
-        let ext_dtype_nullable = ExtDType::new(
-            ExtID::new("uuid".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype_nullable), storage)
+        let ext_dtype_nullable = Timestamp::new(
+            TimeUnit::Milliseconds,
+            Nullability::Nullable,
+        ).erased();
+        ExtensionArray::new(ext_dtype_nullable, storage)
     })]
     #[case({
         // Single element
-        let storage = buffer![42u64].into_array();
-        let ext_dtype_single = ExtDType::new(
-            ExtID::new("uuid".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype_single), storage)
+        let storage = buffer![42i64].into_array();
+        let ext_dtype_single = Timestamp::new(
+            TimeUnit::Milliseconds,
+            Nullability::NonNullable,
+        ).erased();
+        ExtensionArray::new(ext_dtype_single, storage)
     })]
     #[case({
         // Larger array for edge cases
-        let storage = buffer![0u64..100].into_array();
-        let ext_dtype_large = ExtDType::new(
-            ExtID::new("uuid".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype_large), storage)
+        let storage = buffer![0i64..100].into_array();
+        let ext_dtype_large = Timestamp::new(
+            TimeUnit::Milliseconds,
+            Nullability::NonNullable,
+        ).erased();
+        ExtensionArray::new(ext_dtype_large, storage)
     })]
     fn test_take_extension_array_conformance(#[case] array: ExtensionArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtID;
 
     use crate::IntoArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::Nullability;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     #[rstest]
     // Note: The original test_all_consistency cases for extension arrays caused errors
     // because of unsupported extension type "uuid". We'll use simpler test cases.
     #[case::extension_simple({
-        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
-        let ext_dtype = ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype), storage)
+        let storage = buffer![1i64, 2, 3, 4, 5].into_array();
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+        ExtensionArray::new(ext_dtype, storage)
     })]
     #[case::extension_nullable({
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
-        let ext_dtype = ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype), storage)
-    })]
-    // Additional test cases
-    #[case::extension_single({
-        let storage = buffer![42i32].into_array();
-        let ext_dtype = ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype), storage)
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+        ExtensionArray::new(ext_dtype, storage)
     })]
     #[case::extension_large({
         let storage = buffer![0..100i64].into_array();
-        let ext_dtype = ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(storage.dtype().clone()),
-            None,
-        );
-        ExtensionArray::new(Arc::new(ext_dtype), storage)
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+        ExtensionArray::new(ext_dtype, storage)
     })]
     fn test_extension_consistency(#[case] array: ExtensionArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

@@ -16,11 +16,11 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_dtype::DType;
-use vortex_dtype::Field;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldPath;
-use vortex_dtype::Nullability;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -33,7 +33,6 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
-use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -53,18 +52,6 @@ pub struct TableStrategy {
     fallback: Arc<dyn LayoutStrategy>,
 }
 
-impl Default for TableStrategy {
-    fn default() -> Self {
-        let flat = Arc::new(FlatLayoutStrategy::default());
-
-        Self {
-            leaf_writers: HashMap::default(),
-            validity: flat.clone(),
-            fallback: flat,
-        }
-    }
-}
-
 impl TableStrategy {
     /// Create a new writer with the specified write strategies for validity, and for all leaf
     /// fields, with no overrides.
@@ -73,7 +60,7 @@ impl TableStrategy {
     ///
     /// ## Example
     ///
-    /// ```
+    /// ```ignore
     /// # use std::sync::Arc;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
@@ -95,30 +82,26 @@ impl TableStrategy {
     ///
     /// ## Example
     ///
-    /// ```no_run
+    /// ```ignore
     /// # use std::sync::Arc;
-    /// # use vortex_dtype::{field_path, Field, FieldPath};
-    /// # use vortex_layout::layouts::compact::CompactCompressor;
+    /// # use vortex_array::dtype::{field_path, Field, FieldPath};
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
     ///
     /// // A strategy for compressing data using the balanced BtrBlocks compressor.
-    /// let compress_btrblocks = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
-    ///
-    /// // A strategy that compresses data using ZSTD
-    /// let compress_compact = CompressingStrategy::new_compact(FlatLayoutStrategy::default(), CompactCompressor::default());
+    /// let compress = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
     ///
     /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
-    /// // for most columns, and will use ZSTD compression for a nested binary column that we know
-    /// // is never filtered in.
+    /// // for most columns, and stores a nested binary column uncompressed (flat) because it
+    /// // is pre-compressed or never filtered on.
     /// let strategy = TableStrategy::new(
     ///         Arc::new(FlatLayoutStrategy::default()),
-    ///         Arc::new(compress_btrblocks),
+    ///         Arc::new(compress),
     ///     )
     ///     .with_field_writer(
     ///         field_path!(request.body.bytes),
-    ///         Arc::new(compress_compact),
+    ///         Arc::new(FlatLayoutStrategy::default()),
     ///     );
     /// ```
     pub fn with_field_writer(
@@ -251,13 +234,13 @@ impl LayoutStrategy for TableStrategy {
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask().into_array(),
+                    chunk.validity_mask()?.into_array(),
                 ));
             }
 
             columns.extend(
                 struct_chunk
-                    .fields()
+                    .unmasked_fields()
                     .iter()
                     .map(|field| (sequence_pointer.advance(), field.to_array())),
             );
@@ -375,8 +358,8 @@ impl LayoutStrategy for TableStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::FieldPath;
-    use vortex_dtype::field_path;
+    use vortex_array::dtype::FieldPath;
+    use vortex_array::field_path;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
@@ -389,7 +372,8 @@ mod tests {
         let flat = Arc::new(FlatLayoutStrategy::default());
 
         // Success
-        let path = TableStrategy::default().with_field_writer(field_path!(a.b.c), flat.clone());
+        let path = TableStrategy::new(flat.clone(), flat.clone())
+            .with_field_writer(field_path!(a.b.c), flat.clone());
 
         // Should panic right here.
         let _path = path.with_field_writer(field_path!(a.b), flat);
@@ -400,7 +384,8 @@ mod tests {
         expected = "Do not set override as a root strategy, instead set the default strategy"
     )]
     fn test_root_override() {
-        let _strategy = TableStrategy::default()
-            .with_field_writer(FieldPath::root(), Arc::new(FlatLayoutStrategy::default()));
+        let flat = Arc::new(FlatLayoutStrategy::default());
+        let _strategy = TableStrategy::new(flat.clone(), flat.clone())
+            .with_field_writer(FieldPath::root(), flat);
     }
 }

@@ -1,55 +1,126 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
+use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
-use crate::arrays::struct_::StructArray;
-use crate::arrays::struct_::vtable::rules::PARENT_RULES;
+use crate::arrays::StructArray;
+use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
+mod kernel;
 mod operations;
-mod rules;
 mod validity;
-mod visitor;
+use std::hash::Hash;
 
+use crate::Precision;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 
 vtable!(Struct);
 
-impl VTable for StructVTable {
+impl VTable for Struct {
     type Array = StructArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Struct
+    }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &StructArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &StructArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &StructArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &StructArray, state: &mut H, precision: Precision) {
+        array.len.hash(state);
+        array.dtype.hash(state);
+        for field in array.fields.iter() {
+            field.array_hash(state, precision);
+        }
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &StructArray, other: &StructArray, precision: Precision) -> bool {
+        array.len == other.len
+            && array.dtype == other.dtype
+            && array.fields.len() == other.fields.len()
+            && array
+                .fields
+                .iter()
+                .zip(other.fields.iter())
+                .all(|(a, b)| a.array_eq(b, precision))
+            && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &StructArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &StructArray, idx: usize) -> BufferHandle {
+        vortex_panic!("StructArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &StructArray, idx: usize) -> Option<String> {
+        vortex_panic!("StructArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &StructArray) -> usize {
+        validity_nchildren(&array.validity) + array.unmasked_fields().len()
+    }
+
+    fn child(array: &StructArray, idx: usize) -> ArrayRef {
+        let vc = validity_nchildren(&array.validity);
+        if idx < vc {
+            validity_to_child(&array.validity, array.len())
+                .vortex_expect("StructArray validity child out of bounds")
+        } else {
+            array.unmasked_fields()[idx - vc].clone()
+        }
+    }
+
+    fn child_name(array: &StructArray, idx: usize) -> String {
+        let vc = validity_nchildren(&array.validity);
+        if idx < vc {
+            "validity".to_string()
+        } else {
+            array.names()[idx - vc].as_ref().to_string()
+        }
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +131,13 @@ impl VTable for StructVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -134,8 +211,8 @@ impl VTable for StructVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(array.clone()))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(
@@ -146,31 +223,19 @@ impl VTable for StructVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let fields = array
-            .fields()
-            .iter()
-            .map(|field| field.slice(range.clone()))
-            .collect_vec();
-
-        // SAFETY: Slicing preserves all StructArray invariants
-        Ok(Some(
-            unsafe {
-                StructArray::new_unchecked(
-                    fields,
-                    array.struct_fields().clone(),
-                    range.len(),
-                    array.validity().slice(range),
-                )
-            }
-            .into_array(),
-        ))
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
 #[derive(Debug)]
-pub struct StructVTable;
+pub struct Struct;
 
-impl StructVTable {
+impl Struct {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
 }

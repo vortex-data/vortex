@@ -3,20 +3,22 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_vector::binaryview::BinaryView;
 
+use crate::arrays::varbinview::BinaryView;
+use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -61,7 +63,7 @@ use crate::validity::Validity;
 ///
 /// ```
 /// use vortex_array::arrays::VarBinViewArray;
-/// use vortex_dtype::{DType, Nullability};
+/// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_array::IntoArray;
 ///
 /// // Create from an Iterator<Item = &str>
@@ -82,16 +84,16 @@ use crate::validity::Validity;
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
     pub(super) dtype: DType,
-    pub(super) buffers: Arc<[ByteBuffer]>,
-    pub(super) views: Buffer<BinaryView>,
+    pub(super) buffers: Arc<[BufferHandle]>,
+    pub(super) views: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
 pub struct VarBinViewArrayParts {
     pub dtype: DType,
-    pub buffers: Arc<[ByteBuffer]>,
-    pub views: Buffer<BinaryView>,
+    pub buffers: Arc<[BufferHandle]>,
+    pub views: BufferHandle,
     pub validity: Validity,
 }
 
@@ -112,6 +114,22 @@ impl VarBinViewArray {
             .vortex_expect("VarBinViewArray construction failed")
     }
 
+    /// Creates a new [`VarBinViewArray`] with device or host memory.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`VarBinViewArray::new_unchecked`].
+    pub fn new_handle(
+        views: BufferHandle,
+        buffers: Arc<[BufferHandle]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new_handle(views, buffers, dtype, validity)
+            .vortex_expect("VarbinViewArray construction failed")
+    }
+
     /// Constructs a new `VarBinViewArray`.
     ///
     /// See [`VarBinViewArray::new_unchecked`] for more information.
@@ -130,6 +148,39 @@ impl VarBinViewArray {
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked(views, buffers, dtype, validity) })
+    }
+
+    /// Constructs a new `VarBinViewArray`.
+    ///
+    /// See [`VarBinViewArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`VarBinViewArray::new_unchecked`].
+    pub fn try_new_handle(
+        views: BufferHandle,
+        buffers: Arc<[BufferHandle]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let views_nbytes = views.len();
+        vortex_ensure!(
+            views_nbytes.is_multiple_of(size_of::<BinaryView>()),
+            "Expected views buffer length ({views_nbytes}) to be a multiple of {}",
+            size_of::<BinaryView>()
+        );
+
+        // TODO(aduffy): device validation.
+        if let Some(host) = views.as_host_opt() {
+            vortex_ensure!(
+                host.is_aligned(Alignment::of::<BinaryView>()),
+                "Views on host must be 16 byte aligned"
+            );
+        }
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_handle_unchecked(views, buffers, dtype, validity) })
     }
 
     /// Creates a new [`VarBinViewArray`] without validation from these components:
@@ -171,10 +222,32 @@ impl VarBinViewArray {
         Self::validate(&views, &buffers, &dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `VarBinViewArray` parameters");
 
+        let handles: Vec<BufferHandle> = buffers
+            .iter()
+            .cloned()
+            .map(BufferHandle::new_host)
+            .collect();
+
+        let handles = Arc::from(handles);
+        let view_handle = BufferHandle::new_host(views.into_byte_buffer());
+        unsafe { Self::new_handle_unchecked(view_handle, handles, dtype, validity) }
+    }
+
+    /// Construct a new array from `BufferHandle`s without validation.
+    ///
+    /// # Safety
+    ///
+    /// See documentation in `new_unchecked`.
+    pub unsafe fn new_handle_unchecked(
+        views: BufferHandle,
+        buffers: Arc<[BufferHandle]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
         Self {
-            dtype,
-            buffers,
             views,
+            buffers,
+            dtype,
             validity,
             stats_set: Default::default(),
         }
@@ -191,7 +264,7 @@ impl VarBinViewArray {
     ) -> VortexResult<()> {
         vortex_ensure!(
             validity.nullability() == dtype.nullability(),
-            "validity {:?} incompatible with nullability {:?}",
+            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
             validity,
             dtype.nullability()
         );
@@ -201,7 +274,7 @@ impl VarBinViewArray {
                 simdutf8::basic::from_utf8(string).is_ok()
             })?,
             DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
-            _ => vortex_bail!("invalid DType {dtype} for `VarBinViewArray`"),
+            _ => vortex_bail!(InvalidArgument: "invalid DType {dtype} for `VarBinViewArray`"),
         }
 
         Ok(())
@@ -217,7 +290,7 @@ impl VarBinViewArray {
         F: Fn(&[u8]) -> bool,
     {
         for (idx, &view) in views.iter().enumerate() {
-            if validity.is_null(idx) {
+            if validity.is_null(idx)? {
                 continue;
             }
 
@@ -226,7 +299,7 @@ impl VarBinViewArray {
                 let bytes = &view.as_inlined().data[..view.len() as usize];
                 vortex_ensure!(
                     validator(bytes),
-                    "view at index {idx}: inlined bytes failed utf-8 validation"
+                    InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
                 );
             } else {
                 // Validate the view pointer
@@ -236,18 +309,18 @@ impl VarBinViewArray {
                 let end_offset = start_offset.saturating_add(view.size as usize);
 
                 let buf = buffers.get(buf_index).ok_or_else(||
-                    vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
+                    vortex_err!(InvalidArgument: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
                         buffers.len()))?;
 
                 vortex_ensure!(
                     start_offset < buf.len(),
-                    "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                    InvalidArgument: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
                     buf.len(),
                 );
 
                 vortex_ensure!(
                     end_offset <= buf.len(),
-                    "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                    InvalidArgument: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
                     buf.len(),
                 );
 
@@ -255,13 +328,13 @@ impl VarBinViewArray {
                 let bytes = &buf[start_offset..end_offset];
                 vortex_ensure!(
                     view.prefix == bytes[..4],
-                    "VarBinView prefix does not match full string"
+                    InvalidArgument: "VarBinView prefix does not match full string"
                 );
 
                 // Validate the full string
                 vortex_ensure!(
                     validator(bytes),
-                    "view at index {idx}: outlined bytes fails utf-8 validation"
+                    InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
                 );
             }
         }
@@ -290,7 +363,16 @@ impl VarBinViewArray {
     /// contain either a pointer into one of the array's owned `buffer`s OR an inlined copy of
     /// the string (if the string has 12 bytes or fewer).
     #[inline]
-    pub fn views(&self) -> &Buffer<BinaryView> {
+    pub fn views(&self) -> &[BinaryView] {
+        let host_views = self.views.as_host();
+        let len = host_views.len() / size_of::<BinaryView>();
+
+        // SAFETY: data alignment is checked for host buffers on construction
+        unsafe { std::slice::from_raw_parts(host_views.as_ptr().cast(), len) }
+    }
+
+    /// Return the buffer handle backing the views.
+    pub fn views_handle(&self) -> &BufferHandle {
         &self.views
     }
 
@@ -308,7 +390,8 @@ impl VarBinViewArray {
                 .slice(view_ref.as_range())
         } else {
             // Return access to the range of bytes around it.
-            views
+            self.views_handle()
+                .as_host()
                 .clone()
                 .into_byte_buffer()
                 .slice_ref(view.as_inlined().value())
@@ -329,12 +412,12 @@ impl VarBinViewArray {
                 self.nbuffers()
             );
         }
-        &self.buffers[idx]
+        self.buffers[idx].as_host()
     }
 
     /// Iterate over the underlying raw data buffers, not including the views buffer.
     #[inline]
-    pub fn buffers(&self) -> &Arc<[ByteBuffer]> {
+    pub fn buffers(&self) -> &Arc<[BufferHandle]> {
         &self.buffers
     }
 

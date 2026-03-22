@@ -27,7 +27,6 @@ itertools = { workspace = true }
 lance-bench = { path = "../lance-bench", optional = true }
 parquet = { workspace = true }
 regex = { workspace = true }
-serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex = { workspace = true }

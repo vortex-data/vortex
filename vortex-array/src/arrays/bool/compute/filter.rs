@@ -11,18 +11,16 @@ use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::filter::FilterReduce;
 use crate::vtable::ValidityHelper;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for BoolVTable {
-    fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
+impl FilterReduce for Bool {
+    fn filter(array: &BoolArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().filter(mask)?;
 
         let mask_values = mask
@@ -31,22 +29,20 @@ impl FilterKernel for BoolVTable {
 
         let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
             MaskIter::Indices(indices) => filter_indices(
-                array.bit_buffer(),
+                &array.to_bit_buffer(),
                 mask.true_count(),
                 indices.iter().copied(),
             ),
             MaskIter::Slices(slices) => filter_slices(
-                array.bit_buffer(),
+                &array.to_bit_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
             ),
         };
 
-        Ok(BoolArray::from_bit_buffer(buffer, validity).into_array())
+        Ok(Some(BoolArray::new(buffer, validity).into_array()))
     }
 }
-
-register_kernel!(FilterKernelAdapter(BoolVTable).lift());
 
 /// Select indices from a boolean buffer.
 /// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to
@@ -83,34 +79,27 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::filter_indices;
     use crate::arrays::bool::compute::filter::filter_slices;
-    use crate::canonical::ToCanonical;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::filter;
 
     #[test]
     fn filter_bool_test() {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
-        let filtered = filter(arr.as_ref(), &mask).unwrap().to_bool();
-        assert_eq!(2, filtered.len());
-
-        assert_eq!(
-            vec![true, false],
-            filtered.bit_buffer().iter().collect_vec()
-        )
+        let filtered = arr.filter(mask).unwrap();
+        assert_arrays_eq!(filtered, BoolArray::from_iter([true, false]));
     }
 
     #[test]
     fn filter_bool_by_slice_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_slices(arr.bit_buffer(), 2, [(0, 1), (2, 3)].into_iter());
-        assert_eq!(2, filtered.len());
-
+        let filtered = filter_slices(&arr.to_bit_buffer(), 2, [(0, 1), (2, 3)].into_iter());
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 
@@ -118,9 +107,7 @@ mod test {
     fn filter_bool_by_index_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_indices(arr.bit_buffer(), 2, [0, 2].into_iter());
-        assert_eq!(2, filtered.len());
-
+        let filtered = filter_indices(&arr.to_bit_buffer(), 2, [0, 2].into_iter());
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 
@@ -134,6 +121,6 @@ mod test {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

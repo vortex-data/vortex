@@ -4,15 +4,15 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_dtype::FieldNames;
 
 fn main() {
     divan::main();
@@ -48,7 +48,7 @@ fn scalar_at_struct_simple(bencher: Bencher) {
         .with_inputs(|| (&struct_array, &indices))
         .bench_refs(|(array, indices)| {
             for &idx in indices.iter() {
-                divan::black_box(array.scalar_at(idx));
+                divan::black_box(array.scalar_at(idx).unwrap());
             }
         });
 }
@@ -83,7 +83,7 @@ fn scalar_at_struct_wide(bencher: Bencher) {
         .with_inputs(|| (&struct_array, &indices))
         .bench_refs(|(array, indices)| {
             for &idx in indices.iter() {
-                divan::black_box(array.scalar_at(idx));
+                divan::black_box(array.scalar_at(idx).unwrap());
             }
         });
 }

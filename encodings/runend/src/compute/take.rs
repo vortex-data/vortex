@@ -3,34 +3,37 @@
 
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
-impl TakeKernel for RunEndVTable {
+impl TakeExecute for RunEnd {
     #[expect(
         clippy::cast_possible_truncation,
         reason = "index cast to usize inside macro"
     )]
-    fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let primitive_indices = indices.to_primitive();
+    fn take(
+        array: &RunEndArray,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let primitive_indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             primitive_indices
@@ -47,11 +50,9 @@ impl TakeKernel for RunEndVTable {
                 .collect::<VortexResult<Vec<_>>>()?
         });
 
-        take_indices_unchecked(array, &checked_indices, primitive_indices.validity())
+        take_indices_unchecked(array, &checked_indices, primitive_indices.validity()).map(Some)
     }
 }
-
-register_kernel!(TakeKernelAdapter(RunEndVTable).lift());
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
@@ -65,38 +66,40 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     // TODO(joe): use the validity mask to skip search sorted.
     let physical_indices = match_each_integer_ptype!(ends.ptype(), |I| {
         let end_slices = ends.as_slice::<I>();
-        let buffer = Buffer::from_trusted_len_iter(
-            indices
-                .iter()
-                .map(|idx| idx.as_() + array.offset())
-                .map(|idx| {
-                    match <I as NumCast>::from(idx) {
-                        Some(idx) => end_slices.search_sorted(&idx, SearchSortedSide::Right),
-                        None => {
-                            // The idx is too large for I, therefore it's out of bounds.
-                            SearchResult::NotFound(ends_len)
-                        }
+        let physical_indices_vec: Vec<u64> = indices
+            .iter()
+            .map(|idx| idx.as_() + array.offset())
+            .map(|idx| {
+                match <I as NumCast>::from(idx) {
+                    Some(idx) => end_slices.search_sorted(&idx, SearchSortedSide::Right),
+                    None => {
+                        // The idx is too large for I, therefore it's out of bounds.
+                        Ok(SearchResult::NotFound(ends_len))
                     }
-                })
-                .map(|result| result.to_ends_index(ends_len) as u64),
-        );
+                }
+            })
+            .map(|result| result.map(|r| r.to_ends_index(ends_len) as u64))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let buffer = Buffer::from(physical_indices_vec);
 
         PrimitiveArray::new(buffer, validity.clone())
     });
 
-    take(array.values(), physical_indices.as_ref())
+    array.values().take(physical_indices.into_array())
 }
 
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::Array;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::take;
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;
@@ -107,18 +110,14 @@ mod test {
 
     #[test]
     fn ree_take() {
-        let taken = take(
-            ree_array().as_ref(),
-            buffer![9, 8, 1, 3].into_array().as_ref(),
-        )
-        .unwrap();
+        let taken = ree_array().take(buffer![9, 8, 1, 3].into_array()).unwrap();
         let expected = PrimitiveArray::from_iter(vec![5i32, 5, 1, 4]).into_array();
         assert_arrays_eq!(taken, expected);
     }
 
     #[test]
     fn ree_take_end() {
-        let taken = take(ree_array().as_ref(), buffer![11].into_array().as_ref()).unwrap();
+        let taken = ree_array().take(buffer![11].into_array()).unwrap();
         let expected = PrimitiveArray::from_iter(vec![5i32]).into_array();
         assert_arrays_eq!(taken, expected);
     }
@@ -126,13 +125,17 @@ mod test {
     #[test]
     #[should_panic]
     fn ree_take_out_of_bounds() {
-        take(ree_array().as_ref(), buffer![12].into_array().as_ref()).unwrap();
+        let _array = ree_array()
+            .take(buffer![12].into_array())
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
     }
 
     #[test]
     fn sliced_take() {
-        let sliced = ree_array().slice(4..9);
-        let taken = take(sliced.as_ref(), buffer![1, 3, 4].into_array().as_ref()).unwrap();
+        let sliced = ree_array().slice(4..9).unwrap();
+        let taken = sliced.take(buffer![1, 3, 4].into_array()).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![4i32, 2, 5]).into_array();
         assert_arrays_eq!(taken, expected);
@@ -140,14 +143,12 @@ mod test {
 
     #[test]
     fn ree_take_nullable() {
-        let taken = take(
-            ree_array().as_ref(),
-            PrimitiveArray::from_option_iter([Some(1), None]).as_ref(),
-        )
-        .unwrap();
+        let taken = ree_array()
+            .take(PrimitiveArray::from_option_iter([Some(1), None]).into_array())
+            .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[rstest]
@@ -182,19 +183,19 @@ mod test {
         RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
     })]
     fn test_take_runend_conformance(#[case] array: RunEndArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 
     #[rstest]
-    #[case(ree_array().slice(3..6))]
+    #[case(ree_array().slice(3..6).unwrap())]
     #[case({
         let array = RunEndArray::encode(
             buffer![1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].into_array(),
         )
         .unwrap();
-        array.slice(2..8)
+        array.slice(2..8).unwrap()
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
-        test_take_conformance(sliced.as_ref());
+        test_take_conformance(&sliced);
     }
 }

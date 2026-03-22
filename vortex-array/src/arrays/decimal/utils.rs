@@ -4,15 +4,15 @@
 use itertools::Itertools;
 use itertools::MinMaxResult;
 use vortex_error::VortexExpect;
-use vortex_scalar::DecimalType;
-use vortex_scalar::i256;
 
 use crate::arrays::DecimalArray;
+use crate::dtype::DecimalType;
+use crate::dtype::i256;
 use crate::vtable::ValidityHelper;
 
 macro_rules! try_downcast {
     ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{
-        use vortex_dtype::BigCast;
+        use crate::dtype::BigCast;
 
         // Collect the min/max of the values
         let minmax = $array.buffer::<$src>().iter().copied().minmax();

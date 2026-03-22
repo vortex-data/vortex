@@ -2,26 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
-use crate::builders::ArrayBuilder;
-use crate::builders::PrimitiveBuilder;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::arrays::dict::TakeExecute;
+use crate::dtype::IntegerPType;
+use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -30,24 +25,28 @@ use crate::vtable::ValidityHelper;
 /// Unlike `ListView`, `FixedSizeListArray` must rebuild the elements array because it requires
 /// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
 /// into element indices and push them down to the child elements array.
-impl TakeKernel for FixedSizeListVTable {
-    fn take(&self, array: &FixedSizeListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for FixedSizeList {
+    fn take(
+        array: &FixedSizeListArray,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
-            take_with_indices::<I>(array, indices)
+            take_with_indices::<I>(array, indices, ctx)
         })
+        .map(Some)
     }
 }
-
-register_kernel!(TakeKernelAdapter(FixedSizeListVTable).lift());
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: IntegerPType>(
     array: &FixedSizeListArray,
-    indices: &dyn Array,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
 
-    let indices_array = indices.to_primitive();
+    let indices_array = indices.to_array().execute::<PrimitiveArray>(ctx)?;
 
     // Make sure to handle degenerate case where lists have size 0 (these can take fast paths).
     if list_size == 0 {
@@ -92,8 +91,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
     let new_len = indices.len();
 
     // Build the element indices directly without validity tracking.
-    let mut elements_indices =
-        PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, new_len * list_size);
+    let mut elements_indices = BufferMut::<I>::with_capacity(new_len * list_size);
 
     // Build the element indices for each list.
     for data_idx in indices {
@@ -106,14 +104,18 @@ fn take_non_nullable_fsl<I: IntegerPType>(
 
         // Expand the list into individual element indices.
         for i in list_start..list_end {
-            elements_indices.append_value(I::from_usize(i).vortex_expect("i < list_end"))
+            // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
+            unsafe {
+                elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
+            };
         }
     }
 
-    let elements_indices = elements_indices.finish();
+    let elements_indices = elements_indices.freeze();
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
-    let new_elements = compute::take(array.elements(), elements_indices.as_ref())?;
+    let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // Both inputs are non-nullable, so the result is non-nullable.
@@ -137,13 +139,12 @@ fn take_nullable_fsl<I: IntegerPType>(
     let indices: &[I] = indices_array.as_slice::<I>();
     let new_len = indices.len();
 
-    let array_validity = array.validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let array_validity = array.validity_mask()?;
+    let indices_validity = indices_array.validity_mask()?;
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.
-    let mut elements_indices =
-        PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, new_len * list_size);
+    let mut elements_indices = BufferMut::<I>::with_capacity(new_len * list_size);
     let mut new_validity_builder = BitBufferMut::with_capacity(new_len);
 
     // Build the element indices while tracking which lists are null.
@@ -158,7 +159,7 @@ fn take_nullable_fsl<I: IntegerPType>(
         if !is_index_valid || !array_validity.value(data_idx) {
             // Append placeholder zeros for null lists. These will be masked by the validity array.
             // We cannot use append_nulls here as explained above.
-            elements_indices.append_zeros(list_size);
+            unsafe { elements_indices.push_n_unchecked(I::zero(), list_size) };
             new_validity_builder.append(false);
         } else {
             // Append the actual element indices for this list.
@@ -167,17 +168,21 @@ fn take_nullable_fsl<I: IntegerPType>(
 
             // Expand the list into individual element indices.
             for i in list_start..list_end {
-                elements_indices.append_value(I::from_usize(i).vortex_expect("i < list_end"))
+                // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
+                unsafe {
+                    elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
+                };
             }
 
             new_validity_builder.append(true);
         }
     }
 
-    let elements_indices = elements_indices.finish();
+    let elements_indices = elements_indices.freeze();
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
-    let new_elements = compute::take(array.elements(), elements_indices.as_ref())?;
+    let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // At least one input was nullable, so the result is nullable.

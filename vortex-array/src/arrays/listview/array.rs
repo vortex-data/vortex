@@ -4,22 +4,21 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ToCanonical;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::bool;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -48,6 +47,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// # use vortex_array::arrays::{ListViewArray, PrimitiveArray};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_array::IntoArray;
@@ -71,7 +71,7 @@ use crate::validity::Validity;
 /// assert_eq!(list_view.len(), 3);
 ///
 /// // Access individual lists
-/// let first_list = list_view.list_elements_at(0);
+/// let first_list = list_view.list_elements_at(0)?;
 /// assert_eq!(first_list.len(), 2);
 /// // First list contains elements[2..4] = [3, 4]
 ///
@@ -79,6 +79,8 @@ use crate::validity::Validity;
 /// let first_size = list_view.size_at(0);
 /// assert_eq!(first_offset, 2);
 /// assert_eq!(first_size, 2);
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// [`ListArray`]: crate::arrays::ListArray
@@ -126,8 +128,6 @@ pub struct ListViewArray {
 }
 
 pub struct ListViewArrayParts {
-    pub nullability: Nullability,
-
     pub elements_dtype: Arc<DType>,
 
     /// See `ListViewArray::elements`
@@ -223,9 +223,9 @@ impl ListViewArray {
 
     /// Validates the components that would be used to create a [`ListViewArray`].
     pub fn validate(
-        elements: &dyn Array,
-        offsets: &dyn Array,
-        sizes: &dyn Array,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
+        sizes: &ArrayRef,
         validity: &Validity,
     ) -> VortexResult<()> {
         // Check that offsets and sizes are integer arrays and non-nullable.
@@ -261,22 +261,25 @@ impl ListViewArray {
             );
         }
 
-        let offsets_primitive = offsets.to_primitive();
-        let sizes_primitive = sizes.to_primitive();
+        // Skip host-only validation when offsets/sizes are not host-resident.
+        if offsets.is_host() && sizes.is_host() {
+            let offsets_primitive = offsets.to_primitive();
+            let sizes_primitive = sizes.to_primitive();
 
-        // Validate the `offsets` and `sizes` arrays.
-        match_each_integer_ptype!(offset_ptype, |O| {
-            match_each_integer_ptype!(size_ptype, |S| {
-                let offsets_slice = offsets_primitive.as_slice::<O>();
-                let sizes_slice = sizes_primitive.as_slice::<S>();
+            // Validate the `offsets` and `sizes` arrays.
+            match_each_integer_ptype!(offset_ptype, |O| {
+                match_each_integer_ptype!(size_ptype, |S| {
+                    let offsets_slice = offsets_primitive.as_slice::<O>();
+                    let sizes_slice = sizes_primitive.as_slice::<S>();
 
-                validate_offsets_and_sizes::<O, S>(
-                    offsets_slice,
-                    sizes_slice,
-                    elements.len() as u64,
-                )?;
-            })
-        });
+                    validate_offsets_and_sizes::<O, S>(
+                        offsets_slice,
+                        sizes_slice,
+                        elements.len() as u64,
+                    )?;
+                })
+            });
+        }
 
         Ok(())
     }
@@ -339,10 +342,8 @@ impl ListViewArray {
     }
 
     pub fn into_parts(self) -> ListViewArrayParts {
-        let nullability = self.dtype.nullability();
         let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
         ListViewArrayParts {
-            nullability,
             elements_dtype: dtype,
             elements: self.elements,
             offsets: self.offsets,
@@ -365,12 +366,13 @@ impl ListViewArray {
 
         // Fast path for `PrimitiveArray`.
         self.offsets
-            .as_opt::<PrimitiveVTable>()
+            .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.offsets
                     .scalar_at(index)
+                    .vortex_expect("offsets must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("offset must fit in usize")
@@ -392,12 +394,13 @@ impl ListViewArray {
 
         // Fast path for `PrimitiveArray`.
         self.sizes
-            .as_opt::<PrimitiveVTable>()
+            .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.sizes
                     .scalar_at(index)
+                    .vortex_expect("sizes must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("size must fit in usize")
@@ -405,7 +408,11 @@ impl ListViewArray {
     }
 
     /// Returns the elements at the given index from the list array.
-    pub fn list_elements_at(&self, index: usize) -> ArrayRef {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the slice operation fails.
+    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let offset = self.offset_at(index);
         let size = self.size_at(index);
         self.elements().slice(offset..offset + size)
@@ -487,7 +494,7 @@ where
 /// Helper function to validate if the [`ListViewArray`] components are actually zero-copyable to
 /// [`ListArray`](crate::arrays::ListArray).
 fn validate_zctl(
-    elements: &dyn Array,
+    elements: &ArrayRef,
     offsets_primitive: PrimitiveArray,
     sizes_primitive: PrimitiveArray,
 ) -> VortexResult<()> {

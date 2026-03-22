@@ -4,43 +4,43 @@
 use std::ops::Shr;
 
 use num_traits::WrappingSub;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
-use vortex_array::compute::Operator;
-use vortex_array::compute::compare;
-use vortex_array::register_kernel;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::binary::CompareKernel;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
-use vortex_scalar::PrimitiveScalar;
-use vortex_scalar::Scalar;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
-impl CompareKernel for FoRVTable {
+impl CompareKernel for FoR {
     fn compare(
-        &self,
         lhs: &FoRArray,
-        rhs: &dyn Array,
-        operator: Operator,
+        rhs: &ArrayRef,
+        operator: CompareOperator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant()
-            && let Ok(constant) = PrimitiveScalar::try_from(&constant)
+            && let Some(constant) = constant.as_primitive_opt()
         {
             match_each_integer_ptype!(constant.ptype(), |T| {
                 return compare_constant(
                     lhs,
                     constant
                         .typed_value::<T>()
-                        .vortex_expect("null scalar handled in top-level"),
+                        .vortex_expect("null scalar handled in adaptor"),
                     rhs.dtype().nullability(),
                     operator,
                 );
@@ -51,13 +51,11 @@ impl CompareKernel for FoRVTable {
     }
 }
 
-register_kernel!(CompareKernelAdapter(FoRVTable).lift());
-
 fn compare_constant<T>(
     lhs: &FoRArray,
     mut rhs: T,
     nullability: Nullability,
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>>
 where
     T: NativePType + WrappingSub + Shr<usize, Output = T>,
@@ -66,7 +64,7 @@ where
 {
     // For now, we only support equals and not equals. Comparisons are a little more fiddly to
     // get right regarding how to handle overflow and the wrapping subtraction.
-    if !matches!(operator, Operator::Eq | Operator::NotEq) {
+    if !matches!(operator, CompareOperator::Eq | CompareOperator::NotEq) {
         return Ok(None);
     }
 
@@ -82,23 +80,23 @@ where
     // unsigned integer type).
     let rhs = Scalar::primitive(rhs, nullability);
 
-    compare(
-        lhs.encoded(),
-        ConstantArray::new(rhs, lhs.len()).as_ref(),
-        operator,
-    )
-    .map(Some)
+    lhs.encoded()
+        .binary(
+            ConstantArray::new(rhs, lhs.len()).into_array(),
+            Operator::from(operator),
+        )
+        .map(Some)
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::validity::Validity;
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
 
     use super::*;
 
@@ -112,15 +110,27 @@ mod tests {
         )
         .unwrap();
 
-        assert_result(
-            compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq),
-            [false, true, false],
-        );
-        assert_result(
-            compare_constant(&lhs, 12i32, Nullability::NonNullable, Operator::NotEq),
-            [true, true, false],
-        );
-        for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
+        let result = compare_constant(&lhs, 30i32, Nullability::NonNullable, CompareOperator::Eq)
+            .unwrap()
+            .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([false, true, false].map(Some)));
+
+        let result = compare_constant(
+            &lhs,
+            12i32,
+            Nullability::NonNullable,
+            CompareOperator::NotEq,
+        )
+        .unwrap()
+        .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false].map(Some)));
+
+        for op in [
+            CompareOperator::Lt,
+            CompareOperator::Lte,
+            CompareOperator::Gt,
+            CompareOperator::Gte,
+        ] {
             assert!(
                 compare_constant(&lhs, 30i32, Nullability::NonNullable, op)
                     .unwrap()
@@ -140,14 +150,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            compare_constant(&lhs, 30i32, Nullability::Nullable, Operator::Eq)
+            compare_constant(&lhs, 30i32, Nullability::Nullable, CompareOperator::Eq)
                 .unwrap()
                 .unwrap()
                 .dtype(),
             &DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq)
+            compare_constant(&lhs, 30i32, Nullability::NonNullable, CompareOperator::Eq)
                 .unwrap()
                 .unwrap()
                 .dtype(),
@@ -165,14 +175,23 @@ mod tests {
         )
         .unwrap();
 
-        assert_result(
-            compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::Eq),
-            [false, false, false],
+        let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, CompareOperator::Eq)
+            .unwrap()
+            .unwrap();
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false].map(Some))
         );
-        assert_result(
-            compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::NotEq),
-            [true, true, true],
-        );
+
+        let result = compare_constant(
+            &lhs,
+            -1i32,
+            Nullability::NonNullable,
+            CompareOperator::NotEq,
+        )
+        .unwrap()
+        .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true].map(Some)));
     }
 
     #[test]
@@ -189,31 +208,24 @@ mod tests {
         )
         .unwrap();
 
-        assert_result(
-            compare_constant(
-                &lhs,
-                435090932899640449i64,
-                Nullability::Nullable,
-                Operator::Eq,
-            ),
-            [false, true],
-        );
-        assert_result(
-            compare_constant(
-                &lhs,
-                435090932899640449i64,
-                Nullability::Nullable,
-                Operator::NotEq,
-            ),
-            [true, false],
-        );
-    }
+        let result = compare_constant(
+            &lhs,
+            435090932899640449i64,
+            Nullability::Nullable,
+            CompareOperator::Eq,
+        )
+        .unwrap()
+        .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([Some(false), Some(true)]));
 
-    fn assert_result<T: IntoIterator<Item = bool>>(
-        result: VortexResult<Option<ArrayRef>>,
-        expected: T,
-    ) {
-        let result = result.unwrap().unwrap().to_bool();
-        assert_eq!(result.bit_buffer(), &BitBuffer::from_iter(expected));
+        let result = compare_constant(
+            &lhs,
+            435090932899640449i64,
+            Nullability::Nullable,
+            CompareOperator::NotEq,
+        )
+        .unwrap()
+        .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([Some(true), Some(false)]));
     }
 }

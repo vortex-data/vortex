@@ -9,7 +9,7 @@ use super::common::create_empty_lists_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
@@ -17,7 +17,6 @@ use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::compute::conformance::take::test_take_conformance;
-use crate::compute::take;
 use crate::validity::Validity;
 
 // Conformance tests for common take scenarios.
@@ -28,7 +27,7 @@ use crate::validity::Validity;
 #[case::overlapping(create_overlapping_listview())]
 #[case::large(create_large_listview())]
 fn test_take_listview_conformance(#[case] listview: ListViewArray) {
-    test_take_conformance(listview.as_ref());
+    test_take_conformance(&listview.into_array());
 }
 
 // ListView-specific tests that aren't covered by conformance.
@@ -43,11 +42,11 @@ fn test_take_preserves_unreferenced_elements() {
     let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
 
     let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
 
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
-    let result = take(&listview, &indices).unwrap();
+    let result = listview.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 2);
@@ -73,10 +72,10 @@ fn test_take_with_gaps() {
     let sizes = buffer![3u32, 3, 2, 2, 2].into_array();
 
     let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
-    let result = take(&listview, &indices).unwrap();
+    let result = listview.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     // Verify the entire elements array is preserved including gaps.
@@ -87,7 +86,7 @@ fn test_take_with_gaps() {
 
     // Verify the lists still read correctly despite gaps.
     assert_arrays_eq!(
-        result_list.list_elements_at(0),
+        result_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([7i32, 8, 9])
     );
 }
@@ -108,10 +107,10 @@ fn test_take_constant_arrays() {
         varying_sizes,
         Validity::NonNullable,
     )
-    .to_array();
+    .into_array();
 
     let indices = buffer![3u32, 0, 2].into_array();
-    let result = take(&const_offset_list, &indices).unwrap();
+    let result = const_offset_list.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
@@ -132,10 +131,10 @@ fn test_take_constant_arrays() {
         both_constant_sizes,
         Validity::NonNullable,
     )
-    .to_array();
+    .into_array();
 
     let indices2 = buffer![2u32, 0].into_array();
-    let result2 = take(&both_const_list, &indices2).unwrap();
+    let result2 = both_const_list.take(indices2.to_array()).unwrap();
     let result2_list = result2.to_listview();
 
     assert_eq!(result2_list.len(), 2);
@@ -157,11 +156,11 @@ fn test_take_extreme_offsets() {
     let sizes = buffer![5u32, 2, 5, 3, 4].into_array();
 
     let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
 
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();
-    let result = take(&listview, &indices).unwrap();
+    let result = listview.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 2);
@@ -174,13 +173,23 @@ fn test_take_extreme_offsets() {
     assert_eq!(result_list.elements().len(), 10000);
 
     // Verify we can still read the correct values.
-    let list0 = result_list.list_elements_at(0);
+    let list0 = result_list.list_elements_at(0).unwrap();
     assert_eq!(
-        list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(),
+        list0
+            .scalar_at(0)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
         4999
     );
     assert_eq!(
-        list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(),
+        list0
+            .scalar_at(1)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
         5000
     );
 }

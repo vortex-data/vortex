@@ -19,7 +19,6 @@ box_wrapper!(
     vx_error
 );
 
-#[inline]
 pub fn try_or_default<T: Default>(
     error_out: *mut *mut vx_error,
     function: impl FnOnce() -> VortexResult<T>,

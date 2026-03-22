@@ -9,16 +9,22 @@ use std::fmt::Formatter;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use Nullability::NonNullable;
 pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::compute::filter;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::is_root;
@@ -26,15 +32,10 @@ use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
-use vortex_dtype::FieldName;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
+use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -47,7 +48,7 @@ pub struct RowIdxLayoutReader {
     name: Arc<str>,
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
-    partition_cache: DashMap<ExactExpr, Partitioning>,
+    partition_cache: DashMap<ExactExpr, Arc<OnceLock<Partitioning>>>,
     session: VortexSession,
 }
 
@@ -63,41 +64,55 @@ impl RowIdxLayoutReader {
     }
 
     fn partition_expr(&self, expr: &Expression) -> Partitioning {
-        self.partition_cache
-            .entry(ExactExpr(expr.clone()))
-            .or_insert_with(|| {
-                // Partition the expression into row idx and child expressions.
-                let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
-                    if expr.is::<RowIdx>() {
-                        vec![Partition::RowIdx]
-                    } else if is_root(expr) {
-                        vec![Partition::Child]
-                    } else {
-                        vec![]
-                    }
-                })
-                .vortex_expect("We should not fail to partition expression over struct fields");
+        let key = ExactExpr(expr.clone());
 
-                // If there's only a single partition, we can directly return the expression.
-                if partitioned.partitions.len() == 1 {
-                    return match &partitioned.partition_annotations[0] {
-                        Partition::RowIdx => {
-                            Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root()))
-                        }
-                        Partition::Child => Partitioning::Child(expr.clone()),
-                    };
+        // Check cache first with read-only lock.
+        if let Some(entry) = self.partition_cache.get(&key)
+            && let Some(partitioning) = entry.value().get()
+        {
+            return partitioning.clone();
+        }
+
+        let cell = self
+            .partition_cache
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceLock::new()))
+            .clone();
+
+        cell.get_or_init(|| self.compute_partitioning(expr)).clone()
+    }
+
+    fn compute_partitioning(&self, expr: &Expression) -> Partitioning {
+        // Partition the expression into row idx and child expressions.
+        let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
+            if expr.is::<RowIdx>() {
+                vec![Partition::RowIdx]
+            } else if is_root(expr) {
+                vec![Partition::Child]
+            } else {
+                vec![]
+            }
+        })
+        .vortex_expect("We should not fail to partition expression over struct fields");
+
+        // If there's only a single partition, we can directly return the expression.
+        if partitioned.partitions.len() == 1 {
+            return match &partitioned.partition_annotations[0] {
+                Partition::RowIdx => {
+                    Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root()))
                 }
+                Partition::Child => Partitioning::Child(expr.clone()),
+            };
+        }
 
-                // Replace the row_idx expression with the root expression in the row_idx partition.
-                partitioned.partitions = partitioned
-                    .partitions
-                    .into_iter()
-                    .map(|p| replace(p, &row_idx(), root()))
-                    .collect();
+        // Replace the row_idx expression with the root expression in the row_idx partition.
+        partitioned.partitions = partitioned
+            .partitions
+            .into_iter()
+            .map(|p| replace(p, &row_idx(), root()))
+            .collect();
 
-                Partitioning::Partitioned(Arc::new(partitioned))
-            })
-            .clone()
+        Partitioning::Partitioned(Arc::new(partitioned))
     }
 }
 
@@ -239,7 +254,7 @@ impl LayoutReader for RowIdxLayoutReader {
 
 // Returns a SequenceArray representing the row indices for the given row range,
 fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
-    SequenceArray::new(
+    SequenceArray::try_new(
         PValue::U64(row_offset + row_range.start),
         PValue::U64(1),
         PType::U64,
@@ -279,7 +294,7 @@ fn row_idx_array_future(
     let expr = expr.clone();
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
-        let array = filter(&array, &mask.await?)?;
+        let array = array.filter(mask.await?)?.to_canonical()?.into_array();
         array.apply(&expr)
     }
     .boxed()
@@ -289,17 +304,16 @@ fn row_idx_array_future(
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
@@ -344,12 +358,11 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            assert_eq!(
-                &BitBuffer::from_iter([false, false, true, false, false]),
-                result.bit_buffer()
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([false, false, true, false, false])
             );
         })
     }
@@ -385,12 +398,11 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            assert_eq!(
-                &BitBuffer::from_iter([false, false, false, false, true]),
-                result.bit_buffer()
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([false, false, false, false, true])
             );
         })
     }
@@ -430,12 +442,11 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            assert_eq!(
-                vec![true, false, true, false, true],
-                result.bit_buffer().iter().collect_vec()
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([true, false, true, false, true])
             );
         })
     }

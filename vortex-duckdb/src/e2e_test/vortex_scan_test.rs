@@ -4,6 +4,8 @@
 //! This module contains tests for the `vortex_scan` table function.
 
 use std::ffi::CStr;
+use std::io::Write;
+use std::net::TcpListener;
 use std::path::Path;
 use std::slice;
 use std::str::FromStr;
@@ -47,13 +49,13 @@ use crate::duckdb::Database;
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
-    let connection = db.connect().unwrap();
-    crate::register_table_functions(&connection).unwrap();
-    connection
+    db.register_vortex_scan_replacement().unwrap();
+    crate::initialize(&db).unwrap();
+    db.connect().unwrap()
 }
 
 fn create_temp_file() -> NamedTempFile {
-    NamedTempFile::new().unwrap()
+    NamedTempFile::with_suffix(".vortex").unwrap()
 }
 
 async fn write_single_column_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
@@ -120,9 +122,10 @@ fn scan_vortex_file_single_row<D, T: FromDuckDBValue<D>>(
     let formatted_query = query.replace('?', &format!("'{file_path}'"));
 
     let result = conn.query(&formatted_query).unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let mut vec = chunk.get_vector(col_idx);
-    T::from_duckdb_value(&mut unsafe { vec.as_slice_mut::<D>(chunk.len().as_()) }[0])
+    let mut chunk = result.into_iter().next().unwrap();
+    let len = chunk.len().as_();
+    let vec = chunk.get_vector_mut(col_idx);
+    T::from_duckdb_value(&mut unsafe { vec.as_slice_mut::<D>(len) }[0])
 }
 
 fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
@@ -137,10 +140,11 @@ fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
     let result = conn.query(&formatted_query)?;
 
     let mut values = Vec::new();
-    for chunk in result {
-        let mut vec = chunk.get_vector(col_idx);
+    for mut chunk in result {
+        let len = chunk.len().as_();
+        let vec = chunk.get_vector_mut(col_idx);
         values.extend(
-            unsafe { vec.as_slice_mut::<D>(chunk.len().as_()) }
+            unsafe { vec.as_slice_mut::<D>(len) }
                 .iter_mut()
                 .map(T::from_duckdb_value),
         );
@@ -192,11 +196,8 @@ fn test_vortex_scan_strings() {
         write_single_column_vortex_file("strings", strings).await
     });
 
-    let result: String = scan_vortex_file_single_row(
-        file,
-        "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
-        0,
-    );
+    let result: String =
+        scan_vortex_file_single_row(file, "SELECT string_agg(strings, ',') FROM ?", 0);
 
     assert_eq!(result, "Hello,Hi,Hey");
 }
@@ -209,7 +210,7 @@ fn test_vortex_scan_strings_contains() {
     });
     let result: String = scan_vortex_file_single_row(
         file,
-        "SELECT string_agg(strings, ',') FROM vortex_scan(?) WHERE strings LIKE '%He%'",
+        "SELECT string_agg(strings, ',') FROM ? WHERE strings LIKE '%He%'",
         0,
     );
 
@@ -222,8 +223,7 @@ fn test_vortex_scan_integers() {
         let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
-    let sum: i64 =
-        scan_vortex_file_single_row::<i64, _>(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
+    let sum: i64 = scan_vortex_file_single_row::<i64, _>(file, "SELECT SUM(number) FROM ?", 0);
     assert_eq!(sum, 138);
 }
 
@@ -235,7 +235,7 @@ fn test_vortex_scan_integers_in_list() {
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
-        "SELECT SUM(number) FROM vortex_scan(?) WHERE number in (1, 42, -5)",
+        "SELECT SUM(number) FROM ? WHERE number in (1, 42, -5)",
         0,
     );
     assert_eq!(sum, 38);
@@ -249,7 +249,7 @@ fn test_vortex_scan_integers_between() {
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
-        "SELECT SUM(number) FROM vortex_scan(?) WHERE number > 0 and number < 100",
+        "SELECT SUM(number) FROM ? WHERE number > 0 and number < 100",
         0,
     );
     assert_eq!(sum, 43);
@@ -263,7 +263,7 @@ fn test_issue_5927_not_in_does_not_panic() {
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
-        "SELECT SUM(number) FROM vortex_scan(?) WHERE number NOT IN (42, 100)",
+        "SELECT SUM(number) FROM ? WHERE number NOT IN (42, 100)",
         0,
     );
     assert_eq!(sum, -4);
@@ -275,11 +275,8 @@ fn test_vortex_scan_floats() {
         let values = buffer![1.5f64, -2.5, 0.0, 42.42];
         write_single_column_vortex_file("value", values).await
     });
-    let count: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
-        0,
-    );
+    let count: i64 =
+        scan_vortex_file_single_row::<i64, _>(file, "SELECT COUNT(*) FROM ? WHERE value > 0", 0);
     assert_eq!(count, 2);
 }
 
@@ -289,11 +286,8 @@ fn test_vortex_scan_constant() {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
         write_single_column_vortex_file("constant", constant).await
     });
-    let value: i32 = scan_vortex_file_single_row::<i32, _>(
-        file,
-        "SELECT constant FROM vortex_scan(?) LIMIT 1",
-        0,
-    );
+    let value: i32 =
+        scan_vortex_file_single_row::<i32, _>(file, "SELECT constant FROM ? LIMIT 1", 0);
     assert_eq!(value, 42);
 }
 
@@ -301,36 +295,30 @@ fn test_vortex_scan_constant() {
 fn test_vortex_scan_booleans() {
     let file = RUNTIME.block_on(async {
         let flags = vec![true, false, true, true, false];
-        let flags_array = BoolArray::from_bit_buffer(flags.into(), Validity::NonNullable);
+        let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
         write_single_column_vortex_file("flag", flags_array).await
     });
-    let true_count: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
-        0,
-    );
+    let true_count: i64 =
+        scan_vortex_file_single_row::<i64, _>(file, "SELECT COUNT(*) FROM ? WHERE flag = true", 0);
     assert_eq!(true_count, 3);
 }
 
 #[test]
 fn test_vortex_multi_column() {
     let file = RUNTIME.block_on(async {
-        let f1 = BoolArray::from_bit_buffer(
+        let f1 = BoolArray::new(
             vec![true, false, true, true, false].into(),
             Validity::NonNullable,
         )
-        .to_array();
-        let f2 = (0..5).collect::<PrimitiveArray>().to_array();
-        let f3 = (100..105).collect::<PrimitiveArray>().to_array();
+        .into_array();
+        let f2 = (0..5).collect::<PrimitiveArray>().into_array();
+        let f3 = (100..105).collect::<PrimitiveArray>().into_array();
         write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
     });
 
-    let result: Vec<i32> = scan_vortex_file::<i32, _>(
-        file,
-        "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2",
-        0,
-    )
-    .unwrap();
+    let result: Vec<i32> =
+        scan_vortex_file::<i32, _>(file, "SELECT f2 FROM ? WHERE f1 = true and f2 >= 2", 0)
+            .unwrap();
 
     assert_eq!(result, vec![2, 3]);
 }
@@ -353,15 +341,67 @@ fn test_vortex_scan_multiple_files() {
     // Scan both Vortex files.
     let conn = database_connection();
     let result = conn
-        .query(&format!(
-            "SELECT SUM(numbers) FROM vortex_scan('{glob_pattern}')",
-        ))
+        .query(&format!("SELECT SUM(numbers) FROM '{glob_pattern}'",))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
     let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
     assert_eq!(total_sum, 21);
+}
+
+#[test]
+fn test_vortex_scan_over_http() {
+    let file = RUNTIME.block_on(async {
+        let strings = VarBinArray::from(vec!["a", "b", "c"]);
+        write_single_column_vortex_file("strings", strings).await
+    });
+
+    let file_bytes = std::fs::read(file.path()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    // Spawn 10 threads because DuckDB does HEAD and GET requests with retries,
+    // thus 2 threads, one for each implementation, aren't enough
+    std::thread::spawn(move || {
+        for _ in 0..10 {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    file_bytes.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(&file_bytes).unwrap();
+            }
+        }
+    });
+
+    let conn = database_connection();
+    conn.query("SET vortex_filesystem = 'duckdb';").unwrap();
+    for httpfs_impl in ["httplib", "curl"] {
+        println!("Testing httpfs client implementation: {httpfs_impl}");
+        conn.query(&format!(
+            "SET httpfs_client_implementation = '{httpfs_impl}';"
+        ))
+        .unwrap();
+
+        let url = format!(
+            "http://{}/{}",
+            addr,
+            file.path().file_name().unwrap().to_string_lossy()
+        );
+        println!("url={url}, file={}", file.path().display());
+
+        let result = conn
+            .query(&format!("SELECT COUNT(*) FROM read_vortex('{url}')"))
+            .unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let count = chunk
+            .get_vector(0)
+            .as_slice_with_len::<i64>(chunk.len().as_())[0];
+
+        assert_eq!(count, 3);
+    }
 }
 
 #[test]
@@ -376,9 +416,7 @@ fn test_write_file() {
     .unwrap();
 
     let result = conn
-        .query(&format!(
-            "SELECT SUM(number) FROM vortex_scan('{file_path}')",
-        ))
+        .query(&format!("SELECT SUM(number) FROM '{file_path}'",))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -399,7 +437,7 @@ fn test_write_timestamps() {
         .unwrap();
 
     let result = conn
-        .query(&format!("SELECT TSTZ FROM vortex_scan('{file_path}')",))
+        .query(&format!("SELECT TSTZ FROM '{file_path}'",))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -449,9 +487,7 @@ fn test_vortex_scan_fixed_size_list_utf8() {
 
     // Query the structure.
     let result = conn
-        .query(&format!(
-            "SELECT string_lists FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT string_lists FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -509,9 +545,7 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
 
     // Query the nested structure.
     let result = conn
-        .query(&format!(
-            "SELECT nested_string_lists FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT nested_string_lists FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -555,7 +589,7 @@ fn test_vortex_scan_list_of_ints() {
 
     // Query the list structure to verify row count.
     let result = conn
-        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -564,7 +598,7 @@ fn test_vortex_scan_list_of_ints() {
 
     // Try to access the data - this tests for segfaults.
     let result = conn
-        .query(&format!("SELECT int_list FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT int_list FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -617,7 +651,7 @@ fn test_vortex_scan_list_of_utf8() {
 
     // Query the list structure to verify row count.
     let result = conn
-        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -626,9 +660,7 @@ fn test_vortex_scan_list_of_utf8() {
 
     // Try to access the data - this tests for segfaults.
     let result = conn
-        .query(&format!(
-            "SELECT string_list FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT string_list FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -713,7 +745,7 @@ fn test_vortex_scan_ultra_deep_nesting() {
 
     // Query the ultra-deep nested structure.
     let result = conn
-        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -722,9 +754,7 @@ fn test_vortex_scan_ultra_deep_nesting() {
 
     // Try to access the data - this is the critical test for segfaults.
     let result = conn
-        .query(&format!(
-            "SELECT ultra_deep FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT ultra_deep FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -746,7 +776,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     let constant_str = ConstantArray::new(Scalar::from("constant_value"), 5);
 
     // 2. Boolean
-    let bool_array = BoolArray::from_bit_buffer(
+    let bool_array = BoolArray::new(
         vec![true, false, true, false, true].into(),
         Validity::NonNullable,
     );
@@ -762,7 +792,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     let rle_array = RunEndArray::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
 
     // 5. Sequence array
-    let sequence_array = SequenceArray::new(
+    let sequence_array = SequenceArray::try_new(
         PValue::I64(0),
         PValue::I64(10),
         PType::I64,
@@ -830,30 +860,31 @@ fn test_vortex_encodings_roundtrip() {
     // Test reading back each column type
     let result = conn
         .query(&format!(
-            "SELECT * FROM vortex_scan('{}')",
+            "SELECT * FROM '{}'",
             file.path().to_string_lossy()
         ))
         .unwrap();
 
-    let chunk = result.into_iter().next().unwrap();
-    assert_eq!(chunk.len(), 5); // 5 rows
+    let mut chunk = result.into_iter().next().unwrap();
+    let len: usize = chunk.len().as_();
+    assert_eq!(len, 5); // 5 rows
     assert_eq!(chunk.column_count(), 10); // 10 columns
 
     // Verify primitive i32 (column 0)
     let primitive_i32_vec = chunk.get_vector(0);
-    let primitive_i32_slice = primitive_i32_vec.as_slice_with_len::<i32>(chunk.len().as_());
+    let primitive_i32_slice = primitive_i32_vec.as_slice_with_len::<i32>(len);
     assert_eq!(primitive_i32_slice, [1, 2, 3, 4, 5]);
 
     // Verify primitive f64 (column 1)
     let primitive_f64_vec = chunk.get_vector(1);
-    let primitive_f64_slice = primitive_f64_vec.as_slice_with_len::<f64>(chunk.len().as_());
+    let primitive_f64_slice = primitive_f64_vec.as_slice_with_len::<f64>(len);
     assert!((primitive_f64_slice[0] - 1.1).abs() < f64::EPSILON);
     assert!((primitive_f64_slice[1] - 2.2).abs() < f64::EPSILON);
     assert!((primitive_f64_slice[2] - 3.3).abs() < f64::EPSILON);
 
     // Verify constant string (column 2)
-    let mut constant_vec = chunk.get_vector(2);
-    let constant_slice = unsafe { constant_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    let constant_vec = chunk.get_vector_mut(2);
+    let constant_slice = unsafe { constant_vec.as_slice_mut::<duckdb_string_t>(len) };
     for idx in 0..5 {
         let string_val = String::from_duckdb_value(&mut constant_slice[idx]);
         assert_eq!(string_val, "constant_value");
@@ -861,12 +892,12 @@ fn test_vortex_encodings_roundtrip() {
 
     // Verify boolean (column 3)
     let bool_vec = chunk.get_vector(3);
-    let bool_slice = bool_vec.as_slice_with_len::<bool>(chunk.len().as_());
+    let bool_slice = bool_vec.as_slice_with_len::<bool>(len);
     assert_eq!(bool_slice, [true, false, true, false, true]);
 
     // Verify dictionary (column 4)
-    let mut dict_vec = chunk.get_vector(4);
-    let dict_slice = unsafe { dict_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    let dict_vec = chunk.get_vector_mut(4);
+    let dict_slice = unsafe { dict_vec.as_slice_mut::<duckdb_string_t>(len) };
     // Keys were [0, 1, 0, 2, 1] and values were ["apple", "banana", "cherry"]
     let expected_dict_values = ["apple", "banana", "apple", "cherry", "banana"];
     for idx in 0..5 {
@@ -876,17 +907,17 @@ fn test_vortex_encodings_roundtrip() {
 
     // Verify RLE (column 5)
     let rle_vec = chunk.get_vector(5);
-    let rle_slice = rle_vec.as_slice_with_len::<i32>(chunk.len().as_());
+    let rle_slice = rle_vec.as_slice_with_len::<i32>(len);
     assert_eq!(rle_slice, [100, 100, 100, 200, 200]);
 
     // Verify sequence (column 6)
     let seq_vec = chunk.get_vector(6);
-    let seq_slice = seq_vec.as_slice_with_len::<i64>(chunk.len().as_());
+    let seq_slice = seq_vec.as_slice_with_len::<i64>(len);
     assert_eq!(seq_slice, [0, 10, 20, 30, 40]);
 
     // Verify varbin (column 7)
-    let mut varbin_vec = chunk.get_vector(7);
-    let varbin_slice = unsafe { varbin_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    let varbin_vec = chunk.get_vector_mut(7);
+    let varbin_slice = unsafe { varbin_vec.as_slice_mut::<duckdb_string_t>(len) };
     let expected_strings = ["hello", "world", "vortex", "test", "data"];
     for i in 0..5 {
         let string_val = String::from_duckdb_value(&mut varbin_slice[i]);
@@ -896,7 +927,7 @@ fn test_vortex_encodings_roundtrip() {
     // Verify list (column 8)
     // Expected lists: [1,2], [3,4,5], [6], [7,8,9,10], []
     let list_vec = chunk.get_vector(8);
-    let list_entries = list_vec.as_slice_with_len::<cpp::duckdb_list_entry>(chunk.len().as_());
+    let list_entries = list_vec.as_slice_with_len::<cpp::duckdb_list_entry>(len);
 
     // Verify list lengths
     assert_eq!(list_entries[0].length, 2); // [1,2]

@@ -6,7 +6,6 @@ use std::os::raw::c_char;
 use std::os::raw::c_ulong;
 use std::os::raw::c_void;
 
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
 
@@ -15,6 +14,7 @@ use crate::cpp::duckdb_data_chunk;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_copy_func_bind_input;
 use crate::cpp::duckdb_vx_error;
+use crate::duckdb::ClientContext;
 use crate::duckdb::CopyFunction;
 use crate::duckdb::Data;
 use crate::duckdb::DataChunk;
@@ -38,12 +38,12 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
                 .to_string_lossy()
                 .into_owned()
         })
-        .collect_vec();
+        .collect();
 
     let column_types = unsafe { std::slice::from_raw_parts(column_types, column_type_count.as_()) }
         .iter()
-        .map(|c| unsafe { LogicalType::borrow(c.cast()) })
-        .collect_vec();
+        .map(|c| unsafe { LogicalType::borrow(*c) })
+        .collect();
 
     try_or_null(error_out, || {
         let bind_data = T::bind(column_names, column_types)?;
@@ -52,6 +52,7 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
 }
 
 pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
+    client_context: cpp::duckdb_client_context,
     bind_data: *const c_void,
     file_path: *const c_char,
     error_out: *mut duckdb_vx_error,
@@ -62,7 +63,8 @@ pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
     let bind_data = unsafe { bind_data.cast::<T::BindData>().as_ref() }
         .vortex_expect("global_init_data null pointer");
     try_or_null(error_out, || {
-        let bind_data = T::init_global(bind_data, file_path)?;
+        let ctx = unsafe { ClientContext::borrow(client_context) };
+        let bind_data = T::init_global(ctx, bind_data, file_path)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
 }
@@ -88,14 +90,14 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_sink_callback<T: CopyFunction>(
 ) {
     let bind_data =
         unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
-    let global_data = unsafe { global_data.cast::<T::GlobalState>().as_mut() }
+    let global_data = unsafe { global_data.cast::<T::GlobalState>().as_ref() }
         .vortex_expect("bind_data null pointer");
     let local_data = unsafe { local_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("bind_data null pointer");
 
     try_or(error_out, || {
-        T::copy_to_sink(bind_data, global_data, local_data, &mut unsafe {
-            DataChunk::borrow(data_chunk)
+        T::copy_to_sink(bind_data, global_data, local_data, unsafe {
+            DataChunk::borrow_mut(data_chunk)
         })?;
         Ok(())
     })

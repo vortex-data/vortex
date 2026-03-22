@@ -1,4 +1,4 @@
-# Runs once when we add the `benchmark` tag to a pull request.
+# Runs all benchmarks once when we add the `action/benchmark` tag to a pull request.
 
 name: PR Benchmarks
 
@@ -24,27 +24,31 @@ jobs:
   label_trigger:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
     steps:
       # We remove the benchmark label first so that the workflow can be re-triggered.
       - uses: actions-ecosystem/action-remove-labels@v1
         if: ${{ github.event.pull_request.head.repo.full_name == 'vortex-data/vortex' }}
         with:
-          labels: benchmark
+          labels: action/benchmark
           fail_on_error: true
 
   bench:
     needs: label_trigger
     timeout-minutes: 120
-    runs-on: runs-on=${{ github.run_id }}/family=c6id.8xlarge/image=ubuntu24-full-x64/spot=false/tag=${{ matrix.benchmark.id }}${{ github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '' }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/tag={1}{2}', github.run_id, matrix.benchmark.id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
     strategy:
       matrix:
         benchmark:
           - id: random-access-bench
             name: Random Access
+            build_args: "--features lance"
           - id: compress-bench
             name: Compression
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
@@ -53,6 +57,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -63,35 +69,37 @@ jobs:
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
+      - uses: ./.github/actions/system-info
+
       - name: Build binary
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug
+          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false
-        uses: polarsignals/gh-actions-ps-profiling@v0.7.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
-          parca_agent_version: "0.45.0"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          extra_args: "--off-cpu-threshold=0.001"  # Personally tuned by @brancz
+          profiling_frequency: 199
+          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Install uv
@@ -112,10 +120,8 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - --no-sign-request \
-            | gzip -d \
-            | grep $base_commit_sha \
-            > base.json
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
+          gzip -d -c data.json.gz | grep $base_commit_sha > base.json
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md
@@ -130,9 +136,97 @@ jobs:
           file-path: comment.md
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
+      - name: Comment PR on failure
+        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # 🚨🚨🚨❌❌❌ BENCHMARK FAILED ❌❌❌🚨🚨🚨
+
+            Benchmark `${{ matrix.benchmark.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+
   sql:
     needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
       mode: "pr"
+      benchmark_matrix: |
+        [
+          {
+            "id": "clickbench-nvme",
+            "subcommand": "clickbench",
+            "name": "Clickbench on NVME",
+            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+          },
+          {
+            "id": "tpch-nvme",
+            "subcommand": "tpch",
+            "name": "TPC-H SF=1 on NVME",
+            "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            "scale_factor": "1.0"
+          },
+          {
+            "id": "tpch-s3",
+            "subcommand": "tpch",
+            "name": "TPC-H SF=1 on S3",
+            "local_dir": "vortex-bench/data/tpch/1.0",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "1.0"
+          },
+          {
+            "id": "tpch-nvme-10",
+            "subcommand": "tpch",
+            "name": "TPC-H SF=10 on NVME",
+            "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            "scale_factor": "10.0"
+          },
+          {
+            "id": "tpch-s3-10",
+            "subcommand": "tpch",
+            "name": "TPC-H SF=10 on S3",
+            "local_dir": "vortex-bench/data/tpch/10.0",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "10.0"
+          },
+          {
+            "id": "tpcds-nvme",
+            "subcommand": "tpcds",
+            "name": "TPC-DS SF=1 on NVME",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            "scale_factor": "1.0"
+          },
+          {
+            "id": "statpopgen",
+            "subcommand": "statpopgen",
+            "name": "Statistical and Population Genetics",
+            "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "100"
+          },
+          {
+            "id": "fineweb",
+            "subcommand": "fineweb",
+            "name": "FineWeb NVMe",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "100"
+          },
+          {
+            "id": "fineweb-s3",
+            "subcommand": "fineweb",
+            "name": "FineWeb S3",
+            "local_dir": "vortex-bench/data/fineweb",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "100"
+          },
+          {
+            "id": "polarsignals",
+            "subcommand": "polarsignals",
+            "name": "PolarSignals Profiling",
+            "targets": "datafusion:vortex",
+            "scale_factor": "1"
+          },
+        ]

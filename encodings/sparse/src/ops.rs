@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl OperationsVTable<SparseVTable> for SparseVTable {
-    fn scalar_at(array: &SparseArray, index: usize) -> Scalar {
-        array
+impl OperationsVTable<Sparse> for Sparse {
+    fn scalar_at(array: &SparseArray, index: usize) -> VortexResult<Scalar> {
+        Ok(array
             .patches()
-            .get_patched(index)
-            .unwrap_or_else(|| array.fill_scalar().clone())
+            .get_patched(index)?
+            .unwrap_or_else(|| array.fill_scalar().clone()))
     }
 }
 
@@ -32,7 +33,7 @@ mod tests {
         let indices = buffer![0u8].into_array();
 
         let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
-        let sliced = sparse.slice(0..1000);
+        let sliced = sparse.slice(0..1000).unwrap();
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 

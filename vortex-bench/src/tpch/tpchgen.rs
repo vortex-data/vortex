@@ -428,7 +428,7 @@ impl VortexWriter {
 #[async_trait::async_trait]
 impl FileWriter for VortexWriter {
     async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
-        let array = ArrayRef::from_arrow(batch, false);
+        let array = ArrayRef::from_arrow(batch, false)?;
         self.sender
             .as_ref()
             .vortex_expect("sender closed early")

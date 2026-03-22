@@ -23,7 +23,7 @@ impl ScanBuilder<ArrayRef> {
     ///
     /// The `schema` parameter is used to define the schema of the resulting record batches. In
     /// general, it is not possible to exactly infer an Arrow schema from a Vortex
-    /// [`vortex_dtype::DType`], therefore it is required to be provided explicitly.
+    /// [`vortex_array::dtype::DType`], therefore it is required to be provided explicitly.
     pub fn into_record_batch_reader<B: BlockingRuntime>(
         self,
         schema: SchemaRef,
@@ -151,7 +151,7 @@ mod tests {
         );
 
         // Convert to Vortex
-        Ok(ArrayRef::from_arrow(&struct_array, true))
+        ArrayRef::from_arrow(&struct_array, true)
     }
 
     fn create_arrow_schema() -> Arc<Schema> {

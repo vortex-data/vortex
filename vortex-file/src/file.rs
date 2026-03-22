@@ -11,28 +11,30 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::CanonicalOutput;
+use vortex_array::Columnar;
 use vortex_array::VortexSessionExecute;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_array::stats::StatsSet;
-use vortex_dtype::DType;
-use vortex_dtype::Field;
-use vortex_dtype::FieldMask;
-use vortex_dtype::FieldPath;
-use vortex_dtype::FieldPathSet;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
-use vortex_metrics::VortexMetrics;
 use vortex_scan::ScanBuilder;
 use vortex_scan::SplitBy;
+use vortex_scan::api::DataSourceRef;
+use vortex_scan::layout::LayoutReaderDataSource;
 use vortex_scan::v2::scan::ScanBuilder2;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::FileStatistics;
 use crate::footer::Footer;
 use crate::pruning::extract_relevant_file_stats_as_struct_row;
+use crate::v2::FileStatsLayoutReader;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -45,8 +47,6 @@ pub struct VortexFile {
     pub(crate) footer: Footer,
     /// The segment source used to read segments from this file.
     pub(crate) segment_source: Arc<dyn SegmentSource>,
-    /// Metrics tied to the file.
-    pub(crate) metrics: VortexMetrics,
     /// The Vortex session used to open this file
     pub(crate) session: VortexSession,
 }
@@ -70,13 +70,8 @@ impl VortexFile {
     /// Returns the file's statistics, if available.
     ///
     /// Statistics can be used for query optimization and data exploration.
-    pub fn file_stats(&self) -> Option<&Arc<[StatsSet]>> {
+    pub fn file_stats(&self) -> Option<&FileStatistics> {
         self.footer.statistics()
-    }
-
-    /// Returns a reference to the file's metrics.
-    pub fn metrics(&self) -> &VortexMetrics {
-        &self.metrics
     }
 
     /// Create a new segment source for reading from the file.
@@ -96,12 +91,23 @@ impl VortexFile {
             .new_reader("".into(), segment_source, &self.session)
     }
 
-    /// Initiate a scan of the file, returning a builder for configuring the scan.
-    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(
-            ScanBuilder::new(self.session.clone(), self.layout_reader()?)
-                .with_metrics(self.metrics.clone()),
-        )
+    /// Create a [`DataSource`](vortex_scan::api::DataSource) from this file for scanning.
+    ///
+    /// Wraps the file's layout reader with [`FileStatsLayoutReader`] (when file-level
+    /// statistics are available) and [`LayoutReaderDataSource`].
+    pub fn data_source(&self) -> VortexResult<DataSourceRef> {
+        let mut reader = self.layout_reader()?;
+        if let Some(stats) = self.file_stats().cloned() {
+            reader = Arc::new(FileStatsLayoutReader::new(
+                reader,
+                stats,
+                self.session.clone(),
+            ));
+        }
+        Ok(Arc::new(LayoutReaderDataSource::new(
+            reader,
+            self.session.clone(),
+        )))
     }
 
     pub fn scan2(&self) -> VortexResult<ScanBuilder2> {
@@ -112,20 +118,11 @@ impl VortexFile {
         Ok(ScanBuilder2::new(reader_ref, self.session.clone()))
     }
 
-    #[cfg(gpu_unstable)]
-    pub fn gpu_scan(
-        &self,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuVector>> {
-        let segment_source = self.segment_source();
-        let gpu_reader = self
-            .footer
-            .layout()
-            .new_gpu_reader("".into(), segment_source, ctx)?;
-
-        Ok(vortex_scan::gpu::GpuScanBuilder::new(
+    /// Initiate a scan of the file, returning a builder for configuring the scan.
+    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
+        Ok(ScanBuilder::new(
             self.session.clone(),
-            gpu_reader,
+            self.layout_reader()?,
         ))
     }
 
@@ -139,16 +136,20 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let set = FieldPathSet::from_iter(fields.names().iter().zip(stats.iter()).flat_map(
-            |(name, stats)| {
-                stats.iter().map(|(stat, _)| {
-                    FieldPath::from_iter([
-                        Field::Name(name.clone()),
-                        Field::Name(stat.name().into()),
-                    ])
-                })
-            },
-        ));
+        let set = FieldPathSet::from_iter(
+            fields
+                .names()
+                .iter()
+                .zip(stats.stats_sets().iter())
+                .flat_map(|(name, stats)| {
+                    stats.iter().map(|(stat, _)| {
+                        FieldPath::from_iter([
+                            Field::Name(name.clone()),
+                            Field::Name(stat.name().into()),
+                        ])
+                    })
+                }),
+        );
 
         let Some((predicate, required_stats)) = checked_pruning_expr(filter, &set) else {
             return Ok(false);
@@ -161,8 +162,11 @@ impl VortexFile {
                 .map(|(path, stats)| (path.clone(), stats.clone())),
         );
 
-        let Some(file_stats) =
-            extract_relevant_file_stats_as_struct_row(&required_file_stats, stats, fields)?
+        let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
+            &required_file_stats,
+            stats.stats_sets(),
+            fields,
+        )?
         else {
             return Ok(false);
         };
@@ -171,10 +175,10 @@ impl VortexFile {
         Ok(
             match file_stats
                 .apply(&predicate)?
-                .execute::<CanonicalOutput>(&mut ctx)?
+                .execute::<Columnar>(&mut ctx)?
             {
-                CanonicalOutput::Constant(c) => c.scalar().as_bool().value() == Some(true),
-                CanonicalOutput::Array(_) => false,
+                Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
+                Columnar::Canonical(_) => false,
             },
         )
     }

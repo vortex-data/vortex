@@ -6,16 +6,12 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Null;
 use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::filter::FilterReduce;
 
-impl FilterKernel for NullVTable {
-    fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(NullArray::new(mask.true_count()).into_array())
+impl FilterReduce for Null {
+    fn filter(_array: &NullArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(NullArray::new(mask.true_count()).into_array()))
     }
 }
-
-register_kernel!(FilterKernelAdapter(NullVTable).lift());

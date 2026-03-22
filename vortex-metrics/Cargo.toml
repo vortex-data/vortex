@@ -16,8 +16,7 @@ version = { workspace = true }
 [dependencies]
 getrandom_v03 = { workspace = true }
 parking_lot = { workspace = true }
-vortex-session = { workspace = true }
-witchcraft-metrics = { workspace = true }
+sketches-ddsketch = { workspace = true }
 
 [lints]
 workspace = true

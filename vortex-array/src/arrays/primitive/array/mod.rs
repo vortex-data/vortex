@@ -8,16 +8,16 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -33,7 +33,7 @@ pub use patch::patch_chunk;
 
 use crate::buffer::BufferHandle;
 
-/// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
+/// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
 ///
 /// This mirrors the Apache Arrow Primitive layout and can be converted into and out of one
@@ -47,22 +47,26 @@ use crate::buffer::BufferHandle;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_array::compute::sum;
-/// ///
+///
 /// // Create from iterator using FromIterator impl
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1..3);
+/// let sliced = array.slice(1..3)?;
 ///
 /// // Access individual values
-/// let value = sliced.scalar_at(0);
+/// let value = sliced.scalar_at(0).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
 /// // Convert into a type-erased array that can be passed to compute functions.
-/// let summed = sum(sliced.as_ref()).unwrap().as_primitive().typed_value::<i64>().unwrap();
+/// use vortex_array::IntoArray;
+/// let summed = sum(&sliced.into_array()).unwrap().as_primitive().typed_value::<i64>().unwrap();
 /// assert_eq!(summed, 5i64);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -70,6 +74,12 @@ pub struct PrimitiveArray {
     pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+pub struct PrimitiveArrayParts {
+    pub ptype: PType,
+    pub buffer: BufferHandle,
+    pub validity: Validity,
 }
 
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
@@ -155,6 +165,7 @@ impl PrimitiveArray {
             && buffer.len() != len
         {
             return Err(vortex_err!(
+                InvalidArgument:
                 "Buffer and validity length mismatch: buffer={}, validity={}",
                 buffer.len(),
                 len
@@ -170,8 +181,13 @@ impl PrimitiveArray {
 
 impl PrimitiveArray {
     /// Consume the primitive array and returns its component parts.
-    pub fn into_parts(self) -> (DType, BufferHandle, Validity, ArrayStats) {
-        (self.dtype, self.buffer, self.validity, self.stats_set)
+    pub fn into_parts(self) -> PrimitiveArrayParts {
+        let ptype = self.ptype();
+        PrimitiveArrayParts {
+            ptype,
+            buffer: self.buffer,
+            validity: self.validity,
+        }
     }
 }
 
@@ -215,7 +231,7 @@ impl PrimitiveArray {
             Validity::AllInvalid => ByteBuffer::zeroed_aligned(n_rows * byte_width, alignment),
             Validity::Array(is_valid) => {
                 let bool_array = is_valid.to_bool();
-                let bool_buffer = bool_array.bit_buffer();
+                let bool_buffer = bool_array.to_bit_buffer();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {
                     bytes[valid_i * byte_width..(valid_i + 1) * byte_width]
@@ -270,8 +286,8 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
-                let val = val.to_bool();
-                BufferMut::<R>::from_iter(buf_iter.zip(val.bit_buffer()).map(f))
+                let val = val.to_bool().into_bit_buffer();
+                BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
             }
         };
         Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))

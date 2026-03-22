@@ -18,17 +18,17 @@ use futures::pin_mut;
 use futures::stream::BoxStream;
 use futures::stream::once;
 use futures::try_join;
-use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
-use vortex_array::arrays::DictVTable;
+use vortex_array::DynArray;
+use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -66,6 +66,8 @@ pub struct DictLayoutConstraints {
     /// The codes dtype is determined upfront from this constraint:
     /// - [`PType::U8`] when max_len <= 255
     /// - [`PType::U16`] when max_len > 255
+    ///
+    /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
     pub max_len: u16,
 }
 
@@ -150,7 +152,7 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
-                !compressed.is::<DictVTable>()
+                !compressed.is::<Dict>()
             }
         };
         if should_fallback {
@@ -271,7 +273,7 @@ fn dict_encode_stream(
             match input.as_mut().peek().await {
                 Some(_) => {
                     let mut labeler = DictChunkLabeler::new(sequence_id);
-                    let chunks = state.encode(&mut labeler, chunk);
+                    let chunks = state.encode(&mut labeler, chunk)?;
                     drop(labeler);
                     for dict_chunk in chunks {
                         yield dict_chunk;
@@ -280,7 +282,7 @@ fn dict_encode_stream(
                 None => {
                     // this is the last element, encode and drain chunks
                     let mut labeler = DictChunkLabeler::new(sequence_id);
-                    let encoded = state.encode(&mut labeler, chunk);
+                    let encoded = state.encode(&mut labeler, chunk)?;
                     let drained = state.drain_values(&mut labeler);
                     drop(labeler);
                     for dict_chunk in encoded.into_iter().chain(drained.into_iter()) {
@@ -298,12 +300,16 @@ struct DictStreamState {
 }
 
 impl DictStreamState {
-    fn encode(&mut self, labeler: &mut DictChunkLabeler, chunk: ArrayRef) -> Vec<DictionaryChunk> {
+    fn encode(
+        &mut self,
+        labeler: &mut DictChunkLabeler,
+        chunk: ArrayRef,
+    ) -> VortexResult<Vec<DictionaryChunk>> {
         let mut res = Vec::new();
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
             match self.encoder.take() {
-                None => match start_encoding(&self.constraints, &remaining) {
+                None => match start_encoding(&self.constraints, &remaining)? {
                     EncodingState::Continue((encoder, encoded)) => {
                         let ptype = encoder.codes_ptype();
                         res.push(labeler.codes(encoded, ptype));
@@ -320,7 +326,7 @@ impl DictStreamState {
                 },
                 Some(encoder) => {
                     let ptype = encoder.codes_ptype();
-                    match encode_chunk(encoder, &remaining) {
+                    match encode_chunk(encoder, &remaining)? {
                         EncodingState::Continue((encoder, encoded)) => {
                             res.push(labeler.codes(encoded, ptype));
                             self.encoder = Some(encoder);
@@ -334,7 +340,7 @@ impl DictStreamState {
                 }
             }
         }
-        res
+        Ok(res)
     }
 
     fn drain_values(&mut self, labeler: &mut DictChunkLabeler) -> Vec<DictionaryChunk> {
@@ -535,21 +541,28 @@ enum EncodingState {
     Done((ArrayRef, ArrayRef, ArrayRef)),
 }
 
-fn start_encoding(constraints: &DictConstraints, chunk: &dyn Array) -> EncodingState {
+fn start_encoding(constraints: &DictConstraints, chunk: &ArrayRef) -> VortexResult<EncodingState> {
     let encoder = dict_encoder(chunk, constraints);
     encode_chunk(encoder, chunk)
 }
 
-fn encode_chunk(mut encoder: Box<dyn DictEncoder>, chunk: &dyn Array) -> EncodingState {
+fn encode_chunk(
+    mut encoder: Box<dyn DictEncoder>,
+    chunk: &ArrayRef,
+) -> VortexResult<EncodingState> {
     let encoded = encoder.encode(chunk);
-    match remainder(chunk, encoded.len()) {
-        None => EncodingState::Continue((encoder, encoded)),
-        Some(unencoded) => EncodingState::Done((encoder.reset(), encoded, unencoded)),
+    match remainder(chunk, encoded.len())? {
+        None => Ok(EncodingState::Continue((encoder, encoded))),
+        Some(unencoded) => Ok(EncodingState::Done((encoder.reset(), encoded, unencoded))),
     }
 }
 
-fn remainder(array: &dyn Array, encoded_len: usize) -> Option<ArrayRef> {
-    (encoded_len < array.len()).then(|| array.slice(encoded_len..array.len()))
+fn remainder(array: &ArrayRef, encoded_len: usize) -> VortexResult<Option<ArrayRef>> {
+    if encoded_len < array.len() {
+        Ok(Some(array.slice(encoded_len..array.len())?))
+    } else {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -558,9 +571,9 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::builders::dict::DictConstraints;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
 
     use super::DictionaryTransformer;
     use super::dict_encode_stream;

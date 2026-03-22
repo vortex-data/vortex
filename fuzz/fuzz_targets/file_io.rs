@@ -7,19 +7,18 @@
 use itertools::Itertools;
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
-use vortex_array::Array;
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::compute::Operator;
-use vortex_array::compute::compare;
-use vortex_array::compute::filter;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_file::OpenOptionsSessionExt;
@@ -29,7 +28,6 @@ use vortex_fuzz::CompressorStrategy;
 use vortex_fuzz::FuzzFileAction;
 use vortex_fuzz::RUNTIME;
 use vortex_fuzz::SESSION;
-use vortex_layout::layouts::compact::CompactCompressor;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -47,26 +45,23 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     }
 
     let expected_array = {
-        let bool_mask = filter_expr
-            .clone()
-            .unwrap_or_else(|| lit(true))
-            .evaluate(&array_data)
+        let bool_mask = array_data
+            .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let mask = bool_mask.to_bool().to_mask_fill_null_false();
-        let filtered = filter(&array_data, &mask)
+        let filtered = array_data
+            .filter(mask)
             .vortex_expect("filter operation should succeed in fuzz test");
-        projection_expr
-            .clone()
-            .unwrap_or_else(root)
-            .evaluate(&filtered)
+        filtered
+            .apply(&projection_expr.clone().unwrap_or_else(root))
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
     let write_options = match compressor_strategy {
         CompressorStrategy::Default => SESSION.write_options(),
         CompressorStrategy::Compact => {
-            let strategy = WriteStrategyBuilder::new()
-                .with_compressor(CompactCompressor::default())
+            let strategy = WriteStrategyBuilder::default()
+                .with_compact_encodings()
                 .build();
             SESSION.write_options().with_strategy(strategy)
         }
@@ -112,11 +107,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         output_array.dtype()
     );
 
-    let bool_result = compare(&expected_array, &output_array, Operator::Eq)
+    let bool_result = expected_array
+        .binary(output_array.clone(), Operator::Eq)
         .vortex_expect("compare operation should succeed in fuzz test")
         .to_bool();
-    let true_count = bool_result.bit_buffer().true_count();
-    if true_count != expected_array.len() && (bool_result.all_valid() || expected_array.all_valid())
+    let true_count = bool_result.to_bit_buffer().true_count();
+    if true_count != expected_array.len()
+        && (bool_result.all_valid().vortex_expect("all_valid")
+            || expected_array.all_valid().vortex_expect("all_valid"))
     {
         vortex_panic!(
             "Failed to match original array {}with{}",

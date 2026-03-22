@@ -1,135 +1,103 @@
-# Vortex Arrays
+# Arrays
 
-An array is the in-memory representation of data in Vortex. It has a [length](#length), a [data type](#data-type), an
-[encoding](#encodings), some number of [children](#children), and some number of [buffers](#buffers).
-All arrays in Vortex are represented by an `Array`, which in pseudo-code looks something like this:
+An array is the in-memory representation of data in Vortex. It is a tree structure where each node has a length,
+data type, children, data buffers, statistics, and a vtable encapsulating its behavior.
 
-```rust
-struct Array {
-    encoding: Encoding,
-    dtype: DType,
-    len: usize,
-    metadata: ByteBuffer,
-    children: [Array],
-    buffers: [ByteBuffer],
-    statistics: Statistics,
-}
+Arrays are one of the main plugin points in Vortex, allowing plugin developers to define new encodings for data
+that provides better compression, faster compute, or both for specific data types or workloads.
+
+For readers coming from a query engine background, arrays are similar to a logical plan for decompression.
+By deferring all operations over arrays, Vortex is able to choose optimized decompression kernels and prune away 
+all unnecessary data. 
+
+Here is a relatively complex example of an array tree as printed by `Array::display_tree()`:
+
 ```
-
-This document goes into detail about each of these fields as well as the mechanics behind the encoding vtables.
-
-**Owned vs Viewed**
-
-As with other possibly large recursive data structures in Vortex, arrays can be either _owned_ or _viewed_.
-Owned arrays are heap-allocated, while viewed arrays are lazily unwrapped from an underlying FlatBuffer representation.
-This allows Vortex to efficiently load and work with very wide schemas without needing to deserialize the full array
-in memory.
-
-This abstraction is hidden from users inside an `Array` object.
+vortex.dict(utf8?, len=1112) nbytes=11.89 kB (0.10%) [all_valid]
+  metadata: DictMetadata { values_len: 224, codes_ptype: U16 }
+  codes: vortex.slice(u16, len=1112) nbytes=3.46 kB (29.07%)
+    metadata: 474600..475712
+    child: vortex.runend(u16, len=475712) nbytes=3.46 kB (100.00%)
+      metadata: RunEndMetadata { ends_ptype: U32, num_runs: 981, offset: 0 }
+      ends: fastlanes.for(u32, len=981) nbytes=2.43 kB (70.37%) [nulls=0, min=62353u32, max=475712u32, strict]
+        metadata: 62353u32
+        encoded: fastlanes.bitpacked(u32, len=981) nbytes=2.43 kB (100.00%) [nulls=0, min=0u32, max=413359u32]
+          metadata: BitPackedMetadata { bit_width: 19, offset: 0, patches: None }
+          buffer: packed host 2.43 kB (align=4) (100.00%)
+      values: fastlanes.bitpacked(u16, len=981) nbytes=1.02 kB (29.63%) [nulls=0, min=0u16, max=223u16]
+        metadata: BitPackedMetadata { bit_width: 8, offset: 0, patches: None }
+        buffer: packed host 1.02 kB (align=2) (100.00%)
+  values: vortex.varbinview(utf8?, len=224) nbytes=8.43 kB (70.93%) [all_valid]
+    metadata: EmptyMetadata
+    buffer: buffer_0 host 4.85 kB (align=1) (57.49%)
+    buffer: views host 3.58 kB (align=16) (42.51%)
+```
 
 ## Encodings
 
-An encoding acts as the virtual function table (vtable) for an `Array`.
+Each array has an associated encoding that defines how the data is physically stored in memory. Vortex 
+ships with a number of built-in encodings, as well as a plugin system to allow third-party developers to
+define their own.
 
-### VTable
+### Canonical Arrays
 
-The full vtable definition is quite expansive, is split across many Rust traits, and has many optional functions. Here
-is an overview:
+In order to avoid having to implement logic for an exponential combination of encodings, Vortex defines one canonical
+encoding per logical data type. All arrays can eventually be decompressed one of these canonical encodings.
 
-* `id`: returns the unique identifier for the encoding.
-* `validate`: validates the array's buffers and children after loading from disk.
-* `accept`: a function for accepting an `ArrayVisitor` and walking the arrays children.
-* `into_canonical`: decodes the array into a canonical encoding.
-* `into_arrow`: decodes the array into an Arrow array.
-* `metadata`
-    * `validate`: validates the array's metadata buffer.
-    * `display`: returns a human-readable representation of the array metadata.
-* `validity`
-    * `is_valid`: returns whether the element at a given row is valid.
-    * `all_valid`: returns whether all elements are valid.
-    * `invalid_count` returns the number of invalid elements.
-    * `validity_mask`: returns the validity bit-mask for an array, indicating which values are non-null.
-* `compute`: a collection of compute functions vtables.
-    * `filter`: a function for filtering the array using a given selection mask.
-    * ...
-* `statistics`: a function for computing a statistic for the array data, for example `min`.
-* `variants`: a collection of optional DType-specific functions for operation over the array.
-    * `struct`: functions for operating over arrays with a `StructDType`.
-        * `get_field`: returns the array for a given field of the struct.
-        * ...
-    * ...
+| Data Type              | Canonical Encoding   |
+|------------------------|----------------------|
+| `DType::Null`          | `NullArray`          |
+| `DType::Bool`          | `BoolArray`          |
+| `DType::Primitive`     | `PrimitiveArray`     |
+| `DType::UTF8`          | `VarBinViewArray`    |
+| `DType::Binary`        | `VarBinViewArray`    |
+| `DType::Struct`        | `StructArray`        |
+| `DType::List`          | `ListViewArray`      |
+| `DType::FixedSizeList` | `FixedSizeListArray` |
+| `DType::Extension`     | `ExtensionArray`     | 
 
-Encoding vtables can even be constructed from non-static sources, such as _WebAssembly_ modules, which enables the
-[forward compatibility](/specs/file-format.md#forward-compatibility) feature of the Vortex File Format.
+### Builtin Arrays
 
-See the [Writing an Encoding](/guides/writing-an-encoding) guide for more information.
+Alongside canonical arrays, Vortex ships with a number of built-in encodings that provide common functionality
+as well as full zero-copy compatibility with the remaining non-canonical _Apache Arrow_ arrays.
 
-### Canonical Encodings
+| Encoding Name     | Description                                                |
+|-------------------|------------------------------------------------------------|
+| `ChunkedArray`    | A concatenation of multiple arrays                         |
+| `ConstantArray`   | An array where all values are the same                     |
+| `DictionaryArray` | Dictionary encoding for any data type                      |
+| `FilterArray`     | An array filtered by a boolean mask                        |
+| `SliceArray`      | An array representing a sliced view over another array     |
+| `ListArray`       | A variable-length list of elements (compatible with Arrow) |
+| `VarBinArray`     | A variable-length binary array (compatible with Arrow)     |
 
-Each logical data type in Vortex has an associated canonical encoding. All encodings must support decompression into
-their canonical form.
+### Compressed Arrays
 
-Note that Vortex also supports decompressing into intermediate encodings, such as dictionary encoding, which may be
-better suited to a particular operation or compute engine.
+Outside of Vortex core, but still maintained by the Vortex project, are a number of common compressed arrays.
+These can be found in the `encodings/` directory of the Vortex repository.
 
-The canonical encodings support **zero-copy** conversion to and from _Apache Arrow_ arrays.
-
-| Data Type          | Canonical Encoding |
-|--------------------|--------------------|
-| `DType::Null`      | `NullArray`        |
-| `DType::Bool`      | `BoolArray`        |
-| `DType::Primitive` | `PrimitiveArray`   |
-| `DType::UTF8`      | `VarBinViewArray`  |
-| `DType::Binary`    | `VarBinViewArray`  |
-| `DType::Struct`    | `StructArray`      |
-| `DType::List`      | `ListArray`        |
-| `DType::Extension` | `ExtensionArray`   |
-
-(data-type)=
-
-## Data Type
-
-The array's [data type](/concepts/dtypes) is a logical definition of the data held within the array and does not
-confer any specific meaning on the array's children or buffers.
-
-Another way to think about logical data types is that they represent the type of the scalar value you might read
-out of the array.
-
-## Length
-
-The length of an array can almost always be inferred by encoding from its children and buffers. But given how
-important the length is for many operations, it is stored directly in the `Array` object for faster access.
-
-## Metadata
-
-Each array can store a small amount of metadata in the form of a byte buffer. This is typically not much more than
-8 bytes and does not have any alignment guarantees. This is used by encodings to store any additional information they
-might need in order to access their children or buffers.
-
-For example, a dictionary encoding stores the length of its `values` child, and the primitive type of its `codes` child.
-
-## Children
-
-Arrays can have some number of child arrays. These differ from buffers in that they are logically typed, meaning the
-encoding cannot make assumptions about the layout of these children when implementing its vtable.
-
-Dictionary encoding is an example of where child arrays might be used, with one array representing the unique
-dictionary values and another array representing the codes indexing into those values.
-
-## Buffers
-
-Buffers store binary data with a declared alignment. They act as the terminal nodes in the recursive structure of
-an array.
-
-They are not considered by the recursive compressor, although general-purpose compression may still be used
-at write-time.
-
-For example, a bit-packed array stores packed integers in binary form. These would be stored in a buffer with an
-alignment sufficient for SIMD unpacking operations.
+| Encoding Name          | Description                                                  |
+|------------------------|--------------------------------------------------------------|
+| `ALP`                  | Adaptive Lossless Floating Point                             |
+| `ALPrd`                | Adaptive Lossless Floating Point for real doubles            |
+| `ByteBool`             | Byte-sized boolean arrays                                    |
+| `DateTimeParts`        | Decomposed date-time encoding for timestamps                 |
+| `DecimalByteParts`     | Decomposed decimal encoding                                  |
+| `FastLanes BitPacking` | A SIMD-optimized bit-packed integer encoding                 |
+| `FastLanes Delta`      | A SIMD-optimized delta encoding                              |
+| `FastLanes FoR`        | A SIMD-optimized frame-of-reference encoding                 |
+| `FastLanes RLE`        | A SIMD-optimized run-length encoding                         |
+| `FSST`                 | Fast Static Symbol Table for string compression              |
+| `PCodec`               | Compression-optimized integer and float compression          |
+| `RunEnd`               | Run-end encoding (compatible with Arrow)                     |
+| `Sequence`             | Sequence encoding for fixed-interval runs                    |
+| `Sparse`               | Fill-value plus patches                                      |
+| `ZigZag`               | Zig-zag integer encoding to remove negative integers         |
+| `ZStd`                 | Compression-optimized binary compression with zstd           |
 
 ## Statistics
 
-Arrays carry their own statistics with them, allowing many compute functions to short-circuit or optimise their
+Arrays carry their own statistics with them, allowing many compute functions to short-circuit or optimize their
 implementations. Currently, the available statistics are:
 
 * `null_count`: The number of null values in the array.
@@ -141,3 +109,24 @@ implementations. Currently, the available statistics are:
 * `min`: The minimum value in the array.
 * `max`: The maximum value in the array.
 * `uncompressed_size`: The size of the array in memory before any compression.
+
+## Execution
+
+The core operation performed over Vortex arrays is _execution_. This is defined as taking an arbitrary array tree
+and producing another array tree that is closer to canonical form.
+
+Once an array is in canonical form, arbitrary plugins are able to extract known components of the arrays, such 
+as the elements of a primitive array, and perform operations over them. Note that canonical form describes only the 
+root array; child arrays may still be non-canonical.
+
+When executing an array, Vortex will attempt to find encoding-specific kernels that can operate directly over the 
+compressed data. If no such kernel exists, the array will be executed into its canonical form and the operation
+performed from there.
+
+For more detail on execution, see the documentation on [Vortex internals](../developer-guide/internals/execution.md).
+
+## Buffer Handles
+
+Arrays hold their physical data in _buffer handles_. These are opaque objects that represent an underlying data buffer
+allocated somewhere on some device. These objects are opaque to enable buffers to live either on CPU host memory or
+on other devices, such as GPUs.

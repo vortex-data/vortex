@@ -29,9 +29,11 @@ use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::arrow::ToPyArrow;
+use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
-use crate::object_store_urls::object_store_from_url;
+use crate::object_store::resolve::ResolvedStore;
+use crate::object_store::resolve::resolve_store;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -109,14 +111,20 @@ impl PyVortexDataset {
         Ok(Self { vxf, schema })
     }
 
-    pub async fn from_url(url: &str) -> VortexResult<Self> {
-        let (object_store, path) = object_store_from_url(url)?;
-        PyVortexDataset::try_new(
-            SESSION
-                .open_options()
-                .open_object_store(&object_store, path.as_ref())
-                .await?,
-        )
+    pub async fn from_url(
+        url: &str,
+        store: Option<Arc<dyn object_store::ObjectStore>>,
+    ) -> VortexResult<Self> {
+        let vxf = match resolve_store(url, store)? {
+            ResolvedStore::ObjectStore(store, path) => {
+                SESSION
+                    .open_options()
+                    .open_object_store(&store, path.as_ref())
+                    .await?
+            }
+            ResolvedStore::Path(path) => SESSION.open_options().open_path(path).await?,
+        };
+        PyVortexDataset::try_new(vxf)
     }
 }
 
@@ -133,7 +141,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<PyArrayRef>,
         row_range: Option<(u64, u64)>,
-    ) -> PyResult<PyArrayRef> {
+    ) -> PyVortexResult<PyArrayRef> {
         let array = read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
@@ -151,7 +159,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
-    ) -> PyResult<Py<PyAny>> {
+    ) -> PyVortexResult<Py<PyAny>> {
         let mut scan = self_
             .vxf
             .scan()?
@@ -167,7 +175,7 @@ impl PyVortexDataset {
         let reader: Box<dyn RecordBatchReader + Send> =
             Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
 
-        reader.into_pyarrow(self_.py())
+        Ok(reader.into_pyarrow(self_.py())?)
     }
 
     /// The number of rows matching the filter.
@@ -177,13 +185,15 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
-    ) -> PyResult<usize> {
+    ) -> PyVortexResult<usize> {
         if row_filter.is_none() {
             let row_count = match row_range {
                 Some(range) => range.1 - range.0,
                 None => self_.vxf.row_count(),
             };
-            return row_count.try_into().map_err(PyValueError::new_err);
+            return row_count
+                .try_into()
+                .map_err(|e| PyValueError::new_err(e).into());
         }
 
         let mut scan = self_
@@ -200,15 +210,14 @@ impl PyVortexDataset {
         let n_rows: usize = scan
             .into_array_iter(&*RUNTIME)?
             .map_ok(|array| array.len())
-            .process_results(|iter| iter.sum())
-            .map_err(|err| PyValueError::new_err(format!("vortex error: {}", err)))?;
+            .process_results(|iter| iter.sum())?;
 
         Ok(n_rows)
     }
 
     /// The natural splits of this Dataset.
     #[pyo3(signature = (*))]
-    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+    pub fn splits(&self) -> PyVortexResult<Vec<(u64, u64)>> {
         Ok(self
             .vxf
             .splits()?
@@ -219,6 +228,18 @@ impl PyVortexDataset {
 }
 
 #[pyfunction]
-pub fn dataset_from_url(py: Python, url: &str) -> PyResult<PyVortexDataset> {
-    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
+#[pyo3(signature = (url, *, store = None))]
+pub fn dataset_from_url(
+    py: Python,
+    url: &str,
+    store: Option<Bound<PyAny>>,
+) -> PyVortexResult<PyVortexDataset> {
+    let store_arc = if let Some(store_obj) = store {
+        let py_store: pyo3_object_store::PyObjectStore = store_obj.extract()?;
+        Some(py_store.into_inner())
+    } else {
+        None
+    };
+
+    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?)
 }

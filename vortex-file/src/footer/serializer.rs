@@ -10,13 +10,13 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_layout::LayoutContext;
+use vortex_session::registry::ReadContext;
 
 use crate::EOF_SIZE;
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VERSION;
-use crate::footer::FileStatistics;
 use crate::footer::file_layout::FooterFlatBufferWriter;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
@@ -84,10 +84,9 @@ impl FooterSerializer {
 
         let statistics_segment = match self.footer.statistics() {
             None => None,
-            Some(stats) if stats.is_empty() => None,
+            Some(stats) if stats.stats_sets().is_empty() => None,
             Some(stats) => {
-                let stats = FileStatistics(stats.clone());
-                let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, &stats)?;
+                let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, stats)?;
                 buffers.push(buffer);
                 Some(stats_segment)
             }
@@ -96,8 +95,8 @@ impl FooterSerializer {
         let (buffer, footer_segment) = write_flatbuffer(
             &mut self.offset,
             &FooterFlatBufferWriter {
-                ctx: self.footer.array_ctx.clone(),
-                layout_ctx,
+                ctx: self.footer.array_read_ctx.clone(),
+                layout_ctx: ReadContext::new(layout_ctx.to_ids()),
                 segment_specs: self.footer.segments.clone(),
             },
         )?;
@@ -110,7 +109,7 @@ impl FooterSerializer {
             statistics: statistics_segment,
             footer: footer_segment,
         };
-        let postscript_buffer = postscript.write_flatbuffer_bytes();
+        let postscript_buffer = postscript.write_flatbuffer_bytes()?;
         if postscript_buffer.len() > MAX_POSTSCRIPT_SIZE as usize {
             Err(vortex_err!(
                 "Postscript is too large ({} bytes); max postscript size is {}",
@@ -138,7 +137,7 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     offset: &mut u64,
     flatbuffer: &F,
 ) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
-    let buffer = flatbuffer.write_flatbuffer_bytes();
+    let buffer = flatbuffer.write_flatbuffer_bytes()?;
     let length = u32::try_from(buffer.len())
         .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
 

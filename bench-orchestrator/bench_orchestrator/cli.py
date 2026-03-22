@@ -47,7 +47,15 @@ def parse_queries(value: str | None) -> list[int] | None:
     """Parse comma-separated query numbers."""
     if not value:
         return None
-    return [int(q.strip()) for q in value.split(",")]
+
+    result = set()
+    for part in value.split(","):
+        if "-" in part:
+            start, end = part.split("-", 1)
+            result.update(range(int(start), int(end) + 1))
+        else:
+            result.add(int(part))
+    return sorted(result)
 
 
 def run_ref_auto_complete() -> list[str]:
@@ -69,6 +77,8 @@ def run(
     label: Annotated[str | None, typer.Option("--label", "-l", help="Label for this run")] = None,
     track_memory: Annotated[bool, typer.Option("--track-memory", help="Track memory usage")] = False,
     samply: Annotated[bool, typer.Option("--samply", help="Record a profile using samply")] = False,
+    sample_rate: Annotated[int, typer.Option("--sample-rate", help="Sample rate to run samply with")] = None,
+    tracing: Annotated[bool, typer.Option("--tracing", help="Record a trace for use with perfetto")] = False,
     build: Annotated[bool, typer.Option("--build/--no-build", help="Build binaries before running")] = True,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
@@ -152,6 +162,8 @@ def run(
                     options=bench_opts,
                     track_memory=track_memory,
                     samply=samply,
+                    sample_rate=sample_rate,
+                    tracing=tracing,
                     on_result=ctx.write_raw_json,
                 )
                 console.print(f"[green]{eng.value}: {len(results)} results[/green]")
@@ -174,6 +186,42 @@ def run(
         except ValueError:
             # Not enough combinations to compare
             pass
+
+    # If tracing was enabled, start a localhost server to serve the trace file (./trace.json) and open the
+    # perfetto UI in the browser
+    if tracing:
+        import http.server
+        import socketserver
+        import threading
+        import webbrowser
+
+        # This is the only localhost port allowed by Perfetto's CSP.
+        HOST = "127.0.0.1"
+        PORT = 9001
+
+        class TraceRequestHandler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/trace.json":
+                    self.path = "trace.json"
+                return super().do_GET()
+
+            def do_POST(self):
+                self.send_error(404, "File not found")
+
+            def end_headers(self):
+                self.send_header("Access-Control-Allow-Origin", "*")
+                super().end_headers()
+
+        def start_server():
+            socketserver.TCPServer.allow_reuse_address = True
+            with socketserver.TCPServer(("", PORT), TraceRequestHandler) as httpd:
+                console.print(f"[green]Serving trace on http://{HOST}:{PORT}/trace.json[/green]")
+                httpd.serve_forever()
+
+        server_thread = threading.Thread(target=start_server, daemon=True)
+        server_thread.start()
+        webbrowser.open_new_tab(f"http://ui.perfetto.dev/#!/?url=http://{HOST}:{PORT}/trace.json")
+        server_thread.join()
 
 
 @app.command()

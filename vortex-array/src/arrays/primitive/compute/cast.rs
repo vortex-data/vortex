@@ -3,25 +3,32 @@
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::register_kernel;
+use crate::aggregate_fn;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::match_each_native_ptype;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for PrimitiveVTable {
-    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastKernel for Primitive {
+    fn cast(
+        array: &PrimitiveArray,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             return Ok(None);
         };
@@ -33,7 +40,7 @@ impl CastKernel for PrimitiveVTable {
             .clone()
             .cast_nullability(new_nullability, array.len())?;
 
-        // If the bit width is the same, we can short-circuit and simply update the validity
+        // Same ptype: zero-copy, just update validity.
         if array.ptype() == new_ptype {
             // SAFETY: validity and data buffer still have same length
             return Ok(Some(unsafe {
@@ -46,9 +53,35 @@ impl CastKernel for PrimitiveVTable {
             }));
         }
 
-        let mask = array.validity_mask();
+        // Same-width integers have identical bit representations due to 2's
+        // complement. If all values fit in the target range, reinterpret with
+        // no allocation.
+        if array.ptype().is_int()
+            && new_ptype.is_int()
+            && array.ptype().byte_width() == new_ptype.byte_width()
+        {
+            if !values_fit_in(array, new_ptype, ctx) {
+                vortex_bail!(
+                    Compute: "Cannot cast {} to {} — values exceed target range",
+                    array.ptype(),
+                    new_ptype,
+                );
+            }
+            // SAFETY: both types are integers with the same size and alignment, and
+            // min/max confirm all valid values are representable in the target type.
+            return Ok(Some(unsafe {
+                PrimitiveArray::new_unchecked_from_handle(
+                    array.buffer_handle().clone(),
+                    new_ptype,
+                    new_validity,
+                )
+                .into_array()
+            }));
+        }
 
-        // Otherwise, we need to cast the values one-by-one
+        let mask = array.validity_mask()?;
+
+        // Otherwise, we need to cast the values one-by-one.
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
             match_each_native_ptype!(array.ptype(), |F| {
                 PrimitiveArray::new(cast::<F, T>(array.as_slice(), mask)?, new_validity)
@@ -58,36 +91,35 @@ impl CastKernel for PrimitiveVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(PrimitiveVTable).lift());
+/// Returns `true` if all valid values in `array` are representable as `target_ptype`.
+fn values_fit_in(array: &PrimitiveArray, target_ptype: PType, ctx: &mut ExecutionCtx) -> bool {
+    let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
+    aggregate_fn::fns::min_max::min_max(&array.clone().into_array(), ctx)
+        .ok()
+        .flatten()
+        .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
+}
 
 fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult<Buffer<T>> {
+    let try_cast = |src: F| -> VortexResult<T> {
+        T::from(src).ok_or_else(|| vortex_err!(Compute: "Failed to cast {} to {:?}", src, T::PTYPE))
+    };
     match mask.bit_buffer() {
+        AllOr::None => Ok(Buffer::zeroed(array.len())),
         AllOr::All => {
             let mut buffer = BufferMut::with_capacity(array.len());
-            for item in array {
-                let item = T::from(*item).ok_or_else(
-                    || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
-                )?;
+            for &src in array {
                 // SAFETY: we've pre-allocated the required capacity
-                unsafe { buffer.push_unchecked(item) }
+                unsafe { buffer.push_unchecked(try_cast(src)?) }
             }
             Ok(buffer.freeze())
         }
-        AllOr::None => Ok(Buffer::zeroed(array.len())),
         AllOr::Some(b) => {
-            // TODO(robert): Depending on density of the buffer might be better to prefill Buffer and only write valid values
             let mut buffer = BufferMut::with_capacity(array.len());
-            for (item, valid) in array.iter().zip(b.iter()) {
-                if valid {
-                    let item = T::from(*item).ok_or_else(
-                        || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
-                    )?;
-                    // SAFETY: we've pre-allocated the required capacity
-                    unsafe { buffer.push_unchecked(item) }
-                } else {
-                    // SAFETY: we've pre-allocated the required capacity
-                    unsafe { buffer.push_unchecked(T::default()) }
-                }
+            for (&src, valid) in array.iter().zip(b.iter()) {
+                let dst = if valid { try_cast(src)? } else { T::default() };
+                // SAFETY: we've pre-allocated the required capacity
+                unsafe { buffer.push_unchecked(dst) }
             }
             Ok(buffer.freeze())
         }
@@ -99,104 +131,105 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexError;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::cast;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn cast_u32_u8() {
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
-        let p = cast(&arr, PType::U8.into()).unwrap().to_primitive();
+        let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
 
         // to nullable
-        let p = cast(
-            p.as_ref(),
-            &DType::Primitive(PType::U8, Nullability::Nullable),
-        )
-        .unwrap()
-        .to_primitive();
+        let p = p
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::Nullable))
+            .unwrap()
+            .to_primitive();
         assert_arrays_eq!(
             p,
             PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid)
         );
-        assert_eq!(p.validity(), &Validity::AllValid);
+        assert!(matches!(p.validity(), Validity::AllValid));
 
         // back to non-nullable
-        let p = cast(
-            p.as_ref(),
-            &DType::Primitive(PType::U8, Nullability::NonNullable),
-        )
-        .unwrap()
-        .to_primitive();
+        let p = p
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
+            .unwrap()
+            .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
 
         // to nullable u32
-        let p = cast(
-            p.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap()
-        .to_primitive();
+        let p = p
+            .into_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap()
+            .to_primitive();
         assert_arrays_eq!(
             p,
             PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid)
         );
-        assert_eq!(p.validity(), &Validity::AllValid);
+        assert!(matches!(p.validity(), Validity::AllValid));
 
         // to non-nullable u8
-        let p = cast(
-            p.as_ref(),
-            &DType::Primitive(PType::U8, Nullability::NonNullable),
-        )
-        .unwrap()
-        .to_primitive();
+        let p = p
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
+            .unwrap()
+            .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert_eq!(p.validity(), &Validity::NonNullable);
+        assert!(matches!(p.validity(), Validity::NonNullable));
     }
 
     #[test]
     fn cast_u32_f32() {
         let arr = buffer![0u32, 10, 200].into_array();
-        let u8arr = cast(&arr, PType::F32.into()).unwrap().to_primitive();
+        let u8arr = arr.cast(PType::F32.into()).unwrap().to_primitive();
         assert_arrays_eq!(u8arr, PrimitiveArray::from_iter([0.0f32, 10., 200.]));
     }
 
     #[test]
     fn cast_i32_u32() {
         let arr = buffer![-1i32].into_array();
-        let error = cast(&arr, PType::U32.into()).err().unwrap();
-        let VortexError::ComputeError(s, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(s.to_string(), "Failed to cast -1 to U32");
+        let error = arr
+            .cast(PType::U32.into())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
+        assert!(matches!(error, VortexError::Compute(..)));
+        assert!(error.to_string().contains("values exceed target range"));
     }
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
-        let err = cast(arr.as_ref(), PType::I32.into()).unwrap_err();
-        let VortexError::InvalidArgument(s, _) = err else {
-            unreachable!()
-        };
-        assert_eq!(
-            s.to_string(),
-            "Cannot cast array with invalid values to non-nullable type."
+        let err = arr
+            .into_array()
+            .cast(PType::I32.into())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
+
+        assert!(matches!(err, VortexError::InvalidArgument(..)));
+        assert!(
+            err.to_string()
+                .contains("Cannot cast array with invalid values to non-nullable type.")
         );
     }
 
@@ -206,20 +239,82 @@ mod test {
             buffer![-1i32, 0, 10],
             Validity::from_iter([false, true, true]),
         );
-        let p = cast(
-            arr.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap()
-        .to_primitive();
+        let p = arr
+            .into_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap()
+            .to_primitive();
         assert_arrays_eq!(
             p,
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)])
         );
         assert_eq!(
-            p.validity_mask(),
+            p.validity_mask().unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );
+    }
+
+    /// Same-width integer cast where all values fit: should reinterpret the
+    /// buffer without allocation (pointer identity).
+    #[test]
+    fn cast_same_width_int_reinterprets_buffer() -> vortex_error::VortexResult<()> {
+        let src = PrimitiveArray::from_iter([0u32, 10, 100]);
+        let src_ptr = src.as_slice::<u32>().as_ptr();
+
+        let dst = src.into_array().cast(PType::I32.into())?.to_primitive();
+        let dst_ptr = dst.as_slice::<i32>().as_ptr();
+
+        // Zero-copy: the data pointer should be identical.
+        assert_eq!(src_ptr as usize, dst_ptr as usize);
+        assert_arrays_eq!(dst, PrimitiveArray::from_iter([0i32, 10, 100]));
+        Ok(())
+    }
+
+    /// Same-width integer cast where values don't fit: should fall through
+    /// to the allocating path and produce an error.
+    #[test]
+    fn cast_same_width_int_out_of_range_errors() {
+        let arr = buffer![u32::MAX].into_array();
+        let err = arr
+            .cast(PType::I32.into())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
+        assert!(matches!(err, VortexError::Compute(..)));
+    }
+
+    /// All-null array cast between same-width types should succeed without
+    /// touching the buffer contents.
+    #[test]
+    fn cast_same_width_all_null() -> vortex_error::VortexResult<()> {
+        let arr = PrimitiveArray::new(buffer![0xFFu8, 0xFF], Validity::AllInvalid);
+        let casted = arr
+            .into_array()
+            .cast(DType::Primitive(PType::I8, Nullability::Nullable))?
+            .to_primitive();
+        assert_eq!(casted.len(), 2);
+        assert!(matches!(casted.validity(), Validity::AllInvalid));
+        Ok(())
+    }
+
+    /// Same-width integer cast with nullable values: out-of-range nulls should
+    /// not prevent the cast from succeeding.
+    #[test]
+    fn cast_same_width_int_nullable_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
+        // The null position holds u32::MAX which doesn't fit in i32, but it's
+        // masked as invalid so the cast should still succeed via reinterpret.
+        let arr = PrimitiveArray::new(
+            buffer![u32::MAX, 0u32, 42u32],
+            Validity::from_iter([false, true, true]),
+        );
+        let casted = arr
+            .into_array()
+            .cast(DType::Primitive(PType::I32, Nullability::Nullable))?
+            .to_primitive();
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([None, Some(0i32), Some(42)])
+        );
+        Ok(())
     }
 
     #[rstest]
@@ -237,6 +332,6 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
     #[case(buffer![42u32].into_array())]
     fn test_cast_primitive_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array);
     }
 }

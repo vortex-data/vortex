@@ -2,31 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
-use crate::compute::BetweenKernel;
-use crate::compute::BetweenKernelAdapter;
-use crate::compute::BetweenOptions;
-use crate::compute::StrictComparison;
-use crate::register_kernel;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::match_each_native_ptype;
+use crate::scalar_fn::fns::between::BetweenKernel;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::vtable::ValidityHelper;
 
-impl BetweenKernel for PrimitiveVTable {
+impl BetweenKernel for Primitive {
     fn between(
-        &self,
         arr: &PrimitiveArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
@@ -41,16 +39,14 @@ impl BetweenKernel for PrimitiveVTable {
         Ok(Some(match_each_native_ptype!(arr.ptype(), |P| {
             between_impl::<P>(
                 arr,
-                P::try_from(lower)?,
-                P::try_from(upper)?,
+                P::try_from(&lower)?,
+                P::try_from(&upper)?,
                 nullability,
                 options,
             )
         })))
     }
 }
-
-register_kernel!(BetweenKernelAdapter(PrimitiveVTable).lift());
 
 fn between_impl<T: NativePType + Copy>(
     arr: &PrimitiveArray,
@@ -108,7 +104,7 @@ where
     T: NativePType + Copy,
 {
     let slice = arr.as_slice::<T>();
-    BoolArray::from_bit_buffer(
+    BoolArray::new(
         BitBuffer::collect_bool(slice.len(), |idx| {
             // We only iterate upto arr len and |arr| == |slice|.
             let i = unsafe { *slice.get_unchecked(idx) };

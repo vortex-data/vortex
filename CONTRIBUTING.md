@@ -36,6 +36,7 @@ The contribution process is outlined below:
 3. Open a PR to indicate that the change is ready for review.
    - Ensure that you sign your work via DCO (see below).
    - Disclose LLM usage as described in [AI Assistance Notice](#ai-assistance-notice).
+   - CI requires approval from external committers.
 
 ## Governance
 
@@ -80,12 +81,9 @@ Our CI process enforces an extensive set of linter (e.g., `clippy`) rules, as we
 
 ## Reporting Issues
 
-The Vortex project triages all issues and feature requests via Discussions.
-
-See #5495 for background on this change.
-
-If you see something that you think is a bug, create a new Discussion and select "Issue Triage"
-for the template. Then fill out the form.
+Bugs should be filed as [GitHub Issues](https://github.com/vortex-data/vortex/issues). Open-ended
+questions and feature requests should be filed as
+[GitHub Discussions](https://github.com/vortex-data/vortex/discussions).
 
 ## Developer Certificate of Origin (DCO)
 

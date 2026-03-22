@@ -70,7 +70,8 @@ mod memmap2;
 #[cfg(feature = "serde")]
 mod serde;
 mod string;
-mod trusted_len;
+/// Trusted-length iterator trait and adapters for safe pre-allocation.
+pub mod trusted_len;
 
 /// An immutable buffer of u8.
 pub type ByteBuffer = Buffer<u8>;

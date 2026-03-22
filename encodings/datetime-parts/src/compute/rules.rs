@@ -1,34 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
-use vortex_array::arrays::AnyScalarFn;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ConstantVTable;
+use vortex_array::arrays::Filter;
 use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::filter::FilterReduceAdaptor;
+use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::Between;
-use vortex_array::expr::Binary;
-use vortex_array::matchers::Exact;
+use vortex_array::dtype::DType;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_dtype::DType;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 use crate::timestamp;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
+    ParentRuleSet::lift(&CastReduceAdaptor(DateTimeParts)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(DateTimeParts)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimeParts)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimeParts)),
 ]);
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
@@ -36,12 +43,8 @@ pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSe
 #[derive(Debug)]
 struct DTPFilterPushDownRule;
 
-impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
+    type Parent = Filter;
 
     fn reduce_parent(
         &self,
@@ -51,7 +54,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
 
-        if !child.seconds().is::<ConstantVTable>() || !child.subseconds().is::<ConstantVTable>() {
+        if !child.seconds().is::<Constant>() || !child.subseconds().is::<Constant>() {
             return Ok(None);
         }
 
@@ -86,12 +89,8 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
 #[derive(Debug)]
 struct DTPComparisonPushDownRule;
 
-impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
+impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
     type Parent = AnyScalarFn;
-
-    fn parent(&self) -> AnyScalarFn {
-        AnyScalarFn
-    }
 
     fn reduce_parent(
         &self,
@@ -103,7 +102,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
         if parent
             .scalar_fn()
             .as_opt::<Binary>()
-            .is_none_or(|c| c.maybe_cmp_operator().is_none())
+            .is_none_or(|c| !c.is_comparison())
             && !parent.scalar_fn().is::<Between>()
         {
             return Ok(None);
@@ -152,7 +151,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
     // Extract the timestamp value
     let timestamp = constant
         .as_extension()
-        .storage()
+        .to_storage_scalar()
         .as_primitive()
         .as_::<i64>()?;
 
@@ -161,8 +160,8 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
         return None;
     };
 
-    let temporal_metadata = TemporalMetadata::try_from(ext_dtype.as_ref()).ok()?;
-    let ts_parts = timestamp::split(timestamp, temporal_metadata.time_unit()).ok()?;
+    let options = ext_dtype.metadata::<Timestamp>();
+    let ts_parts = timestamp::split(timestamp, options.unit).ok()?;
 
     // Only allow pushdown if seconds and subseconds are zero
     if ts_parts.seconds != 0 || ts_parts.subseconds != 0 {
@@ -175,24 +174,24 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
 /// Check if an array is a constant with value zero.
 fn is_constant_zero(array: &ArrayRef) -> bool {
     array
-        .as_opt::<ConstantVTable>()
-        .is_some_and(|c| c.scalar().is_zero())
+        .as_opt::<Constant>()
+        .is_some_and(|c| c.scalar().is_zero() == Some(true))
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::ScalarFnArrayExt;
     use vortex_array::arrays::TemporalArray;
-    use vortex_array::compute::BetweenOptions;
-    use vortex_array::compute::StrictComparison;
-    use vortex_array::expr::Operator;
+    use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -230,12 +229,13 @@ mod tests {
             TimeUnit::Days => panic!("Days not supported"),
         };
         let timestamp = day * SECONDS_PER_DAY * multiplier;
-        let temporal = TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![timestamp], Validity::NonNullable).into_array(),
-            time_unit,
-            None,
+        let scalar = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: time_unit,
+                tz: None,
+            },
+            timestamp.into(),
         );
-        let scalar = Scalar::extension(temporal.ext_dtype(), timestamp.into());
         ConstantArray::new(scalar, len).into_array()
     }
 
@@ -249,12 +249,13 @@ mod tests {
             TimeUnit::Days => panic!("Days not supported"),
         };
         let timestamp = (day * SECONDS_PER_DAY + seconds) * multiplier;
-        let temporal = TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![timestamp], Validity::NonNullable).into_array(),
-            time_unit,
-            None,
+        let scalar = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: time_unit,
+                tz: None,
+            },
+            timestamp.into(),
         );
-        let scalar = Scalar::extension(temporal.ext_dtype(), timestamp.into());
         ConstantArray::new(scalar, len).into_array()
     }
 
@@ -275,7 +276,7 @@ mod tests {
 
         // The result should be a ScalarFn over primitive days, not over DTP
         assert!(
-            !optimized.is::<DateTimePartsVTable>(),
+            !optimized.is::<DateTimeParts>(),
             "Expected pushdown to remove DTP from expression"
         );
 

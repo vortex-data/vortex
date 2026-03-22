@@ -4,19 +4,13 @@
 use std::any::Any;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
-use vortex_scalar::StructScalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
@@ -26,6 +20,11 @@ use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
+use crate::scalar::Scalar;
+use crate::scalar::StructScalar;
 
 /// The builder for building a [`StructArray`].
 pub struct StructBuilder {
@@ -73,7 +72,7 @@ impl StructBuilder {
             );
         }
 
-        if let Some(fields) = struct_scalar.fields() {
+        if let Some(fields) = struct_scalar.fields_iter() {
             for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
@@ -157,23 +156,30 @@ impl ArrayBuilder for StructBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "StructBuilder expected scalar with dtype {:?}, got {:?}",
+            "StructBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
 
-        let struct_scalar = StructScalar::try_from(scalar)?;
-        self.append_value(struct_scalar)
+        self.append_value(scalar.as_struct())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_struct();
 
-        for (a, builder) in array.fields().iter().zip_eq(self.builders.iter_mut()) {
-            builder.extend_from_array(a.as_ref());
+        for (a, builder) in array
+            .unmasked_fields()
+            .iter()
+            .zip_eq(self.builders.iter_mut())
+        {
+            builder.extend_from_array(a);
         }
 
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -199,19 +205,18 @@ impl ArrayBuilder for StructBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::StructFields;
-    use vortex_scalar::Scalar;
-
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::struct_::StructArray;
     use crate::builders::struct_::StructBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType::I32;
+    use crate::dtype::StructFields;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -244,12 +249,12 @@ mod tests {
         let struct_ = builder.finish();
         assert_eq!(struct_.len(), 3);
         assert_eq!(struct_.dtype(), &dtype);
-        assert_eq!(struct_.valid_count(), 1);
+        assert_eq!(struct_.valid_count().unwrap(), 1);
     }
 
     #[test]
     fn test_append_scalar() {
-        use vortex_scalar::Scalar;
+        use crate::scalar::Scalar;
 
         let dtype = DType::Struct(
             StructFields::from_iter([

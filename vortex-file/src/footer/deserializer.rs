@@ -2,16 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use flatbuffers::root;
+use vortex_array::dtype::DType;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::ReadFlatBuffer;
-use vortex_flatbuffers::dtype as fbd;
 use vortex_session::VortexSession;
 
 use crate::EOF_SIZE;
@@ -142,7 +141,15 @@ impl FooterDeserializer {
         let file_stats = postscript
             .statistics
             .as_ref()
-            .map(|segment| self.parse_file_statistics(initial_offset, &self.buffer, segment))
+            .map(|segment| {
+                self.parse_file_statistics(
+                    initial_offset,
+                    &self.buffer,
+                    segment,
+                    &dtype,
+                    &self.session,
+                )
+            })
             .transpose()?;
 
         Ok(DeserializeStep::Done(self.parse_footer(
@@ -211,9 +218,7 @@ impl FooterDeserializer {
         let offset = usize::try_from(segment.offset - initial_offset)?;
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
-        let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
-
-        DType::try_from_view(fbd_dtype, sliced_buffer.clone())
+        DType::from_flatbuffer(sliced_buffer, &self.session)
     }
 
     /// Parse the [`FileStatistics`] from the initial read buffer.
@@ -222,11 +227,15 @@ impl FooterDeserializer {
         initial_offset: u64,
         initial_read: &[u8],
         segment: &PostscriptSegment,
+        dtype: &DType,
+        session: &VortexSession,
     ) -> VortexResult<FileStatistics> {
         let offset = usize::try_from(segment.offset - initial_offset)?;
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
-        FileStatistics::read_flatbuffer_bytes(&sliced_buffer)
+
+        let fb = root::<vortex_flatbuffers::footer::FileStatistics>(&sliced_buffer)?;
+        FileStatistics::from_flatbuffer(&fb, dtype, session)
     }
 
     /// Parse the rest of the footer from the initial read.

@@ -7,33 +7,27 @@ use std::sync::Arc;
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
-use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::dtype as fbd;
 use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::MessageHeader;
 use vortex_flatbuffers::message::MessageVersion;
+use vortex_session::registry::ReadContext;
 
 /// A message decoded from an IPC stream.
-///
-/// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayRef`] without
-/// a [`vortex_array::ArrayContext`] and a [`DType`]. As such, we partially decode into an
-/// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
 pub enum DecoderMessage {
-    Array((ArrayParts, ArrayContext, usize)),
+    Array((ArrayParts, ReadContext, usize)),
     Buffer(ByteBuffer),
-    DType(DType),
+    DType(FlatBuffer),
 }
 
 #[derive(Default)]
@@ -127,14 +121,14 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
-                            let encoding_ids: Vec<_> = header
+                            let encoding_ids: Arc<_> = header
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
                                 .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
                                 .collect();
 
-                            let ctx = ArrayContext::new(encoding_ids);
+                            let ctx = ReadContext::new(encoding_ids);
                             let row_count = header.row_count() as usize;
 
                             self.state = Default::default();
@@ -156,10 +150,7 @@ impl MessageDecoder {
                             return Ok(PollRead::Some(DecoderMessage::Buffer(body)));
                         }
                         MessageHeader::DTypeMessage => {
-                            let body: FlatBuffer = bytes.copy_to_const_aligned::<8>(body_length);
-                            let fb_dtype = root::<fbd::DType>(body.as_ref())?;
-                            let dtype = DType::try_from_view(fb_dtype, body.clone())?;
-
+                            let dtype: FlatBuffer = bytes.copy_to_const_aligned::<8>(body_length);
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::DType(dtype)));
                         }
@@ -176,21 +167,22 @@ impl MessageDecoder {
 #[cfg(test)]
 mod test {
     use bytes::BytesMut;
-    use vortex_array::Array;
+    use vortex_array::ArrayRef;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
     use super::*;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
+    use crate::test::SESSION;
 
-    fn write_and_read(expected: &dyn Array) {
+    fn write_and_read(expected: &ArrayRef) {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::default();
-        for buf in encoder.encode(EncoderMessage::Array(expected)) {
+        for buf in encoder.encode(EncoderMessage::Array(expected)).unwrap() {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
@@ -204,9 +196,8 @@ mod test {
         };
 
         // Decode the array parts with the context
-        let registry = ArraySession::default().registry().clone();
         let actual = array_parts
-            .decode(expected.dtype(), row_count, &ctx, &registry)
+            .decode(expected.dtype(), row_count, &ctx, &SESSION)
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());
@@ -223,6 +214,6 @@ mod test {
         // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
-        write_and_read(array.as_ref());
+        write_and_read(&array.into_array());
     }
 }

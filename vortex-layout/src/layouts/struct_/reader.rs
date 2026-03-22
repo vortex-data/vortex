@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::Not;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::try_join;
 use itertools::Itertools;
@@ -13,23 +13,24 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
-use vortex_array::expr::Merge;
-use vortex_array::expr::Pack;
-use vortex_array::expr::annotate_scope_access;
 use vortex_array::expr::col;
+use vortex_array::expr::make_free_field_annotator;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
+use vortex_array::scalar_fn::fns::merge::Merge;
+use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
-use vortex_dtype::FieldName;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -57,7 +58,7 @@ pub struct StructReader {
     expanded_root_expr: Expression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
+    partitioned_expr_cache: DashMap<ExactExpr, Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -152,50 +153,64 @@ impl StructReader {
 
     /// Utility for partitioning an expression over the fields of a struct.
     fn partition_expr(&self, expr: Expression) -> Partitioned {
-        self.partitioned_expr_cache
-            .entry(ExactExpr(expr.clone()))
-            .or_insert_with(|| {
-                // First, we expand the root scope into the fields of the struct to ensure
-                // that partitioning works correctly.
-                let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let expr = expr
-                    .optimize_recursive(self.dtype())
-                    .vortex_expect("We should not fail to simplify expression over struct fields");
+        let key = ExactExpr(expr.clone());
 
-                // Partition the expression into expressions that can be evaluated over individual fields
-                let mut partitioned = partition(
-                    expr.clone(),
-                    self.dtype(),
-                    annotate_scope_access(
-                        self.dtype()
-                            .as_struct_fields_opt()
-                            .vortex_expect("We know it's a struct DType"),
-                    ),
-                )
-                .vortex_expect("We should not fail to partition expression over struct fields");
+        if let Some(entry) = self.partitioned_expr_cache.get(&key)
+            && let Some(partitioning) = entry.value().get()
+        {
+            return partitioning.clone();
+        }
 
-                if partitioned.partitions.len() == 1 {
-                    // If there's only one partition, we step into the field scope of the original
-                    // expression by replacing any `$.a` with `$`.
-                    return Partitioned::Single(
-                        partitioned.partition_names[0].clone(),
-                        replace(expr, &col(partitioned.partition_names[0].clone()), root()),
-                    );
-                }
+        let cell = self
+            .partitioned_expr_cache
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceLock::new()))
+            .clone();
 
-                // We now need to process the partitioned expressions to rewrite the root scope
-                // to be that of the field, rather than the struct. In other words, "stepping in"
-                // to the field scope.
-                partitioned.partitions = partitioned
-                    .partitions
-                    .iter()
-                    .zip_eq(partitioned.partition_names.iter())
-                    .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
-                    .collect();
-
-                Partitioned::Multi(Arc::new(partitioned))
-            })
+        cell.get_or_init(|| self.compute_partitioned_expr(expr))
             .clone()
+    }
+
+    fn compute_partitioned_expr(&self, expr: Expression) -> Partitioned {
+        // First, we expand the root scope into the fields of the struct to ensure
+        // that partitioning works correctly.
+        let expr = replace(expr, &root(), self.expanded_root_expr.clone());
+        let expr = expr
+            .optimize_recursive(self.dtype())
+            .vortex_expect("We should not fail to simplify expression over struct fields");
+
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let mut partitioned = partition(
+            expr.clone(),
+            self.dtype(),
+            make_free_field_annotator(
+                self.dtype()
+                    .as_struct_fields_opt()
+                    .vortex_expect("We know it's a struct DType"),
+            ),
+        )
+        .vortex_expect("We should not fail to partition expression over struct fields");
+
+        if partitioned.partitions.len() == 1 {
+            // If there's only one partition, we step into the field scope of the original
+            // expression by replacing any `$.a` with `$`.
+            return Partitioned::Single(
+                partitioned.partition_names[0].clone(),
+                replace(expr, &col(partitioned.partition_names[0].clone()), root()),
+            );
+        }
+
+        // We now need to process the partitioned expressions to rewrite the root scope
+        // to be that of the field, rather than the struct. In other words, "stepping in"
+        // to the field scope.
+        partitioned.partitions = partitioned
+            .partitions
+            .iter()
+            .zip_eq(partitioned.partition_names.iter())
+            .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
+            .collect();
+
+        Partitioned::Multi(Arc::new(partitioned))
     }
 }
 
@@ -343,15 +358,14 @@ impl LayoutReader for StructReader {
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
-                let mask = Mask::from_buffer(validity.to_bool().bit_buffer().not());
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
-                        .fields()
+                        .unmasked_fields()
                         .iter()
-                        .map(|a| vortex_array::compute::mask(a.as_ref(), &mask))
+                        .map(|a| a.clone().mask(validity.clone()))
                         .try_collect()?;
 
                     Ok(StructArray::try_new(
@@ -364,7 +378,7 @@ impl LayoutReader for StructReader {
                 } else {
                     // If the root expression was not a pack or merge, e.g. if it's something like
                     // a get_item, then we apply the validity directly to the result
-                    vortex_array::compute::mask(array.as_ref(), &mask)
+                    array.mask(validity)
                 }
             } else {
                 projected.await
@@ -377,17 +391,23 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_array::Array;
     use vortex_array::ArrayContext;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::expr::Expression;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
@@ -398,15 +418,11 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::expr::select;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -590,10 +606,7 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_eq!(
-            vec![true, true, true],
-            result.to_bit_buffer().iter().collect_vec()
-        );
+        assert_eq!(result, Mask::from_iter([true, true, true]));
     }
 
     #[rstest]
@@ -608,10 +621,8 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_eq!(
-            vec![true, false, false],
-            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
-        );
+        let expected = BoolArray::from_iter([true, false, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[rstest]
@@ -631,12 +642,8 @@ mod tests {
         })
         .unwrap();
 
-        assert_eq!(result.len(), 2);
-
-        assert_eq!(
-            vec![true, false],
-            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
-        );
+        let expected = BoolArray::from_iter([true, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[rstest]
@@ -662,24 +669,16 @@ mod tests {
 
         assert_eq!(result.len(), 2);
 
-        assert_eq!(
-            result
-                .to_struct()
-                .field_by_name("a")
-                .unwrap()
-                .to_primitive()
-                .as_slice::<i32>(),
-            [7, 2].as_slice()
+        let expected_a = PrimitiveArray::from_iter([7i32, 2]);
+        assert_arrays_eq!(
+            result.to_struct().unmasked_field_by_name("a").unwrap(),
+            expected_a
         );
 
-        assert_eq!(
-            result
-                .to_struct()
-                .field_by_name("b")
-                .unwrap()
-                .to_primitive()
-                .as_slice::<i32>(),
-            [4, 5].as_slice()
+        let expected_b = PrimitiveArray::from_iter([4i32, 5]);
+        assert_arrays_eq!(
+            result.to_struct().unmasked_field_by_name("b").unwrap(),
+            expected_b
         );
     }
 
@@ -702,7 +701,10 @@ mod tests {
         );
 
         // ...and the result is masked with the validity of the parent StructArray
-        assert_eq!(result.scalar_at(0), Scalar::null(result.dtype().clone()),);
+        assert_eq!(
+            result.scalar_at(0).unwrap(),
+            Scalar::null(result.dtype().clone()),
+        );
         assert_nth_scalar!(result, 1, 2);
         assert_nth_scalar!(result, 2, 3);
     }
@@ -712,7 +714,7 @@ mod tests {
         #[from(nested_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         // Project out the nested struct field.
-        // The projection should preserve the nulls of the `a` column when we select out the
+        // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
         let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = select(
@@ -725,24 +727,43 @@ mod tests {
             .unwrap();
 
         let result = block_on(move |_| project).unwrap();
-        assert!(result.dtype().is_struct());
 
-        // Struct scalars holding the "c" field value scalars
+        // The result is a nullable struct (because root.a.b is nullable) with a non-nullable
+        // field "c" (because the original field was non-nullable).
         assert_eq!(
-            result.scalar_at(0).as_struct().field_by_idx(0).unwrap(),
-            Scalar::primitive(4, Nullability::Nullable)
+            result.dtype(),
+            &DType::Struct(
+                StructFields::from_iter([(
+                    "c",
+                    DType::Primitive(PType::I32, Nullability::NonNullable)
+                )]),
+                Nullability::Nullable,
+            )
         );
-        assert!(
+
+        // Row 0: struct is valid, field "c" is 4.
+        assert_eq!(
             result
-                .scalar_at(1)
+                .scalar_at(0)
+                .unwrap()
                 .as_struct()
                 .field_by_idx(0)
-                .unwrap()
-                .is_null(),
+                .unwrap(),
+            Scalar::primitive(4, Nullability::NonNullable)
         );
+
+        // Row 1: struct is null (because root.a.b was null at this row).
+        assert!(result.scalar_at(1).unwrap().as_struct().is_null());
+
+        // Row 2: struct is valid, field "c" is 6.
         assert_eq!(
-            result.scalar_at(2).as_struct().field_by_idx(0).unwrap(),
-            Scalar::primitive(6, Nullability::Nullable)
+            result
+                .scalar_at(2)
+                .unwrap()
+                .as_struct()
+                .field_by_idx(0)
+                .unwrap(),
+            Scalar::primitive(6, Nullability::NonNullable)
         );
     }
 

@@ -4,10 +4,10 @@
 mod array;
 pub use array::FixedSizeListArray;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::FixedSizeListVTable;
+pub use vtable::FixedSizeList;
 
 #[cfg(test)]
 mod tests;

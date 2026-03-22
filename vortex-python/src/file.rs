@@ -7,9 +7,10 @@ use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
-use vortex::compute::cast;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
@@ -31,9 +32,12 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
+use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
+use crate::object_store::resolve::ResolvedStore;
+use crate::object_store::resolve::resolve_store;
 use crate::scan::PyRepeatedScan;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -47,19 +51,32 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+/// Open a Vortex file for reading.
+///
+/// Callers can optionally configure an object store to build from using one of the definitions
+/// in the `vortex.store` crate.
 #[pyfunction]
-#[pyo3(signature = (path, *, without_segment_cache = false))]
-pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
+#[pyo3(signature = (path, *, store = None, without_segment_cache = false))]
+pub fn open(
+    py: Python,
+    path: &str,
+    store: Option<PyObjectStore>,
+    without_segment_cache: bool,
+) -> PyVortexResult<PyVortexFile> {
     let vxf = py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
             let mut options = SESSION.open_options();
-            if without_segment_cache {
-                options = options.without_segment_cache();
-            } else {
+            if !without_segment_cache {
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
-            options.open_path(path).await
+
+            match resolve_store(path, store.map(|x| x.into_inner()))? {
+                ResolvedStore::ObjectStore(store, path) => {
+                    options.open_object_store(&store, path.as_ref()).await
+                }
+                ResolvedStore::Path(path) => options.open_path(path).await,
+            }
         })
     })?;
 
@@ -82,17 +99,19 @@ impl PyVortexFile {
         PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
     fn scan(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
+        limit: Option<u64>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
-    ) -> PyResult<PyArrayIterator> {
+    ) -> PyVortexResult<PyArrayIterator> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
+            limit,
             indices.map(|i| i.into_inner()),
             batch_size,
         )?;
@@ -102,17 +121,19 @@ impl PyVortexFile {
         )))
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
     fn prepare(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
+        limit: Option<u64>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
-    ) -> PyResult<PyRepeatedScan> {
+    ) -> PyVortexResult<PyRepeatedScan> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
+            limit,
             indices.map(|i| i.into_inner()),
             batch_size,
         )?;
@@ -125,13 +146,14 @@ impl PyVortexFile {
         })
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None))]
     fn to_arrow(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
+        limit: Option<u64>,
         batch_size: Option<usize>,
-    ) -> PyResult<Py<PyAny>> {
+    ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
 
         let reader = slf.py().detach(|| {
@@ -139,6 +161,10 @@ impl PyVortexFile {
                 .scan()?
                 .with_some_filter(expr.map(|e| e.into_inner()))
                 .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+
+            if let Some(limit) = limit {
+                builder = builder.with_limit(limit);
+            }
 
             if let Some(batch_size) = batch_size {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
@@ -149,15 +175,15 @@ impl PyVortexFile {
         })?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
-        rbr.into_pyarrow(slf.py())
+        Ok(rbr.into_pyarrow(slf.py())?)
     }
 
-    fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
+    fn to_dataset(slf: Bound<Self>) -> PyVortexResult<PyVortexDataset> {
         Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
     }
 
     #[pyo3(signature = (*))]
-    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+    pub fn splits(&self) -> PyVortexResult<Vec<(u64, u64)>> {
         Ok(self
             .vxf
             .splits()?
@@ -172,6 +198,7 @@ impl PyVortexFile {
         &self,
         projection: Option<Expression>,
         expr: Option<Expression>,
+        limit: Option<u64>,
         indices: Option<ArrayRef>,
         batch_size: Option<usize>,
     ) -> VortexResult<ScanBuilder<ArrayRef>> {
@@ -181,8 +208,13 @@ impl PyVortexFile {
             .with_some_filter(expr)
             .with_projection(projection.unwrap_or_else(root));
 
+        if let Some(limit) = limit {
+            builder = builder.with_limit(limit);
+        }
+
         if let Some(indices) = indices {
-            let indices = cast(indices.as_ref(), &DType::Primitive(PType::U64, NonNullable))?
+            let indices = indices
+                .cast(DType::Primitive(PType::U64, NonNullable))?
                 .to_primitive()
                 .into_buffer::<u64>();
             builder = builder.with_row_indices(indices);

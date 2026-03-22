@@ -17,6 +17,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
   wasm-fuzz:
@@ -29,13 +30,14 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           targets: "wasm32-wasip1"
           components: "rust-src"
+          enable-sccache: "false"
 
       - name: Build WASM fuzz target
         run: |
-          cargo +nightly build \
+          cargo +$NIGHTLY_TOOLCHAIN build \
             --manifest-path fuzz/Cargo.toml \
             --target wasm32-wasip1 \
             --no-default-features \
@@ -83,7 +85,7 @@ jobs:
 
       - name: Upload corpus
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: corpus-wasm
           path: corpus-wasm/

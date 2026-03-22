@@ -21,14 +21,15 @@ use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
-use vortex::dtype::datetime::TimeUnit;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::scalar::DecimalType;
+use vortex::extension::datetime::TimeUnit;
+use vortex::mask::Mask;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;
@@ -42,8 +43,8 @@ use crate::cpp::duckdb_timestamp;
 use crate::cpp::duckdb_timestamp_ms;
 use crate::cpp::duckdb_timestamp_ns;
 use crate::cpp::duckdb_timestamp_s;
-use crate::duckdb::DataChunk;
-use crate::duckdb::Vector;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::VectorRef;
 use crate::exporter::precision_to_duckdb_storage_size;
 
 pub struct DuckString<'a> {
@@ -67,7 +68,7 @@ impl<'a> DuckString<'a> {
     }
 }
 
-fn vector_as_slice<T: NativePType>(vector: &mut Vector, len: usize) -> ArrayRef {
+fn vector_as_slice<T: NativePType>(vector: &VectorRef, len: usize) -> ArrayRef {
     let data = vector.as_slice_with_len::<T>(len);
 
     PrimitiveArray::new(
@@ -78,7 +79,7 @@ fn vector_as_slice<T: NativePType>(vector: &mut Vector, len: usize) -> ArrayRef 
 }
 
 fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
-    vector: &mut Vector,
+    vector: &VectorRef,
     len: usize,
     from_duckdb_type: F,
 ) -> ArrayRef {
@@ -91,7 +92,7 @@ fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
     .into_array()
 }
 
-fn vector_as_string_blob(vector: &mut Vector, len: usize, dtype: DType) -> ArrayRef {
+fn vector_as_string_blob(vector: &VectorRef, len: usize, dtype: DType) -> ArrayRef {
     let data = vector.as_slice_with_len::<duckdb_string_t>(len);
     let validity = vector.validity_ref(len);
 
@@ -149,14 +150,14 @@ fn convert_valid_list_entry(
 ///    downstream operations like converting `ListView` to `List`.
 fn process_duckdb_lists(
     entries: &[duckdb_list_entry],
-    validity: &Validity,
-) -> (Buffer<i64>, Buffer<i64>, usize) {
+    validity: &Mask,
+) -> VortexResult<(Buffer<i64>, Buffer<i64>, usize)> {
     let len = entries.len();
     let mut offsets = BufferMut::with_capacity(len);
     let mut sizes = BufferMut::with_capacity(len);
 
     match validity {
-        Validity::NonNullable | Validity::AllValid => {
+        Mask::AllTrue(_) => {
             // All entries are valid, so there is no need to check the validity.
             let mut child_min_length = 0;
             let mut previous_end = 0;
@@ -170,47 +171,43 @@ fn process_duckdb_lists(
                     sizes.push_unchecked(size);
                 }
             }
-            (offsets.freeze(), sizes.freeze(), child_min_length)
+            Ok((offsets.freeze(), sizes.freeze(), child_min_length))
         }
-        Validity::AllInvalid => {
+        Mask::AllFalse(_) => {
             // All entries are null, so we can just set offset=0 and size=0.
             // SAFETY: We allocated enough capacity above.
             unsafe {
                 offsets.push_n_unchecked(0, len);
                 sizes.push_n_unchecked(0, len);
             }
-            (offsets.freeze(), sizes.freeze(), 0)
+            Ok((offsets.freeze(), sizes.freeze(), 0))
         }
-        Validity::Array(_) => {
+        Mask::Values(values) => {
             // We have some number of nulls, so make sure to check validity before updating info.
-            let mask = validity.to_mask(len);
-            let child_min_length = mask.iter_bools(|validity_iter| {
-                let mut child_min_length = 0;
-                let mut previous_end = 0;
+            let mut child_min_length = 0;
+            let mut previous_end = 0;
 
-                for (entry, is_valid) in entries.iter().zip(validity_iter) {
-                    let (offset, size) = if is_valid {
-                        convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end)
-                    } else {
-                        (previous_end, 0)
-                    };
+            for (entry, is_valid) in entries.iter().zip(values.bit_buffer().iter()) {
+                let (offset, size) = if is_valid {
+                    convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end)
+                } else {
+                    (previous_end, 0)
+                };
 
-                    // SAFETY: We allocated enough capacity above.
-                    unsafe {
-                        offsets.push_unchecked(offset);
-                        sizes.push_unchecked(size);
-                    }
+                // SAFETY: We allocated enough capacity above.
+                unsafe {
+                    offsets.push_unchecked(offset);
+                    sizes.push_unchecked(size);
                 }
+            }
 
-                child_min_length
-            });
-            (offsets.freeze(), sizes.freeze(), child_min_length)
+            Ok((offsets.freeze(), sizes.freeze(), child_min_length))
         }
     }
 }
 
 /// Converts flat vector to a vortex array
-pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<ArrayRef> {
+pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<ArrayRef> {
     let type_id = vector.logical_type().as_type_id();
     match type_id {
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
@@ -232,7 +229,7 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp { micros }| *micros);
             Ok(
-                TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, Some("UTC".to_string()))
+                TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, Some("UTC".into()))
                     .into_array(),
             )
         }
@@ -261,7 +258,7 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
         DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
             let data = vector.as_slice_with_len::<bool>(len);
 
-            Ok(BoolArray::from_bit_buffer(
+            Ok(BoolArray::new(
                 BitBuffer::from(data),
                 vector.validity_ref(data.len()).to_validity(),
             )
@@ -308,7 +305,7 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
         DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
             let array_elem_size = vector.logical_type().array_type_array_size();
             let child_data = flat_vector_to_vortex(
-                &mut vector.array_vector_get_child(),
+                vector.array_vector_get_child(),
                 len * array_elem_size as usize,
             )?;
 
@@ -321,25 +318,25 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
             .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
-            let validity = vector.validity_ref(len).to_validity();
+            let validity = vector.validity_ref(len).to_mask();
             let entries = vector.as_slice_with_len::<duckdb_list_entry>(len);
 
-            let (offsets, sizes, child_min_length) = process_duckdb_lists(entries, &validity);
+            let (offsets, sizes, child_min_length) = process_duckdb_lists(entries, &validity)?;
             let child_data =
-                flat_vector_to_vortex(&mut vector.list_vector_get_child(), child_min_length)?;
+                flat_vector_to_vortex(vector.list_vector_get_child(), child_min_length)?;
 
             ListViewArray::try_new(
                 child_data,
                 offsets.into_array(),
                 sizes.into_array(),
-                validity,
+                Validity::from_mask(validity, Nullability::Nullable),
             )
             .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => {
             let logical_type = vector.logical_type();
             let children = (0..logical_type.struct_type_child_count())
-                .map(|idx| flat_vector_to_vortex(&mut vector.struct_vector_get_child(idx), len))
+                .map(|idx| flat_vector_to_vortex(vector.struct_vector_get_child(idx), len))
                 .collect::<Result<Vec<_>, _>>()?;
             let names = (0..logical_type.struct_type_child_count())
                 .map(|idx| logical_type.struct_child_name(idx))
@@ -348,18 +345,21 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
         }
-        _ => todo!("missing impl for {type_id:?}"),
+        _ => unimplemented!("missing impl for {type_id:?}"),
     }
 }
 
-pub fn data_chunk_to_vortex(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
+pub fn data_chunk_to_vortex(
+    field_names: &FieldNames,
+    chunk: &DataChunkRef,
+) -> VortexResult<ArrayRef> {
     let len = chunk.len();
 
     let columns = (0..chunk.column_count())
         .map(|i| {
-            let mut vector = chunk.get_vector(i);
+            let vector = chunk.get_vector(i);
             vector.flatten(len);
-            flat_vector_to_vortex(&mut vector, len.as_())
+            flat_vector_to_vortex(vector, len.as_())
         })
         .collect::<VortexResult<Arc<_>>>()?;
     StructArray::try_new(
@@ -368,7 +368,7 @@ pub fn data_chunk_to_vortex(field_names: &FieldNames, chunk: &DataChunk) -> Vort
         len.as_(),
         Validity::NonNullable,
     )
-    .map(|a| a.to_array())
+    .map(|a| a.into_array())
 }
 
 #[cfg(test)]
@@ -376,7 +376,7 @@ mod tests {
     use std::ffi::CString;
 
     use vortex::array::ToCanonical;
-    use vortex::array::arrays::PrimitiveVTable;
+    use vortex::array::arrays::BoolArray;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
     use vortex_array::assert_arrays_eq;
@@ -392,7 +392,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -401,10 +401,10 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
-        let vortex_array = result.as_::<PrimitiveVTable>().as_slice::<i32>();
-
-        assert_eq!(vortex_array, values);
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
+        let expected =
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -422,7 +422,7 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
@@ -436,7 +436,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -445,7 +445,7 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
@@ -459,7 +459,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -468,7 +468,7 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
@@ -482,7 +482,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -496,14 +496,14 @@ mod tests {
         validity_slice.set(1, false);
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
 
         assert_eq!(values_slice, values);
         assert_eq!(
-            vortex_values.validity_mask(),
+            vortex_values.validity_mask().unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -521,7 +521,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -530,7 +530,7 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
@@ -544,7 +544,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -553,7 +553,7 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
@@ -567,7 +567,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -576,11 +576,10 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_bool();
-
-        assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.bit_buffer().iter().collect::<Vec<_>>(), values);
+        let expected = BoolArray::new(BitBuffer::from(values), Validity::AllValid);
+        assert_arrays_eq!(vortex_array, expected);
     }
 
     #[test]
@@ -589,7 +588,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -603,13 +602,13 @@ mod tests {
         validity_slice.set(1, false);
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_primitive();
         let vortex_slice = vortex_array.as_slice::<i32>();
 
         assert_eq!(vortex_slice, values);
         assert_eq!(
-            vortex_array.validity_mask(),
+            vortex_array.validity_mask().unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -621,8 +620,8 @@ mod tests {
 
         let logical_type =
             LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-                .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = Vector::with_capacity(logical_type, len);
+                .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -631,18 +630,18 @@ mod tests {
                 offset: 0,
                 length: values.len() as u64,
             };
-            let mut child = vector.list_vector_get_child();
+            let child = vector.list_vector_get_child_mut();
             let slice = child.as_slice_mut::<i32>(values.len());
             slice.copy_from_slice(&values);
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
     }
@@ -654,23 +653,23 @@ mod tests {
 
         let logical_type =
             LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER), 4)
-                .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = Vector::with_capacity(logical_type, len);
+                .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
-            let mut child = vector.array_vector_get_child();
+            let child = vector.array_vector_get_child_mut();
             let slice = child.as_slice_mut::<i32>(values.len());
             slice.copy_from_slice(&values);
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_fixed_size_list();
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.fixed_size_list_elements_at(0),
+            vortex_array.fixed_size_list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
     }
@@ -679,15 +678,15 @@ mod tests {
     fn test_empty_struct() {
         let len = 4;
         let logical_type = LogicalType::struct_type([], [])
-            .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = Vector::with_capacity(logical_type, len);
+            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let vector = Vector::with_capacity(&logical_type, len);
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.fields().len(), 0);
+        assert_eq!(vortex_array.unmasked_fields().len(), 0);
     }
 
     #[test]
@@ -703,32 +702,32 @@ mod tests {
             ],
             [CString::new("a").unwrap(), CString::new("b").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = Vector::with_capacity(logical_type, len);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         for (i, values) in
             (0..vector.logical_type().struct_type_child_count()).zip([values1, values2])
         {
             unsafe {
-                let mut child = vector.struct_vector_get_child(i);
+                let child = vector.struct_vector_get_child_mut(i);
                 let slice = child.as_slice_mut::<i32>(len);
                 slice.copy_from_slice(&values);
             }
         }
 
         // Test conversion
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.fields().len(), 2);
+        assert_eq!(vortex_array.unmasked_fields().len(), 2);
         assert_arrays_eq!(
-            &vortex_array.fields()[0],
+            &vortex_array.unmasked_fields()[0],
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
         assert_arrays_eq!(
-            &vortex_array.fields()[1],
+            &vortex_array.unmasked_fields()[1],
             PrimitiveArray::from_option_iter([Some(5i32), Some(6), Some(7), Some(8)])
         );
     }
@@ -742,7 +741,7 @@ mod tests {
 
         let logical_type =
             LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Entry 0: offset=0, length=4 -> all elements (end=4)
         // Entry 1: null, offset=0, length=0 (end=0)
@@ -756,7 +755,7 @@ mod tests {
                 offset: 0,
                 length: 0,
             };
-            let mut child = vector.list_vector_get_child();
+            let child = vector.list_vector_get_child_mut();
             let slice = child.as_slice_mut::<i32>(child_values.len());
             slice.copy_from_slice(&child_values);
         }
@@ -767,15 +766,18 @@ mod tests {
 
         // Test conversion - the old bug would compute child length as 0+0=0 instead of
         // max(4,0)=4.
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
-        assert_eq!(vortex_array.validity_mask(), Mask::from_indices(2, vec![0]));
+        assert_eq!(
+            vortex_array.validity_mask().unwrap(),
+            Mask::from_indices(2, vec![0])
+        );
     }
 
     #[test]
@@ -787,7 +789,7 @@ mod tests {
 
         let logical_type =
             LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with out-of-order list entries:
         // - Entry 0: offset=2, length=2 -> elements [3, 4] (end=4)
@@ -802,23 +804,23 @@ mod tests {
                 offset: 0,
                 length: 2,
             };
-            let mut child = vector.list_vector_get_child();
+            let child = vector.list_vector_get_child_mut();
             let slice = child.as_slice_mut::<i32>(child_values.len());
             slice.copy_from_slice(&child_values);
         }
 
         // Test conversion - the old bug would compute child length as 0+2=2 instead of
         // max(4,2)=4.
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(1),
+            vortex_array.list_elements_at(1).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
         );
     }
@@ -833,7 +835,7 @@ mod tests {
 
         let logical_type =
             LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Entry 0: valid, offset=0, length=2 -> elements [1, 2]
         // Entry 1: null with garbage values (offset=9999, length=9999)
@@ -853,7 +855,7 @@ mod tests {
                 offset: 2,
                 length: 2,
             };
-            let mut child = vector.list_vector_get_child();
+            let child = vector.list_vector_get_child_mut();
             let slice = child.as_slice_mut::<i32>(child_values.len());
             slice.copy_from_slice(&child_values);
         }
@@ -864,18 +866,18 @@ mod tests {
 
         // Test conversion. The old code would compute child_min_length as 9999+9999=19998, which
         // would panic when trying to read that much data from the child vector.
-        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
 
         // Valid entries should work correctly.
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(2),
+            vortex_array.list_elements_at(2).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
         );
 
@@ -886,7 +888,7 @@ mod tests {
         assert_eq!(sizes.as_slice::<i64>()[1], 0);
 
         assert_eq!(
-            vortex_array.validity_mask(),
+            vortex_array.validity_mask().unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }

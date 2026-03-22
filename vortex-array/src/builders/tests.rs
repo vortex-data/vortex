@@ -4,19 +4,19 @@
 use std::sync::Arc;
 
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::ExtDType;
-use vortex_dtype::ExtID;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
-use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
 
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::StructFields;
+use crate::dtype::half::f16;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
+use crate::scalar::Scalar;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
@@ -65,16 +65,9 @@ use crate::builders::builder_with_capacity;
     3,
     Nullability::NonNullable
 ))]
-#[case::extension_simple(DType::Extension(Arc::new(ExtDType::new(
-    ExtID::from("test.extension"),
-    Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-    None
-))))]
-#[case::extension_with_metadata(DType::Extension(Arc::new(ExtDType::new(
-    ExtID::from("test.temperature"),
-    Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)),
-    Some([0u8].as_slice().into())
-))))]
+#[case::extension(DType::Extension(
+    Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
+))]
 fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     let num_elements = 5;
 
@@ -85,7 +78,7 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
 
     // Builder 2: Manually append default values.
     let mut builder_manual = builder_with_capacity(&dtype, num_elements);
-    let default_scalar = Scalar::default_value(dtype.clone());
+    let default_scalar = Scalar::zero_value(&dtype);
     for _ in 0..num_elements {
         builder_manual.append_scalar(&default_scalar).unwrap();
     }
@@ -97,8 +90,8 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
 
     // Compare each element.
     for i in 0..num_elements {
-        let scalar_zeros = array_zeros.scalar_at(i);
-        let scalar_manual = array_manual.scalar_at(i);
+        let scalar_zeros = array_zeros.scalar_at(i).unwrap();
+        let scalar_manual = array_manual.scalar_at(i).unwrap();
 
         assert_eq!(
             scalar_zeros, scalar_manual,
@@ -166,19 +159,11 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     Nullability::NonNullable
 ), 3)]
 #[case::extension(
-    DType::Extension(Arc::new(ExtDType::new(
-        ExtID::from("test.ext"),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        None
-    ))),
+    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()),
     1
 )]
 #[case::extension_multiple(
-    DType::Extension(Arc::new(ExtDType::new(
-        ExtID::from("test.ext"),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        None
-    ))),
+    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()),
     3
 )]
 #[should_panic(expected = "non-nullable")]
@@ -203,7 +188,7 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
     assert_eq!(array.len(), 3);
 
     for i in 0..3 {
-        let scalar = array.scalar_at(i);
+        let scalar = array.scalar_at(i).unwrap();
         if should_be_null {
             assert!(scalar.is_null(), "Element at index {} should be null", i);
         } else {
@@ -213,7 +198,7 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
                 i
             );
             // For non-nullable, it should match the default value.
-            let expected = Scalar::default_value(dtype.clone());
+            let expected = Scalar::default_value(&dtype);
             // Skip list comparison due to known bug.
             if !matches!(dtype, DType::List(..)) {
                 assert_eq!(
@@ -258,8 +243,8 @@ where
 
     // Compare each element.
     for i in 0..array_direct.len() {
-        let scalar_direct = array_direct.scalar_at(i);
-        let scalar_indirect = array_indirect.scalar_at(i);
+        let scalar_direct = array_direct.scalar_at(i).unwrap();
+        let scalar_indirect = array_indirect.scalar_at(i).unwrap();
 
         assert_eq!(
             scalar_direct, scalar_indirect,
@@ -374,7 +359,7 @@ fn test_to_canonical_struct() {
     );
     compare_to_canonical_methods(&dtype, |builder| {
         for _ in 0..3 {
-            let value = Scalar::default_value(dtype.clone());
+            let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
         }
     });
@@ -382,11 +367,8 @@ fn test_to_canonical_struct() {
 
 #[test]
 fn test_to_canonical_extension() {
-    let dtype = DType::Extension(Arc::new(ExtDType::new(
-        ExtID::from("test.extension"),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        None,
-    )));
+    let dtype =
+        DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
     compare_to_canonical_methods(&dtype, |builder| {
         let ext_dtype = match &dtype {
             DType::Extension(ext) => ext.clone(),
@@ -394,7 +376,7 @@ fn test_to_canonical_extension() {
         };
         for i in 0..5 {
             let storage_value = Scalar::from(i as i64);
-            let ext_scalar = Scalar::extension(ext_dtype.clone(), storage_value);
+            let ext_scalar = Scalar::extension_ref(ext_dtype.clone(), storage_value);
             builder.append_scalar(&ext_scalar).unwrap();
         }
     });
@@ -413,7 +395,7 @@ fn test_to_canonical_decimal() {
     let dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
     compare_to_canonical_methods(&dtype, |builder| {
         for _ in 0..5 {
-            let value = Scalar::default_value(dtype.clone());
+            let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
         }
     });
@@ -513,11 +495,9 @@ fn test_to_canonical_f32() {
     3,
     Nullability::Nullable
 ))]
-#[case::extension_non_nullable(DType::Extension(Arc::new(ExtDType::new(
-    ExtID::from("test.ext"),
-    Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-    None
-))))]
+#[case::extension_non_nullable(DType::Extension(
+    Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
+))]
 fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     let num_elements = 3;
     let mut builder = builder_with_capacity(&dtype, num_elements * 2);
@@ -553,13 +533,13 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
 
     // Verify each scalar matches.
     for (i, expected_scalar) in scalars.iter().enumerate() {
-        let actual_scalar = array.scalar_at(i);
+        let actual_scalar = array.scalar_at(i).unwrap();
         assert_scalars_equal(&actual_scalar, expected_scalar, &dtype, i);
     }
 
     // If nullable, verify the last element is null.
     if dtype.is_nullable() {
-        let null_scalar = array.scalar_at(num_elements);
+        let null_scalar = array.scalar_at(num_elements).unwrap();
         assert!(
             null_scalar.is_null(),
             "Last element should be null for nullable dtype"
@@ -593,7 +573,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
             DType::Binary(n) => Scalar::binary(format!("bytes_{}", i).into_bytes(), *n),
             DType::Decimal(dec_dtype, n) => {
                 // Create decimal scalars based on the decimal dtype.
-                use vortex_scalar::DecimalValue;
+                use crate::scalar::DecimalValue;
                 let value = DecimalValue::I128((i as i128 + 1) * 100); // Simple decimal values.
                 Scalar::decimal(value, *dec_dtype, *n)
             }
@@ -612,7 +592,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                                 Scalar::primitive((i + j) as f64, *n)
                             }
                             DType::Utf8(n) => Scalar::utf8(format!("field_{}", i + j), *n),
-                            _ => Scalar::default_value(field_dtype),
+                            _ => Scalar::default_value(&field_dtype),
                         }
                     })
                     .collect();
@@ -625,7 +605,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                         DType::Primitive(PType::I32, n) => {
                             Scalar::primitive(j.min(i32::MAX as usize) as i32, *n)
                         }
-                        _ => Scalar::default_value(element_dtype.as_ref().clone()),
+                        _ => Scalar::default_value(element_dtype.as_ref()),
                     })
                     .collect();
                 Scalar::list(element_dtype.clone(), elements, *n)
@@ -637,7 +617,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                         DType::Primitive(PType::I32, n) => {
                             Scalar::primitive((i as i32).saturating_add(j as i32), *n)
                         }
-                        _ => Scalar::default_value(element_dtype.as_ref().clone()),
+                        _ => Scalar::default_value(element_dtype.as_ref()),
                     })
                     .collect();
                 Scalar::fixed_size_list(element_dtype.clone(), elements, *n)
@@ -646,10 +626,11 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                 // Create extension scalars with storage values.
                 let storage_scalar = match ext_dtype.storage_dtype() {
                     DType::Primitive(PType::I64, n) => Scalar::primitive(i as i64, *n),
-                    _ => Scalar::default_value(ext_dtype.storage_dtype().clone()),
+                    _ => Scalar::default_value(ext_dtype.storage_dtype()),
                 };
-                Scalar::extension(ext_dtype.clone(), storage_scalar)
+                Scalar::extension_ref(ext_dtype.clone(), storage_scalar)
             }
+            DType::Variant(_) => continue,
         };
         scalars.push(scalar);
     }
@@ -704,16 +685,16 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     assert_eq!(array.len(), 5);
 
     // Check the pattern.
-    assert!(!array.scalar_at(0).is_null());
-    assert!(array.scalar_at(1).is_null());
-    assert!(!array.scalar_at(2).is_null());
-    assert!(array.scalar_at(3).is_null());
-    assert!(!array.scalar_at(4).is_null());
+    assert!(!array.scalar_at(0).unwrap().is_null());
+    assert!(array.scalar_at(1).unwrap().is_null());
+    assert!(!array.scalar_at(2).unwrap().is_null());
+    assert!(array.scalar_at(3).unwrap().is_null());
+    assert!(!array.scalar_at(4).unwrap().is_null());
 
     // Verify non-null values match.
-    assert_scalars_equal(&array.scalar_at(0), &test_scalars[0], &dtype, 0);
-    assert_scalars_equal(&array.scalar_at(2), &test_scalars[1], &dtype, 2);
-    assert_scalars_equal(&array.scalar_at(4), &test_scalars[2], &dtype, 4);
+    assert_scalars_equal(&array.scalar_at(0).unwrap(), &test_scalars[0], &dtype, 0);
+    assert_scalars_equal(&array.scalar_at(2).unwrap(), &test_scalars[1], &dtype, 2);
+    assert_scalars_equal(&array.scalar_at(4).unwrap(), &test_scalars[2], &dtype, 4);
 }
 
 /// Test that `append_scalar` correctly rejects scalars with wrong dtype.
@@ -764,7 +745,7 @@ fn test_append_scalar_repeated_same_instance() {
 
     // All values should be 42.
     for i in 0..5 {
-        let actual = array.scalar_at(i);
+        let actual = array.scalar_at(i).unwrap();
         assert_eq!(
             actual.as_primitive().typed_value::<i32>(),
             Some(42),

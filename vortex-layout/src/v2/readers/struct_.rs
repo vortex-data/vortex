@@ -9,12 +9,13 @@ use futures::future::try_join_all;
 use moka::future::FutureExt;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
 use vortex_array::arrays::StructArray;
+use vortex_array::dtype::DType;
 use vortex_array::validity::Validity;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
+use crate::v2::reader::MaskStreamRef;
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderRef;
 use crate::v2::reader::ReaderStream;
@@ -40,17 +41,21 @@ impl Reader for StructReader {
         self.row_count
     }
 
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
+    fn project(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         let field_streams = self
             .fields
             .iter()
-            .map(|field| field.execute(row_range.clone()))
+            .map(|field| field.project(row_range.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Box::new(StructReaderStream {
             dtype: self.dtype.clone(),
             fields: field_streams,
         }))
+    }
+
+    fn filter(&self, _row_range: Range<u64>) -> VortexResult<MaskStreamRef> {
+        todo!("StructReader::filter")
     }
 }
 
@@ -74,18 +79,20 @@ impl ReaderStream for StructReaderStream {
 
     fn next_chunk(
         &mut self,
-        selection: &Mask,
+        mask: &MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let struct_fields = self.dtype.as_struct_fields().clone();
         let validity: Validity = self.dtype.nullability().into();
         let fields = self
             .fields
             .iter_mut()
-            .map(|s| s.next_chunk(selection))
+            .map(|s| s.next_chunk(mask))
             .collect::<VortexResult<Vec<_>>>()?;
-        let len = selection.true_count();
+        let mask = mask.clone();
 
         Ok(async move {
+            let mask = mask.await?;
+            let len = mask.true_count();
             let fields = try_join_all(fields).await?;
             Ok(
                 StructArray::try_new_with_dtype(fields, struct_fields, len, validity.clone())?

@@ -3,16 +3,15 @@
 
 mod array;
 pub use array::PrimitiveArray;
+pub use array::PrimitiveArrayParts;
 pub use array::chunk_range;
 pub use array::patch_chunk;
 
-mod compute;
-pub use compute::IS_CONST_LANE_WIDTH;
-pub use compute::compute_is_constant;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::PrimitiveMaskedValidityRule;
-pub use vtable::PrimitiveVTable;
+pub use compute::rules::PrimitiveMaskedValidityRule;
+pub use vtable::Primitive;
 
 mod native_value;
 pub use native_value::NativeValue;

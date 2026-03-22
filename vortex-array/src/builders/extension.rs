@@ -2,17 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::ExtScalar;
-use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
@@ -21,6 +15,10 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::scalar::ExtScalar;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
@@ -30,12 +28,12 @@ pub struct ExtensionBuilder {
 
 impl ExtensionBuilder {
     /// Creates a new `ExtensionBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(ext_dtype: Arc<ExtDType>) -> Self {
+    pub fn new(ext_dtype: ExtDTypeRef) -> Self {
         Self::with_capacity(ext_dtype, DEFAULT_BUILDER_CAPACITY)
     }
 
     /// Creates a new `ExtensionBuilder` with the given `capacity`.
-    pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {
+    pub fn with_capacity(ext_dtype: ExtDTypeRef, capacity: usize) -> Self {
         Self {
             storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
             dtype: DType::Extension(ext_dtype),
@@ -44,7 +42,7 @@ impl ExtensionBuilder {
 
     /// Appends an extension `value` to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
-        self.storage.append_scalar(&value.storage())
+        self.storage.append_scalar(&value.to_storage_scalar())
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
@@ -54,7 +52,7 @@ impl ExtensionBuilder {
     }
 
     /// The [`ExtDType`] of this builder.
-    fn ext_dtype(&self) -> Arc<ExtDType> {
+    fn ext_dtype(&self) -> ExtDTypeRef {
         if let DType::Extension(ext_dtype) = &self.dtype {
             ext_dtype.clone()
         } else {
@@ -91,18 +89,17 @@ impl ArrayBuilder for ExtensionBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "ExtensionBuilder expected scalar with dtype {:?}, got {:?}",
+            "ExtensionBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
 
-        let ext_scalar = ExtScalar::try_from(scalar)?;
-        self.append_value(ext_scalar)
+        self.append_value(scalar.as_extension())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let ext_array = array.to_extension();
-        self.storage.extend_from_array(ext_array.storage())
+        self.storage.extend_from_array(ext_array.storage_array())
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -124,45 +121,37 @@ impl ArrayBuilder for ExtensionBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtID;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
-
     use super::*;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::dtype::Nullability;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_append_scalar() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(
-                vortex_dtype::PType::I32,
-                Nullability::Nullable,
-            )),
-            None,
-        ));
+        let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
 
         let mut builder = ExtensionBuilder::new(ext_dtype.clone());
 
         // Test appending a valid extension value.
-        let storage1 = Scalar::from(42i32);
-        let ext_scalar1 = Scalar::extension(ext_dtype.clone(), storage1);
+        let storage1 = Scalar::from(Some(42i32));
+        let ext_scalar1 = Scalar::extension::<Date>(TimeUnit::Days, storage1);
         builder.append_scalar(&ext_scalar1).unwrap();
 
         // Test appending another value.
-        let storage2 = Scalar::from(84i32);
-        let ext_scalar2 = Scalar::extension(ext_dtype.clone(), storage2);
+        let storage2 = Scalar::from(Some(84i32));
+        let ext_scalar2 = Scalar::extension::<Date>(TimeUnit::Days, storage2);
         builder.append_scalar(&ext_scalar2).unwrap();
 
         // Test appending null value.
         let null_storage = Scalar::null(DType::Primitive(
-            vortex_dtype::PType::I32,
+            crate::dtype::PType::I32,
             Nullability::Nullable,
         ));
-        let null_scalar = Scalar::extension(ext_dtype.clone(), null_storage);
+        let null_scalar = Scalar::extension::<Date>(TimeUnit::Days, null_storage);
         builder.append_scalar(&null_scalar).unwrap();
 
         let array = builder.finish_into_extension();

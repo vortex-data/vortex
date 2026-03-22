@@ -4,17 +4,17 @@
 use std::hash::Hash;
 
 use rustc_hash::FxBuildHasher;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_scalar::PValue;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::arrays::NativeValue;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::NativeValue;
+use crate::dtype::NativePType;
+use crate::match_each_native_ptype;
+use crate::scalar::PValue;
 
 impl PrimitiveArray {
     /// Compute most common present value of this array
@@ -23,12 +23,12 @@ impl PrimitiveArray {
             return Ok(None);
         }
 
-        if self.all_invalid() {
+        if self.all_invalid()? {
             return Ok(None);
         }
 
         match_each_native_ptype!(self.ptype(), |P| {
-            let (top, count) = typed_top_value(self.as_slice::<P>(), self.validity_mask());
+            let (top, count) = typed_top_value(self.as_slice::<P>(), self.validity_mask()?);
             Ok(Some((top.into(), count)))
         })
     }

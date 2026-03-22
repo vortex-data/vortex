@@ -8,7 +8,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 
 pub type ReaderRef = Arc<dyn Reader>;

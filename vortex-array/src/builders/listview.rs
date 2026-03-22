@@ -12,33 +12,33 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
 use crate::Canonical;
 use crate::ToCanonical;
-use crate::array::Array;
 use crate::array::ArrayRef;
+use crate::array::DynArray;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::UninitRange;
 use crate::builders::builder_with_capacity;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
-use crate::compute;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::match_each_integer_ptype;
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 
 /// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
 /// the `offsets` and the `sizes` builders.
@@ -116,7 +116,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -281,7 +281,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "ListViewBuilder expected scalar with dtype {:?}, got {:?}",
+            "ListViewBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -290,7 +290,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let listview = array.to_listview();
         if listview.is_empty() {
             return;
@@ -300,7 +300,9 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // to manually append each scalar.
         if !listview.is_zero_copy_to_list() {
             for i in 0..listview.len() {
-                let list = listview.scalar_at(i);
+                let list = listview
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at failed in extend_from_array_unchecked");
 
                 self.append_scalar(&list)
                     .vortex_expect("was unable to extend the `ListViewBuilder`")
@@ -316,7 +318,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
 
         // Bulk append the new elements (which should have no gaps or overlaps).
         let old_elements_len = self.elements_builder.len();
@@ -331,10 +337,14 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.offsets_builder.reserve_exact(extend_length);
 
         // The incoming sizes might have a different type than the builder, so we need to cast.
-        let cast_sizes = compute::cast(listview.sizes(), self.sizes_builder.dtype()).vortex_expect(
-            "was somehow unable to cast the new sizes to the type of the builder sizes",
-        );
-        self.sizes_builder.extend_from_array(cast_sizes.as_ref());
+        let cast_sizes = listview
+            .sizes()
+            .to_array()
+            .cast(self.sizes_builder.dtype().clone())
+            .vortex_expect(
+                "was somehow unable to cast the new sizes to the type of the builder sizes",
+            );
+        self.sizes_builder.extend_from_array(&cast_sizes);
 
         // Now we need to adjust all of the offsets by adding the current number of elements in the
         // builder.
@@ -419,19 +429,18 @@ fn adjust_and_extend_offsets<'a, O: IntegerPType, A: IntegerPType>(
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
-
     use super::ListViewBuilder;
     use crate::IntoArray;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ListArray;
-    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::listview::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType::I32;
+    use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 
     #[test]
@@ -480,19 +489,19 @@ mod tests {
 
         // Check first list: [1, 2, 3].
         assert_arrays_eq!(
-            listview.list_elements_at(0),
+            listview.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3])
         );
 
         // Check empty list.
-        assert_eq!(listview.list_elements_at(1).len(), 0);
+        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
 
         // Check null list.
-        assert!(!listview.validity().is_valid(2));
+        assert!(!listview.validity().is_valid(2).unwrap());
 
         // Check last list: [4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(3),
+            listview.list_elements_at(3).unwrap(),
             PrimitiveArray::from_iter([4i32, 5])
         );
     }
@@ -526,13 +535,13 @@ mod tests {
 
         // Verify first list: [1, 2].
         assert_arrays_eq!(
-            listview.list_elements_at(0),
+            listview.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         // Verify second list: [3, 4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(1),
+            listview.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([3i32, 4, 5])
         );
 
@@ -555,7 +564,7 @@ mod tests {
         // Verify the values: [0], [10], [20], [30], [40].
         for i in 0..5i32 {
             assert_arrays_eq!(
-                listview2.list_elements_at(i as usize),
+                listview2.list_elements_at(i as usize).unwrap(),
                 PrimitiveArray::from_iter([i * 10])
             );
         }
@@ -585,16 +594,16 @@ mod tests {
         assert_eq!(listview.len(), 5);
 
         // First two are empty lists (from append_zeros).
-        assert_eq!(listview.list_elements_at(0).len(), 0);
-        assert_eq!(listview.list_elements_at(1).len(), 0);
+        assert_eq!(listview.list_elements_at(0).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
 
         // Next two are nulls.
-        assert!(!listview.validity().is_valid(2));
-        assert!(!listview.validity().is_valid(3));
+        assert!(!listview.validity().is_valid(2).unwrap());
+        assert!(!listview.validity().is_valid(3).unwrap());
 
         // Last is the regular list: [10, 20].
         assert_arrays_eq!(
-            listview.list_elements_at(4),
+            listview.list_elements_at(4).unwrap(),
             PrimitiveArray::from_iter([10i32, 20])
         );
     }
@@ -634,22 +643,22 @@ mod tests {
         // Check the extended data.
         // First list: [0] (initial data).
         assert_arrays_eq!(
-            listview.list_elements_at(0),
+            listview.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([0i32])
         );
 
         // Second list: [1, 2, 3] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(1),
+            listview.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3])
         );
 
         // Third list: null (from source).
-        assert!(!listview.validity().is_valid(2));
+        assert!(!listview.validity().is_valid(2).unwrap());
 
         // Fourth list: [4, 5] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(3),
+            listview.list_elements_at(3).unwrap(),
             PrimitiveArray::from_iter([4i32, 5])
         );
     }

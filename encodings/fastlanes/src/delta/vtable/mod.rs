@@ -1,37 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::min;
-use std::ops::Range;
+use std::hash::Hash;
 
 use fastlanes::FastLanes;
 use prost::Message;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
+use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::DeltaArray;
 use crate::delta::array::delta_decompress::delta_decompress;
 
-mod array;
 mod operations;
+mod rules;
+mod slice;
 mod validity;
-mod visitor;
 
 vtable!(Delta);
 
@@ -44,45 +47,88 @@ pub struct DeltaMetadata {
     offset: u32, // must be <1024
 }
 
-impl VTable for DeltaVTable {
+impl VTable for Delta {
     type Array = DeltaArray;
 
     type Metadata = ProstMetadata<DeltaMetadata>;
 
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromChildSliceHelper;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
+    type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Delta
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let physical_start = range.start + array.offset();
-        let physical_stop = range.end + array.offset();
+    fn len(array: &DeltaArray) -> usize {
+        array.len()
+    }
 
-        let start_chunk = physical_start / 1024;
-        let stop_chunk = physical_stop.div_ceil(1024);
+    fn dtype(array: &DeltaArray) -> &DType {
+        array.dtype()
+    }
 
-        let bases = array.bases();
-        let deltas = array.deltas();
-        let lanes = array.lanes();
+    fn stats(array: &DeltaArray) -> StatsSetRef<'_> {
+        array.stats_set().to_ref(array.as_ref())
+    }
 
-        let new_bases = bases.slice(
-            min(start_chunk * lanes, array.bases_len())..min(stop_chunk * lanes, array.bases_len()),
-        );
+    fn array_hash<H: std::hash::Hasher>(array: &DeltaArray, state: &mut H, precision: Precision) {
+        array.offset().hash(state);
+        array.len().hash(state);
+        array.dtype().hash(state);
+        array.bases().array_hash(state, precision);
+        array.deltas().array_hash(state, precision);
+    }
 
-        let new_deltas = deltas.slice(
-            min(start_chunk * 1024, array.deltas_len())..min(stop_chunk * 1024, array.deltas_len()),
-        );
+    fn array_eq(array: &DeltaArray, other: &DeltaArray, precision: Precision) -> bool {
+        array.offset() == other.offset()
+            && array.len() == other.len()
+            && array.dtype() == other.dtype()
+            && array.bases().array_eq(other.bases(), precision)
+            && array.deltas().array_eq(other.deltas(), precision)
+    }
 
-        // SAFETY: slicing valid bases/deltas preserves correctness
-        Ok(Some(unsafe {
-            DeltaArray::new_unchecked(new_bases, new_deltas, physical_start % 1024, range.len())
-                .into_array()
-        }))
+    fn nbuffers(_array: &DeltaArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &DeltaArray, idx: usize) -> BufferHandle {
+        vortex_panic!("DeltaArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &DeltaArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &DeltaArray) -> usize {
+        2
+    }
+
+    fn child(array: &DeltaArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.bases().clone(),
+            1 => array.deltas().clone(),
+            _ => vortex_panic!("DeltaArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &DeltaArray, idx: usize) -> String {
+        match idx {
+            0 => "bases".to_string(),
+            1 => "deltas".to_string(),
+            _ => vortex_panic!("DeltaArray child name index {idx} out of bounds"),
+        }
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -113,8 +159,14 @@ impl VTable for DeltaVTable {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DeltaMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DeltaMetadata::decode(bytes)?))
     }
 
     fn build(
@@ -141,15 +193,17 @@ impl VTable for DeltaVTable {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(delta_decompress(array, ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            delta_decompress(array, ctx)?.into_array(),
+        ))
     }
 }
 
 #[derive(Debug)]
-pub struct DeltaVTable;
+pub struct Delta;
 
-impl DeltaVTable {
+impl Delta {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
 }
 

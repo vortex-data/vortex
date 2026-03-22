@@ -9,6 +9,7 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::FutureExt;
+use tracing::Instrument;
 use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandleRef;
@@ -27,7 +28,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub(crate) fn new(runtime: Weak<dyn Executor>) -> Self {
+    pub fn new(runtime: Weak<dyn Executor>) -> Self {
         Self { runtime }
     }
 
@@ -65,15 +66,17 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
+        let span = tracing::Span::current();
         let abort_handle = self.runtime().spawn(
             async move {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
                 drop(send.send(f.await));
             }
+            .instrument(span)
             .boxed(),
         );
         Task {
-            recv,
+            recv: recv.into_future(),
             abort_handle: Some(abort_handle),
         }
     }
@@ -103,7 +106,9 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
+        let span = tracing::Span::current();
         let abort_handle = self.runtime().spawn_cpu(Box::new(move || {
+            let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -111,7 +116,7 @@ impl Handle {
             }
         }));
         Task {
-            recv,
+            recv: recv.into_future(),
             abort_handle: Some(abort_handle),
         }
     }
@@ -123,7 +128,9 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.runtime().spawn_blocking(Box::new(move || {
+        let span = tracing::Span::current();
+        let abort_handle = self.runtime().spawn_blocking_io(Box::new(move || {
+            let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -131,7 +138,7 @@ impl Handle {
             }
         }));
         Task {
-            recv,
+            recv: recv.into_future(),
             abort_handle: Some(abort_handle),
         }
     }
@@ -143,7 +150,7 @@ impl Handle {
 /// continue running in the background, call [`Task::detach`].
 #[must_use = "When a Task is dropped without being awaited, it is cancelled"]
 pub struct Task<T> {
-    recv: oneshot::Receiver<T>,
+    recv: oneshot::AsyncReceiver<T>,
     abort_handle: Option<AbortHandleRef>,
 }
 

@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
-chrono = { workspace = true }
 datafusion-catalog = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-common-runtime = { workspace = true }
@@ -31,7 +30,6 @@ datafusion-physical-plan = { workspace = true }
 datafusion-pruning = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }
@@ -47,7 +45,6 @@ rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
-walkdir = { workspace = true }
 
 [lints]
 workspace = true

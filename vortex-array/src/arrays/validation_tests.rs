@@ -13,14 +13,21 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexError;
-    use vortex_vector::binaryview::BinaryView;
 
     use crate::IntoArray;
-    use crate::arrays::*;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::build_views::BinaryView;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[test]
@@ -47,7 +54,7 @@ mod tests {
     fn test_decimal_array_validation_success() {
         // Valid case: buffer and validity have matching lengths.
         let buffer = Buffer::from_iter([100i128, 200, 300]);
-        let decimal_dtype = vortex_dtype::DecimalDType::new(10, 2);
+        let decimal_dtype = crate::dtype::DecimalDType::new(10, 2);
         let result = DecimalArray::try_new(buffer, decimal_dtype, Validity::NonNullable);
         assert!(result.is_ok());
     }
@@ -57,7 +64,7 @@ mod tests {
         // Invalid case: validity length doesn't match buffer length.
         let buffer = Buffer::from_iter([100i128, 200, 300]);
         let validity = Validity::from_iter([true, false]); // Length 2, buffer is length 3.
-        let decimal_dtype = vortex_dtype::DecimalDType::new(10, 2);
+        let decimal_dtype = crate::dtype::DecimalDType::new(10, 2);
         let result = DecimalArray::try_new(buffer, decimal_dtype, validity);
 
         assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
@@ -98,8 +105,9 @@ mod tests {
     }
 
     #[test]
-    fn test_varbin_array_validation_failure_offsets_not_monotonic() {
-        // Invalid case: offsets are not monotonically increasing.
+    fn test_varbin_array_validation_non_monotonic_offsets_accepted() {
+        // VarBin does not validate monotonicity of offsets at construction time.
+        // Sortedness is enforced at the builder level instead.
         let offsets = buffer![0i32, 3, 2, 5].into_array(); // 3 -> 2 is decreasing.
         let bytes = ByteBuffer::from(vec![0u8, 1, 2, 3, 4]);
         let result = VarBinArray::try_new(
@@ -109,8 +117,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]

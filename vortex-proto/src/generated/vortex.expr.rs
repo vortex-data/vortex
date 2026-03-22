@@ -11,6 +11,14 @@ pub struct Expr {
     #[prost(bytes = "vec", optional, tag = "3")]
     pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+/// Captures a serialized aggregate function with its ID and options metadata.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AggregateFn {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LiteralOpts {
@@ -144,4 +152,14 @@ pub mod select_opts {
         #[prost(message, tag = "2")]
         Exclude(super::FieldNames),
     }
+}
+/// Options for `vortex.case_when`
+/// Encodes num_when_then_pairs and has_else into a single u32 (num_children).
+/// num_children = num_when_then_pairs * 2 + (has_else ? 1 : 0)
+/// has_else = num_children % 2 == 1
+/// num_when_then_pairs = num_children / 2
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CaseWhenOpts {
+    #[prost(uint32, tag = "1")]
+    pub num_children: u32,
 }

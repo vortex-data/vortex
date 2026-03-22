@@ -8,12 +8,13 @@ use futures::future::BoxFuture;
 use moka::future::FutureExt;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
 use vortex_array::arrays::ConstantArray;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
+use crate::v2::reader::MaskStreamRef;
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderStream;
 use crate::v2::reader::ReaderStreamRef;
@@ -42,12 +43,16 @@ impl Reader for ConstantReader {
         self.row_count
     }
 
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
+    fn project(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         let remaining = row_range.end.saturating_sub(row_range.start);
         Ok(Box::new(ConstantReaderStream {
             scalar: self.scalar.clone(),
             remaining,
         }))
+    }
+
+    fn filter(&self, _row_range: Range<u64>) -> VortexResult<MaskStreamRef> {
+        todo!("ConstantReader::filter")
     }
 }
 
@@ -71,9 +76,14 @@ impl ReaderStream for ConstantReaderStream {
 
     fn next_chunk(
         &mut self,
-        mask: &Mask,
+        mask: &MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        let array = ConstantArray::new(self.scalar.clone(), mask.true_count()).into_array();
-        Ok(async move { Ok(array) }.boxed())
+        let scalar = self.scalar.clone();
+        let mask = mask.clone();
+        Ok(async move {
+            let mask = mask.await?;
+            Ok(ConstantArray::new(scalar, mask.true_count()).into_array())
+        }
+        .boxed())
     }
 }

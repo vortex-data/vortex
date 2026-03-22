@@ -3,22 +3,25 @@
 
 use std::sync::Arc;
 
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
-use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
+use crate::arrays::List;
+use crate::arrays::list::vtable::ListArray;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
-impl OperationsVTable<ListVTable> for ListVTable {
-    fn scalar_at(array: &ListArray, index: usize) -> Scalar {
+impl OperationsVTable<List> for List {
+    fn scalar_at(array: &ListArray, index: usize) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
-        let elems = array.list_elements_at(index);
-        let scalars: Vec<Scalar> = (0..elems.len()).map(|i| elems.scalar_at(i)).collect();
+        let elems = array.list_elements_at(index)?;
+        let scalars: Vec<Scalar> = (0..elems.len())
+            .map(|i| elems.scalar_at(i))
+            .collect::<VortexResult<_>>()?;
 
-        Scalar::list(
+        Ok(Scalar::list(
             Arc::new(elems.dtype().clone()),
             scalars,
             array.dtype().nullability(),
-        )
+        ))
     }
 }

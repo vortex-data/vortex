@@ -3,11 +3,10 @@
 
 use std::iter;
 
-use vortex_dtype::match_each_integer_ptype;
-
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinArray;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -35,10 +34,10 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                 }
                 Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
                 Validity::Array(v) => {
-                    let validity = v.to_bool();
+                    let validity = v.to_bool().into_bit_buffer();
                     let mut iter = offsets
                         .windows(2)
-                        .zip(validity.bit_buffer())
+                        .zip(validity.iter())
                         .map(|(w, valid)| valid.then(|| &bytes[w[0] as usize..w[1] as usize]));
                     f(&mut iter)
                 }

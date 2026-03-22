@@ -5,32 +5,30 @@ use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::BinaryScalar;
-use vortex_scalar::Scalar;
-use vortex_scalar::Utf8Scalar;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_vector::binaryview::BinaryView;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::compact::BufferUtilization;
+use crate::arrays::varbinview::build_views::BinaryView;
+use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
@@ -109,6 +107,22 @@ impl VarBinViewBuilder {
         self.nulls.append_non_null();
     }
 
+    /// Appends `n` copies of `value` as non-null entries.
+    pub fn append_n_values<S: AsRef<[u8]>>(&mut self, value: S, n: usize) {
+        if n == 0 {
+            return;
+        }
+        let bytes = value.as_ref();
+        let view = if bytes.len() <= BinaryView::MAX_INLINED_SIZE {
+            BinaryView::make_view(bytes, 0, 0)
+        } else {
+            let (buffer_idx, offset) = self.append_value_to_buffer(bytes);
+            BinaryView::make_view(bytes, buffer_idx, offset)
+        };
+        self.views_builder.push_n(view, n);
+        self.nulls.append_n_non_nulls(n);
+    }
+
     fn flush_in_progress(&mut self) {
         if self.in_progress.is_empty() {
             return;
@@ -128,7 +142,10 @@ impl VarBinViewBuilder {
 
     /// append a non inlined value to self.in_progress.
     fn append_value_to_buffer(&mut self, value: &[u8]) -> (u32, u32) {
-        assert!(value.len() > 12, "must inline small strings");
+        assert!(
+            value.len() > BinaryView::MAX_INLINED_SIZE,
+            "must inline small strings"
+        );
         let required_cap = self.in_progress.len() + value.len();
         if self.in_progress.capacity() < required_cap {
             self.flush_in_progress();
@@ -150,7 +167,7 @@ impl VarBinViewBuilder {
 
     /// Pushes buffers and pre-adjusted views into the builder.
     ///
-    /// The provided `buffer` slices contain sections of data from a `VarBinViewArray`, and the
+    /// The provided `buffers` contain sections of data from a `VarBinViewArray`, and the
     /// `views` are `BinaryView`s that have already been adjusted to reference the correct buffer
     /// indices and offsets for this builder. All views must point to valid sections within the
     /// provided buffers, and the validity length must match the view length.
@@ -166,14 +183,14 @@ impl VarBinViewBuilder {
     /// exist in this builder.
     pub fn push_buffer_and_adjusted_views(
         &mut self,
-        buffer: &[ByteBuffer],
+        buffers: &[ByteBuffer],
         views: &Buffer<BinaryView>,
         validity_mask: Mask,
     ) {
         self.flush_in_progress();
 
-        let expected_completed_len = self.completed.len() as usize + buffer.len();
-        self.completed.extend_from_slice_unchecked(buffer);
+        let expected_completed_len = self.completed.len() as usize + buffers.len();
+        self.completed.extend_from_slice_unchecked(buffers);
         assert_eq!(
             self.completed.len() as usize,
             expected_completed_len,
@@ -245,26 +262,20 @@ impl ArrayBuilder for VarBinViewBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "VarBinViewBuilder expected scalar with dtype {:?}, got {:?}",
+            "VarBinViewBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
 
         match self.dtype() {
-            DType::Utf8(_) => {
-                let utf8_scalar = Utf8Scalar::try_from(scalar)?;
-                match utf8_scalar.value() {
-                    Some(value) => self.append_value(value),
-                    None => self.append_null(),
-                }
-            }
-            DType::Binary(_) => {
-                let binary_scalar = BinaryScalar::try_from(scalar)?;
-                match binary_scalar.value() {
-                    Some(value) => self.append_value(value),
-                    None => self.append_null(),
-                }
-            }
+            DType::Utf8(_) => match scalar.as_utf8().value() {
+                Some(value) => self.append_value(value),
+                None => self.append_null(),
+            },
+            DType::Binary(_) => match scalar.as_binary().value() {
+                Some(value) => self.append_value(value),
+                None => self.append_null(),
+            },
             _ => vortex_bail!(
                 "VarBinViewBuilder can only handle Utf8 or Binary scalars, got {:?}",
                 scalar.dtype()
@@ -274,11 +285,15 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_varbinview();
         self.flush_in_progress();
 
-        self.push_only_validity_mask(array.validity_mask());
+        self.push_only_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
 
         let view_adjustment =
             self.completed
@@ -294,7 +309,10 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .iter()
                     .map(|view| adjustment.adjust_view(view)),
             ),
-            ViewAdjustment::Rewriting(adjustment) => match array.validity_mask() {
+            ViewAdjustment::Rewriting(adjustment) => match array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+            {
                 Mask::AllTrue(_) => {
                     for (idx, &view) in array.views().iter().enumerate() {
                         let new_view = self.push_view(view, &adjustment, &array, idx);
@@ -341,7 +359,6 @@ impl ArrayBuilder for VarBinViewBuilder {
 }
 
 impl VarBinViewBuilder {
-    #[inline]
     fn push_view(
         &mut self,
         view: BinaryView,
@@ -430,7 +447,7 @@ impl CompletedBuffers {
                 Self::Deduplicated(completed_buffers),
                 BuffersWithOffsets::AllKept { buffers, offsets },
             ) => {
-                let buffer_lookup = completed_buffers.extend_from_slice(&buffers);
+                let buffer_lookup = completed_buffers.extend_from_iter(buffers.iter().cloned());
                 ViewAdjustment::lookup(buffer_lookup, offsets)
             }
             (
@@ -491,11 +508,11 @@ impl DeduplicatedBuffers {
             .collect()
     }
 
-    pub(crate) fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
-        buffers
-            .iter()
-            .map(|buffer| self.push(buffer.clone()))
-            .collect()
+    pub(crate) fn extend_from_iter(
+        &mut self,
+        buffers: impl Iterator<Item = ByteBuffer>,
+    ) -> Vec<u32> {
+        buffers.map(|buffer| self.push(buffer)).collect()
     }
 
     pub(crate) fn finish(self) -> Arc<[ByteBuffer]> {
@@ -582,12 +599,21 @@ impl BuffersWithOffsets {
     pub fn from_array(array: &VarBinViewArray, compaction_threshold: f64) -> Self {
         if compaction_threshold == 0.0 {
             return Self::AllKept {
-                buffers: array.buffers().clone(),
+                buffers: Arc::from(
+                    array
+                        .buffers()
+                        .to_vec()
+                        .into_iter()
+                        .map(|b| b.unwrap_host())
+                        .collect_vec(),
+                ),
                 offsets: None,
             };
         }
 
-        let buffer_utilizations = array.buffer_utilizations();
+        let buffer_utilizations = array
+            .buffer_utilizations()
+            .vortex_expect("buffer_utilizations in BuffersWithOffsets::from_array");
         let mut has_rewrite = false;
         let mut has_nonzero_offset = false;
         for utilization in buffer_utilizations.iter() {
@@ -604,10 +630,11 @@ impl BuffersWithOffsets {
                 .zip(array.buffers().iter())
                 .map(|(utilization, buffer)| {
                     match compaction_strategy(utilization, compaction_threshold) {
-                        CompactionStrategy::KeepFull => (Some(buffer.clone()), 0),
-                        CompactionStrategy::Slice { start, end } => {
-                            (Some(buffer.slice(start as usize..end as usize)), start)
-                        }
+                        CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
+                        CompactionStrategy::Slice { start, end } => (
+                            Some(buffer.as_host().slice(start as usize..end as usize)),
+                            start,
+                        ),
                         CompactionStrategy::Rewrite => (None, 0),
                     }
                 });
@@ -724,7 +751,6 @@ enum PrecomputedViewAdjustment {
 }
 
 impl PrecomputedViewAdjustment {
-    #[inline]
     fn adjust_view(&self, view: &BinaryView) -> BinaryView {
         if view.is_inlined() {
             return *view;
@@ -803,17 +829,17 @@ impl RewritingViewAdjustment {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
+    use crate::builders::varbinview::VarBinViewArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[test]
     fn test_utf8_builder() {
@@ -890,10 +916,10 @@ mod tests {
         assert_eq!(builder.completed_block_count(), 1);
 
         array
-            .slice(1..2)
+            .slice(1..2)?
             .append_to_builder(&mut builder, &mut ctx)?;
         array
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
 
@@ -908,10 +934,10 @@ mod tests {
         assert_eq!(builder.completed_block_count(), 2);
 
         array
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         array2
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 2);
         Ok(())
@@ -919,7 +945,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_scalar::Scalar;
+        use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
         let mut utf8_builder =
@@ -1010,7 +1036,13 @@ mod tests {
         assert_eq!(array.len(), 1);
 
         // Verify the value was stored correctly
-        let retrieved = array.scalar_at(0).as_binary().value().unwrap();
+        let retrieved = array
+            .scalar_at(0)
+            .unwrap()
+            .as_binary()
+            .value()
+            .cloned()
+            .unwrap();
         assert_eq!(retrieved.len(), 8192);
         assert_eq!(retrieved.as_slice(), &large_value);
     }

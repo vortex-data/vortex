@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::expr::Expression;
-use vortex_array::expr::Literal;
-use vortex_array::expr::Root;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::root::Root;
 use vortex_error::VortexResult;
 
 use crate::v2::reader::Reader;

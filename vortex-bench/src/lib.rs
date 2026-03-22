@@ -15,6 +15,7 @@ use clickbench::ClickBenchBenchmark;
 use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
+use polarsignals::PolarSignalsBenchmark;
 use public_bi::PBIDataset;
 use public_bi::PublicBiBenchmark;
 use realnest::gharchive::GithubArchiveBenchmark;
@@ -29,7 +30,6 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
-use vortex::layout::layouts::compact::CompactCompressor;
 use vortex::utils::aliases::hash_map::HashMap;
 
 pub mod benchmark;
@@ -43,6 +43,7 @@ pub mod fineweb;
 pub mod measurements;
 pub mod memory;
 pub mod output;
+pub mod polarsignals;
 pub mod public_bi;
 pub mod random_access;
 pub mod realnest;
@@ -150,7 +151,24 @@ impl Display for Format {
     }
 }
 
+/// Allowed formats for benchmark CLI arguments.
+pub const ALLOWED_FORMATS: &[Format] = &[Format::Parquet, Format::OnDiskVortex, Format::Lance];
+
 impl Format {
+    /// Clap value parser that only accepts parquet, vortex, and lance.
+    pub fn parse_allowed(s: &str) -> Result<Format, String> {
+        let format = Format::from_str(s, true)?;
+        if ALLOWED_FORMATS.contains(&format) {
+            Ok(format)
+        } else {
+            Err(format!(
+                "invalid format '{}': allowed values are [{}]",
+                s,
+                ALLOWED_FORMATS.iter().map(|f| f.to_string()).join(", "),
+            ))
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
@@ -212,8 +230,8 @@ impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::new()
-                    .with_compressor(CompactCompressor::default())
+                WriteStrategyBuilder::default()
+                    .with_compact_encodings()
                     .build(),
             ),
             CompactionStrategy::Default => options,
@@ -236,6 +254,8 @@ pub enum BenchmarkArg {
     Fineweb,
     #[clap(name = "gharchive")]
     GhArchive,
+    #[clap(name = "polarsignals")]
+    PolarSignals,
     #[clap(name = "public-bi")]
     PublicBi,
 }
@@ -280,6 +300,11 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::GhArchive => {
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = GithubArchiveBenchmark::with_remote_data_dir(remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::PolarSignals => {
+            let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
+            let benchmark = PolarSignalsBenchmark::new(scale_factor)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PublicBi => {

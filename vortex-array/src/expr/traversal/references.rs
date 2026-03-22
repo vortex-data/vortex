@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::dtype::FieldName;
 use crate::expr::Expression;
-use crate::expr::exprs::get_item::GetItem;
-use crate::expr::exprs::select::Select;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::select::Select;
 
 #[derive(Default)]
 pub struct ReferenceCollector {

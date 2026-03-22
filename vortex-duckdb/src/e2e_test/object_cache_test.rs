@@ -9,10 +9,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::BindInput;
-use crate::duckdb::BindResult;
-use crate::duckdb::ClientContext;
-use crate::duckdb::DataChunk;
+use crate::duckdb::BindInputRef;
+use crate::duckdb::BindResultRef;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
@@ -43,9 +43,9 @@ impl TableFunction for TestTableFunction {
     type LocalState = TestLocalState;
 
     fn bind(
-        client_context: &ClientContext,
-        _input: &BindInput,
-        result: &mut BindResult,
+        client_context: &ClientContextRef,
+        _input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         result.add_result_column("test_value", &logical_type);
@@ -64,12 +64,20 @@ impl TableFunction for TestTableFunction {
         })
     }
 
+    fn table_scan_progress(
+        _client_context: &ClientContextRef,
+        _bind_data: &Self::BindData,
+        _global_state: &Self::GlobalState,
+    ) -> f64 {
+        100.0
+    }
+
     fn scan(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         _local_state: &mut Self::LocalState,
-        _global_state: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        _global_state: &Self::GlobalState,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         chunk.set_len(0);
 
@@ -92,14 +100,14 @@ impl TableFunction for TestTableFunction {
 
     fn init_local(
         _init: &TableInitInput<Self>,
-        _global: &mut Self::GlobalState,
+        _global: &Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(TestLocalState)
     }
 
     fn partition_data(
         _bind_data: &Self::BindData,
-        _global_init_data: &mut Self::GlobalState,
+        _global_init_data: &Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
         Ok(0)
@@ -115,7 +123,7 @@ fn test_table_function_with_object_cache() -> VortexResult<()> {
 
     // Register our test table function
     let name = CString::new("test_cache_func").map_err(|e| vortex_err!("CString error: {}", e))?;
-    conn.register_table_function::<TestTableFunction>(&name)?;
+    db.register_table_function::<TestTableFunction>(&name)?;
 
     // Call the table function - this should store data in the cache during init_global
     let _result = conn.query("SELECT * FROM test_cache_func()")?;

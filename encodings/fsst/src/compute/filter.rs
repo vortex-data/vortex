@@ -2,42 +2,50 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::VarBin;
+use vortex_array::arrays::filter::FilterKernel;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::FSST;
 use crate::FSSTArray;
-use crate::FSSTVTable;
 
-impl FilterKernel for FSSTVTable {
-    // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(FSSTArray::try_new(
-            array.dtype().clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            filter(array.codes().as_ref(), mask)?
-                .as_::<VarBinVTable>()
-                .clone(),
-            filter(array.uncompressed_lengths(), mask)?,
-        )?
-        .into_array())
+impl FilterKernel for FSST {
+    fn filter(
+        array: &FSSTArray,
+        mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Directly invoke VarBin's FilterKernel to get a concrete VarBinArray back.
+        let filtered_codes = <VarBin as FilterKernel>::filter(array.codes(), mask, ctx)?
+            .vortex_expect("VarBin filter kernel always returns Some")
+            .try_into::<VarBin>()
+            .ok()
+            .vortex_expect("must be VarBin");
+
+        Ok(Some(
+            FSSTArray::try_new(
+                array.dtype().clone(),
+                array.symbols().clone(),
+                array.symbol_lengths().clone(),
+                filtered_codes,
+                array.uncompressed_lengths().filter(mask.clone())?,
+            )?
+            .into_array(),
+        ))
     }
 }
 
-register_kernel!(FilterKernelAdapter(FSSTVTable).lift());
-
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::builder::VarBinBuilder;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::varbin::builder::VarBinBuilder;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
@@ -55,7 +63,7 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
 
         // Test with longer strings that benefit from compression
         let mut builder = VarBinBuilder::<i32>::with_capacity(5);
@@ -68,7 +76,7 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
 
         // Test with nullable strings
         let mut builder = VarBinBuilder::<i32>::with_capacity(5);
@@ -81,6 +89,6 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

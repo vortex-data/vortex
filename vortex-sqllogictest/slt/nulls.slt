@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# NULL handling tests - derived from vortex-datafusion and vortex-duckdb tests
+
+include ./setup.slt
+
+# Create test data with NULL values
+query I
+COPY (SELECT * FROM (VALUES
+    ('one', 1),
+    ('two', 2),
+    (NULL, 3),
+    ('four', NULL),
+    (NULL, NULL)
+) AS t(name, val)) TO '$__TEST_DIR__/nulls.vortex';
+----
+5
+
+# Test IS NULL filter
+query I
+SELECT COUNT(*) FROM '$__TEST_DIR__/nulls.vortex' WHERE name IS NULL;
+----
+2
+
+# Test IS NOT NULL filter
+query I
+SELECT COUNT(*) FROM '$__TEST_DIR__/nulls.vortex' WHERE name IS NOT NULL;
+----
+3
+
+# Test SUM with NULL values (should ignore NULLs)
+query I
+SELECT SUM(val) FROM '$__TEST_DIR__/nulls.vortex';
+----
+6
+
+# Test COUNT on nullable column (should count non-NULLs)
+query I
+SELECT COUNT(val) FROM '$__TEST_DIR__/nulls.vortex';
+----
+3
+
+# Test COUNT(*) vs COUNT(column) with NULLs
+query II
+SELECT COUNT(*), COUNT(name) FROM '$__TEST_DIR__/nulls.vortex';
+----
+5 3

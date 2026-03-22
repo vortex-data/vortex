@@ -4,7 +4,9 @@
 use std::fmt::Display;
 use std::ops::Deref;
 
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_err;
 
 /// Default alignment for device-to-host buffer copies.
 pub const ALIGNMENT_TO_HOST_COPY: Alignment = Alignment::new(256);
@@ -52,7 +54,7 @@ impl Alignment {
         Self::new(align_of::<T>())
     }
 
-    /// Check if this alignment is a "larger" than another alignment.
+    /// Check if `self` alignment is a "larger" than `other` alignment.
     ///
     /// ## Example
     ///
@@ -131,6 +133,34 @@ impl From<Alignment> for u16 {
     }
 }
 
+impl From<Alignment> for u32 {
+    #[inline]
+    fn from(value: Alignment) -> Self {
+        u32::try_from(value.0).vortex_expect("Alignment must fit into u32")
+    }
+}
+
+impl TryFrom<u32> for Alignment {
+    type Error = VortexError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        let value = usize::try_from(value)
+            .map_err(|_| vortex_err!("Alignment must fit into usize, got {value}"))?;
+
+        if value == 0 {
+            return Err(vortex_err!("Alignment must be greater than 0"));
+        }
+        if value > u16::MAX as usize {
+            return Err(vortex_err!("Alignment must fit into u16, got {value}"));
+        }
+        if !value.is_power_of_two() {
+            return Err(vortex_err!("Alignment must be a power of 2, got {value}"));
+        }
+
+        Ok(Self(value))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -166,5 +196,21 @@ mod test {
         assert!(Alignment::new(2).is_aligned_to(Alignment::new(1)));
         assert!(Alignment::new(4).is_aligned_to(Alignment::new(1)));
         assert!(!Alignment::new(1).is_aligned_to(Alignment::new(2)));
+    }
+
+    #[test]
+    fn try_from_u32() {
+        match Alignment::try_from(8u32) {
+            Ok(alignment) => assert_eq!(alignment, Alignment::new(8)),
+            Err(err) => panic!("unexpected error for valid alignment: {err}"),
+        }
+        assert!(Alignment::try_from(0u32).is_err());
+        assert!(Alignment::try_from(3u32).is_err());
+    }
+
+    #[test]
+    fn into_u32() {
+        let alignment = Alignment::new(64);
+        assert_eq!(u32::from(alignment), 64u32);
     }
 }

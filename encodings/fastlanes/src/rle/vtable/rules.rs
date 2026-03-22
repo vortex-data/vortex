@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 
-use crate::RLEVTable;
+use crate::RLE;
 
-pub(super) const RULES: ParentRuleSet<RLEVTable> = ParentRuleSet::new(&[]);
+pub(crate) const RULES: ParentRuleSet<RLE> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&CastReduceAdaptor(RLE))]);

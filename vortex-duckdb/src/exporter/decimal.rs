@@ -6,22 +6,22 @@ use std::marker::PhantomData;
 use num_traits::ToPrimitive;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::DecimalArrayParts;
+use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::match_each_decimal_value_type;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
-use vortex::dtype::match_each_decimal_value_type;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
-use vortex::scalar::DecimalType;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -47,21 +47,19 @@ pub(crate) fn new_exporter(
         decimal_dtype,
         values_type,
         values,
-        nullability,
     } = array.into_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
+    let nullability = validity.nullability();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(
-            len,
-            &LogicalType::try_from(DType::Decimal(decimal_dtype, nullability))?,
-        ));
+        let ltype = LogicalType::try_from(DType::Decimal(decimal_dtype, nullability))?;
+        return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
     let exporter = if values_type == dest_values_type {
         match_each_decimal_value_type!(values_type, |D| {
-            let buffer = Buffer::<D>::from_byte_buffer(values);
+            let buffer = Buffer::<D>::from_byte_buffer(values.into_host_sync());
             Box::new(DecimalZeroCopyExporter {
                 values: buffer.clone(),
                 shared_buffer: VectorBuffer::new(buffer),
@@ -71,7 +69,7 @@ pub(crate) fn new_exporter(
         match_each_decimal_value_type!(values_type, |D| {
             match_each_decimal_value_type!(dest_values_type, |N| {
                 Box::new(DecimalExporter {
-                    values: Buffer::<D>::from_byte_buffer(values),
+                    values: Buffer::<D>::from_byte_buffer(values.into_host_sync()),
                     dest_value_type: PhantomData::<N>,
                 }) as Box<dyn ColumnExporter>
             })
@@ -86,7 +84,13 @@ where
     D: ToPrimitive,
     N: BigCast,
 {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Copy the values from the Vortex array to the DuckDB vector.
         for (src, dst) in self.values[offset..offset + len]
             .iter()
@@ -102,7 +106,13 @@ where
 }
 
 impl<D: NativeDecimalType> ColumnExporter for DecimalZeroCopyExporter<D> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         assert!(self.values.len() >= offset + len);
 
         let pos = unsafe { self.values.as_ptr().add(offset) };
@@ -131,15 +141,17 @@ mod tests {
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexExpect;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
+    use crate::SESSION;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
 
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
-        let validity = array.validity_mask();
+        let validity = array.validity_mask()?;
         let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
         assert_eq!(array.values_type(), dest_values_type);
@@ -166,17 +178,22 @@ mod tests {
 
         // Create a DuckDB integer chunk since decimal will be stored as i32 for this precision
         let mut chunk = DataChunk::new([LogicalType::decimal_type(10, 2)
-            .vortex_expect("LogicalType creation should succeed for test data")]);
+            .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_zero_copy_exporter(&arr)
             .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 
         // Verify the exported data matches expected format
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(10,2): 3 = [ 123.45, 678.90, -123.00]
 "#
@@ -193,18 +210,23 @@ mod tests {
         );
 
         let mut chunk = DataChunk::new([LogicalType::decimal_type(5, 1)
-            .vortex_expect("LogicalType creation should succeed for test data")]);
+            .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         // Export first 3 elements
         new_zero_copy_exporter(&arr)
             .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 
         // Verify the exported data matches expected format
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(5,1): 3 = [ 10.0, 11.0, 12.0]
 "#
@@ -219,17 +241,22 @@ mod tests {
             DecimalArray::from_option_iter([Some(123456i32), None, Some(789012i32)], decimal_dtype);
 
         let mut chunk = DataChunk::new([LogicalType::decimal_type(8, 3)
-            .vortex_expect("LogicalType creation should succeed for test data")]);
+            .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_zero_copy_exporter(&arr)
             .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 
         // Verify the exported data matches expected format (NULL is represented as NULL)
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(8,3): 3 = [ 123.456, NULL, 789.012]
 "#

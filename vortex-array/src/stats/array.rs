@@ -9,25 +9,27 @@ use parking_lot::RwLock;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use super::MutTypedStatsSetRef;
 use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
-use crate::Array;
+use crate::DynArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
+use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
+use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::nan_count::nan_count;
+use crate::aggregate_fn::fns::sum::sum;
 use crate::builders::builder_with_capacity;
-use crate::compute::MinMaxResult;
-use crate::compute::is_constant;
-use crate::compute::is_sorted;
-use crate::compute::is_strict_sorted;
-use crate::compute::min_max;
-use crate::compute::nan_count;
-use crate::compute::sum;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
@@ -41,12 +43,12 @@ pub struct ArrayStats {
 /// Constructed by calling [`ArrayStats::to_ref`].
 pub struct StatsSetRef<'a> {
     // We need to reference back to the array
-    dyn_array_ref: &'a dyn Array,
+    dyn_array_ref: &'a dyn DynArray,
     array_stats: &'a ArrayStats,
 }
 
 impl ArrayStats {
-    pub fn to_ref<'a>(&'a self, array: &'a dyn Array) -> StatsSetRef<'a> {
+    pub fn to_ref<'a>(&'a self, array: &'a dyn DynArray) -> StatsSetRef<'a> {
         StatsSetRef {
             dyn_array_ref: array,
             array_stats: self,
@@ -142,39 +144,42 @@ impl StatsSetRef<'_> {
     }
 
     pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<Scalar>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
         // If it's already computed and exact, we can return it.
         if let Some(Precision::Exact(s)) = self.get(stat) {
             return Ok(Some(s));
         }
 
+        let array_ref = self.dyn_array_ref.to_array();
         Ok(match stat {
-            Stat::Min => min_max(self.dyn_array_ref)?.map(|MinMaxResult { min, max: _ }| min),
-            Stat::Max => min_max(self.dyn_array_ref)?.map(|MinMaxResult { min: _, max }| max),
+            Stat::Min => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min, max: _ }| min),
+            Stat::Max => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min: _, max }| max),
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())
                     .is_some()
                     .then(|| {
                         // Sum is supported for this dtype.
-                        sum(self.dyn_array_ref)
+                        sum(&array_ref, &mut ctx)
                     })
                     .transpose()?
             }
-            Stat::NullCount => Some(self.dyn_array_ref.invalid_count().into()),
+            Stat::NullCount => self.dyn_array_ref.invalid_count().ok().map(Into::into),
             Stat::IsConstant => {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    is_constant(self.dyn_array_ref)?.map(|v| v.into())
+                    Some(is_constant(&array_ref, &mut ctx)?.into())
                 }
             }
-            Stat::IsSorted => is_sorted(self.dyn_array_ref)?.map(|v| v.into()),
-            Stat::IsStrictSorted => is_strict_sorted(self.dyn_array_ref)?.map(|v| v.into()),
+            Stat::IsSorted => Some(is_sorted(&array_ref, &mut ctx)?.into()),
+            Stat::IsStrictSorted => Some(is_strict_sorted(&array_ref, &mut ctx)?.into()),
             Stat::UncompressedSizeInBytes => {
                 let mut builder =
                     builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
                 unsafe {
-                    builder.extend_from_array_unchecked(self.dyn_array_ref);
+                    builder.extend_from_array_unchecked(&array_ref);
                 }
                 let nbytes = builder.finish().nbytes();
                 self.set(stat, Precision::exact(nbytes));
@@ -186,7 +191,7 @@ impl StatsSetRef<'_> {
                     .is_some()
                     .then(|| {
                         // NaNCount is supported for this dtype.
-                        nan_count(self.dyn_array_ref)
+                        nan_count(&array_ref, &mut ctx)
                     })
                     .transpose()?
                     .map(|s| s.into())
@@ -197,8 +202,10 @@ impl StatsSetRef<'_> {
     pub fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
-            if let Some(s) = self.compute_stat(stat)? {
-                stats_set.set(stat, Precision::exact(s.into_value()))
+            if let Some(s) = self.compute_stat(stat)?
+                && let Some(value) = s.into_value()
+            {
+                stats_set.set(stat, Precision::exact(value));
             }
         }
         Ok(stats_set)

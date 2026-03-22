@@ -1,9 +1,44 @@
-Vortex FFI API
-==============
+C API
+=====
+
+The Vortex C API provides a low-level FFI interface to the Vortex library. It is the foundation for
+other language bindings (including C++) and is suitable for embedding Vortex into C applications or
+building higher-level wrappers.
 
 .. warning::
-    This API should be considered entirely unstable. It _will_ change. Please reach out if a stable
+    This API should be considered entirely unstable. It *will* change. Please reach out if a stable
     FFI API is important for your use-case and we can accelerate the process of stabilizing it.
+
+
+Installation
+------------
+
+The C API is provided as a static or shared library built from the ``vortex-ffi`` crate. To build it:
+
+.. code-block:: bash
+
+    cargo build -p vortex-ffi
+
+The generated header file ``vortex.h`` and compiled library can then be linked into your C project.
+
+
+Compatibility
+-------------
+
+The C bindings are supported on the following architectures:
+
+* x86_64 Linux
+* ARM64 Linux
+* Apple Silicon macOS
+
+They support any Linux distribution with a GLIBC version >= 2.31. This includes
+
+* Amazon Linux 2022 or newer
+* Ubuntu 20.04 or newer
+
+
+API Reference
+-------------
 
 .. toctree::
    :maxdepth: 1

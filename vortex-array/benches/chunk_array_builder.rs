@@ -4,20 +4,21 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
+use vortex_array::dtype::DType;
 use vortex_array::session::ArraySession;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
@@ -59,15 +60,6 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
             .vortex_expect("append failed");
         builder.finish()
     })
-}
-
-#[divan::bench(args = BENCH_ARGS)]
-fn chunked_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
-    let chunk = make_bool_chunks(len, chunk_count);
-
-    bencher
-        .with_inputs(|| &chunk)
-        .bench_refs(|chunk| chunk.to_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -127,6 +119,61 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
     bencher
         .with_inputs(|| &chunks)
         .bench_refs(|chunk| chunk.to_canonical())
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunk = make_constant_i32_chunks(len, chunk_count);
+
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
+        builder.finish()
+    })
+}
+
+const CONSTANT_UTF8_BENCH_ARGS: &[(&str, usize, usize)] = &[
+    // value, length, chunk_count
+    ("hi", 1000, 10),            // inline (≤12 bytes)
+    ("hello world!!", 1000, 10), // non-inline (>12 bytes)
+];
+
+#[divan::bench(args = CONSTANT_UTF8_BENCH_ARGS)]
+fn chunked_constant_utf8_append_to_builder(
+    bencher: Bencher,
+    (value, len, chunk_count): (&str, usize, usize),
+) {
+    let chunk = make_constant_utf8_chunks(value, len, chunk_count);
+
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
+        builder.finish()
+    })
+}
+
+fn make_constant_utf8_chunks(value: &str, len: usize, chunk_count: usize) -> ArrayRef {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+
+    (0..chunk_count)
+        .map(|_| {
+            ConstantArray::new(Scalar::utf8(value, Nullability::NonNullable), len).into_array()
+        })
+        .collect::<ChunkedArray>()
+        .into_array()
+}
+
+fn make_constant_i32_chunks(len: usize, chunk_count: usize) -> ArrayRef {
+    // Each chunk is a ConstantArray of i32; dtype is I32/NonNullable via From<i32> for Scalar.
+    (0..chunk_count)
+        .map(|_| ConstantArray::new(42i32, len).into_array())
+        .collect::<ChunkedArray>()
+        .into_array()
 }
 
 fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {

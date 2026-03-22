@@ -24,18 +24,18 @@ use jni::sys::jlong;
 use jni::sys::jobject;
 use jni::sys::jshort;
 use jni::sys::jstring;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::dtype::DType;
+use vortex::dtype::i256;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
-use vortex::scalar::i256;
 
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
@@ -225,7 +225,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
         let field = array_ref
             .inner
             .to_struct()
-            .fields()
+            .unmasked_fields()
             .get(index as usize)
             .cloned()
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?;
@@ -244,7 +244,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let sliced_array = array_ref.inner.as_ref().slice(start as usize..end as usize);
+        let sliced_array = array_ref
+            .inner
+            .as_ref()
+            .slice(start as usize..end as usize)?;
         Ok(NativeArray::new(sliced_array).into_raw())
     })
 }
@@ -258,7 +261,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNull(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let is_null = array_ref.inner.is_invalid(index as usize);
+        let is_null = array_ref.inner.is_invalid(index as usize)?;
         if is_null { Ok(JNI_TRUE) } else { Ok(JNI_FALSE) }
     })
 }
@@ -271,7 +274,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNullCount(
 ) -> jint {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let count = array_ref.inner.invalid_count();
+        let count = array_ref.inner.invalid_count()?;
         Ok(jint::try_from(count).unwrap_or(-1))
     })
 }
@@ -291,10 +294,10 @@ macro_rules! get_primitive {
                     array_ref
                         .inner
                         .to_extension()
-                        .storage()
-                        .scalar_at(index as usize)
+                        .storage_array()
+                        .scalar_at(index as usize)?
                 } else {
-                    array_ref.inner.scalar_at(index as usize)
+                    array_ref.inner.scalar_at(index as usize)?
                 };
 
                 Ok(scalar_value
@@ -330,10 +333,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
             array_ref
                 .inner
                 .to_extension()
-                .storage()
-                .scalar_at(index as usize)
+                .storage_array()
+                .scalar_at(index as usize)?
         } else {
-            array_ref.inner.scalar_at(index as usize)
+            array_ref.inner.scalar_at(index as usize)?
         };
 
         let decimal_scalar = scalar_value.as_decimal();
@@ -395,7 +398,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBool(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let value = array_ref.inner.scalar_at(index as usize);
+        let value = array_ref.inner.scalar_at(index as usize)?;
         match value.as_bool().value() {
             None => Ok(JNI_FALSE),
             Some(b) => {
@@ -418,7 +421,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8<'local>(
 ) -> jstring {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref.inner.scalar_at(index as usize);
+        let value = array_ref.inner.scalar_at(index as usize)?;
         match value.as_utf8().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf_str) => Ok(env.new_string(buf_str.as_str())?.into_raw()),
@@ -467,7 +470,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 ) -> jbyteArray {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref.inner.scalar_at(index as usize);
+        let value = array_ref.inner.scalar_at(index as usize)?;
         match value.as_binary().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf) => Ok(env.byte_array_from_slice(buf.as_slice())?.into_raw()),
@@ -479,18 +482,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 ///
 /// Panics if the index is out of bounds.
 fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> (*const u8, u32) {
+    // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (
         bytes.as_ptr(),
+        // TODO: propagate this error up instead of expecting
         u32::try_from(bytes.len()).vortex_expect("string length must fit in u32"),
     )
 }
 
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
 fn get_ptr_len_view(index: jint, array: &VarBinViewArray) -> (*const u8, u32) {
+    // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (
         bytes.as_ptr(),
+        // TODO: propagate this error up instead of expecting
         u32::try_from(bytes.len()).vortex_expect("string length must fit in u32"),
     )
 }

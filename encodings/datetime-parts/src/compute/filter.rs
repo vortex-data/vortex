@@ -3,28 +3,26 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::filter::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-impl FilterKernel for DateTimePartsVTable {
-    fn filter(&self, array: &DateTimePartsArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
-            filter(array.days().as_ref(), mask)?,
-            filter(array.seconds().as_ref(), mask)?,
-            filter(array.subseconds().as_ref(), mask)?,
-        )?
-        .into_array())
+impl FilterReduce for DateTimeParts {
+    fn filter(array: &DateTimePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            DateTimePartsArray::try_new(
+                array.dtype().clone(),
+                array.days().filter(mask.clone())?,
+                array.seconds().filter(mask.clone())?,
+                array.subseconds().filter(mask.clone())?,
+            )?
+            .into_array(),
+        ))
     }
 }
-register_kernel!(FilterKernelAdapter(DateTimePartsVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -32,8 +30,8 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 
@@ -49,14 +47,11 @@ mod test {
         ]
         .into_array();
 
-        let temporal = TemporalArray::new_timestamp(
-            timestamps,
-            TimeUnit::Milliseconds,
-            Some("UTC".to_string()),
-        );
+        let temporal =
+            TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
 
         // Test with nullable values
         let timestamps = PrimitiveArray::from_option_iter([
@@ -68,13 +63,10 @@ mod test {
         ])
         .into_array();
 
-        let temporal = TemporalArray::new_timestamp(
-            timestamps,
-            TimeUnit::Milliseconds,
-            Some("UTC".to_string()),
-        );
+        let temporal =
+            TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

@@ -4,7 +4,8 @@
 mod cast;
 mod compare;
 mod filter;
-mod is_constant;
+pub(crate) mod is_constant;
+pub(crate) mod kernel;
 mod mask;
 mod take;
 
@@ -14,8 +15,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::dtype::DecimalDType;
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
 
     use crate::DecimalBytePartsArray;
 
@@ -67,6 +68,6 @@ mod tests {
     ).unwrap())]
 
     fn test_decimal_byte_parts_consistency(#[case] array: DecimalBytePartsArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

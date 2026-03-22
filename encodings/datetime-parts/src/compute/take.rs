@@ -1,99 +1,99 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::fill_null;
-use vortex_array::compute::take;
+use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
-use vortex_array::register_kernel;
-use vortex_dtype::Nullability;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-use crate::DateTimePartsVTable;
 
-impl TakeKernel for DateTimePartsVTable {
-    fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
-        let indices = indices.to_primitive();
+fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
+    let indices = indices.to_primitive();
 
-        let taken_days = take(array.days(), indices.as_ref())?;
-        let taken_seconds = take(array.seconds(), indices.as_ref())?;
-        let taken_subseconds = take(array.subseconds(), indices.as_ref())?;
+    let taken_days = array.days().take(indices.clone().into_array())?;
+    let taken_seconds = array.seconds().take(indices.clone().into_array())?;
+    let taken_subseconds = array.subseconds().take(indices.clone().into_array())?;
 
-        // Update the dtype if the nullability changed due to nullable indices
-        let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
-            array
-                .dtype()
-                .with_nullability(taken_days.dtype().nullability())
-        } else {
-            array.dtype().clone()
-        };
+    // Update the dtype if the nullability changed due to nullable indices
+    let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
+        array
+            .dtype()
+            .with_nullability(taken_days.dtype().nullability())
+    } else {
+        array.dtype().clone()
+    };
 
-        if !taken_seconds.dtype().is_nullable() && !taken_subseconds.dtype().is_nullable() {
-            return Ok(DateTimePartsArray::try_new(
-                dtype,
-                taken_days,
-                taken_seconds,
-                taken_subseconds,
-            )?
-            .into_array());
-        }
-
-        // DateTimePartsArray requires seconds and subseconds to be non-nullable.
-        // If they became nullable due to nullable indices, we need to fill nulls.
-        // But first, we need to check that the types are consistent.
-        if !taken_days.dtype().is_nullable() {
-            vortex_panic!("Mismatched types: days is not nullable, seconds is nullable");
-        }
-        if !taken_seconds.dtype().is_nullable() {
-            vortex_panic!("Mismatched types: seconds is not nullable, days is nullable");
-        }
-        if !taken_subseconds.dtype().is_nullable() {
-            vortex_panic!(
-                "Mismatched types: subseconds is not nullable, days & seconds are nullable"
-            );
-        }
-        if !indices.dtype().is_nullable() {
-            vortex_panic!(
-                "Mismatched types: indices are not nullable, days & seconds are nullable"
-            );
-        }
-
-        let seconds_fill = array
-            .seconds()
-            .statistics()
-            .get(Stat::Min)
-            .map(|s| s.into_inner())
-            .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
-            .cast(array.seconds().dtype())?;
-        let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
-
-        let subseconds_fill = array
-            .subseconds()
-            .statistics()
-            .get(Stat::Min)
-            .map(|s| s.into_inner())
-            .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
-            .cast(array.subseconds().dtype())?;
-        let taken_subseconds = fill_null(taken_subseconds.as_ref(), &subseconds_fill)?;
-
-        Ok(
-            DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
-                .into_array(),
-        )
+    if !taken_seconds.dtype().is_nullable() && !taken_subseconds.dtype().is_nullable() {
+        return Ok(DateTimePartsArray::try_new(
+            dtype,
+            taken_days,
+            taken_seconds,
+            taken_subseconds,
+        )?
+        .into_array());
     }
+
+    // DateTimePartsArray requires seconds and subseconds to be non-nullable.
+    // If they became nullable due to nullable indices, we need to fill nulls.
+    // But first, we need to check that the types are consistent.
+    if !taken_days.dtype().is_nullable() {
+        vortex_panic!("Mismatched types: days is not nullable, seconds is nullable");
+    }
+    if !taken_seconds.dtype().is_nullable() {
+        vortex_panic!("Mismatched types: seconds is not nullable, days is nullable");
+    }
+    if !taken_subseconds.dtype().is_nullable() {
+        vortex_panic!("Mismatched types: subseconds is not nullable, days & seconds are nullable");
+    }
+    if !indices.dtype().is_nullable() {
+        vortex_panic!("Mismatched types: indices are not nullable, days & seconds are nullable");
+    }
+
+    let seconds_fill = array
+        .seconds()
+        .statistics()
+        .get(Stat::Min)
+        .map(|s| s.into_inner())
+        .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
+        .cast(array.seconds().dtype())?;
+    let taken_seconds = taken_seconds.fill_null(seconds_fill)?;
+
+    let subseconds_fill = array
+        .subseconds()
+        .statistics()
+        .get(Stat::Min)
+        .map(|s| s.into_inner())
+        .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
+        .cast(array.subseconds().dtype())?;
+    let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
+
+    Ok(
+        DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
+            .into_array(),
+    )
 }
 
-register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());
+impl TakeExecute for DateTimeParts {
+    fn take(
+        array: &DateTimePartsArray,
+        indices: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_datetime_parts(array, indices).map(Some)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -102,8 +102,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 
@@ -117,7 +117,7 @@ mod tests {
             345_600_000, // 4 days in ms
         ].into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
@@ -128,14 +128,14 @@ mod tests {
             None,
         ]).into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         buffer![86_400_000i64].into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

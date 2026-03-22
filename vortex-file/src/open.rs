@@ -5,25 +5,25 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
+use vortex_array::dtype::DType;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_layout::segments::InstrumentedSegmentCache;
 use vortex_layout::segments::NoOpSegmentCache;
 use vortex_layout::segments::SegmentCache;
-use vortex_layout::segments::SegmentCacheMetrics;
 use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SharedSegmentSource;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_metrics::MetricsSessionExt;
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::DefaultMetricsRegistry;
+use vortex_metrics::Label;
+use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -32,8 +32,10 @@ use crate::EOF_SIZE;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VortexFile;
 use crate::footer::Footer;
+use crate::segments::BufferSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
+use crate::segments::RequestMetrics;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -42,7 +44,7 @@ pub struct VortexOpenOptions {
     /// The session to use for opening the file.
     session: VortexSession,
     /// Cache to use for file segments.
-    segment_cache: Arc<dyn SegmentCache>,
+    segment_cache: Option<Arc<dyn SegmentCache>>,
     /// The number of bytes to read when parsing the footer.
     initial_read_size: usize,
     /// An optional, externally provided, file size.
@@ -54,30 +56,28 @@ pub struct VortexOpenOptions {
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     /// A metrics registry for the file.
-    metrics: VortexMetrics,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    /// Default labels applied to all the file's metrics
+    labels: Vec<Label>,
 }
 
-pub trait OpenOptionsSessionExt:
-    ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt
-{
+pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt {
     /// Create a new [`VortexOpenOptions`] using the provided session to open a file.
     fn open_options(&self) -> VortexOpenOptions {
         VortexOpenOptions {
             session: self.session(),
-            segment_cache: Arc::new(NoOpSegmentCache),
+            segment_cache: None,
             initial_read_size: INITIAL_READ_SIZE,
             file_size: None,
             dtype: None,
             footer: None,
             initial_read_segments: Default::default(),
-            metrics: self.metrics(),
+            metrics_registry: None,
+            labels: Vec::default(),
         }
     }
 }
-impl<S: ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt>
-    OpenOptionsSessionExt for S
-{
-}
+impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt> OpenOptionsSessionExt for S {}
 
 impl VortexOpenOptions {
     /// Configure the initial read size for the Vortex file.
@@ -88,13 +88,8 @@ impl VortexOpenOptions {
 
     /// Configure a custom [`SegmentCache`].
     pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
-        self.segment_cache = segment_cache;
+        self.segment_cache = Some(segment_cache);
         self
-    }
-
-    /// Disable segment caching entirely.
-    pub fn without_segment_cache(self) -> Self {
-        self.with_segment_cache(Arc::new(NoOpSegmentCache))
     }
 
     /// Configure a known file size.
@@ -103,6 +98,15 @@ impl VortexOpenOptions {
     /// Of course, all bets are off if you pass an incorrect value.
     pub fn with_file_size(mut self, file_size: u64) -> Self {
         self.file_size = Some(file_size);
+        self
+    }
+
+    /// Configure a known file size.
+    ///
+    /// This helps to prevent an I/O request to discover the size of the file.
+    /// Of course, all bets are off if you pass an incorrect value.
+    pub fn with_some_file_size(mut self, file_size: Option<u64>) -> Self {
+        self.file_size = file_size;
         self
     }
 
@@ -126,9 +130,15 @@ impl VortexOpenOptions {
         self
     }
 
-    /// Configure a custom [`VortexMetrics`].
-    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = metrics;
+    /// Configure a custom [`MetricsRegistry`] implementation.
+    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.metrics_registry = Some(metrics);
+        self
+    }
+
+    /// Adds labels to all the file's metrics.
+    pub fn with_labels(mut self, labels: Vec<Label>) -> Self {
+        self.labels.extend(labels);
         self
     }
 
@@ -145,48 +155,80 @@ impl VortexOpenOptions {
     /// Open a Vortex file from a filesystem path.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn open_path(self, path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
-        use vortex_io::file::std_file::FileReadAdapter;
+        use vortex_io::std_file::FileReadAt;
         let handle = self.session.handle();
-        let source = Arc::new(FileReadAdapter::open(path, handle)?);
+        let source = Arc::new(FileReadAt::open(path, handle)?);
         self.open(source).await
     }
 
     /// Open a Vortex file from an in-memory buffer.
+    ///
+    /// This uses a `BufferSegmentSource` that resolves segments synchronously
+    /// by slicing the buffer directly, bypassing the async I/O pipeline.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
-        // We know this is in memory, so we can open it synchronously.
-        block_on(
-            self.with_initial_read_size(0)
-                .without_segment_cache()
-                .open_read(buffer.into()),
-        )
+        let buffer: ByteBuffer = buffer.into();
+
+        if self.segment_cache.is_some() {
+            tracing::warn!("segment cache is ignored for in-memory `open_buffer`");
+        }
+        if self.metrics_registry.is_some() {
+            tracing::warn!("metrics registry is ignored for in-memory `open_buffer`");
+        }
+
+        let mut opts = self.with_initial_read_size(0);
+
+        let footer = match opts.footer.take() {
+            Some(footer) => footer,
+            None => block_on(opts.read_footer(&buffer))?,
+        };
+
+        let segment_source = Arc::new(BufferSegmentSource::new(
+            buffer,
+            footer.segment_map().clone(),
+        ));
+
+        Ok(VortexFile {
+            footer,
+            segment_source,
+            session: opts.session,
+        })
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
-    ///
-    /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
-    async fn open_read<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
-        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
+    pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
+        let segment_cache = self
+            .segment_cache
+            .clone()
+            .unwrap_or_else(|| Arc::new(NoOpSegmentCache));
+
+        let metrics_registry = self
+            .metrics_registry
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
 
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
-            self.read_footer(read.clone()).await?
+            self.read_footer(&reader).await?
         };
 
-        let segment_cache = Arc::new(SegmentCacheMetrics::new(
+        let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
                 initial: self.initial_read_segments,
-                fallback: self.segment_cache,
+                fallback: segment_cache,
             },
-            self.metrics.clone(),
+            metrics_registry.as_ref(),
+            self.labels.clone(),
         ));
+
+        let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
             footer.segment_map().clone(),
-            read,
+            reader,
             self.session.handle(),
-            self.metrics.clone(),
+            metrics,
         )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
@@ -198,12 +240,11 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             footer,
             segment_source,
-            metrics: self.metrics,
             session: self.session.clone(),
         })
     }
 
-    async fn read_footer(&self, read: Arc<dyn VortexReadAt>) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -219,8 +260,9 @@ impl VortexOpenOptions {
 
         let initial_offset = file_size - initial_read_size as u64;
         let initial_read: ByteBuffer = read
-            .clone()
             .read_at(initial_offset, initial_read_size, Alignment::none())
+            .await?
+            .try_into_host()?
             .await?;
 
         let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
@@ -230,7 +272,11 @@ impl VortexOpenOptions {
         let footer = loop {
             match deserializer.deserialize()? {
                 DeserializeStep::NeedMoreData { offset, len } => {
-                    let more_data = read.clone().read_at(offset, len, Alignment::none()).await?;
+                    let more_data = read
+                        .read_at(offset, len, Alignment::none())
+                        .await?
+                        .try_into_host()?
+                        .await?;
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
@@ -280,10 +326,10 @@ impl VortexOpenOptions {
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
-        use vortex_io::file::object_store::ObjectStoreSource;
+        use vortex_io::object_store::ObjectStoreReadAt;
 
         let handle = self.session.handle();
-        let source = Arc::new(ObjectStoreSource::new(
+        let source = Arc::new(ObjectStoreReadAt::new(
             object_store.clone(),
             path.into(),
             handle,
@@ -299,7 +345,9 @@ mod tests {
 
     use futures::future::BoxFuture;
     use vortex_array::IntoArray;
-    use vortex_array::expr::session::ExprSession;
+    use vortex_array::buffer::BufferHandle;
+    use vortex_array::dtype::session::DTypeSession;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
@@ -309,6 +357,7 @@ mod tests {
     use super::*;
     use crate::WriteOptionsSessionExt;
 
+    #[derive(Clone)]
     // Define CountingRead struct
     struct CountingRead<R> {
         inner: R,
@@ -316,7 +365,7 @@ mod tests {
         first_read_len: Arc<AtomicUsize>,
     }
 
-    impl<R: VortexReadAt> VortexReadAt for CountingRead<R> {
+    impl<R: VortexReadAt + Clone> VortexReadAt for CountingRead<R> {
         fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
             self.inner.size()
         }
@@ -326,7 +375,7 @@ mod tests {
             offset: u64,
             length: usize,
             alignment: Alignment,
-        ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
             self.total_read.fetch_add(length, Ordering::Relaxed);
             let _ = self.first_read_len.compare_exchange(
                 0,
@@ -347,10 +396,10 @@ mod tests {
         // Create a large file (> 1MB)
         let mut buf = ByteBufferMut::empty();
         let mut session = VortexSession::empty()
-            .with::<VortexMetrics>()
+            .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&mut session);

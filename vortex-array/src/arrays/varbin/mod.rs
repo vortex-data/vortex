@@ -4,22 +4,21 @@
 mod array;
 pub use array::VarBinArray;
 
-mod compute;
-pub(crate) use compute::varbin_compute_min_max;
-// For use in `varbinview`.
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::VarBinVTable;
+pub use vtable::VarBin;
 
 pub mod builder;
 
 mod accessor;
 
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
+
+use crate::dtype::DType;
+use crate::scalar::Scalar;
 
 pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {

@@ -10,24 +10,23 @@ mod portable;
 use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
-use crate::ToCanonical;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::cast;
-use crate::register_kernel;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::TakeExecute;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
+use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
+use crate::match_each_native_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -81,32 +80,59 @@ impl TakeImpl for TakeKernelScalar {
     }
 }
 
-impl TakeKernel for PrimitiveVTable {
-    fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for Primitive {
+    fn take(
+        array: &PrimitiveArray,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(ptype, null) = indices.dtype() else {
             vortex_bail!("Invalid indices dtype: {}", indices.dtype())
         };
 
         let unsigned_indices = if ptype.is_unsigned_int() {
-            indices.to_primitive()
+            indices.to_array().execute::<PrimitiveArray>(ctx)?
         } else {
             // This will fail if all values cannot be converted to unsigned
-            cast(indices, &DType::Primitive(ptype.to_unsigned(), *null))?.to_primitive()
+            indices
+                .to_array()
+                .cast(DType::Primitive(ptype.to_unsigned(), *null))?
+                .execute::<PrimitiveArray>(ctx)?
         };
 
-        let validity = array.validity().take(unsigned_indices.as_ref())?;
+        let validity = array
+            .validity()
+            .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
-        PRIMITIVE_TAKE_KERNEL.take(array, &unsigned_indices, validity)
+        PRIMITIVE_TAKE_KERNEL
+            .take(array, &unsigned_indices, validity)
+            .map(Some)
     }
 }
-
-register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
 
 // Compiler may see this as unused based on enabled features
 #[allow(unused)]
 #[inline(always)]
-fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: &[I]) -> Buffer<T> {
-    indices.iter().map(|idx| array[idx.as_()]).collect()
+fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
+    buffer: &[T],
+    indices: &[I],
+) -> Buffer<T> {
+    // NB: The simpler `indices.iter().map(|idx| buffer[idx.as_()]).collect()` generates suboptimal
+    // assembly where the buffer length is repeatedly loaded from the stack on each iteration.
+
+    let mut result = BufferMut::with_capacity(indices.len());
+    let ptr = result.spare_capacity_mut().as_mut_ptr().cast::<T>();
+
+    // This explicit loop with pointer writes keeps the length in a register and avoids per-element
+    // capacity checks from `push()`.
+    for (i, idx) in indices.iter().enumerate() {
+        // SAFETY: We reserved `indices.len()` capacity, so `ptr.add(i)` is valid.
+        unsafe { ptr.add(i).write(buffer[idx.as_()]) };
+    }
+
+    // SAFETY: We just wrote exactly `indices.len()` elements.
+    unsafe { result.set_len(indices.len()) };
+    result.freeze()
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
@@ -114,15 +140,15 @@ fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: 
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
+    use vortex_error::VortexExpect;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -142,12 +168,21 @@ mod test {
             buffer![0, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(actual.scalar_at(0), Scalar::from(Some(1)));
+        let actual = values.take(indices.into_array()).unwrap();
+        assert_eq!(
+            actual.scalar_at(0).vortex_expect("no fail"),
+            Scalar::from(Some(1))
+        );
         // position 3 is null
-        assert_eq!(actual.scalar_at(1), Scalar::null_typed::<i32>());
+        assert_eq!(
+            actual.scalar_at(1).vortex_expect("no fail"),
+            Scalar::null_native::<i32>()
+        );
         // the third index is null
-        assert_eq!(actual.scalar_at(2), Scalar::null_typed::<i32>());
+        assert_eq!(
+            actual.scalar_at(2).vortex_expect("no fail"),
+            Scalar::null_native::<i32>()
+        );
     }
 
     #[rstest]
@@ -162,6 +197,6 @@ mod test {
     ))]
     #[case(PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]))]
     fn test_take_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

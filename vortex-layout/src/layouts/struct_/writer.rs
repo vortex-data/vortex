@@ -11,13 +11,13 @@ use futures::TryStreamExt;
 use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
-use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -107,13 +107,13 @@ impl LayoutStrategy for StructStrategy {
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask().into_array(),
+                    chunk.validity_mask()?.into_array(),
                 ));
             }
 
             columns.extend(
                 struct_chunk
-                    .fields()
+                    .unmasked_fields()
                     .iter()
                     .map(|field| (sequence_pointer.advance(), field.to_array())),
             );
@@ -222,11 +222,11 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy;

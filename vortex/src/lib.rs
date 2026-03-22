@@ -5,42 +5,52 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 // vortex::compute is deprecated and will be ported over to expressions.
+pub use vortex_array::aggregate_fn;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 pub use vortex_array::compute;
+use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
-use vortex_array::expr::session::ExprSession;
+pub use vortex_array::scalar_fn;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
-use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 
 // We re-export like so in order to allow users to search inside subcrates when using the Rust docs.
 
 pub mod array {
     pub use vortex_array::*;
+
+    // TODO(connor): We should probably manually pull up everything we need besides these 3 modules.
+    // Note that there `vortex::dtype`, `vortex::extension`, and `vortex::scalar` are all exported
+    // twice.
 }
 
 pub mod buffer {
     pub use vortex_buffer::*;
 }
 
-pub mod compute2 {
-    pub use vortex_compute::*;
-}
-
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
-    #[cfg(feature = "zstd")]
-    pub use vortex_layout::layouts::compact::CompactCompressor;
+    pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    pub use vortex_btrblocks::FloatCode;
+    pub use vortex_btrblocks::IntCode;
+    pub use vortex_btrblocks::StringCode;
 }
 
 pub mod dtype {
-    pub use vortex_dtype::*;
+    pub use vortex_array::dtype::*;
 }
+
 pub mod error {
     pub use vortex_error::*;
+}
+
+pub mod extension {
+    pub use vortex_array::extension::*;
 }
 
 #[cfg(feature = "files")]
@@ -77,7 +87,7 @@ pub mod proto {
 }
 
 pub mod scalar {
-    pub use vortex_scalar::*;
+    pub use vortex_array::scalar::*;
 }
 
 pub mod scan {
@@ -90,10 +100,6 @@ pub mod session {
 
 pub mod utils {
     pub use vortex_utils::*;
-}
-
-pub mod vector {
-    pub use vortex_vector::*;
 }
 
 pub mod encodings {
@@ -157,10 +163,11 @@ impl VortexSessionDefault for VortexSession {
     #[allow(unused_mut)]
     fn default() -> VortexSession {
         let mut session = VortexSession::empty()
-            .with::<VortexMetrics>()
+            .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
+            .with::<AggregateFnSession>()
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
@@ -177,12 +184,13 @@ impl VortexSessionDefault for VortexSession {
 mod test {
     use std::path::PathBuf;
 
-    use itertools::Itertools;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
@@ -191,12 +199,10 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
-    use vortex_layout::layouts::compact::CompactCompressor;
     use vortex_session::VortexSession;
 
     use crate as vortex;
@@ -209,7 +215,7 @@ mod test {
 
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        use vortex::array::Array;
+        use vortex::array::DynArray;
         use vortex::array::arrays::ChunkedArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
@@ -221,9 +227,12 @@ mod test {
         .build()?;
 
         let dtype = DType::from_arrow(reader.schema());
-        let chunks = reader
-            .map_ok(|record_batch| ArrayRef::from_arrow(record_batch, false))
-            .try_collect()?;
+        let chunks: Vec<_> = reader
+            .map(|record_batch| {
+                let batch = record_batch?;
+                ArrayRef::from_arrow(batch, false)
+            })
+            .collect::<VortexResult<_>>()?;
         let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         // [convert]
 
@@ -236,23 +245,16 @@ mod test {
     fn compress() -> VortexResult<()> {
         // [compress]
         use vortex::compressor::BtrBlocksCompressor;
-        use vortex::compressor::CompactCompressor;
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
-        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
+        let compressed = BtrBlocksCompressor::default().compress(&array.clone().into_array())?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
             array.nbytes()
         );
-
-        // Or apply generally stronger compression with the compact compressor
-        let compressed = CompactCompressor::default()
-            .with_values_per_page(8192)
-            .compress(array.as_ref())?;
-        println!("Compact size: {} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
 
         Ok(())
@@ -310,8 +312,8 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::new()
-                    .with_compressor(CompactCompressor::default())
+                WriteStrategyBuilder::default()
+                    .with_compact_encodings()
                     .build(),
             )
             .write(
@@ -331,8 +333,15 @@ mod test {
             .await?;
 
         assert_eq!(recovered_array.len(), array.len());
-        let recovered_primitive = recovered_array.to_primitive();
-        assert_eq!(recovered_primitive.validity(), array.validity());
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
+        assert!(
+            recovered_primitive
+                .validity()
+                .mask_eq(array.validity(), &mut ctx)?
+        );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),
             array.to_buffer::<u64>()

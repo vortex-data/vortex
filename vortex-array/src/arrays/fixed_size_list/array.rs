@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
+use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -34,6 +34,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::{FixedSizeListArray, PrimitiveArray};
 /// use vortex_array::validity::Validity;
 /// use vortex_array::IntoArray;
@@ -54,8 +55,10 @@ use crate::validity::Validity;
 /// assert_eq!(fixed_list_array.list_size(), 2);
 ///
 /// // Access individual lists
-/// let first_list = fixed_list_array.fixed_size_list_elements_at(0);
+/// let first_list = fixed_list_array.fixed_size_list_elements_at(0)?;
 /// assert_eq!(first_list.len(), 2);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct FixedSizeListArray {
@@ -174,7 +177,7 @@ impl FixedSizeListArray {
     ///
     /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].
     pub fn validate(
-        elements: &dyn Array,
+        elements: &ArrayRef,
         len: usize,
         list_size: u32,
         validity: &Validity,
@@ -183,7 +186,7 @@ impl FixedSizeListArray {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 len == validity_len,
-                "validity with size {validity_len} does not match fixed-size list array size {len}",
+                InvalidArgument: "validity with size {validity_len} does not match fixed-size list array size {len}",
             );
         }
 
@@ -192,14 +195,14 @@ impl FixedSizeListArray {
         if list_size == 0 {
             vortex_ensure!(
                 elements.is_empty(),
-                "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
+                InvalidArgument: "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
             );
             return Ok(());
         }
 
         vortex_ensure!(
             len * list_size as usize == elements.len(),
-            "the `elements` array has the incorrect number of elements to construct a \
+            InvalidArgument: "the `elements` array has the incorrect number of elements to construct a \
                 `FixedSizeList[{list_size}] array of length {len}",
         );
 
@@ -218,16 +221,17 @@ impl FixedSizeListArray {
 
     /// Returns the elements of the fixed-size list scalar at the given index of the list array.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the index is out of bounds.
-    pub fn fixed_size_list_elements_at(&self, index: usize) -> ArrayRef {
+    /// Returns an error if the index is out of bounds or the slice operation fails.
+    pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.len,
-            "index out of bounds: the len is {} but the index is {index}",
-            self.len
+            "index {} out of bounds: the len is {}",
+            index,
+            self.len,
         );
-        debug_assert!(self.validity.is_valid(index));
+        debug_assert!(self.validity.is_valid(index).unwrap_or(false));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);

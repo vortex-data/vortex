@@ -4,11 +4,12 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::arrays::PyArrayRef;
 
@@ -34,6 +35,7 @@ impl Iterator for PythonArrayIterator {
     type Item = VortexResult<ArrayRef>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Check for any signals on this chunk.
         Python::attach(|py| {
             let mut iter = self.iter.clone_ref(py).into_bound(py);
             iter.next().map(|array| {
@@ -51,7 +53,7 @@ impl Iterator for PythonArrayIterator {
                             Ok(array)
                         }
                     })
-                    .map_err(|pyerr| pyerr.into())
+                    .map_err(|pyerr| vortex_err!("{}", pyerr))
             })
         })
     }

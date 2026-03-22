@@ -2,60 +2,109 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
-use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::VisitorVTable;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
+use crate::kernel::PARENT_KERNELS;
+use crate::rules::RULES;
 use crate::zigzag_decode;
 
 vtable!(ZigZag);
 
-impl VTable for ZigZagVTable {
+impl VTable for ZigZag {
     type Array = ZigZagArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ZigZag
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ZigZagArray) -> usize {
+        array.encoded.len()
+    }
+
+    fn dtype(array: &ZigZagArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ZigZagArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.encoded.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
+        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
+    }
+
+    fn nbuffers(_array: &ZigZagArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ZigZagArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ZigZagArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ZigZagArray, idx: usize) -> Option<String> {
+        vortex_panic!("ZigZagArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(_array: &ZigZagArray) -> usize {
+        1
+    }
+
+    fn child(array: &ZigZagArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.encoded().clone(),
+            _ => vortex_panic!("ZigZagArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &ZigZagArray, idx: usize) -> String {
+        match idx {
+            0 => "encoded".to_string(),
+            _ => vortex_panic!("ZigZagArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -66,7 +115,13 @@ impl VTable for ZigZagVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -98,16 +153,27 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ZigZagArray::new(array.encoded().slice(range)).into_array(),
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
         ))
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(zigzag_decode(
-            array.encoded().clone().execute(ctx)?,
-        )))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -119,15 +185,15 @@ pub struct ZigZagArray {
 }
 
 #[derive(Debug)]
-pub struct ZigZagVTable;
+pub struct ZigZag;
 
-impl ZigZagVTable {
+impl ZigZag {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
 }
 
 impl ZigZagArray {
     pub fn new(encoded: ArrayRef) -> Self {
-        Self::try_new(encoded).vortex_expect("ZigZigArray new")
+        Self::try_new(encoded).vortex_expect("ZigZagArray new")
     }
 
     pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
@@ -155,38 +221,15 @@ impl ZigZagArray {
     }
 }
 
-impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
-    fn len(array: &ZigZagArray) -> usize {
-        array.encoded.len()
-    }
-
-    fn dtype(array: &ZigZagArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ZigZagArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
-        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
-    }
-}
-
-impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
-    fn scalar_at(array: &ZigZagArray, index: usize) -> Scalar {
-        let scalar = array.encoded().scalar_at(index);
+impl OperationsVTable<ZigZag> for ZigZag {
+    fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
+        let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
-            return scalar.reinterpret_cast(array.ptype());
+            return scalar.primitive_reinterpret_cast(array.ptype());
         }
 
         let pscalar = scalar.as_primitive();
-        match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
+        Ok(match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
             Scalar::primitive(
                 <<P as ZigZagEncoded>::Int>::decode(
                     pscalar
@@ -195,21 +238,13 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
                 ),
                 array.dtype().nullability(),
             )
-        })
+        }))
     }
 }
 
-impl ValidityChild<ZigZagVTable> for ZigZagVTable {
+impl ValidityChild<ZigZag> for ZigZag {
     fn validity_child(array: &ZigZagArray) -> &ArrayRef {
         array.encoded()
-    }
-}
-
-impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
-    fn visit_buffers(_array: &ZigZagArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &ZigZagArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", array.encoded())
     }
 }
 
@@ -217,8 +252,8 @@ impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::zigzag_encode;
@@ -243,9 +278,12 @@ mod test {
             array.statistics().compute_is_constant()
         );
 
-        let sliced = zigzag.slice(0..2);
-        let sliced = sliced.as_::<ZigZagVTable>();
-        assert_eq!(sliced.scalar_at(sliced.len() - 1), Scalar::from(-5i32));
+        let sliced = zigzag.slice(0..2).unwrap();
+        let sliced = sliced.as_::<ZigZag>();
+        assert_eq!(
+            sliced.scalar_at(sliced.len() - 1).unwrap(),
+            Scalar::from(-5i32)
+        );
 
         assert_eq!(
             sliced.statistics().compute_min::<i32>(),

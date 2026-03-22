@@ -3,18 +3,16 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
-use vortex_dtype::DType;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::alp_rd::ALPRD;
 use crate::alp_rd::ALPRDArray;
-use crate::alp_rd::ALPRDVTable;
 
-impl CastKernel for ALPRDVTable {
-    fn cast(&self, array: &ALPRDArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for ALPRD {
+    fn cast(array: &ALPRDArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ALPRDArray stores floating-point values, so only cast between float types
         // or if just changing nullability
 
@@ -22,9 +20,8 @@ impl CastKernel for ALPRDVTable {
         if array.dtype().eq_ignore_nullability(dtype) {
             // For nullability-only changes, we need to cast the left_parts array
             // since it carries the validity information
-            let new_left_parts = cast(
-                array.left_parts(),
-                &array
+            let new_left_parts = array.left_parts().cast(
+                array
                     .left_parts()
                     .dtype()
                     .with_nullability(dtype.nullability()),
@@ -48,18 +45,17 @@ impl CastKernel for ALPRDVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(ALPRDVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
 
     use crate::RDEncoder;
 
@@ -70,11 +66,10 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         let alprd = encoder.encode(&arr);
 
-        let casted = cast(
-            alprd.as_ref(),
-            &DType::Primitive(PType::F64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = alprd
+            .into_array()
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
@@ -96,18 +91,17 @@ mod tests {
         let alprd = encoder.encode(&arr);
 
         // Cast to NonNullable should fail since we have nulls
-        let result = cast(
-            alprd.as_ref(),
-            &DType::Primitive(PType::F64, Nullability::NonNullable),
-        );
+        let result = alprd
+            .clone()
+            .into_array()
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
         assert!(result.is_err());
 
         // Cast to same type with Nullable should succeed
-        let casted = cast(
-            alprd.as_ref(),
-            &DType::Primitive(PType::F64, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = alprd
+            .into_array()
+            .cast(DType::Primitive(PType::F64, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::Nullable)
@@ -146,6 +140,6 @@ mod tests {
         encoder.encode(&arr)
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
-        test_cast_conformance(alprd.as_ref());
+        test_cast_conformance(&alprd.into_array());
     }
 }

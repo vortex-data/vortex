@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability::Nullable;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -40,15 +41,15 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .iter()
                             .map(|v| *v as Out)
                             .collect::<Buffer<Out>>(),
-                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                        Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
-                    .to_array()
+                    .into_array()
                 })
             }
         )))
     } else {
         // Float to float casting (F32 <-> F64 only, skip F16 for now)
-        use vortex_dtype::PType;
+        use vortex_array::dtype::PType;
         let from_ptype = array.dtype().as_ptype();
         let to_ptype = target.as_ptype();
 
@@ -66,9 +67,9 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                         .iter()
                         .map(|v| *v as f64)
                         .collect::<Buffer<f64>>(),
-                    Validity::from_mask(array.validity_mask(), target.nullability()),
+                    Validity::from_mask(array.validity_mask()?, target.nullability()),
                 )
-                .to_array(),
+                .into_array(),
             )),
             (PType::F64, PType::F32) =>
             {
@@ -81,9 +82,9 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .iter()
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),
-                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                        Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
-                    .to_array(),
+                    .into_array(),
                 ))
             }
             _ => Ok(None),

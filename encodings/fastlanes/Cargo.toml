@@ -26,13 +26,9 @@ prost = { workspace = true }
 rand = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-compute = { workspace = true }
-vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -51,15 +47,16 @@ name = "bitpacking_take"
 harness = false
 
 [[bench]]
-name = "bitpacking_decompress_selection"
-harness = false
-
-[[bench]]
 name = "canonicalize_bench"
 harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
 name = "compute_between"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
+name = "bit_transpose"
 harness = false
 required-features = ["_test-harness"]

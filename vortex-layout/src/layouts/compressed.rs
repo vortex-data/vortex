@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::IntCode;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
@@ -23,38 +25,28 @@ use crate::sequence::SequentialStreamExt;
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
-/// Both the balanced `BtrBlocksCompressor` and the size-optimized `CompactCompressor`
-/// meet this interface.
-///
-/// API consumers are also free to implement this trait to provide new plugin compressors.
+/// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef>;
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef>;
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
         self.as_ref().compress_chunk(chunk)
     }
 }
 
 impl<F> CompressorPlugin for F
 where
-    F: Fn(&dyn Array) -> VortexResult<ArrayRef> + Send + Sync + 'static,
+    F: Fn(&ArrayRef) -> VortexResult<ArrayRef> + Send + Sync + 'static,
 {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
         self(chunk)
     }
 }
 
 impl CompressorPlugin for BtrBlocksCompressor {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
-        self.compress(chunk)
-    }
-}
-
-#[cfg(feature = "zstd")]
-impl CompressorPlugin for crate::layouts::compact::CompactCompressor {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
+    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
         self.compress(chunk)
     }
 }
@@ -75,26 +67,13 @@ impl CompressingStrategy {
     /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
     pub fn new_btrblocks<S: LayoutStrategy>(child: S, exclude_int_dict_encoding: bool) -> Self {
-        Self::new(
-            child,
-            Arc::new(BtrBlocksCompressor {
-                exclude_int_dict_encoding,
-            }),
-        )
-    }
-
-    /// Create a new writer that compresses using a `CompactCompressor` to compress chunks.
-    ///
-    /// This may create smaller files than the BtrBlocks writer, in exchange for some penalty
-    /// to decoding performance. This is only recommended for datasets that make heavy use of
-    /// floating point numbers.
-    ///
-    /// [`CompactCompressor`]: crate::layouts::compact::CompactCompressor
-    #[cfg(feature = "zstd")]
-    pub fn new_compact<S: LayoutStrategy>(
-        child: S,
-        compressor: crate::layouts::compact::CompactCompressor,
-    ) -> Self {
+        let compressor = if exclude_int_dict_encoding {
+            BtrBlocksCompressorBuilder::default()
+                .exclude_int([IntCode::Dict])
+                .build()
+        } else {
+            BtrBlocksCompressor::default()
+        };
         Self::new(child, Arc::new(compressor))
     }
 

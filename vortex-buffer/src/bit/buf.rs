@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FmtResult;
 use std::ops::BitAnd;
 use std::ops::BitOr;
 use std::ops::BitXor;
@@ -18,10 +21,12 @@ use crate::bit::BitIndexIterator;
 use crate::bit::BitIterator;
 use crate::bit::BitSliceIterator;
 use crate::bit::UnalignedBitChunk;
+use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
+use crate::trusted_len::TrustedLenExt;
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -33,6 +38,18 @@ pub struct BitBuffer {
     /// This is always less than 8 (for when the bit buffer is not aligned to a byte).
     offset: usize,
     len: usize,
+}
+
+const LIMIT_LEN: usize = 16;
+impl Display for BitBuffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let limit = f.precision().unwrap_or(LIMIT_LEN);
+        let buf: Vec<bool> = self.into_iter().take(limit).collect();
+        f.debug_struct("BitBuffer")
+            .field("len", &self.len)
+            .field("buffer", &buf)
+            .finish()
+    }
 }
 
 impl PartialEq for BitBuffer {
@@ -85,7 +102,11 @@ impl BitBuffer {
         // Slice the buffer to ensure the offset is within the first byte
         let byte_offset = offset / 8;
         let offset = offset % 8;
-        let buffer = buffer.slice(byte_offset..);
+        let buffer = if byte_offset != 0 {
+            buffer.slice(byte_offset..)
+        } else {
+            buffer
+        };
 
         Self {
             buffer,
@@ -118,6 +139,11 @@ impl BitBuffer {
         }
     }
 
+    /// Create a bit buffer of `len` with `indices` set as true.
+    pub fn from_indices(len: usize, indices: &[usize]) -> BitBuffer {
+        BitBufferMut::from_indices(len, indices).freeze()
+    }
+
     /// Create a new empty `BitBuffer`.
     pub fn empty() -> Self {
         Self::new_set(0)
@@ -133,6 +159,7 @@ impl BitBuffer {
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
+    #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
     }
@@ -290,7 +317,7 @@ impl BitBuffer {
 
     /// Get the number of set bits in the buffer.
     pub fn true_count(&self) -> usize {
-        self.unaligned_chunks().count_ones()
+        count_ones(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Get the number of unset bits in the buffer.
@@ -321,7 +348,12 @@ impl BitBuffer {
                 self.len,
             );
         }
-        bitwise_unary_op(self, |a| a)
+        // Use Chunk iterator here to reset offset to 0
+        let iter = self.chunks().iter_padded();
+        let iter = unsafe { iter.trusted_len() };
+        let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
+
+        BitBuffer::new(result, self.len())
     }
 }
 
@@ -347,7 +379,6 @@ impl BitBuffer {
     /// The second value of the tuple is a bit_offset of the first value in the first byte
     pub fn into_mut(self) -> BitBufferMut {
         let (offset, len, inner) = self.into_inner();
-        // TODO(robert): if we are copying here we could strip offset bits
         BitBufferMut::from_buffer(inner.into_mut(), offset, len)
     }
 }
@@ -370,9 +401,19 @@ impl FromIterator<bool> for BitBuffer {
     }
 }
 
+impl BitOr for BitBuffer {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        BitOr::bitor(&self, &rhs)
+    }
+}
+
 impl BitOr for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
         bitwise_binary_op(self, rhs, |a, b| a | b)
     }
@@ -381,6 +422,7 @@ impl BitOr for &BitBuffer {
 impl BitOr<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitor(self, rhs: &BitBuffer) -> Self::Output {
         (&self).bitor(rhs)
     }
@@ -389,6 +431,7 @@ impl BitOr<&BitBuffer> for BitBuffer {
 impl BitAnd for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitand(self, rhs: Self) -> Self::Output {
         bitwise_binary_op(self, rhs, |a, b| a & b)
     }
@@ -397,6 +440,7 @@ impl BitAnd for &BitBuffer {
 impl BitAnd<BitBuffer> for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitand(self, rhs: BitBuffer) -> Self::Output {
         self.bitand(&rhs)
     }
@@ -405,14 +449,25 @@ impl BitAnd<BitBuffer> for &BitBuffer {
 impl BitAnd<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitand(self, rhs: &BitBuffer) -> Self::Output {
         (&self).bitand(rhs)
+    }
+}
+
+impl BitAnd<BitBuffer> for BitBuffer {
+    type Output = BitBuffer;
+
+    #[inline]
+    fn bitand(self, rhs: BitBuffer) -> Self::Output {
+        (&self).bitand(&rhs)
     }
 }
 
 impl Not for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn not(self) -> Self::Output {
         bitwise_unary_op(self, |a| !a)
     }
@@ -421,6 +476,7 @@ impl Not for &BitBuffer {
 impl Not for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn not(self) -> Self::Output {
         (&self).not()
     }
@@ -429,6 +485,7 @@ impl Not for BitBuffer {
 impl BitXor for &BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitxor(self, rhs: Self) -> Self::Output {
         bitwise_binary_op(self, rhs, |a, b| a ^ b)
     }
@@ -437,6 +494,7 @@ impl BitXor for &BitBuffer {
 impl BitXor<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
+    #[inline]
     fn bitxor(self, rhs: &BitBuffer) -> Self::Output {
         (&self).bitxor(rhs)
     }

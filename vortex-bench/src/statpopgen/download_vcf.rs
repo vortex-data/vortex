@@ -61,7 +61,7 @@ impl StatPopGenBenchmark {
                 let mut bgzf_reader = noodles_bgzf::r#async::io::Reader::new(buf_reader);
 
                 // Read and parse VCF header
-                let mut vcf_reader = noodles_vcf::AsyncReader::new(&mut bgzf_reader);
+                let mut vcf_reader = noodles_vcf::r#async::io::Reader::new(&mut bgzf_reader);
 
                 // Read and print the first 100,000 records
                 let header = vcf_reader.read_header().await?;

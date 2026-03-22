@@ -7,10 +7,11 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
+use vortex_session::VortexSession;
 
-use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::session::ExprRegistry;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::session::ScalarFnSessionExt;
 
 pub trait ExprSerializeProtoExt {
     /// Serialize the expression to its protobuf representation.
@@ -37,23 +38,32 @@ impl ExprSerializeProtoExt for Expression {
     }
 }
 
+impl Expression {
+    pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
+        let expr_id = ScalarFnId::new_arc(Arc::from(expr.id.to_string()));
+        let vtable = session
+            .scalar_fns()
+            .registry()
+            .find(&expr_id)
+            .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
+
+        let children = expr
+            .children
+            .iter()
+            .map(|e| Expression::from_proto(e, session))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Expression::try_new(vtable.deserialize(expr.metadata(), session)?, children)
+    }
+}
+
 /// Deserialize a [`Expression`] from the protobuf representation.
+#[deprecated(note = "Use Expression::from_proto instead")]
 pub fn deserialize_expr_proto(
     expr: &pb::Expr,
-    registry: &ExprRegistry,
+    session: &VortexSession,
 ) -> VortexResult<Expression> {
-    let expr_id = ExprId::new_arc(Arc::from(expr.id.to_string()));
-    let vtable = registry
-        .find(&expr_id)
-        .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
-
-    let children = expr
-        .children
-        .iter()
-        .map(|e| deserialize_expr_proto(e, registry))
-        .collect::<VortexResult<Arc<_>>>()?;
-
-    Expression::try_new(vtable.deserialize(expr.metadata())?, children)
+    Expression::from_proto(expr, session)
 }
 
 #[cfg(test)]
@@ -62,22 +72,20 @@ mod tests {
     use vortex_proto::expr as pb;
 
     use super::ExprSerializeProtoExt;
-    use super::deserialize_expr_proto;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
+    use crate::LEGACY_SESSION;
     use crate::expr::Expression;
-    use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::or;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::root::root;
-    use crate::expr::session::ExprSession;
+    use crate::expr::and;
+    use crate::expr::between;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::or;
+    use crate::expr::root;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
 
     #[test]
     fn expression_serde() {
-        let registry = ExprSession::default().registry().clone();
         let expr: Expression = or(
             and(
                 between(
@@ -97,7 +105,7 @@ mod tests {
         let s_expr = expr.serialize_proto().unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
-        let deser_expr = deserialize_expr_proto(&s_expr, &registry).unwrap();
+        let deser_expr = Expression::from_proto(&s_expr, &LEGACY_SESSION).unwrap();
 
         assert_eq!(&deser_expr, &expr);
     }

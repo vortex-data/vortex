@@ -8,10 +8,17 @@ pub use array::VarBinViewArrayParts;
 mod accessor;
 pub(crate) mod compact;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::VarBinViewVTable;
+pub use vtable::VarBinView;
+
+pub mod build_views;
+
+mod view;
+pub use view::BinaryView;
+pub use view::Inlined;
+pub use view::Ref;
 
 #[cfg(test)]
 mod tests;

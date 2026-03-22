@@ -29,9 +29,11 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::data_chunk_to_vortex;
 use crate::convert::from_duckdb_table;
+use crate::duckdb::ClientContextRef;
 use crate::duckdb::CopyFunction;
-use crate::duckdb::DataChunk;
-use crate::duckdb::LogicalType;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::DuckDbFsWriter;
+use crate::duckdb::LogicalTypeRef;
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;
@@ -63,7 +65,7 @@ impl CopyFunction for VortexCopyFunction {
 
     fn bind(
         column_names: Vec<String>,
-        column_types: Vec<LogicalType>,
+        column_types: Vec<&LogicalTypeRef>,
     ) -> VortexResult<Self::BindData> {
         let fields = from_duckdb_table(
             column_names
@@ -81,21 +83,19 @@ impl CopyFunction for VortexCopyFunction {
 
     fn copy_to_sink(
         bind_data: &Self::BindData,
-        init_global: &mut Self::GlobalState,
+        init_global: &Self::GlobalState,
         _init_local: &mut Self::LocalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         let chunk = data_chunk_to_vortex(bind_data.fields.names(), chunk);
-        RUNTIME.block_on(async {
-            init_global
-                .sink
-                .as_mut()
-                .vortex_expect("sink closed early")
-                .send(chunk)
-                .await
-                .map_err(|e| vortex_err!("send error {}", e.to_string()))
-        })?;
-
+        let mut sink = init_global
+            .sink
+            .as_ref()
+            .ok_or_else(|| vortex_err!("sink closed early"))?
+            .clone();
+        RUNTIME
+            .block_on(sink.send(chunk))
+            .map_err(|e| vortex_err!("send error {e}"))?;
         Ok(())
     }
 
@@ -118,6 +118,7 @@ impl CopyFunction for VortexCopyFunction {
     }
 
     fn init_global(
+        client_context: &ClientContextRef,
         bind_data: &Self::BindData,
         file_path: String,
     ) -> VortexResult<Self::GlobalState> {
@@ -126,10 +127,16 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
         let handle = SESSION.handle();
-        let write_task = handle.spawn(async move {
-            let mut file = async_fs::File::create(file_path).await?;
-            SESSION.write_options().write(&mut file, array_stream).await
-        });
+        // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
+        // query execution. DuckDB keeps the connection alive while this copy function runs.
+        let ctx = unsafe { client_context.erase_lifetime() };
+
+        // Use DuckDB FS exclusively to match the DuckDB client context configuration.
+        let writer = DuckDbFsWriter::new(ctx, &file_path)
+            .map_err(|e| vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}"))?;
+
+        let write_task =
+            handle.spawn(async move { SESSION.write_options().write(writer, array_stream).await });
 
         let worker_pool = RUNTIME.new_pool();
         worker_pool.set_workers_to_available_parallelism();

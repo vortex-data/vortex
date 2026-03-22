@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::c_void;
 use std::ptr;
@@ -9,11 +10,12 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::duckdb::DatabaseRef;
 use crate::duckdb::Value;
 use crate::duckdb_try;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     /// A DuckDB configuration instance.
     Config,
     cpp::duckdb_config,
@@ -31,7 +33,9 @@ impl Config {
 
         Ok(unsafe { Self::own(ptr) })
     }
+}
 
+impl ConfigRef {
     /// Sets a key-value configuration parameter.
     pub fn set(&mut self, key: &str, value: &str) -> VortexResult<()> {
         let key_cstr =
@@ -70,11 +74,7 @@ impl Config {
             let c_str = unsafe { cpp::duckdb_vx_value_to_string(value.as_ptr()) };
 
             if !c_str.is_null() {
-                let rust_str = unsafe {
-                    std::ffi::CStr::from_ptr(c_str)
-                        .to_string_lossy()
-                        .into_owned()
-                };
+                let rust_str = unsafe { CStr::from_ptr(c_str).to_string_lossy().into_owned() };
 
                 // Free the C string allocated by our function
                 unsafe { cpp::duckdb_free(c_str as *mut c_void) };
@@ -113,16 +113,8 @@ impl Config {
             return Ok(None);
         }
 
-        let name = unsafe {
-            std::ffi::CStr::from_ptr(name_ptr)
-                .to_string_lossy()
-                .into_owned()
-        };
-        let description = unsafe {
-            std::ffi::CStr::from_ptr(desc_ptr)
-                .to_string_lossy()
-                .into_owned()
-        };
+        let name = unsafe { CStr::from_ptr(name_ptr).to_string_lossy().into_owned() };
+        let description = unsafe { CStr::from_ptr(desc_ptr).to_string_lossy().into_owned() };
 
         Ok(Some((name, description)))
     }
@@ -140,11 +132,45 @@ impl Config {
 
         Ok(options)
     }
+
+    /// Add a new extension option.
+    pub fn add_extension_options(
+        &self,
+        name: &str,
+        description: &str,
+        logical_type: LogicalType,
+        default_value: Value,
+    ) -> VortexResult<()> {
+        let name_cstr =
+            CString::new(name).map_err(|_| vortex_err!("Invalid name: contains null bytes"))?;
+        let desc_cstr = CString::new(description)
+            .map_err(|_| vortex_err!("Invalid description: contains null bytes"))?;
+
+        duckdb_try!(unsafe {
+            cpp::duckdb_vx_add_extension_option(
+                self.as_ptr(),
+                name_cstr.as_ptr(),
+                desc_cstr.as_ptr(),
+                logical_type.as_ptr(),
+                default_value.as_ptr(),
+            )
+        });
+        Ok(())
+    }
+}
+
+use crate::duckdb::LogicalType;
+
+impl DatabaseRef {
+    pub fn config(&self) -> &ConfigRef {
+        unsafe { Config::borrow(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::duckdb::Database;
 
     #[test]
     fn test_config_creation() {
@@ -196,8 +222,6 @@ mod tests {
 
     #[test]
     fn test_config_persistence_through_database() {
-        use crate::duckdb::Database;
-
         // Create config with specific settings
         let mut config = Config::new().unwrap();
         config.set("memory_limit", "256MB").unwrap();
@@ -232,13 +256,13 @@ mod tests {
 
     #[test]
     fn test_config_count() {
-        let count = Config::count();
+        let count = ConfigRef::count();
         assert!(count > 0, "DuckDB should have configuration options");
     }
 
     #[test]
     fn test_config_list_available_options() {
-        let options = Config::list_available_options();
+        let options = ConfigRef::list_available_options();
         assert!(options.is_ok());
 
         let options = options.unwrap();
@@ -259,12 +283,12 @@ mod tests {
     #[test]
     fn test_config_get_flag() {
         // Test getting the first config option
-        let first_option = Config::get_config_flag(0);
+        let first_option = ConfigRef::get_config_flag(0);
         assert!(first_option.is_ok());
         assert!(first_option.unwrap().is_some());
 
         // Test getting an invalid index
-        let invalid_option = Config::get_config_flag(999999);
+        let invalid_option = ConfigRef::get_config_flag(999999);
         assert!(invalid_option.is_ok());
         assert!(invalid_option.unwrap().is_none());
     }

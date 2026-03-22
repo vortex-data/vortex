@@ -7,19 +7,19 @@ use num_traits::WrappingAdd;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PhysicalPType;
+use vortex_array::dtype::UnsignedPType;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::PhysicalPType;
-use vortex_dtype::UnsignedPType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
 use crate::FoRArray;
 use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
@@ -50,7 +50,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
 
     // Try to do fused unpack.
     if array.reference_scalar().dtype().is_unsigned_int()
-        && let Some(bp) = array.encoded().as_opt::<BitPackedVTable>()
+        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
     {
         return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
             fused_decompress::<T>(array, bp, ctx)
@@ -96,7 +96,7 @@ pub(crate) fn fused_decompress<
     // Create [`UnpackedChunks`] with FoR strategy.
     let mut unpacked = UnpackedChunks::new_with_strategy(
         strategy,
-        bp.packed().clone(),
+        bp.packed().as_host().clone(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
@@ -109,7 +109,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask());
+        uninit_range.append_mask(bp.validity_mask()?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.

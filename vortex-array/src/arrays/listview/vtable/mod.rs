@@ -1,47 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
+use std::hash::Hash;
 
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
+use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
-use crate::arrays::listview::vtable::rules::PARENT_RULES;
+use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod operations;
-mod rules;
 mod validity;
-mod visitor;
-
 vtable!(ListView);
 
 #[derive(Debug)]
-pub struct ListViewVTable;
+pub struct ListView;
 
-impl ListViewVTable {
+impl ListView {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
 }
 
@@ -55,35 +56,88 @@ pub struct ListViewMetadata {
     size_ptype: i32,
 }
 
-impl VTable for ListViewVTable {
+impl VTable for ListView {
     type Array = ListViewArray;
 
     type Metadata = ProstMetadata<ListViewMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ListView
+    }
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: Slicing the components of an existing valid array is still valid.
-        Ok(Some(
-            unsafe {
-                ListViewArray::new_unchecked(
-                    array.elements().clone(),
-                    array.offsets().slice(range.clone()),
-                    array.sizes().slice(range.clone()),
-                    array.validity().slice(range),
-                )
-                .with_zero_copy_to_list(array.is_zero_copy_to_list())
-            }
-            .into_array(),
-        ))
+    fn len(array: &ListViewArray) -> usize {
+        debug_assert_eq!(array.offsets().len(), array.sizes().len());
+        array.offsets().len()
+    }
+
+    fn dtype(array: &ListViewArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ListViewArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ListViewArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.elements().array_hash(state, precision);
+        array.offsets().array_hash(state, precision);
+        array.sizes().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ListViewArray, other: &ListViewArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.elements().array_eq(other.elements(), precision)
+            && array.offsets().array_eq(other.offsets(), precision)
+            && array.sizes().array_eq(other.sizes(), precision)
+            && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &ListViewArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ListViewArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ListViewArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ListViewArray, idx: usize) -> Option<String> {
+        vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &ListViewArray) -> usize {
+        3 + validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &ListViewArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.elements().clone(),
+            1 => array.offsets().clone(),
+            2 => array.sizes().clone(),
+            3 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("ListViewArray validity child out of bounds"),
+            _ => vortex_panic!("ListViewArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &ListViewArray, idx: usize) -> String {
+        match idx {
+            0 => "elements".to_string(),
+            1 => "offsets".to_string(),
+            2 => "sizes".to_string(),
+            3 => "validity".to_string(),
+            _ => vortex_panic!("ListViewArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {
@@ -98,7 +152,13 @@ impl VTable for ListViewVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
         Ok(ProstMetadata(metadata))
     }
@@ -183,8 +243,8 @@ impl VTable for ListViewVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::List(array.clone()))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(

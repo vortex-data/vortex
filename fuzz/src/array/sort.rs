@@ -3,8 +3,8 @@
 
 use std::cmp::Ordering;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
@@ -12,23 +12,23 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_decimal_value_type;
+use vortex_array::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 
-pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
             let mut opt_values = bool_array
-                .bit_buffer()
+                .to_bit_buffer()
                 .iter()
-                .zip(bool_array.validity_mask().to_bit_buffer().iter())
+                .zip(bool_array.validity_mask()?.to_bit_buffer().iter())
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
             opt_values.sort();
@@ -41,7 +41,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .as_slice::<P>()
                     .iter()
                     .copied()
-                    .zip(primitive_array.validity_mask().to_bit_buffer().iter())
+                    .zip(primitive_array.validity_mask()?.to_bit_buffer().iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
@@ -56,7 +56,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .as_slice()
                     .iter()
                     .copied()
-                    .zip(decimal_array.validity_mask().to_bit_buffer().iter())
+                    .zip(decimal_array.validity_mask()?.to_bit_buffer().iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 opt_values.sort();
@@ -75,12 +75,13 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             sort_indices.sort_by(|a, b| {
                 array
                     .scalar_at(*a)
-                    .partial_cmp(&array.scalar_at(*b))
+                    .vortex_expect("scalar_at")
+                    .partial_cmp(&array.scalar_at(*b).vortex_expect("scalar_at"))
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)
         }
-        d @ (DType::Null | DType::Extension(_)) => {
+        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

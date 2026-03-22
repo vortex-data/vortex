@@ -3,11 +3,10 @@
 
 use std::iter;
 
-use vortex_dtype::NativePType;
-
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
+use crate::dtype::NativePType;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -23,11 +22,11 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
             }
             Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
             Validity::Array(v) => {
-                let validity = v.to_bool();
+                let validity = v.to_bool().into_bit_buffer();
                 let mut iter = self
                     .as_slice::<T>()
                     .iter()
-                    .zip(validity.bit_buffer().iter())
+                    .zip(validity.iter())
                     .map(|(value, valid)| valid.then_some(value));
                 f(&mut iter)
             }

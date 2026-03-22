@@ -3,13 +3,13 @@
 
 mod cast;
 mod filter;
-mod is_constant;
-mod is_sorted;
+mod kernels;
 mod mask;
-mod min_max;
+pub(crate) mod rules;
+mod slice;
 mod take;
 
-pub(super) use filter::element_mask_from_offsets;
+pub(crate) use kernels::PARENT_KERNELS;
 
 #[cfg(test)]
 mod tests {
@@ -33,7 +33,7 @@ mod tests {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.into_array());
     }
 
     #[test]
@@ -44,7 +44,7 @@ mod tests {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 
     #[rstest]
@@ -76,6 +76,6 @@ mod tests {
         Validity::NonNullable,
     ).unwrap())]
     fn test_list_consistency(#[case] array: ListArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

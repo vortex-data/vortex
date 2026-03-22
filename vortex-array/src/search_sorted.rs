@@ -10,9 +10,10 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hint;
 
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::DynArray;
+use crate::scalar::Scalar;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SearchSortedSide {
@@ -98,22 +99,22 @@ impl Display for SearchResult {
 pub trait IndexOrd<V> {
     /// PartialOrd of the value at index `idx` with `elem`.
     /// For example, if self\[idx\] > elem, return Some(Greater).
-    fn index_cmp(&self, idx: usize, elem: &V) -> Option<Ordering>;
+    fn index_cmp(&self, idx: usize, elem: &V) -> VortexResult<Option<Ordering>>;
 
-    fn index_lt(&self, idx: usize, elem: &V) -> bool {
-        matches!(self.index_cmp(idx, elem), Some(Less))
+    fn index_lt(&self, idx: usize, elem: &V) -> VortexResult<bool> {
+        Ok(matches!(self.index_cmp(idx, elem)?, Some(Less)))
     }
 
-    fn index_le(&self, idx: usize, elem: &V) -> bool {
-        matches!(self.index_cmp(idx, elem), Some(Less | Equal))
+    fn index_le(&self, idx: usize, elem: &V) -> VortexResult<bool> {
+        Ok(matches!(self.index_cmp(idx, elem)?, Some(Less | Equal)))
     }
 
-    fn index_gt(&self, idx: usize, elem: &V) -> bool {
-        matches!(self.index_cmp(idx, elem), Some(Greater))
+    fn index_gt(&self, idx: usize, elem: &V) -> VortexResult<bool> {
+        Ok(matches!(self.index_cmp(idx, elem)?, Some(Greater)))
     }
 
-    fn index_ge(&self, idx: usize, elem: &V) -> bool {
-        matches!(self.index_cmp(idx, elem), Some(Greater | Equal))
+    fn index_ge(&self, idx: usize, elem: &V) -> VortexResult<bool> {
+        Ok(matches!(self.index_cmp(idx, elem)?, Some(Greater | Equal)))
     }
 
     /// Get the length of the underlying ordered collection
@@ -129,43 +130,30 @@ pub trait IndexOrd<V> {
 /// |left |array\[i-1\] < value <= array\[i\]|
 /// |right|array\[i-1\] <= value < array\[i\]|
 pub trait SearchSorted<T> {
-    fn search_sorted_many<I: IntoIterator<Item = T>>(
-        &self,
-        values: I,
-        side: SearchSortedSide,
-    ) -> impl Iterator<Item = SearchResult>
-    where
-        Self: IndexOrd<T>,
-    {
-        values
-            .into_iter()
-            .map(move |value| self.search_sorted(&value, side))
-    }
-
-    fn search_sorted(&self, value: &T, side: SearchSortedSide) -> SearchResult
+    fn search_sorted(&self, value: &T, side: SearchSortedSide) -> VortexResult<SearchResult>
     where
         Self: IndexOrd<T>,
     {
         match side {
             SearchSortedSide::Left => self.search_sorted_by(
-                |idx| self.index_cmp(idx, value).unwrap_or(Less),
+                |idx| Ok(self.index_cmp(idx, value)?.unwrap_or(Less)),
                 |idx| {
-                    if self.index_lt(idx, value) {
+                    Ok(if self.index_lt(idx, value)? {
                         Less
                     } else {
                         Greater
-                    }
+                    })
                 },
                 side,
             ),
             SearchSortedSide::Right => self.search_sorted_by(
-                |idx| self.index_cmp(idx, value).unwrap_or(Less),
+                |idx| Ok(self.index_cmp(idx, value)?.unwrap_or(Less)),
                 |idx| {
-                    if self.index_le(idx, value) {
+                    Ok(if self.index_le(idx, value)? {
                         Less
                     } else {
                         Greater
-                    }
+                    })
                 },
                 side,
             ),
@@ -174,12 +162,15 @@ pub trait SearchSorted<T> {
 
     /// find function is used to find the element if it exists, if element exists side_find will be
     /// used to find desired index amongst equal values
-    fn search_sorted_by<F: FnMut(usize) -> Ordering, N: FnMut(usize) -> Ordering>(
+    fn search_sorted_by<
+        F: FnMut(usize) -> VortexResult<Ordering>,
+        N: FnMut(usize) -> VortexResult<Ordering>,
+    >(
         &self,
         find: F,
         side_find: N,
         side: SearchSortedSide,
-    ) -> SearchResult;
+    ) -> VortexResult<SearchResult>;
 }
 
 // Default implementation for types that implement IndexOrd.
@@ -187,41 +178,44 @@ impl<S, T> SearchSorted<T> for S
 where
     S: IndexOrd<T> + ?Sized,
 {
-    fn search_sorted_by<F: FnMut(usize) -> Ordering, N: FnMut(usize) -> Ordering>(
+    fn search_sorted_by<
+        F: FnMut(usize) -> VortexResult<Ordering>,
+        N: FnMut(usize) -> VortexResult<Ordering>,
+    >(
         &self,
         find: F,
         side_find: N,
         side: SearchSortedSide,
-    ) -> SearchResult {
-        match search_sorted_side_idx(find, 0, self.index_len()) {
+    ) -> VortexResult<SearchResult> {
+        match search_sorted_side_idx(find, 0, self.index_len())? {
             SearchResult::Found(found) => {
                 let idx_search = match side {
-                    SearchSortedSide::Left => search_sorted_side_idx(side_find, 0, found),
+                    SearchSortedSide::Left => search_sorted_side_idx(side_find, 0, found)?,
                     SearchSortedSide::Right => {
-                        search_sorted_side_idx(side_find, found, self.index_len())
+                        search_sorted_side_idx(side_find, found, self.index_len())?
                     }
                 };
                 match idx_search {
-                    SearchResult::NotFound(i) => SearchResult::Found(i),
+                    SearchResult::NotFound(i) => Ok(SearchResult::Found(i)),
                     _ => unreachable!(
                         "searching amongst equal values should never return Found result"
                     ),
                 }
             }
-            s => s,
+            s => Ok(s),
         }
     }
 }
 
 // Code adapted from Rust standard library slice::binary_search_by
-fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
+fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
     mut find: F,
     from: usize,
     to: usize,
-) -> SearchResult {
+) -> VortexResult<SearchResult> {
     let mut size = to - from;
     if size == 0 {
-        return SearchResult::NotFound(0);
+        return Ok(SearchResult::NotFound(0));
     }
     let mut base = from;
 
@@ -236,7 +230,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
         // SAFETY: the call is made safe by the following inconstants:
         // - `mid >= 0`: by definition
         // - `mid < size`: `mid = size / 2 + size / 4 + size / 8 ...`
-        let cmp = find(mid);
+        let cmp = find(mid)?;
 
         // Binary search interacts poorly with branch prediction, so force
         // the compiler to use conditional moves if supported by the target
@@ -254,24 +248,24 @@ fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
     }
 
     // SAFETY: base is always in [0, size) because base <= mid.
-    let cmp = find(base);
+    let cmp = find(base)?;
     if cmp == Equal {
         // SAFETY: same as the call to `find` above.
         unsafe { hint::assert_unchecked(base < to) };
-        SearchResult::Found(base)
+        Ok(SearchResult::Found(base))
     } else {
         let result = base + (cmp == Less) as usize;
         // SAFETY: same as the call to `find` above.
         // Note that this is `<=`, unlike the assert in the `Found` path.
         unsafe { hint::assert_unchecked(result <= to) };
-        SearchResult::NotFound(result)
+        Ok(SearchResult::NotFound(result))
     }
 }
 
-impl IndexOrd<Scalar> for dyn Array + '_ {
-    fn index_cmp(&self, idx: usize, elem: &Scalar) -> Option<Ordering> {
-        let scalar_a = self.scalar_at(idx);
-        scalar_a.partial_cmp(elem)
+impl IndexOrd<Scalar> for dyn DynArray + '_ {
+    fn index_cmp(&self, idx: usize, elem: &Scalar) -> VortexResult<Option<Ordering>> {
+        let scalar_a = self.scalar_at(idx)?;
+        Ok(scalar_a.partial_cmp(elem))
     }
 
     fn index_len(&self) -> usize {
@@ -280,9 +274,9 @@ impl IndexOrd<Scalar> for dyn Array + '_ {
 }
 
 impl<T: PartialOrd> IndexOrd<T> for [T] {
-    fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
+    fn index_cmp(&self, idx: usize, elem: &T) -> VortexResult<Option<Ordering>> {
         // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
-        unsafe { self.get_unchecked(idx) }.partial_cmp(elem)
+        Ok(unsafe { self.get_unchecked(idx) }.partial_cmp(elem))
     }
 
     fn index_len(&self) -> usize {
@@ -291,56 +285,64 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
+    use vortex_error::VortexResult;
+
     use crate::search_sorted::SearchResult;
     use crate::search_sorted::SearchSorted;
     use crate::search_sorted::SearchSortedSide;
 
     #[test]
-    fn left_side_equal() {
+    fn left_side_equal() -> VortexResult<()> {
         let arr = [0, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9];
-        let res = arr.search_sorted(&2, SearchSortedSide::Left);
+        let res = arr.search_sorted(&2, SearchSortedSide::Left)?;
         assert_eq!(arr[res.to_index()], 2);
         assert_eq!(res, SearchResult::Found(2));
+        Ok(())
     }
 
     #[test]
-    fn right_side_equal() {
+    fn right_side_equal() -> VortexResult<()> {
         let arr = [0, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9];
-        let res = arr.search_sorted(&2, SearchSortedSide::Right);
+        let res = arr.search_sorted(&2, SearchSortedSide::Right)?;
         assert_eq!(arr[res.to_index() - 1], 2);
         assert_eq!(res, SearchResult::Found(6));
+        Ok(())
     }
 
     #[test]
-    fn left_side_equal_beginning() {
+    fn left_side_equal_beginning() -> VortexResult<()> {
         let arr = [0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let res = arr.search_sorted(&0, SearchSortedSide::Left);
+        let res = arr.search_sorted(&0, SearchSortedSide::Left)?;
         assert_eq!(arr[res.to_index()], 0);
         assert_eq!(res, SearchResult::Found(0));
+        Ok(())
     }
 
     #[test]
-    fn right_side_equal_beginning() {
+    fn right_side_equal_beginning() -> VortexResult<()> {
         let arr = [0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let res = arr.search_sorted(&0, SearchSortedSide::Right);
+        let res = arr.search_sorted(&0, SearchSortedSide::Right)?;
         assert_eq!(arr[res.to_index() - 1], 0);
         assert_eq!(res, SearchResult::Found(4));
+        Ok(())
     }
 
     #[test]
-    fn left_side_equal_end() {
+    fn left_side_equal_end() -> VortexResult<()> {
         let arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9];
-        let res = arr.search_sorted(&9, SearchSortedSide::Left);
+        let res = arr.search_sorted(&9, SearchSortedSide::Left)?;
         assert_eq!(arr[res.to_index()], 9);
         assert_eq!(res, SearchResult::Found(9));
+        Ok(())
     }
 
     #[test]
-    fn right_side_equal_end() {
+    fn right_side_equal_end() -> VortexResult<()> {
         let arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9];
-        let res = arr.search_sorted(&9, SearchSortedSide::Right);
+        let res = arr.search_sorted(&9, SearchSortedSide::Right)?;
         assert_eq!(arr[res.to_index() - 1], 9);
         assert_eq!(res, SearchResult::Found(13));
+        Ok(())
     }
 }

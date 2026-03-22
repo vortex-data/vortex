@@ -9,8 +9,8 @@ use lending_iterator::gat;
 use lending_iterator::prelude::Item;
 #[gat(Item)]
 use lending_iterator::prelude::LendingIterator;
+use vortex_array::dtype::PhysicalPType;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::PhysicalPType;
 
 use crate::BitPackedArray;
 
@@ -92,7 +92,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     pub fn new(array: &BitPackedArray) -> Self {
         Self::new_with_strategy(
             BitPackingStrategy,
-            array.packed().clone(),
+            array.packed().clone().unwrap_host(),
             array.bit_width() as usize,
             array.offset() as usize,
             array.len(),
@@ -256,12 +256,10 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         })
     }
 
-    #[inline]
     fn last_chunk_is_sliced(&self) -> bool {
         self.last_chunk_length != 0
     }
 
-    #[inline]
     fn first_chunk_is_sliced(&self) -> bool {
         self.offset != 0
     }
