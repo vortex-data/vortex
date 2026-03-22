@@ -187,31 +187,141 @@ impl BitBufferMut {
         buf
     }
 
-    /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
+    /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`.
+    ///
+    /// Packs 8 bools into each byte, which produces tighter inner loops that the compiler
+    /// can auto-vectorize more effectively than the previous 64-bit-at-a-time approach.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
+        let num_bytes = len.div_ceil(8);
+        let mut buffer = ByteBufferMut::with_capacity(num_bytes);
+
+        let full_bytes = len / 8;
+        let remainder = len % 8;
+
+        for byte_idx in 0..full_bytes {
+            let base = byte_idx * 8;
+            let mut packed: u8 = 0;
+            for bit in 0..8 {
+                packed |= (f(base + bit) as u8) << bit;
+            }
+            // SAFETY: we allocated num_bytes capacity and write at most num_bytes.
+            unsafe { buffer.push_unchecked(packed) }
+        }
+
+        if remainder != 0 {
+            let base = full_bytes * 8;
+            let mut packed: u8 = 0;
+            for bit in 0..remainder {
+                packed |= (f(base + bit) as u8) << bit;
+            }
+            // SAFETY: same as above.
+            unsafe { buffer.push_unchecked(packed) }
+        }
+
+        Self {
+            buffer,
+            offset: 0,
+            len,
+        }
+    }
+
+    /// Alternate strategy: materializes bools into a temporary buffer first, then packs them.
+    /// Kept for benchmarking comparison against [`collect_bool`](Self::collect_bool).
+    #[doc(hidden)]
+    #[inline]
+    pub fn collect_bool_simd<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
+        let num_bytes = len.div_ceil(8);
+        let mut buffer = ByteBufferMut::with_capacity(num_bytes);
+
+        const BLOCK: usize = 512;
+        let mut bools = [0u8; BLOCK];
+
+        let full_blocks = len / BLOCK;
+        let block_rem = len % BLOCK;
+
+        for block in 0..full_blocks {
+            let base = block * BLOCK;
+            for j in 0..BLOCK {
+                bools[j] = f(base + j) as u8;
+            }
+            for byte_idx in 0..(BLOCK / 8) {
+                let o = byte_idx * 8;
+                let packed = bools[o]
+                    | (bools[o + 1] << 1)
+                    | (bools[o + 2] << 2)
+                    | (bools[o + 3] << 3)
+                    | (bools[o + 4] << 4)
+                    | (bools[o + 5] << 5)
+                    | (bools[o + 6] << 6)
+                    | (bools[o + 7] << 7);
+                unsafe { buffer.push_unchecked(packed) }
+            }
+        }
+
+        if block_rem > 0 {
+            let base = full_blocks * BLOCK;
+            let rem_full_bytes = block_rem / 8;
+            let rem_bits = block_rem % 8;
+
+            for j in 0..block_rem {
+                bools[j] = f(base + j) as u8;
+            }
+
+            for byte_idx in 0..rem_full_bytes {
+                let o = byte_idx * 8;
+                let packed = bools[o]
+                    | (bools[o + 1] << 1)
+                    | (bools[o + 2] << 2)
+                    | (bools[o + 3] << 3)
+                    | (bools[o + 4] << 4)
+                    | (bools[o + 5] << 5)
+                    | (bools[o + 6] << 6)
+                    | (bools[o + 7] << 7);
+                unsafe { buffer.push_unchecked(packed) }
+            }
+
+            if rem_bits > 0 {
+                let o = rem_full_bytes * 8;
+                let mut packed: u8 = 0;
+                for bit in 0..rem_bits {
+                    packed |= bools[o + bit] << bit;
+                }
+                unsafe { buffer.push_unchecked(packed) }
+            }
+        }
+
+        Self {
+            buffer,
+            offset: 0,
+            len,
+        }
+    }
+
+    /// Old u64-at-a-time strategy. Kept for benchmarking comparison.
+    #[doc(hidden)]
+    #[inline]
+    pub fn collect_bool_u64<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
         let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);
 
         let chunks = len / 64;
         let remainder = len % 64;
         for chunk in 0..chunks {
-            let mut packed = 0;
+            let mut packed = 0u64;
             for bit_idx in 0..64 {
                 let i = bit_idx + chunk * 64;
                 packed |= (f(i) as u64) << bit_idx;
             }
-
             // SAFETY: Already allocated sufficient capacity
             unsafe { buffer.push_unchecked(packed) }
         }
 
         if remainder != 0 {
-            let mut packed = 0;
+            let mut packed = 0u64;
             for bit_idx in 0..remainder {
                 let i = bit_idx + chunks * 64;
                 packed |= (f(i) as u64) << bit_idx;
             }
-
             // SAFETY: Already allocated sufficient capacity
             unsafe { buffer.push_unchecked(packed) }
         }
