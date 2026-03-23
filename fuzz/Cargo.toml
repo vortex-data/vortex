@@ -18,7 +18,7 @@ version = { workspace = true }
 cargo-fuzz = true
 
 [features]
-default = ["native", "vortex/unstable_encodings"]
+default = ["native"]
 native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
 zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
@@ -61,6 +61,14 @@ workspace = true
 bench = false
 doc = false
 name = "array_ops"
+path = "fuzz_targets/array_ops.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "array_ops_unstable_encodings"
 path = "fuzz_targets/array_ops.rs"
 test = false
 required-features = ["native"]
