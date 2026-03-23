@@ -21,6 +21,7 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
+use crate::vtable::{upcast_array, VTable};
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error.
@@ -288,6 +289,7 @@ impl Executable for ArrayRef {
 
         // 3. execute_parent (child-driven optimized execution)
         for child_idx in 0..array.nchildren() {
+            // TODO(joe): remove internal copy in nth_child.
             let child = array.nth_child(child_idx).vortex_expect("checked length");
             if let Some(executed_parent) = child
                 .vtable()
@@ -399,6 +401,13 @@ impl ExecutionResult {
     pub fn done(result: impl IntoArray) -> Self {
         Self {
             array: result.into_array(),
+            step: ExecutionStep::Done,
+        }
+    }
+
+    pub fn done_upcast<V: VTable>(arr: Arc<V::Array>) ->Self {
+        Self {
+            array: upcast_array::<V>(arr),
             step: ExecutionStep::Done,
         }
     }

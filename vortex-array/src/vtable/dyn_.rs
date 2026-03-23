@@ -232,7 +232,7 @@ fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
 ///
 /// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
 /// [`ArrayAdapter`]. It is the reverse of `downcast_owned`.
-pub fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
+pub(crate) fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
     // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
     // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
     let raw = Arc::into_raw(array) as *const ArrayAdapter<V>;

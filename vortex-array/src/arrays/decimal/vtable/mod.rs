@@ -42,7 +42,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
-use crate::vtable::upcast_array;
 vtable!(Decimal);
 
 // The type of the values can be determined by looking at the type info...right?
@@ -209,7 +208,7 @@ impl VTable for Decimal {
     }
 
     fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(upcast_array::<Self>(array)))
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 
     fn reduce_parent(
