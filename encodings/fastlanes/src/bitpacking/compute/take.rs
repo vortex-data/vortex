@@ -26,6 +26,8 @@ use vortex_error::VortexResult;
 use super::chunked_indices;
 use crate::BitPacked;
 use crate::BitPackedArray;
+use crate::bitpack_decompress::unpack_single;
+use crate::bitpack_decompress::unpack_single_primitive;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
 /// assuming the buffer is already allocated (which will happen at most once) then unpacking
@@ -120,7 +122,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
                 // so we need to unpack each one individually
                 for &index in offset_chunk_iter.remainder() {
-                    output.push(unsafe { unpack_single::<T>(packed, bit_width, index) });
+                    output.push(unsafe { unpack_single_primitive::<T>(packed, bit_width, index) });
                 }
             }
         }
@@ -135,19 +137,6 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     Ok(unpatched_taken)
 }
 
-unsafe fn unpack_single<T: NativePType + BitPacking>(
-    packed: &[T],
-    bit_width: usize,
-    index_to_decode: usize,
-) -> T {
-    let chunk_index = index_to_decode / 1024;
-    let index_in_chunk = index_to_decode % 1024;
-    let elems_per_chunk: usize = 128 * bit_width / size_of::<T>();
-
-    let packed_chunk = &packed[chunk_index * elems_per_chunk..][0..elems_per_chunk];
-    unsafe { BitPacking::unchecked_unpack_single(bit_width, packed_chunk, index_in_chunk) }
-}
-
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
@@ -157,9 +146,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::NativePType;
@@ -321,6 +308,7 @@ mod test {
             .unwrap()
             .into_array()
             .unwrap();
+        println!("BITPACKED: {:?}", bitpacked.encoding_id());
         test_take_conformance(&bitpacked);
     }
 }

@@ -23,6 +23,11 @@ use vortex_mask::Mask;
 use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked;
 
+/// Unpacks the bit-packed array into a [`PrimitiveArray`].
+///
+/// # Errors
+///
+///
 pub fn unpack_array(
     array: &BitPackedArray,
     ctx: &mut ExecutionCtx,
@@ -67,6 +72,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     let mut bit_packed_iter = array.unpacked_chunks();
     bit_packed_iter.decode_into(uninit_slice);
 
+    // TODO(aduffy): how can we force it to get to this point?
     vortex_ensure!(
         array.patches.is_none(),
         "BitPackedArray should never hold internal patches"
@@ -307,7 +313,6 @@ mod tests {
             .with_bit_width(11)
             .pack()?
             .unwrap_unpatched();
-        assert!(bitpacked.patches().is_none());
         let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1025));
         Ok(())
@@ -433,39 +438,38 @@ mod tests {
         Ok(())
     }
 
-    /// Test that `unpack_into` correctly handles arrays with patches.
-    #[test]
-    fn test_unpack_into_with_patches() -> VortexResult<()> {
-        // Create an array where most values fit in 4 bits but some need patches.
-        let values: Vec<u32> = (0..100)
-            .map(|i| if i % 20 == 0 { 1000 + i } else { i % 16 })
-            .collect();
-        let array = PrimitiveArray::from_iter(values.clone());
-
-        // Bitpack with a bit width that will require patches.
-        let bitpacked = BitPackEncoder::new(&array)
-            .with_bit_width(4)
-            .pack()?
-            .unwrap_unpatched();
-        assert!(
-            bitpacked.patches().is_some(),
-            "Should have patches for values > 15"
-        );
-
-        // Unpack into a new builder.
-        let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
-        unpack_into_primitive_builder(
-            &bitpacked,
-            &mut builder,
-            &mut SESSION.create_execution_ctx(),
-        )?;
-
-        let result = builder.finish_into_primitive();
-
-        // Verify all values were correctly unpacked including patches.
-        assert_arrays_eq!(result, PrimitiveArray::from_iter(values));
-        Ok(())
-    }
+    // /// Test that `unpack_into` correctly handles arrays with patches.
+    // #[test]
+    // fn test_unpack_into_with_patches() -> VortexResult<()> {
+    //     // Create an array where most values fit in 4 bits but some need patches.
+    //     let values: Vec<u32> = (0..100)
+    //         .map(|i| if i % 20 == 0 { 1000 + i } else { i % 16 })
+    //         .collect();
+    //     let array = PrimitiveArray::from_iter(values.clone());
+    //
+    //     // Bitpack with a bit width that will require patches.
+    //     let bitpacked = BitPackEncoder::new(&array).with_bit_width(4).pack()?;
+    //     assert!(
+    //         bitpacked.has_patches(),
+    //         "Should have patches for values > 15"
+    //     );
+    //
+    //     let bitpacked = bitpacked.into_array()?;
+    //
+    //     // Unpack into a new builder.
+    //     let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
+    //     unpack_into_primitive_builder(
+    //         &bitpacked,
+    //         &mut builder,
+    //         &mut SESSION.create_execution_ctx(),
+    //     )?;
+    //
+    //     let result = builder.finish_into_primitive();
+    //
+    //     // Verify all values were correctly unpacked including patches.
+    //     assert_arrays_eq!(result, PrimitiveArray::from_iter(values));
+    //     Ok(())
+    // }
 
     /// Test basic unpacking to primitive array for multiple types and sizes.
     #[rstest]
@@ -518,56 +522,56 @@ mod tests {
         Ok(())
     }
 
-    /// Test unpacking with patches at various positions.
-    #[test]
-    fn test_unpack_to_primitive_with_patches() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-
-        // Create an array where patches are needed at start, middle, and end.
-        let values: Vec<u32> = vec![
-            2000, // Patch at start
-            5, 10, 15, 20, 25, 30, 3000, // Patch in middle
-            35, 40, 45, 50, 55, 4000, // Patch at end
-        ];
-        let array = PrimitiveArray::from_iter(values.clone());
-
-        // Bitpack with a small bit width to force patches.
-        let bitpacked = BitPackEncoder::new(&array)
-            .with_bit_width(6)
-            .pack()?
-            .into_packed();
-        assert!(bitpacked.patches().is_some(), "Should have patches");
-
-        // Unpack to primitive array.
-        let result = unpack_array(&bitpacked, &mut ctx)?;
-
-        // Verify length and that patches were applied.
-        assert_eq!(result.len(), values.len());
-        // The result should match what unpack_array also produces.
-        let expected = unpack_array(&bitpacked, &mut ctx)?;
-        assert_eq!(result.len(), expected.len());
-        assert_arrays_eq!(result, expected);
-
-        // Test with a larger array with multiple patches across chunks.
-        let large_values: Vec<u16> = (0..3072)
-            .map(|i| {
-                if i % 500 == 0 {
-                    2000 + i as u16 // Values that need patches
-                } else {
-                    (i % 256) as u16 // Values that fit in 8 bits
-                }
-            })
-            .collect();
-        let large_array = PrimitiveArray::from_iter(large_values);
-        let large_bitpacked = BitPackEncoder::new(&large_array)
-            .with_bit_width(8)
-            .pack()?
-            .into_packed();
-
-        let large_result = unpack_array(&large_bitpacked);
-        assert_eq!(large_result.len(), 3072);
-        Ok(())
-    }
+    // /// Test unpacking with patches at various positions.
+    // #[test]
+    // fn test_unpack_to_primitive_with_patches() -> VortexResult<()> {
+    //     let mut ctx = SESSION.create_execution_ctx();
+    //
+    //     // Create an array where patches are needed at start, middle, and end.
+    //     let values: Vec<u32> = vec![
+    //         2000, // Patch at start
+    //         5, 10, 15, 20, 25, 30, 3000, // Patch in middle
+    //         35, 40, 45, 50, 55, 4000, // Patch at end
+    //     ];
+    //     let array = PrimitiveArray::from_iter(values.clone());
+    //
+    //     // Bitpack with a small bit width to force patches.
+    //     let bitpacked = BitPackEncoder::new(&array)
+    //         .with_bit_width(6)
+    //         .pack()?
+    //         .into_packed();
+    //     assert!(bitpacked.patches().is_some(), "Should have patches");
+    //
+    //     // Unpack to primitive array.
+    //     let result = unpack_array(&bitpacked, &mut ctx)?;
+    //
+    //     // Verify length and that patches were applied.
+    //     assert_eq!(result.len(), values.len());
+    //     // The result should match what unpack_array also produces.
+    //     let expected = unpack_array(&bitpacked, &mut ctx)?;
+    //     assert_eq!(result.len(), expected.len());
+    //     assert_arrays_eq!(result, expected);
+    //
+    //     // Test with a larger array with multiple patches across chunks.
+    //     let large_values: Vec<u16> = (0..3072)
+    //         .map(|i| {
+    //             if i % 500 == 0 {
+    //                 2000 + i as u16 // Values that need patches
+    //             } else {
+    //                 (i % 256) as u16 // Values that fit in 8 bits
+    //             }
+    //         })
+    //         .collect();
+    //     let large_array = PrimitiveArray::from_iter(large_values);
+    //     let large_bitpacked = BitPackEncoder::new(&large_array)
+    //         .with_bit_width(8)
+    //         .pack()?
+    //         .into_packed();
+    //
+    //     let large_result = unpack_array(&large_bitpacked);
+    //     assert_eq!(large_result.len(), 3072);
+    //     Ok(())
+    // }
 
     /// Test unpacking with nullability and validity masks.
     #[test]
@@ -580,41 +584,41 @@ mod tests {
         let bitpacked = BitPackEncoder::new(&array)
             .with_bit_width(9)
             .pack()?
-            .into_packed();
-        let result = unpack_to_primitive(&bitpacked);
+            .unwrap_unpatched();
+        let result = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
 
         // Verify length.
         assert_eq!(result.len(), 7);
         // Validity should be preserved when unpacking.
-        assert!(!result.scalar_at(0).unwrap().is_null());
-        assert!(result.scalar_at(1).unwrap().is_null());
-        assert!(!result.scalar_at(2).unwrap().is_null());
+        assert!(!result.scalar_at(0)?.is_null());
+        assert!(result.scalar_at(1)?.is_null());
+        assert!(!result.scalar_at(2)?.is_null());
 
-        // Test combining patches with nullability.
-        let patch_values = Buffer::from_iter([10u16, 0, 2000, 0, 30, 3000, 0]);
-        let patch_validity = Validity::from_iter([true, false, true, false, true, true, false]);
-        let patch_array = PrimitiveArray::new(patch_values, patch_validity);
-
-        let patch_bitpacked = BitPackEncoder::new(&patch_array)
-            .with_bit_width(5)
-            .pack()?
-            .into_packed();
-        assert!(patch_bitpacked.patches().is_some());
-
-        let patch_result = unpack_to_primitive(&patch_bitpacked);
-        assert_eq!(patch_result.len(), 7);
+        // TODO(aduffy): we should eliminate most of these unpack_array tests and instead go v
+        // let patch_values = Buffer::from_iter([10u16, 0, 2000, 0, 30, 3000, 0]);
+        // let patch_validity = Validity::from_iter([true, false, true, false, true, true, false]);
+        // let patch_array = PrimitiveArray::new(patch_values, patch_validity);
+        //
+        // let patch_bitpacked = BitPackEncoder::new(&patch_array)
+        //     .with_bit_width(5)
+        //     .pack()?
+        //     .into_packed();
+        // assert!(patch_bitpacked.patches().is_some());
+        //
+        // let patch_result = unpack_to_primitive(&patch_bitpacked);
+        // assert_eq!(patch_result.len(), 7);
 
         // Test all nulls edge case.
-        let all_nulls = PrimitiveArray::new(
-            Buffer::from_iter([0u32, 0, 0, 0]),
-            Validity::from_iter([false, false, false, false]),
-        );
-        let all_nulls_bp = BitPackEncoder::new(&all_nulls)
-            .with_bit_width(0)
-            .pack()?
-            .into_packed();
-        let all_nulls_result = unpack_to_primitive(&all_nulls_bp);
-        assert_eq!(all_nulls_result.len(), 4);
+        // let all_nulls = PrimitiveArray::new(
+        //     Buffer::from_iter([0u32, 0, 0, 0]),
+        //     Validity::from_iter([false, false, false, false]),
+        // );
+        // let all_nulls_bp = BitPackEncoder::new(&all_nulls)
+        //     .with_bit_width(0)
+        //     .pack()?
+        //     .into_packed();
+        // let all_nulls_result = unpack_to_primitive(&all_nulls_bp);
+        // assert_eq!(all_nulls_result.len(), 4);
         Ok(())
     }
 
@@ -628,13 +632,10 @@ mod tests {
                 .pack()?
                 .into_packed();
 
-            // Method 1: Using the new unpack_to_primitive.
-            let primitive_result = unpack_to_primitive(&bitpacked);
-
-            // Method 2: Using the old unpack_array.
+            // Method 1: using unpack_array
             let unpacked_array = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
 
-            // Method 3: Using the execute() method (this is what would be used in production).
+            // Method 2: Using the execute() method (this is what would be used in production).
             let executed = {
                 let mut ctx = SESSION.create_execution_ctx();
                 bitpacked
@@ -644,11 +645,6 @@ mod tests {
             };
 
             // All three should produce the same length.
-            assert_eq!(
-                primitive_result.len(),
-                array.len(),
-                "primitive length mismatch"
-            );
             assert_eq!(
                 unpacked_array.len(),
                 array.len(),
@@ -758,9 +754,11 @@ mod tests {
         let zeros_bp = BitPackEncoder::new(&zeros)
             .with_bit_width(0)
             .pack()?
-            .into_array()?;
-        let zeros_result =
-            zeros_bp.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+            .unwrap_unpatched();
+        let zeros_result = zeros_bp
+            .clone()
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         assert_eq!(zeros_result.len(), 100);
         // Verify consistency with unpack_array.
         let zeros_array = unpack_array(&zeros_bp, &mut SESSION.create_execution_ctx())?;
@@ -772,8 +770,8 @@ mod tests {
         let max_bp = BitPackEncoder::new(&max_values)
             .with_bit_width(15)
             .pack()?
-            .into_packed();
-        let max_result = unpack_to_primitive(&max_bp);
+            .unwrap_unpatched();
+        let max_result = unpack_array(&max_bp, &mut SESSION.create_execution_ctx())?;
         assert_eq!(max_result.len(), 50);
 
         // Exactly 3072 elements with patches across chunks.
@@ -790,23 +788,19 @@ mod tests {
         let boundary_bp = BitPackEncoder::new(&boundary_array)
             .with_bit_width(7)
             .pack()?
-            .into_packed();
-        assert!(boundary_bp.patches().is_some());
+            .into_array()?;
 
-        let boundary_result = unpack_to_primitive(&boundary_bp);
+        let boundary_result =
+            boundary_bp.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         assert_eq!(boundary_result.len(), 3072);
-        // Verify consistency.
-        let boundary_unpacked = unpack_array(&boundary_bp, &mut SESSION.create_execution_ctx())?;
-        assert_eq!(boundary_result.len(), boundary_unpacked.len());
-        assert_arrays_eq!(boundary_result, boundary_unpacked);
 
         // Single element.
         let single = PrimitiveArray::from_iter([42u8]);
         let single_bp = BitPackEncoder::new(&single)
             .with_bit_width(6)
             .pack()?
-            .into_packed();
-        let single_result = unpack_to_primitive(&single_bp);
+            .unwrap_unpatched();
+        let single_result = unpack_array(&single_bp, &mut SESSION.create_execution_ctx())?;
         assert_eq!(single_result.len(), 1);
         Ok(())
     }

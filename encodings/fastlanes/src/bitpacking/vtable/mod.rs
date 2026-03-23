@@ -367,6 +367,8 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        // NOTE(aduffy): here we convert from a BitPackedArray with interior patches to a
+        //  PatchedArray of BitPackedArray.
         if let Some(patches) = array.patches.as_ref() {
             // If there are patches, convert to PatchedArray and delegate to its execution.
             let mut inner = array.clone();

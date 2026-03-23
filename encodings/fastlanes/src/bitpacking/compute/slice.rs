@@ -71,7 +71,6 @@ mod tests {
             .with_bit_width(11)
             .pack()?
             .unwrap_unpatched();
-        assert!(patches.is_none());
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 

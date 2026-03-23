@@ -40,8 +40,8 @@ pub struct BitPackedArray {
     pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
     /// NOTE: interior patches are deprecated in favor of `PatchedArray` holding a `BitPackedArray`
-    ///  child.
-    pub(super) patches: Option<Patches>,
+    ///  child. It is generally impossible to get data with Patches for new arrays.
+    pub(crate) patches: Option<Patches>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }

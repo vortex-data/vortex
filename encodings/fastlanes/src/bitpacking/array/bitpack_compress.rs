@@ -469,17 +469,13 @@ pub mod test_harness {
     use rand::RngExt;
     use rand::rngs::StdRng;
     use vortex_array::ArrayRef;
-    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
-    use super::bitpack_encode;
     use crate::bitpack_compress::BitPackEncoder;
 
     pub fn make_array(

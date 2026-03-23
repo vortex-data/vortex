@@ -9,7 +9,6 @@ use vortex_array::IntoArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_fastlanes::bitpack_compress::BitPackEncoder;
-use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
 
 mod array;
 mod compute;

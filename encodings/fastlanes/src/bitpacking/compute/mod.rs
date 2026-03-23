@@ -50,7 +50,6 @@ mod tests {
 
     use crate::BitPackedArray;
     use crate::bitpack_compress::BitPackEncoder;
-    use crate::bitpack_compress::bitpack_encode;
     use crate::bitpacking::compute::chunked_indices;
 
     #[test]

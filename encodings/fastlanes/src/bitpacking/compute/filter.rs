@@ -61,7 +61,7 @@ impl FilterKernel for BitPacked {
             return Ok(None);
         }
 
-        // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
+        // Filter using the correct unsigned type for FastLanes, then cast to signed if needed.
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |U| {
             let (buffer, validity) = filter_primitive::<U>(array, values)?;
             // reinterpret_cast for signed types.

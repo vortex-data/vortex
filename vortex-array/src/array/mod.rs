@@ -530,7 +530,12 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
             return Ok(Scalar::null(self.dtype().clone()));
         }
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index)?;
-        vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
+        vortex_ensure!(
+            self.dtype() == scalar.dtype(),
+            "Scalar dtype mismatch: expected {}, got {}",
+            scalar.dtype(),
+            self.dtype()
+        );
         Ok(scalar)
     }
 

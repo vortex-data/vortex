@@ -11,7 +11,18 @@ use crate::bitpack_decompress;
 
 impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
-        Ok(bitpack_decompress::unpack_single(array, index))
+        // NOTE(aduffy): this is the only code path in `BitPackedArray` that handles interior
+        //  patches. All other compute goes through the execute/optimize pipeline which will
+        //  convert the interior Patches into a wrapping `PatchedArray` instead.
+        Ok(
+            if let Some(patches) = array.patches.as_ref()
+                && let Some(patch) = patches.get_patched(index)?
+            {
+                patch
+            } else {
+                bitpack_decompress::unpack_single(array, index)
+            },
+        )
     }
 }
 
@@ -25,20 +36,10 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
-    use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
-    use vortex_array::buffer::BufferHandle;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_array::patches::Patches;
-    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::VTable;
-    use vortex_buffer::Alignment;
-    use vortex_buffer::Buffer;
-    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
 
     use crate::BitPacked;
@@ -137,29 +138,6 @@ mod test {
     }
 
     #[test]
-    fn slice_empty_patches() {
-        // We create an array that has 1 element that does not fit in the 6-bit range.
-        let values = PrimitiveArray::new(buffer![0u32..=64], Validity::NonNullable);
-        let array = BitPackEncoder::new(&values)
-            .with_bit_width(6)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap()
-            .as_::<BitPacked>()
-            .clone();
-
-        assert!(array.patches().is_some());
-
-        let patch_indices = array.patches().unwrap().indices().clone();
-        assert_eq!(patch_indices.len(), 1);
-
-        // Slicing drops the empty patches array.
-        let sliced_bp = slice_via_kernel(&array, 0..64);
-        assert!(sliced_bp.patches().is_none());
-    }
-
-    #[test]
     fn take_after_slice() {
         // Check that our take implementation respects the offsets applied after slicing.
 
@@ -185,29 +163,5 @@ mod test {
             .take(buffer![101i64, 1125, 1138].into_array())
             .unwrap();
         assert_eq!(taken.len(), 3);
-    }
-
-    #[test]
-    fn scalar_at() {
-        let values = (0u32..257).collect::<Buffer<_>>();
-        let uncompressed = PrimitiveArray::from_iter(values.iter().copied());
-        let packed = BitPackEncoder::new(&uncompressed)
-            .with_bit_width(8)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap()
-            .as_::<BitPacked>()
-            .clone();
-        assert!(packed.patches().is_some());
-
-        let patches = packed.patches().unwrap().indices().clone();
-        assert_eq!(
-            usize::try_from(&patches.scalar_at(0).unwrap()).unwrap(),
-            256
-        );
-
-        let expected = PrimitiveArray::from_iter(values.iter().copied());
-        assert_arrays_eq!(packed, expected);
     }
 }
