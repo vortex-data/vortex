@@ -65,6 +65,7 @@ LogicalType from_struct(const vx_dtype *dtype) {
         const vx_string *field_name = vx_struct_fields_field_name(struct_dtype, i);
         const vx_dtype *field_dtype = vx_struct_fields_field_dtype(struct_dtype, i);
         children[i] = {to_string(field_name), from_dtype(field_dtype)};
+        vx_dtype_free(field_dtype);
     }
 
     return LogicalType::STRUCT(children);

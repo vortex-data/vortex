@@ -104,7 +104,9 @@ TEST_CASE("Creating structs", "[struct]") {
     const size_t len = vx_struct_fields_nfields(fields);
     CHECK(len == STRUCT_LEN);
     for (size_t i = 0; i < len; ++i) {
+        // borrowed
         const vx_string *name = vx_struct_fields_field_name(fields, i);
+        // owned TODO(myrrc): that's weird API
         const vx_dtype *dtype = vx_struct_fields_field_dtype(fields, i);
 
         std::string_view name_view {vx_string_ptr(name), vx_string_len(name)};
@@ -119,19 +121,18 @@ TEST_CASE("Creating structs", "[struct]") {
             CHECK(vx_dtype_is_nullable(dtype));
             CHECK(vx_dtype_get_variant(dtype) == DTYPE_PRIMITIVE);
         }
+
+        vx_dtype_free(dtype);
     }
 
     vx_struct_fields_free(fields);
 }
 
-struct TempFile {
-    ~TempFile() {
-        fs::remove(path);
-    }
-    fs::path path;
+struct TempPath : fs::path {
+    ~TempPath() { fs::remove(*this); }
 };
 
-[[nodiscard]] TempFile write_empty(vx_session *session, const fs::path &path) {
+[[nodiscard]] TempPath write_empty(vx_session *session, const fs::path &path) {
     REQUIRE(path.is_absolute());
 
     constexpr const std::string_view col1 = "col1";
@@ -196,14 +197,13 @@ TEST_CASE("Creating datasources", "[datasource]") {
     // REQUIRE_THAT(to_string(error), ContainsSubstring("No such file or directory"));
     vx_error_free(error);
 
-    fs::path path = fs::current_path() / "empty.vortex";
-    TempFile file = write_empty(session, path);
+    TempPath file = write_empty(session, fs::current_path() / "empty.vortex");
 
     for (const char *files :
          // TODO Object store error: Generic LocalFileSystem error: Unable to walk dir: File
          // system loop found: /dev/fd/6 points to an ancestor /
-         //{ path.c_str(), "*.vortex"}
-         {path.c_str()}) {
+         //{ file.c_str(), "*.vortex"}
+         {file.c_str()}) {
         INFO("reading "s + files);
         opts.files = files;
         ds = vx_data_source_new(session, &opts, &error);
@@ -215,14 +215,13 @@ TEST_CASE("Creating datasources", "[datasource]") {
     vx_session_free(session);
 }
 
-TEST_CASE("Write empty file and read back types", "[datasource]") {
+TEST_CASE("Write file and read back types", "[datasource]") {
     vx_session *session = vx_session_new();
-    fs::path test_path = fs::current_path() / "write-read.vortex";
-    TempFile file = write_empty(session, test_path);
+    TempPath path = write_empty(session, fs::current_path() / "write-read-types.vortex");
     vx_error *error = nullptr;
 
     vx_data_source_options opts = {};
-    opts.files = test_path.c_str();
+    opts.files = path.c_str();
 
     const vx_data_source *ds = vx_data_source_new(session, &opts, &error);
     require_no_error(error);
@@ -257,6 +256,33 @@ TEST_CASE("Write empty file and read back types", "[datasource]") {
     REQUIRE(vx_dtype_is_nullable(col2_dtype));
     REQUIRE(to_string_view(col2_name) == "col2");
     vx_dtype_free(col2_dtype);
+
+    vx_data_source_free(ds);
+    vx_session_free(session);
+}
+
+TEST_CASE("Write file and read back", "[datasource]") {
+    vx_session *session = vx_session_new();
+    TempPath path = write_empty(session, fs::current_path() / "write-read.vortex");
+    vx_error *error = nullptr;
+
+    vx_data_source_options ds_options = {};
+    ds_options.files = path.c_str();
+
+    const vx_data_source *ds = vx_data_source_new(session, &ds_options, &error);
+    require_no_error(error);
+    REQUIRE(ds != nullptr);
+
+    vx_scan* scan = vx_data_source_scan(ds, nullptr, &error);
+    require_no_error(error);
+    REQUIRE(scan != nullptr);
+    vx_scan_free(scan);
+
+    vx_scan_options scan_options = {};
+    scan = vx_data_source_scan(ds, &scan_options, &error);
+    require_no_error(error);
+    REQUIRE(scan != nullptr);
+    vx_scan_free(scan);
 
     vx_data_source_free(ds);
     vx_session_free(session);
