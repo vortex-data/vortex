@@ -35,7 +35,7 @@ pub type ScalarFnId = ArcRef<str>;
 
 /// Private module to seal [`typed::DynScalarFn`].
 mod sealed {
-    use crate::scalar_fn::{typed, ScalarFnVTable};
+    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::typed::ScalarFn;
 
     /// Marker trait to prevent external implementations of [`super::typed::DynScalarFn`].

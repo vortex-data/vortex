@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
@@ -9,8 +10,9 @@ use vortex_error::VortexResult;
 
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::RowSelection;
-use crate::v2::layout::SplitIterator;
 use crate::v2::layout::typed::DynLayout;
+use crate::v2::planner::PlanBuilder;
+use crate::v2::planner::SplitPlannerRef;
 
 #[derive(Clone)]
 pub struct LayoutRef(pub(super) Arc<dyn DynLayout>);
@@ -26,6 +28,11 @@ impl LayoutRef {
         self.0.dtype()
     }
 
+    /// Returns the row count of the layout.
+    pub fn row_count(&self) -> u64 {
+        self.0.row_count()
+    }
+
     /// Returns the nth child of the layout.
     ///
     /// May fail if the deferred deserialization of the layout tree fails.
@@ -37,12 +44,16 @@ impl LayoutRef {
         self.0.child(idx)
     }
 
-    pub fn plan(
+    /// Prepares a split planner for the given expression and row selection.
+    ///
+    /// This dispatches through the type-erased vtable to the concrete layout's `prepare`.
+    pub fn prepare(
         &self,
         expr: &Expression,
         selection: &RowSelection,
-        builder: &PlanBuilder,
-    ) -> VortexResult<SplitIterator> {
-        todo!()
+        row_splits: &mut BTreeSet<u64>,
+        builder: &mut PlanBuilder,
+    ) -> VortexResult<SplitPlannerRef> {
+        self.0.prepare(expr, selection, row_splits, builder)
     }
 }

@@ -55,8 +55,10 @@ pub enum ChildRelationship {
     RowOffset(u64),
     /// A child field of the current layout.
     FieldName(FieldName),
-    /// Auxiliary data that is positionally unrelated to the layout.
-    Auxiliary,
+    /// Auxiliary data that is positionally unrelated to the parent's row space.
+    /// The row range specifies the parent's row range that this auxiliary data covers,
+    /// used to determine the lifetime scope for nodes in this subtree.
+    Auxiliary(Range<u64>),
 }
 
 /// A set of rows to include in the scan.

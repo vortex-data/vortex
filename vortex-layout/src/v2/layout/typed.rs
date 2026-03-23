@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 
 use crate::segments::SegmentId;
@@ -12,7 +14,10 @@ use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
+use crate::v2::layout::RowSelection;
 use crate::v2::layout::vtable::LayoutVTable;
+use crate::v2::planner::PlanBuilder;
+use crate::v2::planner::SplitPlannerRef;
 
 pub struct Layout<V: LayoutVTable> {
     vtable: V,
@@ -51,6 +56,16 @@ impl<V: LayoutVTable> Layout<V> {
     pub fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
         DynLayout::child(self, idx)
     }
+
+    /// Returns the metadata for this layout.
+    pub fn metadata(&self) -> &V::Metadata {
+        &self.metadata
+    }
+
+    /// Returns the number of children.
+    pub fn num_children(&self) -> usize {
+        self.children.len()
+    }
 }
 
 pub(super) trait DynLayout: 'static + Send + Sync + super::sealed::Sealed {
@@ -59,9 +74,18 @@ pub(super) trait DynLayout: 'static + Send + Sync + super::sealed::Sealed {
     fn metadata_any(&self) -> &dyn Any;
 
     fn dtype(&self) -> &DType;
+    fn row_count(&self) -> u64;
     fn segments(&self) -> &[SegmentId];
     fn segment_source(&self) -> &Arc<dyn SegmentSource>;
     fn child(&self, idx: usize) -> VortexResult<LayoutRef>;
+
+    fn prepare(
+        &self,
+        expr: &Expression,
+        selection: &RowSelection,
+        row_splits: &mut BTreeSet<u64>,
+        builder: &mut PlanBuilder,
+    ) -> VortexResult<SplitPlannerRef>;
 }
 
 impl<V: LayoutVTable> DynLayout for Layout<V> {
@@ -91,12 +115,27 @@ impl<V: LayoutVTable> DynLayout for Layout<V> {
     }
 
     #[inline(always)]
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
+    #[inline(always)]
     fn segment_source(&self) -> &Arc<dyn SegmentSource> {
         &self.segment_source
     }
 
     fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
         assert!(idx < self.children.len(), "Child idx out of bounds");
-        self.children[idx].resolve(self.vtable.child_dtype(idx))
+        self.children[idx].resolve(V::child_dtype(self, idx))
+    }
+
+    fn prepare(
+        &self,
+        expr: &Expression,
+        selection: &RowSelection,
+        row_splits: &mut BTreeSet<u64>,
+        builder: &mut PlanBuilder,
+    ) -> VortexResult<SplitPlannerRef> {
+        V::prepare(self, expr, selection, row_splits, builder)
     }
 }

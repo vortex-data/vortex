@@ -36,7 +36,7 @@ enum Inner {
 impl LayoutChild {
     /// Resolve the layout child by passing the child's expected DType.
     pub fn resolve(&self, dtype: &DType) -> VortexResult<LayoutRef> {
-        if let Inner::Owned(owned) = self.0.read() {
+        if let Inner::Owned(owned) = &*self.0.read() {
             debug_assert!(
                 owned.dtype() == dtype,
                 "In-memory layout child resolved with incorrect DType"
@@ -45,7 +45,7 @@ impl LayoutChild {
         }
 
         let mut guard = self.0.write();
-        Ok(match guard {
+        Ok(match &mut *guard {
             Inner::Owned(owned) => owned.clone(),
             Inner::Viewed {
                 fb,
@@ -54,7 +54,7 @@ impl LayoutChild {
                 source,
                 session,
             } => {
-                let fb_layout = unsafe { fbl::Layout::follow(fb.as_slice(), loc) };
+                let fb_layout = unsafe { fbl::Layout::follow(fb.as_slice(), *loc) };
                 let id = ids.get(fb_layout.encoding() as usize).ok_or_else(|| {
                     vortex_err!("Interned layout ID out of bounds: {}", fb_layout.encoding())
                 })?;
@@ -88,7 +88,7 @@ impl LayoutChild {
                     })
                     .unwrap_or_default();
 
-                let layout = plugin.deserialize(dtype, metadata, children, &source, &session)?;
+                let layout = plugin.deserialize(dtype, metadata, children, source, session)?;
 
                 // Update the layout child to cache the owned layout
                 *guard = Inner::Owned(layout.clone());
