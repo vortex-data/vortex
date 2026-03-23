@@ -30,26 +30,25 @@ pub struct PlanBuilder {}
 
 impl PlanBuilder {
     /// Construct a node that runs compute over its inputs.
-    pub fn node<F>(&mut self, options: NodeOpts<'_, F>) -> VortexResult<NodeId>
+    pub fn create_node<F>(&mut self, options: &NodeOpts<'_, F>) -> VortexResult<NodeId>
     where
-        F: FnOnce(&Mask, &[NodeInput]) -> VortexResult<ArrayRef> + Send + 'static,
+        F: FnOnce(&[NodeInput]) -> VortexResult<ArrayRef> + Send + 'static,
     {
         todo!()
     }
 }
 
 pub struct NodeOpts<'a, F> {
-    pub compute: F,
     /// Wait for these nodes to complete before running.
     pub inputs: &'a [NodeId],
     /// Fetch these segments before running.
     pub segments: &'a [SegmentId], // Can we make refine this read somehow?
     pub lifetime: Lifetime,
+    pub compute: F,
 }
 
 /// A function to produce an array from node inputs.
-pub type ComputeFn =
-    Box<dyn FnOnce(&Mask, &[NodeInput]) -> VortexResult<ArrayRef> + Send + 'static>;
+pub type ComputeFn = Box<dyn FnOnce(&[NodeInput]) -> VortexResult<ArrayRef> + Send + 'static>;
 
 pub enum NodeInput {
     Buffer(ByteBuffer),
@@ -81,6 +80,11 @@ pub struct SplitSelection {}
 
 impl SplitSelection {
     pub fn node_id(&self) -> NodeId {
+        todo!()
+    }
+
+    /// Returns the latest selection mask for this split.
+    pub fn latest(&self) -> Mask {
         todo!()
     }
 }

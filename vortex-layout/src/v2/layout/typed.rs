@@ -35,6 +35,10 @@ impl<V: LayoutVTable> Layout<V> {
         &self.dtype
     }
 
+    pub fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
     pub fn segments(&self) -> &[SegmentId] {
         &self.segments
     }

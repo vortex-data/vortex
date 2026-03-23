@@ -18,6 +18,7 @@ use crate::v2::planner::NodeId;
 use crate::v2::planner::PlanBuilder;
 use crate::v2::planner::SplitPlanner;
 use crate::v2::planner::SplitPlannerRef;
+use crate::v2::planner::SplitSelection;
 
 pub struct Zoned;
 
@@ -63,7 +64,12 @@ impl Layout<Zoned> {
 struct ZonedLayoutPlanner {}
 
 impl SplitPlanner for ZonedLayoutPlanner {
-    fn plan_split(&self, row_range: Range<u64>, builder: &mut PlanBuilder) -> VortexResult<NodeId> {
+    fn plan_split(
+        &self,
+        row_range: Range<u64>,
+        selection: &SplitSelection,
+        builder: &mut PlanBuilder,
+    ) -> VortexResult<NodeId> {
         todo!()
     }
 }

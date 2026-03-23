@@ -3,19 +3,20 @@
 
 use std::collections::BTreeSet;
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::layout::RowSelection;
-use crate::v2::layout::SplitIterator;
 use crate::v2::plan::Lifetime;
 use crate::v2::planner::NodeId;
 use crate::v2::planner::NodeOpts;
@@ -45,10 +46,16 @@ impl LayoutVTable for Flat {
     fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
-        selection: &RowSelection,
+        // TODO(ngates): we probably want to pass this down? Although it should be available
+        //  through the "latest" view of the SplitSelection.
+        _selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        builder: &mut PlanBuilder,
+        _builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef> {
+        // TODO(ngates): surely we only need one of them
+        row_splits.insert(0);
+        row_splits.insert(layout.row_count());
+
         let segment_source = layout.segment_source().clone();
         let segment_id = layout
             .segments()
@@ -56,20 +63,19 @@ impl LayoutVTable for Flat {
             .copied()
             .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
 
-        // FIXME(ngates): do we need to know our "coordinates" within the overall scan? That would
-        //  help us construct an accurate lifetime.
-        // let lifetime = Lifetime::RowRange();
-
-        // TODO(ngates): to do sub-segment reads, we wrap everything in a deferred node until we
-        //  get a mask, then we construct the array with placeholder "LazyBufferHandle", run the
-        //  optimizer, then extract the byte ranges from the lazy buffer handles to submit the
-        //  read.
-
-        todo!()
+        Ok(Arc::new(FlatLayoutPlanner {
+            segment_source,
+            segment_id,
+            expression: expr.clone(),
+        }))
     }
 }
 
-struct FlatLayoutPlanner {}
+struct FlatLayoutPlanner {
+    segment_source: Arc<dyn SegmentSource>,
+    segment_id: SegmentId,
+    expression: Expression,
+}
 
 impl SplitPlanner for FlatLayoutPlanner {
     fn plan_split(
@@ -78,6 +84,14 @@ impl SplitPlanner for FlatLayoutPlanner {
         selection: &SplitSelection,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
-        todo!()
+        builder.create_node(&NodeOpts {
+            inputs: &[selection.node_id()],
+            segments: &[],
+            lifetime: Lifetime::Scan,
+            compute: |inputs| {
+                let buffer = inputs[0].into_buffer();
+                todo!()
+            },
+        })
     }
 }
