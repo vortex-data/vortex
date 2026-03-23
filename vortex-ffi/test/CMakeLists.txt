@@ -3,7 +3,6 @@
 include(CTest)
 include(FetchContent)
 
-# TODO submodule may be cleaner since we want same testing for vortex-cxx
 FetchContent_Declare(
   Catch
   GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -14,5 +13,5 @@ include(Catch)
 
 file(GLOB TEST_FILES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 add_executable(vortex_ffi_test ${TEST_FILES})
-target_link_libraries(vortex_ffi_test PRIVATE vortex_ffi Catch2::Catch2WithMain)
+target_link_libraries(vortex_ffi_test PRIVATE vortex_ffi_shared Catch2::Catch2WithMain)
 catch_discover_tests(vortex_ffi_test)

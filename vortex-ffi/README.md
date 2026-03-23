@@ -47,11 +47,11 @@ Build the test library
 
 ```
 cmake -Bbuild
-cmake --build build
+cmake --build build -j $(nproc)
 ```
 
 Run the tests
 
 ```
-ctest --test-dir build
+ctest --test-dir build -j $(nproc)
 ```

@@ -708,7 +708,7 @@ jobs:
           mkdir -p vortex-cxx/build
           cmake -S vortex-cxx -B vortex-cxx/build -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON
           cmake --build vortex-cxx/build --parallel $(nproc)
-          ctest --test-dir vortex-cxx/build -V
+          ctest --test-dir vortex-cxx/build -j $(nproc) -V
       - name: Build and run the example in release mode
         run: |
           cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
@@ -843,8 +843,8 @@ jobs:
           cd vortex-ffi
           mkdir build
           cmake -Bbuild
-          cmake --build build --parallel $(nproc)
-          ctest --test-dir build -V
+          cmake --build build -j $(nproc)
+          ctest --test-dir build -j $(nproc)
 
   check-java-publish-build:
     runs-on: ${{ matrix.target.runs-on }}

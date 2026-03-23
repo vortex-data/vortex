@@ -25,10 +25,10 @@ pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
     ))
 }
 
-#[unsafe(no_mangle)]
 /// Clone a Vortex session, returning an owned copy.
 ///
 /// The caller is responsible for freeing the session with [`vx_session_free`].
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_clone(session: *mut vx_session) -> *mut vx_session {
     let session = vx_session::as_mut(session);
     vx_session::new(Box::new(session.clone()))
