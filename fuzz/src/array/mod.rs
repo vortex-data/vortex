@@ -398,7 +398,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &!Mask::from_iter(mask.clone()),
+                        &Mask::from_iter(mask.clone()),
                     )
                     .vortex_expect("mask_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
