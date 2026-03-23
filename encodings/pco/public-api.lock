@@ -6,6 +6,10 @@ impl vortex_pco::Pco
 
 pub const vortex_pco::Pco::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_pco::Pco
+
+pub fn vortex_pco::Pco::clone(&self) -> vortex_pco::Pco
+
 impl core::fmt::Debug for vortex_pco::Pco
 
 pub fn vortex_pco::Pco::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

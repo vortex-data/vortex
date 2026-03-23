@@ -22,6 +22,10 @@ impl vortex_runend::RunEnd
 
 pub const vortex_runend::RunEnd::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_runend::RunEnd
+
+pub fn vortex_runend::RunEnd::clone(&self) -> vortex_runend::RunEnd
+
 impl core::fmt::Debug for vortex_runend::RunEnd
 
 pub fn vortex_runend::RunEnd::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

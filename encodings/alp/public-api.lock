@@ -8,6 +8,10 @@ impl vortex_alp::ALP
 
 pub const vortex_alp::ALP::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_alp::ALP
+
+pub fn vortex_alp::ALP::clone(&self) -> vortex_alp::ALP
+
 impl core::fmt::Debug for vortex_alp::ALP
 
 pub fn vortex_alp::ALP::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -177,6 +181,10 @@ pub struct vortex_alp::ALPRD
 impl vortex_alp::ALPRD
 
 pub const vortex_alp::ALPRD::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_alp::ALPRD
+
+pub fn vortex_alp::ALPRD::clone(&self) -> vortex_alp::ALPRD
 
 impl core::fmt::Debug for vortex_alp::ALPRD
 

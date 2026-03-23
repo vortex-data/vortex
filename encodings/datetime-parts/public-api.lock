@@ -6,6 +6,10 @@ impl vortex_datetime_parts::DateTimeParts
 
 pub const vortex_datetime_parts::DateTimeParts::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_datetime_parts::DateTimeParts
+
+pub fn vortex_datetime_parts::DateTimeParts::clone(&self) -> vortex_datetime_parts::DateTimeParts
+
 impl core::fmt::Debug for vortex_datetime_parts::DateTimeParts
 
 pub fn vortex_datetime_parts::DateTimeParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

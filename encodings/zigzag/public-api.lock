@@ -6,6 +6,10 @@ impl vortex_zigzag::ZigZag
 
 pub const vortex_zigzag::ZigZag::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_zigzag::ZigZag
+
+pub fn vortex_zigzag::ZigZag::clone(&self) -> vortex_zigzag::ZigZag
+
 impl core::fmt::Debug for vortex_zigzag::ZigZag
 
 pub fn vortex_zigzag::ZigZag::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

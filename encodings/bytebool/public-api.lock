@@ -6,6 +6,10 @@ impl vortex_bytebool::ByteBool
 
 pub const vortex_bytebool::ByteBool::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_bytebool::ByteBool
+
+pub fn vortex_bytebool::ByteBool::clone(&self) -> vortex_bytebool::ByteBool
+
 impl core::fmt::Debug for vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

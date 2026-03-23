@@ -126,6 +126,10 @@ impl vortex_fastlanes::BitPacked
 
 pub const vortex_fastlanes::BitPacked::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_fastlanes::BitPacked
+
+pub fn vortex_fastlanes::BitPacked::clone(&self) -> vortex_fastlanes::BitPacked
+
 impl core::fmt::Debug for vortex_fastlanes::BitPacked
 
 pub fn vortex_fastlanes::BitPacked::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -286,6 +290,10 @@ impl vortex_fastlanes::Delta
 
 pub const vortex_fastlanes::Delta::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_fastlanes::Delta
+
+pub fn vortex_fastlanes::Delta::clone(&self) -> vortex_fastlanes::Delta
+
 impl core::fmt::Debug for vortex_fastlanes::Delta
 
 pub fn vortex_fastlanes::Delta::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -413,6 +421,10 @@ pub struct vortex_fastlanes::FoR
 impl vortex_fastlanes::FoR
 
 pub const vortex_fastlanes::FoR::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_fastlanes::FoR
+
+pub fn vortex_fastlanes::FoR::clone(&self) -> vortex_fastlanes::FoR
 
 impl core::fmt::Debug for vortex_fastlanes::FoR
 
@@ -549,6 +561,10 @@ pub struct vortex_fastlanes::RLE
 impl vortex_fastlanes::RLE
 
 pub const vortex_fastlanes::RLE::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_fastlanes::RLE
+
+pub fn vortex_fastlanes::RLE::clone(&self) -> vortex_fastlanes::RLE
 
 impl core::fmt::Debug for vortex_fastlanes::RLE
 

@@ -26,6 +26,10 @@ impl vortex_sparse::Sparse
 
 pub const vortex_sparse::Sparse::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_sparse::Sparse
+
+pub fn vortex_sparse::Sparse::clone(&self) -> vortex_sparse::Sparse
+
 impl core::fmt::Debug for vortex_sparse::Sparse
 
 pub fn vortex_sparse::Sparse::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

@@ -6,6 +6,10 @@ impl vortex_zstd::Zstd
 
 pub const vortex_zstd::Zstd::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_zstd::Zstd
+
+pub fn vortex_zstd::Zstd::clone(&self) -> vortex_zstd::Zstd
+
 impl core::fmt::Debug for vortex_zstd::Zstd
 
 pub fn vortex_zstd::Zstd::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

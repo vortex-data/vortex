@@ -6,6 +6,10 @@ impl vortex_sequence::Sequence
 
 pub const vortex_sequence::Sequence::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_sequence::Sequence
+
+pub fn vortex_sequence::Sequence::clone(&self) -> vortex_sequence::Sequence
+
 impl core::fmt::Debug for vortex_sequence::Sequence
 
 pub fn vortex_sequence::Sequence::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

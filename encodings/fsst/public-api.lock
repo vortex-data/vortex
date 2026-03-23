@@ -6,6 +6,10 @@ impl vortex_fsst::FSST
 
 pub const vortex_fsst::FSST::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_fsst::FSST
+
+pub fn vortex_fsst::FSST::clone(&self) -> vortex_fsst::FSST
+
 impl core::fmt::Debug for vortex_fsst::FSST
 
 pub fn vortex_fsst::FSST::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
