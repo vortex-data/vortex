@@ -504,16 +504,18 @@ mod tests {
         let concat = concat.freeze();
 
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(
-            sliced.dtype(),
-            sliced.len(),
-            &ReadContext::new(ctx.to_ids()),
-            &SESSION,
-        );
+        let decoded = parts
+            .decode(
+                sliced.dtype(),
+                sliced.len(),
+                &ReadContext::new(ctx.to_ids()),
+                &SESSION,
+            )
+            .unwrap();
 
-        assert_eq!(
-            decoded.err().unwrap().to_string(),
-            "Other error: RLEArray offset must be 0 for serialization, got 100"
-        );
+        let original_data = sliced.to_primitive();
+        let decoded_data = decoded.to_primitive();
+
+        assert_arrays_eq!(original_data, decoded_data);
     }
 }
