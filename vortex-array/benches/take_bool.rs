@@ -7,6 +7,7 @@
 //! and both uniform random and Zipfian (power-law) index distributions.
 
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
 use rand::SeedableRng;
