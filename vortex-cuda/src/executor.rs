@@ -370,32 +370,21 @@ impl CudaArrayExt for ArrayRef {
             return self.execute(&mut ctx.ctx);
         }
 
-        // Try to fuse the encoding tree (or parts of it) into dynamic-dispatch
-        // kernel launches. See hybrid_dispatch module docs for details.
-        match hybrid_dispatch::try_dyn_dispatch(&self, ctx).await {
+        // Try all GPU execution strategies: fused dynamic dispatch, partial
+        // fusion with subtree fallbacks, and single-kernel fallback.
+        // If none succeed, fall back to CPU execution.
+        match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
             Ok(canonical) => return Ok(canonical),
             Err(e) => {
-                trace!(
+                debug!(
                     encoding = %self.encoding_id(),
                     error = %e,
-                    "Hybrid dispatch not applicable, trying registered single kernel"
+                    "No GPU execution path available, falling back to CPU"
                 );
             }
         }
 
-        let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
-            debug!(
-                encoding = %self.encoding_id(),
-                "No CUDA support registered for encoding, falling back to CPU execution"
-            );
-            return self.execute(&mut ctx.ctx);
-        };
-
-        debug!(
-            encoding = %self.encoding_id(),
-            "Executing array on CUDA device"
-        );
-
-        support.execute(self, ctx).await
+        // TODO(0ax1): Double check whether we need to move buffers back to the host explicitly.
+        self.execute(&mut ctx.ctx)
     }
 }

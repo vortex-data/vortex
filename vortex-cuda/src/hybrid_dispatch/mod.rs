@@ -17,7 +17,7 @@
 //!
 //! A "subtree" is a branch with a root node that is not dyn dispatch compatible
 //! (below a compatible parent). It is executed via `execute_cuda`, which
-//! re-enters `try_dyn_dispatch` so compatible descendants still get fused.
+//! re-enters `try_gpu_dispatch` so compatible descendants still get fused.
 //!
 //! Strategies tried in order:
 //!
@@ -25,10 +25,10 @@
 //!
 //! 2. Partial fusion — subtrees are executed first (sequentially, same
 //!    stream), their device buffers become `LOAD` ops in a fused plan.
-//!    Each subtree re-enters `try_dyn_dispatch` and may itself fuse.
+//!    Each subtree re-enters `try_gpu_dispatch` and may itself fuse.
 //!
 //! 3. Fallback — root is not compatible.  Delegate to its registered
-//!    `CudaExecute` kernel; its children re-enter `try_dyn_dispatch`.
+//!    `CudaExecute` kernel; its children re-enter `try_gpu_dispatch`.
 //!
 //! All three compose recursively to arbitrary depth.
 //!
@@ -38,7 +38,7 @@
 //! ```text
 //!   ZonedReader (zone-map pruning, skips whole chunks)
 //!     └── CudaFlatReader (per chunk)
-//!           └── try_dyn_dispatch (fused decompression)
+//!           └── try_gpu_dispatch
 //!                 └── FilterExecutor (CUB DeviceSelect on full output)
 //! ```
 
@@ -58,13 +58,20 @@ use crate::dynamic_dispatch::plan_builder::find_subtrees;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecutionCtx;
 
-/// Try to execute `array` via dynamic dispatch, fusing as much of the
-/// encoding tree as possible into single kernel launches and falling back
-/// to individual kernels for nodes not compatible with dynamic dispatch.
+/// Try to execute `array` on the GPU, attempting three strategies in order:
+///
+/// 1. Fully fused — the entire encoding tree compiles into one
+///    `DynamicDispatchPlan` kernel launch.
+/// 2. Partially fused — incompatible subtrees are executed first
+///    (via recursive `execute_cuda`), then the remaining compatible tree
+///    is fused into a single plan with their outputs as `LOAD` sources.
+/// 3. Single-kernel fallback — the root encoding's registered
+///    `CudaExecute` kernel handles one layer; its children re-enter
+///    this function recursively.
 ///
 /// Returns `Ok(Canonical)` on success.  Returns `Err` when the array
 /// cannot be handled (non-primitive output dtype, no registered kernel).
-pub async fn try_dyn_dispatch(
+pub async fn try_gpu_dispatch(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
@@ -85,11 +92,15 @@ pub async fn try_dyn_dispatch(
             debug!(encoding = %array.encoding_id(), num_stages = plan.num_stages, "fully-fused dyn dispatch");
             return plan.execute(output_ptype, array.len(), bufs, ctx);
         }
-    } else if let Some(result) = try_partial_fuse(array, &subtrees, output_ptype, ctx).await? {
+    } else if let Some(result) =
+        // Incompatible subtrees are executed first (re-entering try_gpu_dispatch),
+        // then their device buffers are injected as LOAD sources into a fused plan.
+        try_partial_fuse(array, &subtrees, output_ptype, ctx).await?
+    {
         return Ok(result);
     }
 
-    // Pure fallback — single kernel, children re-enter try_dyn_dispatch.
+    // Single kernel fallback, children will re-enter `try_gpu_dispatch`.
     ctx.cuda_session()
         .kernel(&array.encoding_id())
         .ok_or_else(|| vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id()))?
