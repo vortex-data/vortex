@@ -31,6 +31,7 @@ use crate::validity::Validity;
 mod bitbuffer;
 mod bool;
 mod buffer;
+pub(crate) mod byte_compress;
 mod decimal;
 mod fixed_size_list;
 mod listview;
