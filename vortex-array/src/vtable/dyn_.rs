@@ -43,6 +43,7 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
+
     fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]

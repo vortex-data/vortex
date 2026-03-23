@@ -4,9 +4,12 @@
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 
 use crate::v2::layout::LayoutId;
+use crate::v2::layout::RowSelection;
+use crate::v2::layout::SplitIterator;
 use crate::v2::layout::typed::DynLayout;
 
 #[derive(Clone)]
@@ -32,5 +35,14 @@ impl LayoutRef {
     /// Panics on out-of-bounds error.
     pub fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
         self.0.child(idx)
+    }
+
+    pub fn plan(
+        &self,
+        expr: &Expression,
+        selection: &RowSelection,
+        builder: &PlanBuilder,
+    ) -> VortexResult<SplitIterator> {
+        todo!()
     }
 }

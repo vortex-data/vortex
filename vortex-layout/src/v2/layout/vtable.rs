@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -13,8 +14,8 @@ use vortex_error::VortexResult;
 
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
-use crate::v2::plan::PlanBuilder;
-use crate::v2::plan::SplitPlan;
+use crate::v2::planner::PlanBuilder;
+use crate::v2::planner::SplitPlannerRef;
 
 /// The vtable for a pluggable layout.
 pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
@@ -31,12 +32,21 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
     /// Returns the relationship of the given child.
     fn child_relationship(layout: &Layout<Self>, child_idx: usize) -> ChildRelationship;
 
-    fn plan(
+    /// Create a planner for the given expression and row selection.
+    ///
+    /// Implementations should perform expression partitioning once here, rather than doing it
+    /// once per split later.
+    ///
+    /// Row splits should be registered into the BTreeSet.
+    ///
+    /// The [`PlanBuilder`] can be used to construct nodes that will be shared across many splits.
+    fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &RowSelection,
-        builder: &PlanBuilder,
-    ) -> VortexResult<SplitIterator>;
+        row_splits: &mut BTreeSet<u64>,
+        builder: &mut PlanBuilder,
+    ) -> VortexResult<SplitPlannerRef>;
 }
 
 /// The positional relationship of a layout to its parent.
@@ -54,5 +64,3 @@ pub enum RowSelection {
     All,
     IncludeRanges(Vec<Range<u64>>),
 }
-
-pub type SplitIterator = Box<dyn Iterator<Item = VortexResult<SplitPlan>> + Send + 'static>;

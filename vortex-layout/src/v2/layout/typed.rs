@@ -2,10 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
@@ -17,21 +20,31 @@ pub struct Layout<V: LayoutVTable> {
     dtype: DType,
     row_count: u64,
     children: Vec<LayoutChild>,
+    segments: Vec<SegmentId>,
+    segment_source: Arc<dyn SegmentSource>,
 }
 
 impl<V: LayoutVTable> Layout<V> {
     /// Returns the ID of the layout.
-    fn id(&self) -> LayoutId {
+    pub fn id(&self) -> LayoutId {
         DynLayout::id(self)
     }
 
     /// Returns the dtype of the layout.
-    fn dtype(&self) -> &DType {
+    pub fn dtype(&self) -> &DType {
         &self.dtype
     }
 
+    pub fn segments(&self) -> &[SegmentId] {
+        &self.segments
+    }
+
+    pub fn segment_source(&self) -> &Arc<dyn SegmentSource> {
+        &self.segment_source
+    }
+
     /// Returns the nth child of the layout.
-    fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
+    pub fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
         DynLayout::child(self, idx)
     }
 }
@@ -42,6 +55,8 @@ pub(super) trait DynLayout: 'static + Send + Sync + super::sealed::Sealed {
     fn metadata_any(&self) -> &dyn Any;
 
     fn dtype(&self) -> &DType;
+    fn segments(&self) -> &[SegmentId];
+    fn segment_source(&self) -> &Arc<dyn SegmentSource>;
     fn child(&self, idx: usize) -> VortexResult<LayoutRef>;
 }
 
@@ -64,6 +79,16 @@ impl<V: LayoutVTable> DynLayout for Layout<V> {
     #[inline(always)]
     fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    #[inline(always)]
+    fn segments(&self) -> &[SegmentId] {
+        &self.segments
+    }
+
+    #[inline(always)]
+    fn segment_source(&self) -> &Arc<dyn SegmentSource> {
+        &self.segment_source
     }
 
     fn child(&self, idx: usize) -> VortexResult<LayoutRef> {

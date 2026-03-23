@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
+use std::ops::Range;
+
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
@@ -11,8 +14,10 @@ use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::layout::RowSelection;
-use crate::v2::layout::SplitIterator;
-use crate::v2::plan::PlanBuilder;
+use crate::v2::planner::NodeId;
+use crate::v2::planner::PlanBuilder;
+use crate::v2::planner::SplitPlanner;
+use crate::v2::planner::SplitPlannerRef;
 
 pub struct Zoned;
 
@@ -32,18 +37,33 @@ impl LayoutVTable for Zoned {
         todo!()
     }
 
-    fn plan(
+    fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &RowSelection,
-        builder: &PlanBuilder,
-    ) -> VortexResult<SplitIterator> {
+        row_splits: &mut BTreeSet<u64>,
+        builder: &mut PlanBuilder,
+    ) -> VortexResult<SplitPlannerRef> {
         todo!()
     }
 }
 
 impl Layout<Zoned> {
-    pub fn zone_map_child(&self) -> LayoutRef {
-        self
+    /// Returns the data child of the zoned layout.
+    pub fn data_child(&self) -> VortexResult<LayoutRef> {
+        self.child(0)
+    }
+
+    /// Returns the zone map child of the zoned layout.
+    pub fn zone_map_child(&self) -> VortexResult<LayoutRef> {
+        self.child(1)
+    }
+}
+
+struct ZonedLayoutPlanner {}
+
+impl SplitPlanner for ZonedLayoutPlanner {
+    fn plan_split(&self, row_range: Range<u64>, builder: &mut PlanBuilder) -> VortexResult<NodeId> {
+        todo!()
     }
 }
