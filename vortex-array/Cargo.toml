@@ -177,6 +177,10 @@ name = "filter_bool"
 harness = false
 
 [[bench]]
+name = "filter_primitive"
+harness = false
+
+[[bench]]
 name = "listview_rebuild"
 harness = false
 

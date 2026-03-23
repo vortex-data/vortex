@@ -8,7 +8,9 @@ use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;
 use crate::arrays::filter::execute::buffer;
+use crate::arrays::filter::execute::byte_compress;
 use crate::arrays::filter::execute::filter_validity;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
 
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
@@ -16,6 +18,16 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
         .validity()
         .vortex_expect("missing PrimitiveArray validity");
     let filtered_validity = filter_validity(validity, mask);
+
+    // u8 uses a specialized byte-compress LUT: 256-entry table avoids
+    // materializing indices/slices and processes 8 elements per mask byte.
+    if array.ptype() == PType::U8 {
+        let filtered_buffer =
+            byte_compress::filter_buffer_u8(array.to_buffer::<u8>(), mask.as_ref());
+        // SAFETY: We filter both the validity and the buffer with the same mask, so they must have
+        // the same length.
+        return unsafe { PrimitiveArray::new_unchecked(filtered_buffer, filtered_validity) };
+    }
 
     match_each_native_ptype!(array.ptype(), |T| {
         let filtered_buffer = buffer::filter_buffer(array.to_buffer::<T>(), mask.as_ref());
