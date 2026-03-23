@@ -27,8 +27,6 @@ use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// An array that partially "patches" another array with new values.
-///
-/// Patched arrays implement the set of nodes that do this instead here...I think?
 #[derive(Debug, Clone)]
 pub struct PatchedArray {
     /// The inner array that is being patched. This is the zeroth child.
