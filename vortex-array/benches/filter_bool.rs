@@ -27,6 +27,8 @@ fn main() {
 
 const SIZES: &[usize] = &[1_000, 10_000, 100_000, 500_000];
 const DENSITY_SWEEP_SIZE: usize = 100_000;
+const ARRAY_SEED: u64 = 42;
+const MASK_SEED: u64 = 43;
 
 // --- Mask generators ---
 
@@ -125,55 +127,50 @@ fn make_power_law_bool_array(len: usize, rng: &mut StdRng) -> BoolArray {
     }))
 }
 
+/// Create a fresh StdRng with the mask seed.
+fn mask_rng() -> StdRng {
+    StdRng::seed_from_u64(MASK_SEED)
+}
+
 // --- Benchmarks: Random source array ---
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_mostly_true(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mask = make_mostly_true(n, &mut rng);
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_mostly_true(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_mostly_false(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mask = make_mostly_false(n, &mut rng);
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_mostly_false(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_random(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mask = make_random(n, &mut rng);
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_random(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_correlated_runs(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mask = make_correlated_runs(n, &mut rng);
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_correlated_runs(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_power_law(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mask = make_power_law(n, &mut rng);
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_power_law(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
@@ -181,51 +178,41 @@ fn filter_random_by_power_law(bencher: Bencher, n: usize) {
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_mostly_true(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_power_law_bool_array(n, &mut rng);
-    let mask = make_mostly_true(n, &mut rng);
+    let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_mostly_true(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_power_law_bool_array(n, &mut rng);
-    let mask = make_mostly_false(n, &mut rng);
+    let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_mostly_false(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_power_law_bool_array(n, &mut rng);
-    let mask = make_random(n, &mut rng);
+    let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_random(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_power_law_bool_array(n, &mut rng);
-    let mask = make_correlated_runs(n, &mut rng);
+    let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_correlated_runs(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_power_law(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_power_law_bool_array(n, &mut rng);
-    let mask = make_power_law(n, &mut rng);
+    let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_power_law(n, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
@@ -237,32 +224,26 @@ const DENSITIES: &[f64] = &[
 
 #[divan::bench(args = DENSITIES)]
 fn density_sweep_random(bencher: Bencher, density: f64) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
-    let mask = make_density_mask(DENSITY_SWEEP_SIZE, density, &mut rng);
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = DENSITIES)]
 fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
-    let false_rate = 1.0 - density;
-    let mask = make_dense_runs(DENSITY_SWEEP_SIZE, false_rate.max(0.0001), &mut rng);
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    let false_rate = (1.0 - density).max(0.0001);
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_dense_runs(DENSITY_SWEEP_SIZE, false_rate, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = DENSITIES)]
 fn density_sweep_single_slice(bencher: Bencher, density: f64) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
-    let mask = make_single_slice(DENSITY_SWEEP_SIZE, density);
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_single_slice(DENSITY_SWEEP_SIZE, density))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
@@ -272,33 +253,29 @@ const LARGE_SIZES: &[usize] = &[10_000, 100_000, 500_000];
 
 #[divan::bench(args = LARGE_SIZES)]
 fn filter_all_true(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mask = Mask::new_true(n);
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| Mask::new_true(n))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = LARGE_SIZES)]
 fn filter_one_false(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mut bits: Vec<bool> = vec![true; n];
-    bits[n / 2] = false;
-    let mask = Mask::from_buffer(BitBuffer::from_iter(bits));
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| {
+            let mut bits: Vec<bool> = vec![true; n];
+            bits[n / 2] = false;
+            Mask::from_buffer(BitBuffer::from_iter(bits))
+        })
         .bench_values(|m| array.filter(m).unwrap());
 }
 
 #[divan::bench(args = LARGE_SIZES)]
 fn filter_ultra_sparse(bencher: Bencher, n: usize) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(n, &mut rng);
-    let mask = make_density_mask(n, 0.0001, &mut rng);
+    let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| mask.clone())
+        .with_inputs(|| make_density_mask(n, 0.0001, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
 
@@ -331,21 +308,18 @@ fn old_filter(src: &BitBuffer, mask: &Mask, true_count: usize) -> BitBuffer {
 
 #[divan::bench(args = DENSITIES)]
 fn head_to_head_old(bencher: Bencher, density: f64) {
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = StdRng::seed_from_u64(ARRAY_SEED);
     let src = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(0.5)));
-    let mask_buf = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(density)));
-    let true_count = mask_buf.iter().filter(|b| *b).count();
+    let true_count = make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()).true_count();
     bencher
-        .with_inputs(|| Mask::from_buffer(mask_buf.clone()))
+        .with_inputs(|| make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()))
         .bench_values(|m| old_filter(&src, &m, true_count));
 }
 
 #[divan::bench(args = DENSITIES)]
 fn head_to_head_new(bencher: Bencher, density: f64) {
-    let mut rng = StdRng::seed_from_u64(42);
-    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
-    let mask_buf = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(density)));
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| Mask::from_buffer(mask_buf.clone()))
+        .with_inputs(|| make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()))
         .bench_values(|m| array.filter(m).unwrap());
 }
