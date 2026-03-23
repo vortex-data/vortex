@@ -268,10 +268,14 @@ impl SqlBenchmarkRunner {
     }
 
     /// Get the path for a `.slt.no` reference result file.
+    ///
+    /// The path includes an engine-specific subdirectory so each engine can have
+    /// its own expected results: `{expected_results_dir}/{engine}/q{idx:02}.slt.no`.
     fn reference_path(&self, query_idx: usize) -> Option<PathBuf> {
-        self.expected_results_dir
-            .as_ref()
-            .map(|dir| dir.join(format!("q{query_idx:02}.slt.no")))
+        self.expected_results_dir.as_ref().map(|dir| {
+            dir.join(self.engine.to_string())
+                .join(format!("q{query_idx:02}.slt.no"))
+        })
     }
 
     /// Validate a query result against its `.slt.no` reference file.

@@ -1,0 +1,1 @@
+include ../q39.slt.no

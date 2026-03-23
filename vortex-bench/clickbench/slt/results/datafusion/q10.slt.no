@@ -1,0 +1,1 @@
+include ../q10.slt.no

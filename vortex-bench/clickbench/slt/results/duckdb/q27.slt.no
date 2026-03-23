@@ -1,0 +1,1 @@
+include ../q27.slt.no

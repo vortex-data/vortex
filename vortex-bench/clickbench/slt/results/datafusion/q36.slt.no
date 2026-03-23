@@ -1,0 +1,1 @@
+include ../q36.slt.no
