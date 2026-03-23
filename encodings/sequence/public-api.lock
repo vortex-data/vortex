@@ -62,7 +62,7 @@ pub fn vortex_sequence::Sequence::execute(array: &Self::Array, _ctx: &mut vortex
 
 pub fn vortex_sequence::Sequence::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_sequence::Sequence::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_sequence::Sequence::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_sequence::Sequence::len(array: &vortex_sequence::SequenceArray) -> usize
 
@@ -79,6 +79,8 @@ pub fn vortex_sequence::Sequence::slot_name(_array: &vortex_sequence::SequenceAr
 pub fn vortex_sequence::Sequence::slots(array: &vortex_sequence::SequenceArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_sequence::Sequence::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_sequence::Sequence::with_slots(array: &mut vortex_sequence::SequenceArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 

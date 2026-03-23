@@ -44,7 +44,7 @@ pub fn vortex_pco::Pco::dtype(array: &vortex_pco::PcoArray) -> &vortex_array::dt
 
 pub fn vortex_pco::Pco::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
 
-pub fn vortex_pco::Pco::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_pco::Pco::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_pco::Pco::len(array: &vortex_pco::PcoArray) -> usize
 
@@ -61,6 +61,8 @@ pub fn vortex_pco::Pco::slot_name(_array: &vortex_pco::PcoArray, idx: usize) -> 
 pub fn vortex_pco::Pco::slots(array: &vortex_pco::PcoArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_pco::Pco::stats(array: &vortex_pco::PcoArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_pco::Pco::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_pco::Pco::with_slots(array: &mut vortex_pco::PcoArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 

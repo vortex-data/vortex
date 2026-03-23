@@ -95,12 +95,11 @@ mod tests {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(&self, _extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
             Ok(())
         }
 
         fn unpack_native<'a>(
-            &self,
             _extension_dtype: &'a ExtDType<Self>,
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
@@ -192,12 +191,11 @@ mod tests {
                 Ok(EmptyMetadata)
             }
 
-            fn validate_dtype(&self, _extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
-                &self,
                 _extension_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {

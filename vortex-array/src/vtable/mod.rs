@@ -55,8 +55,13 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
 
+    /// Returns the VTable from the array instance.
+    ///
+    // NOTE(ngates): this function is temporary while we migrate Arrays over to the unified vtable
+    fn vtable(array: &Self::Array) -> &Self;
+
     /// Returns the ID of the array.
-    fn id(array: &Self::Array) -> ArrayId;
+    fn id(&self) -> ArrayId;
 
     /// Returns the length of the array.
     fn len(array: &Self::Array) -> usize;
@@ -219,8 +224,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// do next.
     ///
     /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionStep::ExecuteSlot(i)`] to request that the scheduler execute a slot first,
-    /// or [`ExecutionStep::Done(result)`] when the
+    /// `ExecutionStep::ExecuteSlot(i)` to request that the scheduler execute a slot first,
+    /// or `ExecutionStep::Done(result)` when the
     /// encoding can produce a result directly.
     ///
     /// Array execution is designed such that repeated execution of an array will eventually

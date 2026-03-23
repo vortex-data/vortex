@@ -28,10 +28,10 @@ use vortex_session::VortexSession;
 
 /// Initialize fastlanes encodings in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(BitPacked::ID, BitPacked);
-    session.arrays().register(Delta::ID, Delta);
-    session.arrays().register(FoR::ID, FoR);
-    session.arrays().register(RLE::ID, RLE);
+    session.arrays().register(BitPacked);
+    session.arrays().register(Delta);
+    session.arrays().register(FoR);
+    session.arrays().register(RLE);
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
@@ -62,10 +62,10 @@ mod test {
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
-        session.arrays().register(BitPacked::ID, BitPacked);
-        session.arrays().register(Delta::ID, Delta);
-        session.arrays().register(FoR::ID, FoR);
-        session.arrays().register(RLE::ID, RLE);
+        session.arrays().register(BitPacked);
+        session.arrays().register(Delta);
+        session.arrays().register(FoR);
+        session.arrays().register(RLE);
         session
     });
 }

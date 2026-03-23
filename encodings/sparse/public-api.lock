@@ -78,7 +78,7 @@ pub fn vortex_sparse::Sparse::execute(array: &Self::Array, ctx: &mut vortex_arra
 
 pub fn vortex_sparse::Sparse::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_sparse::Sparse::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_sparse::Sparse::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_sparse::Sparse::len(array: &vortex_sparse::SparseArray) -> usize
 
@@ -95,6 +95,8 @@ pub fn vortex_sparse::Sparse::slot_name(_array: &vortex_sparse::SparseArray, idx
 pub fn vortex_sparse::Sparse::slots(array: &vortex_sparse::SparseArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_sparse::Sparse::stats(array: &vortex_sparse::SparseArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_sparse::Sparse::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_sparse::Sparse::with_slots(array: &mut vortex_sparse::SparseArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 

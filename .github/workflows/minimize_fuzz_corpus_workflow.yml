@@ -58,7 +58,7 @@ jobs:
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
 
       - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
+        uses: taiki-e/cache-cargo-install-action@1ce845d7672f06bdf703007779598583b6c62f61
         with:
           tool: cargo-fuzz
 
