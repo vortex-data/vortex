@@ -78,9 +78,9 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
         "BitPackedArray should never hold internal patches"
     );
 
-    // if let Some(patches) = array.patches() {
-    //     apply_patches_to_uninit_range(&mut uninit_range, patches, ctx)?;
-    // };
+    if let Some(patches) = array.patches.as_ref() {
+        apply_patches_to_uninit_range(&mut uninit_range, patches, ctx)?;
+    };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
     // initialized the same number of values needed via `decode_into`.

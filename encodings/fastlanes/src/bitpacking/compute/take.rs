@@ -26,7 +26,6 @@ use vortex_error::VortexResult;
 use super::chunked_indices;
 use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::bitpack_decompress::unpack_single;
 use crate::bitpack_decompress::unpack_single_primitive;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
