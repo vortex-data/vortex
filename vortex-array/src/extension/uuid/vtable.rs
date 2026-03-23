@@ -47,7 +47,7 @@ impl ExtVTable for Uuid {
         Ok(UuidMetadata { version })
     }
 
-    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         let storage_dtype = ext_dtype.storage_dtype();
         let DType::FixedSizeList(element_dtype, list_size, _nullability) = storage_dtype else {
             vortex_bail!("UUID storage dtype must be a FixedSizeList, got {storage_dtype}");
@@ -77,7 +77,6 @@ impl ExtVTable for Uuid {
     }
 
     fn unpack_native<'a>(
-        &self,
         ext_dtype: &ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
@@ -248,7 +247,7 @@ mod tests {
         let storage_value = storage_scalar
             .value()
             .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        let result = Uuid.unpack_native(&ext_dtype, storage_value)?;
+        let result = Uuid::unpack_native(&ext_dtype, storage_value)?;
         assert_eq!(result, expected);
         assert_eq!(result.to_string(), "550e8400-e29b-41d4-a716-446655440000");
         Ok(())
@@ -283,7 +282,7 @@ mod tests {
         let storage_value = storage_scalar
             .value()
             .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        assert!(Uuid.unpack_native(&ext_dtype, storage_value).is_err());
+        assert!(Uuid::unpack_native(&ext_dtype, storage_value).is_err());
         Ok(())
     }
 
@@ -317,7 +316,7 @@ mod tests {
         .unwrap();
         let storage_value = uuid_storage_scalar(&v4_uuid);
 
-        let result = Uuid.unpack_native(&ext_dtype, &storage_value)?;
+        let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
         assert_eq!(result, v4_uuid);
         Ok(())
     }
@@ -335,7 +334,7 @@ mod tests {
         .unwrap();
         let storage_value = uuid_storage_scalar(&v4_uuid);
 
-        let result = Uuid.unpack_native(&ext_dtype, &storage_value)?;
+        let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
         assert_eq!(result, v4_uuid);
         Ok(())
     }

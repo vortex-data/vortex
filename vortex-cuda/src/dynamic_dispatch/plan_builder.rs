@@ -7,6 +7,8 @@
 //! to the device, computes shared memory offsets, and produces a plan that the
 //! dynamic dispatch kernel can execute in a single launch.
 
+use std::sync::Arc;
+
 use futures::executor::block_on;
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
@@ -102,11 +104,30 @@ pub fn build_plan(
     array: &ArrayRef,
     ctx: &CudaExecutionCtx,
 ) -> VortexResult<(DynamicDispatchPlan, Vec<BufferHandle>)> {
+    build_plan_with_subtrees(array, ctx, &[])
+}
+
+/// Build a [`DynamicDispatchPlan`] with subtrees run as separate
+/// kernels that provide device buffers as inputs integrated via `LOAD`.
+pub fn build_plan_with_subtrees(
+    array: &ArrayRef,
+    ctx: &CudaExecutionCtx,
+    subtree_inputs: &[(ArrayRef, BufferHandle)],
+) -> VortexResult<(DynamicDispatchPlan, Vec<BufferHandle>)> {
+    let sub_map = subtree_inputs
+        .iter()
+        .map(|(arr, handle)| {
+            let ptr = handle.cuda_device_ptr()?;
+            Ok((Arc::as_ptr(arr) as *const () as usize, ptr))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
     let mut state = PlanBuilderState {
         ctx,
         stages: Vec::new(),
         smem_cursor: 0,
         device_buffers: Vec::new(),
+        subtree_inputs: sub_map,
     };
 
     let pipeline = state.walk(array.clone())?;
@@ -129,6 +150,88 @@ pub fn build_plan(
     Ok((DynamicDispatchPlan::new(state.stages), state.device_buffers))
 }
 
+/// Walk the encoding tree and find subtrees that cannot be fused into a
+/// dynamic-dispatch plan. The root of each subtree has a node that cannot
+/// be fused.
+///
+/// Returns an empty vec if the root itself cannot be fused.
+pub fn find_subtrees(array: &ArrayRef) -> Vec<ArrayRef> {
+    if !is_dyn_dispatch_compatible(array) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    collect_subtrees(array, &mut out);
+    out
+}
+
+/// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
+fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
+    let id = array.encoding_id();
+    if id == ALP::ID {
+        if let Ok(a) = array.clone().try_into::<ALP>() {
+            return a.patches().is_none() && a.dtype().as_ptype() == PType::F32;
+        }
+        return false;
+    }
+    if id == BitPacked::ID {
+        if let Ok(a) = array.clone().try_into::<BitPacked>() {
+            return a.patches().is_none();
+        }
+        return false;
+    }
+    id == FoR::ID
+        || id == ZigZag::ID
+        || id == Dict::ID
+        || id == RunEnd::ID
+        || id == Primitive::ID
+        || id == Slice::ID
+        || id == Sequence::ID
+}
+
+/// Walk the children of a dynamic dispatch compatible root node. Any child
+/// that is not dyn dispatch compatible is recorded as a subtree that must be
+/// executed separately.
+fn collect_subtrees(array: &ArrayRef, out: &mut Vec<ArrayRef>) {
+    let id = array.encoding_id();
+
+    fn visit_child(child: &ArrayRef, out: &mut Vec<ArrayRef>) {
+        if is_dyn_dispatch_compatible(child) {
+            collect_subtrees(child, out);
+        } else {
+            out.push(child.clone());
+        }
+    }
+
+    if id == FoR::ID {
+        if let Ok(a) = array.clone().try_into::<FoR>() {
+            visit_child(a.encoded(), out);
+        }
+    } else if id == ZigZag::ID {
+        if let Ok(a) = array.clone().try_into::<ZigZag>() {
+            visit_child(a.encoded(), out);
+        }
+    } else if id == ALP::ID {
+        if let Ok(a) = array.clone().try_into::<ALP>() {
+            visit_child(a.encoded(), out);
+        }
+    } else if id == Slice::ID {
+        if let Some(a) = array.as_opt::<Slice>() {
+            visit_child(a.child(), out);
+        }
+    } else if id == Dict::ID
+        && let Ok(a) = array.clone().try_into::<Dict>()
+    {
+        visit_child(a.values(), out);
+        visit_child(a.codes(), out);
+    } else if id == RunEnd::ID
+        && let Ok(a) = array.clone().try_into::<RunEnd>()
+    {
+        visit_child(a.ends(), out);
+        visit_child(a.values(), out);
+    }
+    // BitPacked, Primitive, Sequence — leaves, no children.
+}
+
 /// Internal mutable state for the recursive tree walk.
 struct PlanBuilderState<'a> {
     ctx: &'a CudaExecutionCtx,
@@ -138,11 +241,30 @@ struct PlanBuilderState<'a> {
     smem_cursor: u32,
     /// Device buffers to keep alive.
     device_buffers: Vec<BufferHandle>,
+    /// Pre-executed subtree outputs injected as `LOAD` sources: `(identity, device_ptr)`.
+    subtree_inputs: Vec<(usize, u64)>,
 }
 
 impl PlanBuilderState<'_> {
+    /// If `array` matches a pre-executed subtree input, return a `LOAD` pipeline pointing at its device buffer.
+    fn find_subtree(&self, array: &ArrayRef) -> Option<Pipeline> {
+        let subtree_id = Arc::as_ptr(array) as *const () as usize;
+        self.subtree_inputs
+            .iter()
+            .find(|(id, _)| *id == subtree_id)
+            .map(|(_, ptr)| Pipeline {
+                source: SourceOp::load(),
+                scalar_ops: vec![],
+                input_ptr: *ptr,
+            })
+    }
+
     /// Recursively walk the encoding tree.
     fn walk(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+        if let Some(pipeline) = self.find_subtree(&array) {
+            return Ok(pipeline);
+        }
+
         let id = array.encoding_id();
 
         if id == BitPacked::ID {

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::type_name;
-use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
@@ -29,15 +27,14 @@ use crate::vtable::VTable;
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
 
+/// Reference-counted DynVTable
+pub type DynVTableRef = Arc<dyn DynVTable>;
+
 /// Dynamically typed vtable trait.
-///
-/// This trait is sealed, therefore users should implement the strongly typed [`VTable`] trait
-/// instead. The [`ArrayVTableExt::vtable`] function can be used to lift the implementation into
-/// this object-safe form.
 ///
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`DynArray`] trait API to a minimum.
-pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
+pub trait DynVTable: 'static + Send + Sync + Debug {
     #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
@@ -75,11 +72,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
-/// implementation.
-struct ArrayVTableAdapter<V: VTable>(PhantomData<V>);
-
-impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
+impl<V: VTable> DynVTable for V {
     fn build(
         &self,
         _id: ArrayId,

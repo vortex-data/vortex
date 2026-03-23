@@ -50,6 +50,10 @@ const BENCH_ARGS: &[(usize, &str)] = &[
 ];
 
 /// Launch the dynamic_dispatch kernel and return GPU-timed duration.
+///
+/// This deliberately does not use `DynamicDispatchPlan::execute` because the
+/// benchmark pre-allocates the output buffer and device plan once, then reuses
+/// them across iterations.
 fn run_timed(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,

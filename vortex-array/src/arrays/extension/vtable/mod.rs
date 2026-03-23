@@ -43,7 +43,11 @@ impl VTable for Extension {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Extension
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

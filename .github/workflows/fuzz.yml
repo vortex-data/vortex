@@ -9,7 +9,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: "0 */4 * * *"  # every 4 hours
+    - cron: "0 * * * *"  # every hour
   workflow_dispatch: { }
 
 jobs:
@@ -92,6 +92,43 @@ jobs:
       artifact_url: ${{ needs.ops_fuzz.outputs.artifact_url }}
       artifact_name: array_ops-crash-artifacts
       logs_artifact_name: array_ops-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  # ============================================================================
+  # Array Operations Fuzzer (unstable encodings)
+  # ============================================================================
+  ops_fuzz_unstable:
+    name: "Array Operations Fuzz (unstable)"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: array_ops_unstable_encodings
+      extra_features: "vortex/unstable_encodings"
+      jobs: 16
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-ops-unstable-fuzz-failures:
+    name: "Report Array Ops (unstable) Fuzz Failures"
+    needs: ops_fuzz_unstable
+    if: always() && needs.ops_fuzz_unstable.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: array_ops_unstable_encodings
+      crash_file: ${{ needs.ops_fuzz_unstable.outputs.first_crash_name }}
+      artifact_url: ${{ needs.ops_fuzz_unstable.outputs.artifact_url }}
+      artifact_name: array_ops_unstable_encodings-crash-artifacts
+      logs_artifact_name: array_ops_unstable_encodings-logs
       branch: ${{ github.ref_name }}
       commit: ${{ github.sha }}
     secrets:
