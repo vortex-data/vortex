@@ -242,6 +242,8 @@ impl vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::bitand_not(&self, rhs: &vortex_buffer::BitBuffer) -> vortex_buffer::BitBuffer
 
+pub fn vortex_buffer::BitBuffer::bitor_not(&self, rhs: &vortex_buffer::BitBuffer) -> vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::iter_bits<F>(&self, f: F) where F: core::ops::function::FnMut(usize, bool)
 
 impl vortex_buffer::BitBuffer
@@ -507,6 +509,16 @@ pub fn vortex_buffer::BitBufferMut::value(&self, index: usize) -> bool
 pub unsafe fn vortex_buffer::BitBufferMut::value_unchecked(&self, index: usize) -> bool
 
 pub fn vortex_buffer::BitBufferMut::with_capacity(capacity: usize) -> Self
+
+impl vortex_buffer::BitBufferMut
+
+pub fn vortex_buffer::BitBufferMut::bitand_inplace(&mut self, rhs: &vortex_buffer::BitBuffer)
+
+pub fn vortex_buffer::BitBufferMut::bitand_not_inplace(&mut self, rhs: &vortex_buffer::BitBuffer)
+
+pub fn vortex_buffer::BitBufferMut::bitor_inplace(&mut self, rhs: &vortex_buffer::BitBuffer)
+
+pub fn vortex_buffer::BitBufferMut::bitor_not_inplace(&mut self, rhs: &vortex_buffer::BitBuffer)
 
 impl core::clone::Clone for vortex_buffer::BitBufferMut
 

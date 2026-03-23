@@ -509,6 +509,13 @@ impl BitBuffer {
         bitwise_binary_op(self, rhs, |a, b| a & !b)
     }
 
+    /// Create a new BitBuffer by performing a bitwise OR NOT operation between two BitBuffers.
+    ///
+    /// Computes `self | !rhs` in a single pass, avoiding an intermediate allocation for the NOT.
+    pub fn bitor_not(&self, rhs: &BitBuffer) -> BitBuffer {
+        bitwise_binary_op(self, rhs, |a, b| a | !b)
+    }
+
     /// Iterate through bits in a buffer.
     ///
     /// # Arguments

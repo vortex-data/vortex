@@ -84,6 +84,49 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     BitBuffer::new(result, left.len())
 }
 
+/// Applies a binary bitwise operation in-place on a [`BitBufferMut`], combining it with a
+/// [`BitBuffer`]. The result is written back to the mutable buffer, avoiding a new allocation.
+///
+/// Both buffers must have the same length.
+pub(super) fn bitwise_binary_op_mut<F: FnMut(u64, u64) -> u64>(
+    left: &mut BitBufferMut,
+    right: &BitBuffer,
+    mut op: F,
+) {
+    assert_eq!(left.len(), right.len());
+
+    let left_slice = left.as_mut_slice();
+    let u64_len = left_slice.len() / 8;
+    let remainder = left_slice.len() % 8;
+    let mut left_ptr = left_slice.as_mut_ptr() as *mut u64;
+
+    // Read right-hand side chunks, padded to u64 boundaries.
+    let mut right_chunks = right.chunks().iter_padded();
+
+    for _ in 0..u64_len {
+        let left_val = unsafe { left_ptr.read_unaligned() };
+        let right_val = right_chunks.next().unwrap_or(0);
+        unsafe { left_ptr.write_unaligned(op(left_val, right_val)) };
+        left_ptr = unsafe { left_ptr.add(1) };
+    }
+
+    // Handle remainder bytes.
+    if remainder > 0 {
+        let right_val = right_chunks.next().unwrap_or(0);
+        let left_ptr = left_ptr as *mut u8;
+        let mut left_u64 = 0u64;
+        for i in 0..remainder {
+            let byte = unsafe { left_ptr.add(i).read() };
+            left_u64 |= (byte as u64) << (i * 8);
+        }
+        let result = op(left_u64, right_val);
+        for i in 0..remainder {
+            let byte = ((result >> (i * 8)) & 0xFF) as u8;
+            unsafe { left_ptr.add(i).write(byte) };
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Not;

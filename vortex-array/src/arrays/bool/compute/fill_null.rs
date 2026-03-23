@@ -28,11 +28,14 @@ impl FillNullKernel for Bool {
         Ok(Some(match array.validity() {
             Validity::Array(v) => {
                 let v_bool = v.clone().execute::<BoolArray>(ctx)?;
-                let bool_buffer = if fill {
-                    array.to_bit_buffer() | &!v_bool.to_bit_buffer()
+                let validity = v_bool.to_bit_buffer();
+                let mut data = array.to_bit_buffer().into_mut();
+                if fill {
+                    data.bitor_not_inplace(&validity);
                 } else {
-                    array.to_bit_buffer() & v_bool.to_bit_buffer()
-                };
+                    data.bitand_inplace(&validity);
+                }
+                let bool_buffer = data.freeze();
                 BoolArray::new(bool_buffer, fill_value.dtype().nullability().into()).into_array()
             }
             _ => unreachable!("checked in entry point"),

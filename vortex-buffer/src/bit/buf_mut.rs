@@ -643,6 +643,32 @@ impl Default for BitBufferMut {
     }
 }
 
+impl BitBufferMut {
+    /// Apply a bitwise AND in-place with the given [`BitBuffer`].
+    #[inline]
+    pub fn bitand_inplace(&mut self, rhs: &BitBuffer) {
+        ops::bitwise_binary_op_mut(self, rhs, |a, b| a & b);
+    }
+
+    /// Apply a bitwise OR in-place with the given [`BitBuffer`].
+    #[inline]
+    pub fn bitor_inplace(&mut self, rhs: &BitBuffer) {
+        ops::bitwise_binary_op_mut(self, rhs, |a, b| a | b);
+    }
+
+    /// Apply a bitwise OR-NOT in-place: `self = self | !rhs`.
+    #[inline]
+    pub fn bitor_not_inplace(&mut self, rhs: &BitBuffer) {
+        ops::bitwise_binary_op_mut(self, rhs, |a, b| a | !b);
+    }
+
+    /// Apply a bitwise AND-NOT in-place: `self = self & !rhs`.
+    #[inline]
+    pub fn bitand_not_inplace(&mut self, rhs: &BitBuffer) {
+        ops::bitwise_binary_op_mut(self, rhs, |a, b| a & !b);
+    }
+}
+
 // Mutate-in-place implementation of bitwise NOT.
 impl Not for BitBufferMut {
     type Output = BitBufferMut;

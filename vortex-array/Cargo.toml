@@ -176,5 +176,9 @@ harness = false
 name = "listview_rebuild"
 harness = false
 
+[[bench]]
+name = "bool_fill_null"
+harness = false
+
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03"]

@@ -252,6 +252,84 @@ fn bitwise_not_arrow_buffer(bencher: Bencher, length: usize) {
 }
 
 #[divan::bench(args = INPUT_SIZE)]
+fn bitwise_or_not_fused_vortex_buffer(bencher: Bencher, length: usize) {
+    let a = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| (&a, &b))
+        .bench_values(|(a, b)| a.bitor_not(b));
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn bitwise_or_not_separate_vortex_buffer(bencher: Bencher, length: usize) {
+    let a = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| (&a, &b))
+        .bench_values(|(a, b)| a | &!b);
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn bitwise_and_not_fused_vortex_buffer(bencher: Bencher, length: usize) {
+    let a = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| (&a, &b))
+        .bench_values(|(a, b)| a.bitand_not(b));
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn bitwise_and_not_separate_vortex_buffer(bencher: Bencher, length: usize) {
+    let a = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| (&a, &b))
+        .bench_values(|(a, b)| a & &!b);
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn bitwise_and_inplace_vortex_buffer(bencher: Bencher, length: usize) {
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| {
+            let a = BitBufferMut::from_iter((0..length).map(|i| i % 2 == 0));
+            (a, &b)
+        })
+        .bench_values(|(mut a, b)| {
+            a.bitand_inplace(b);
+            a
+        });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn bitwise_or_inplace_vortex_buffer(bencher: Bencher, length: usize) {
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| {
+            let a = BitBufferMut::from_iter((0..length).map(|i| i % 2 == 0));
+            (a, &b)
+        })
+        .bench_values(|(mut a, b)| {
+            a.bitor_inplace(b);
+            a
+        });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn bitwise_or_not_inplace_vortex_buffer(bencher: Bencher, length: usize) {
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| {
+            let a = BitBufferMut::from_iter((0..length).map(|i| i % 2 == 0));
+            (a, &b)
+        })
+        .bench_values(|(mut a, b)| {
+            a.bitor_not_inplace(b);
+            a
+        });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
 fn iter_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
