@@ -80,7 +80,19 @@ impl Dataset {
         }
     }
 
-    fn pattern(&self) -> &'static str {
+    fn prefix_pattern(&self) -> &'static str {
+        match self {
+            Self::Urls => "https%",
+            Self::Cb => "https://www.%",
+            Self::Log => "192.168%",
+            Self::Json => r#"{"id%"#,
+            Self::Path => "/home%",
+            Self::Email => "john%",
+            Self::Rare => "xyz%",
+        }
+    }
+
+    fn contains_pattern(&self) -> &'static str {
         match self {
             Self::Urls => "%google%",
             Self::Cb => "%yandex%",
@@ -93,15 +105,10 @@ impl Dataset {
     }
 }
 
-#[divan::bench(args = [
-    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
-    Dataset::Path, Dataset::Email, Dataset::Rare,
-])]
-fn fsst_like(bencher: Bencher, dataset: &Dataset) {
-    let fsst = dataset.fsst_array();
+fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
     let len = fsst.len();
     let arr = fsst.clone().into_array();
-    let pattern = ConstantArray::new(dataset.pattern(), len).into_array();
+    let pattern = ConstantArray::new(pattern, len).into_array();
     bencher.bench_local(|| {
         Like.try_new_array(len, LikeOptions::default(), [arr.clone(), pattern.clone()])
             .unwrap()
@@ -109,4 +116,20 @@ fn fsst_like(bencher: Bencher, dataset: &Dataset) {
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())
             .unwrap()
     });
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn fsst_prefix(bencher: Bencher, dataset: &Dataset) {
+    bench_like(bencher, dataset.fsst_array(), dataset.prefix_pattern());
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn fsst_contains(bencher: Bencher, dataset: &Dataset) {
+    bench_like(bencher, dataset.fsst_array(), dataset.contains_pattern());
 }

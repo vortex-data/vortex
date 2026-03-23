@@ -56,7 +56,11 @@ impl VTable for Bool {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Bool
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -189,14 +193,6 @@ impl VTable for Bool {
         Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
-    }
-
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -204,6 +200,14 @@ impl VTable for Bool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

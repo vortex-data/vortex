@@ -40,9 +40,9 @@ pub fn vortex_tensor::fixed_shape::FixedShapeTensor::id(&self) -> vortex_array::
 
 pub fn vortex_tensor::fixed_shape::FixedShapeTensor::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::unpack_native<'a>(&self, _ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_tensor::fixed_shape::FixedShapeTensor::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+pub fn vortex_tensor::fixed_shape::FixedShapeTensor::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
 pub struct vortex_tensor::fixed_shape::FixedShapeTensorMetadata
 
@@ -220,6 +220,6 @@ pub fn vortex_tensor::vector::Vector::id(&self) -> vortex_array::dtype::extensio
 
 pub fn vortex_tensor::vector::Vector::serialize_metadata(&self, _metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_tensor::vector::Vector::unpack_native<'a>(&self, _ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_tensor::vector::Vector::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_tensor::vector::Vector::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+pub fn vortex_tensor::vector::Vector::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>

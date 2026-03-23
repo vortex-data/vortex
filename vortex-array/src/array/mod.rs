@@ -59,7 +59,6 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::DynVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -455,11 +454,11 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
     }
 
     fn vtable(&self) -> &dyn DynVTable {
-        V::vtable()
+        V::vtable(&self.0)
     }
 
     fn encoding_id(&self) -> ArrayId {
-        V::id(&self.0)
+        V::vtable(&self.0).id()
     }
 
     fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {

@@ -275,12 +275,15 @@ where
             DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
             dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
         };
-        Ok(VarBinArray::try_new(
-            value.offsets().clone().into_array(),
-            ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
-            dtype,
-            nulls(value.nulls(), nullable),
-        )?
+        // SAFETY: Arrow arrays are already validated (valid UTF-8, valid offsets, correct validity).
+        Ok(unsafe {
+            VarBinArray::new_unchecked(
+                value.offsets().clone().into_array(),
+                ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
+                dtype,
+                nulls(value.nulls(), nullable),
+            )
+        }
         .into_array())
     }
 }

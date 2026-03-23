@@ -42,7 +42,7 @@ jobs:
           enable-sccache: "false"
 
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
+        uses: taiki-e/cache-cargo-install-action@1ce845d7672f06bdf703007779598583b6c62f61
         with:
           tool: cargo-edit
 

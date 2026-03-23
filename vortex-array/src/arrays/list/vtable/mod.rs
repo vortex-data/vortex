@@ -56,7 +56,11 @@ impl VTable for List {
     type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &List
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

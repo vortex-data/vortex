@@ -44,7 +44,11 @@ impl VTable for Shared {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Shared
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

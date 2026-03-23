@@ -14,10 +14,10 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::Distribution;
 use rand_distr::Exp;
-use vortex_bench::BenchmarkOutput;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Target;
+use vortex_bench::create_output_writer;
 use vortex_bench::datasets::feature_vectors::FeatureVectorsData;
 use vortex_bench::datasets::nested_lists::NestedListsData;
 use vortex_bench::datasets::nested_structs::NestedStructsData;
@@ -416,8 +416,7 @@ async fn run_random_access(
 
     progress.finish();
 
-    let output = BenchmarkOutput::with_path(BENCHMARK_ID, output_path);
-    let mut writer = output.create_writer()?;
+    let mut writer = create_output_writer(&display_format, output_path, BENCHMARK_ID)?;
 
     match display_format {
         DisplayFormat::Table => {

@@ -176,6 +176,18 @@ impl AggregateFnVTable for MinMax {
         AggregateFnId::new_ref("vortex.min_max")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
             DType::Bool(_)
@@ -593,6 +605,40 @@ mod tests {
             Some(MinMaxResult {
                 min: Scalar::bool(false, Nullability::NonNullable),
                 max: Scalar::bool(false, Nullability::NonNullable),
+            })
+        );
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/7074>.
+    ///
+    /// A chunked all-true bool array with an empty first chunk returned min=false because
+    /// `accumulate_bool` on the empty chunk incorrectly merged min=false,max=false into the
+    /// partial state.
+    #[test]
+    fn test_bool_chunked_with_empty_chunk() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let empty = BoolArray::new(BitBuffer::from([].as_slice()), Validity::NonNullable);
+        let chunk1 = BoolArray::new(
+            BitBuffer::from([true, true].as_slice()),
+            Validity::NonNullable,
+        );
+        let chunk2 = BoolArray::new(
+            BitBuffer::from([true, true, true].as_slice()),
+            Validity::NonNullable,
+        );
+        let chunked = ChunkedArray::try_new(
+            vec![empty.into_array(), chunk1.into_array(), chunk2.into_array()],
+            DType::Bool(Nullability::NonNullable),
+        )?;
+
+        let result = min_max(&chunked.into_array(), &mut ctx)?;
+        assert_eq!(
+            result,
+            Some(MinMaxResult {
+                min: Scalar::bool(true, Nullability::NonNullable),
+                max: Scalar::bool(true, Nullability::NonNullable),
             })
         );
         Ok(())

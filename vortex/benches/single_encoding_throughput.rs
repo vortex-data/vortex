@@ -5,6 +5,8 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(unexpected_cfgs)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
@@ -32,11 +34,17 @@ use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::sequence::sequence_encode;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::Nullability;
+use vortex_array::session::ArraySession;
 use vortex_sequence::SequenceArray;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn main() {
     divan::main();
@@ -143,7 +151,7 @@ fn bench_delta_compress_u32(bencher: Bencher) {
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &uint_array)
         .bench_refs(|a| {
-            let (bases, deltas) = delta_compress(a).unwrap();
+            let (bases, deltas) = delta_compress(a, &mut SESSION.create_execution_ctx()).unwrap();
             DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array())
                 .unwrap()
         });
@@ -152,7 +160,7 @@ fn bench_delta_compress_u32(bencher: Bencher) {
 #[divan::bench(name = "delta_decompress_u32")]
 fn bench_delta_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
-    let (bases, deltas) = delta_compress(&uint_array).unwrap();
+    let (bases, deltas) = delta_compress(&uint_array, &mut SESSION.create_execution_ctx()).unwrap();
     let compressed =
         DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array()).unwrap();
 

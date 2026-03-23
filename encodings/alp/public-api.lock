@@ -76,7 +76,7 @@ pub fn vortex_alp::ALP::execute(array: &Self::Array, ctx: &mut vortex_array::exe
 
 pub fn vortex_alp::ALP::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_alp::ALP::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_alp::ALP::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_alp::ALP::len(array: &vortex_alp::ALPArray) -> usize
 
@@ -91,6 +91,8 @@ pub fn vortex_alp::ALP::reduce_parent(array: &Self::Array, parent: &vortex_array
 pub fn vortex_alp::ALP::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_alp::ALP::stats(array: &vortex_alp::ALPArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_alp::ALP::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_alp::ALP::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
@@ -232,7 +234,7 @@ pub fn vortex_alp::ALPRD::execute(array: &Self::Array, ctx: &mut vortex_array::e
 
 pub fn vortex_alp::ALPRD::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_alp::ALPRD::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_alp::ALPRD::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_alp::ALPRD::len(array: &vortex_alp::ALPRDArray) -> usize
 
@@ -247,6 +249,8 @@ pub fn vortex_alp::ALPRD::reduce_parent(array: &Self::Array, parent: &vortex_arr
 pub fn vortex_alp::ALPRD::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_alp::ALPRD::stats(array: &vortex_alp::ALPRDArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_alp::ALPRD::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_alp::ALPRD::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 

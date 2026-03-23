@@ -39,7 +39,11 @@ impl VTable for Null {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Null
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

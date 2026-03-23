@@ -13,6 +13,7 @@ mod device_buffer;
 mod device_read_at;
 pub mod dynamic_dispatch;
 pub mod executor;
+pub mod hybrid_dispatch;
 mod kernel;
 pub mod layout;
 mod pinned;

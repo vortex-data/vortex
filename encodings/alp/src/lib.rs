@@ -29,8 +29,8 @@ mod alp_rd;
 
 /// Initialize ALP encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(ALP::ID, ALP);
-    session.arrays().register(ALPRD::ID, ALPRD);
+    session.arrays().register(ALP);
+    session.arrays().register(ALPRD);
 
     // Register the ALP-specific NaN count aggregate kernel.
     session.aggregate_fns().register_aggregate_kernel(

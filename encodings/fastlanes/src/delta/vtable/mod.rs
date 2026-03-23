@@ -22,7 +22,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -54,9 +53,13 @@ impl VTable for Delta {
     type Metadata = ProstMetadata<DeltaMetadata>;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromChildSliceHelper;
+    type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Delta
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

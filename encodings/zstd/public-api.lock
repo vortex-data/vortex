@@ -48,7 +48,7 @@ pub fn vortex_zstd::Zstd::dtype(array: &vortex_zstd::ZstdArray) -> &vortex_array
 
 pub fn vortex_zstd::Zstd::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
 
-pub fn vortex_zstd::Zstd::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_zstd::Zstd::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_zstd::Zstd::len(array: &vortex_zstd::ZstdArray) -> usize
 
@@ -63,6 +63,8 @@ pub fn vortex_zstd::Zstd::reduce_parent(array: &Self::Array, parent: &vortex_arr
 pub fn vortex_zstd::Zstd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_zstd::Zstd::stats(array: &vortex_zstd::ZstdArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_zstd::Zstd::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_zstd::Zstd::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 

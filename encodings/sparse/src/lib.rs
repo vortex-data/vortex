@@ -80,7 +80,11 @@ impl VTable for Sparse {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Sparse
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 

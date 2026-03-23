@@ -62,7 +62,7 @@ impl<V: ExtVTable> ExtDType<V> {
             storage_dtype,
         };
 
-        this.vtable.validate_dtype(&this)?;
+        V::validate_dtype(&this)?;
 
         Ok(this)
     }
@@ -182,7 +182,7 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
     }
 
     fn value_validate(&self, storage_value: &ScalarValue) -> VortexResult<()> {
-        self.vtable.validate_scalar_value(self, storage_value)
+        V::validate_scalar_value(self, storage_value)
     }
 
     fn value_display(
@@ -190,7 +190,7 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
         f: &mut fmt::Formatter<'_>,
         storage_value: &ScalarValue,
     ) -> fmt::Result {
-        match self.vtable.unpack_native(self, storage_value) {
+        match V::unpack_native(self, storage_value) {
             Ok(native) => fmt::Display::fmt(&native, f),
             Err(_) => write!(
                 f,
@@ -202,14 +202,14 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
     }
 
     fn coercion_can_coerce_from(&self, other: &DType) -> bool {
-        self.vtable.can_coerce_from(self, other)
+        V::can_coerce_from(self, other)
     }
 
     fn coercion_can_coerce_to(&self, other: &DType) -> bool {
-        self.vtable.can_coerce_to(self, other)
+        V::can_coerce_to(self, other)
     }
 
     fn coercion_least_supertype(&self, other: &DType) -> Option<DType> {
-        self.vtable.least_supertype(self, other)
+        V::least_supertype(self, other)
     }
 }

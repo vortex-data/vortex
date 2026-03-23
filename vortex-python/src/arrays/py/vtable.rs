@@ -32,21 +32,27 @@ use vortex::session::VortexSession;
 
 use crate::arrays::py::PythonArray;
 
-vtable!(Python);
+vtable!(Python, PythonVTable);
 
 /// Wrapper struct encapsulating a Python encoding.
-#[derive(Debug)]
-pub struct Python;
+#[derive(Debug, Clone)]
+pub struct PythonVTable {
+    pub id: ArrayId,
+}
 
-impl VTable for Python {
+impl VTable for PythonVTable {
     type Array = PythonArray;
 
     type Metadata = RawMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(array: &Self::Array) -> ArrayId {
-        array.id.clone()
+    fn vtable(array: &Self::Array) -> &Self {
+        &array.vtable
+    }
+
+    fn id(&self) -> ArrayId {
+        self.id.clone()
     }
 
     fn len(array: &PythonArray) -> usize {
@@ -63,14 +69,14 @@ impl VTable for Python {
 
     fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
         Arc::as_ptr(&array.object).hash(state);
-        array.id.hash(state);
+        array.vtable.id.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
     }
 
     fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
-            && array.id == other.id
+            && array.vtable.id == other.vtable.id // TODO(ngates): in the future this check is already done
             && array.len == other.len
             && array.dtype == other.dtype
     }
@@ -100,7 +106,7 @@ impl VTable for Python {
     }
 
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
-        pyo3::Python::attach(|py| {
+        Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj
                 .hasattr(intern!(py, "metadata"))
@@ -160,13 +166,13 @@ impl VTable for Python {
     }
 }
 
-impl OperationsVTable<Python> for Python {
+impl OperationsVTable<PythonVTable> for PythonVTable {
     fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
         todo!()
     }
 }
 
-impl ValidityVTable<Python> for Python {
+impl ValidityVTable<PythonVTable> for PythonVTable {
     fn validity(_array: &PythonArray) -> VortexResult<Validity> {
         todo!()
     }
