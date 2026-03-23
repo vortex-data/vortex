@@ -441,6 +441,7 @@ impl SqlBenchmarkRunner {
     ///
     /// Same semantics as `run_all` but for async execute callbacks.
     /// Use `Box::pin(async move { ... })` in the closure.
+    #[expect(cognitive_complexity)]
     pub async fn run_all_async<Ctx, R, S, SFut, E>(
         &mut self,
         queries: &[(usize, String)],
