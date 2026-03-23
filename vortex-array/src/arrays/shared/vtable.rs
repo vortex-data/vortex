@@ -33,7 +33,7 @@ vtable!(Shared);
 
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Shared;
 
 impl Shared {

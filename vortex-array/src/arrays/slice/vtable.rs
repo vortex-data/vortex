@@ -40,7 +40,7 @@ use crate::vtable::ValidityVTable;
 
 vtable!(Slice);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Slice;
 
 impl Slice {

@@ -243,7 +243,7 @@ impl VTable for RLE {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RLE;
 
 impl RLE {

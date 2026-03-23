@@ -45,7 +45,7 @@ mod validity;
 
 vtable!(Constant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Constant;
 
 impl Constant {

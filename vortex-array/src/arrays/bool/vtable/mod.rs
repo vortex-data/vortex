@@ -211,7 +211,7 @@ impl VTable for Bool {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Bool;
 
 impl Bool {

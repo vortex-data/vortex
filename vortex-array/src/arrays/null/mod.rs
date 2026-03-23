@@ -174,7 +174,7 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Null;
 
 impl Null {

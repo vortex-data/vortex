@@ -41,7 +41,7 @@ use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 vtable!(Masked);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Masked;
 
 impl Masked {

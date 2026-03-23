@@ -232,7 +232,7 @@ impl VTable for List {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct List;
 
 impl List {

@@ -39,7 +39,7 @@ mod operations;
 mod validity;
 vtable!(ListView);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ListView;
 
 impl ListView {

@@ -41,7 +41,7 @@ use crate::vtable::ValidityVTable;
 
 vtable!(Filter);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Filter;
 
 impl Filter {

@@ -37,7 +37,7 @@ mod validity;
 
 vtable!(FixedSizeList);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FixedSizeList;
 
 impl FixedSizeList {

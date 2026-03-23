@@ -45,7 +45,7 @@ mod validity;
 
 vtable!(Dict);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Dict;
 
 impl Dict {

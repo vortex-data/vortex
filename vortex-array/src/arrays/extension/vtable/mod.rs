@@ -179,7 +179,7 @@ impl VTable for Extension {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Extension;
 
 impl Extension {

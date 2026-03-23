@@ -333,7 +333,7 @@ impl Executable for ArrayRef {
 ///
 /// Extracts the vtable before consuming the array to avoid borrow conflicts.
 fn execute_step(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-    let vtable = array.vtable();
+    let vtable = array.vtable().clone_boxed();
     vtable.execute(array, ctx)
 }
 

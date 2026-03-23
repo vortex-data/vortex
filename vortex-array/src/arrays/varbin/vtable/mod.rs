@@ -231,7 +231,7 @@ impl VTable for VarBin {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarBin;
 
 impl VarBin {

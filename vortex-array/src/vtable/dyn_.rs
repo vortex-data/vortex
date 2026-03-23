@@ -2,27 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use arcref::ArcRef;
+use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
+use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::executor::ExecutionCtx;
+use crate::serde::ArrayChildren;
+use crate::vtable::VTable;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionResult;
 use crate::ExecutionStep;
 use crate::IntoArray;
-use crate::buffer::BufferHandle;
-use crate::dtype::DType;
-use crate::executor::ExecutionCtx;
-use crate::serde::ArrayChildren;
-use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
@@ -35,6 +33,9 @@ pub type DynVTableRef = Arc<dyn DynVTable>;
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`DynArray`] trait API to a minimum.
 pub trait DynVTable: 'static + Send + Sync + Debug {
+    /// Clone this vtable into a `Box<dyn DynVTable>`.
+    fn clone_boxed(&self) -> Box<dyn DynVTable>;
+
     #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
@@ -73,6 +74,10 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
 }
 
 impl<V: VTable> DynVTable for V {
+    fn clone_boxed(&self) -> Box<dyn DynVTable> {
+        Box::new(self.clone())
+    }
+
     fn build(
         &self,
         _id: ArrayId,
@@ -230,35 +235,4 @@ pub(crate) fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
     // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
     let raw = Arc::into_raw(array) as *const ArrayAdapter<V>;
     unsafe { Arc::from_raw(raw) }
-}
-
-impl<V: VTable> Debug for ArrayVTableAdapter<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Encoding<{}>", type_name::<V>())
-    }
-}
-
-impl<V: VTable> From<V> for &'static dyn DynVTable {
-    fn from(_vtable: V) -> Self {
-        const { &ArrayVTableAdapter::<V>(PhantomData) }
-    }
-}
-
-pub trait ArrayVTableExt {
-    /// Wraps the vtable into an [`DynVTable`] by static reference.
-    fn vtable() -> &'static dyn DynVTable;
-}
-
-impl<V: VTable> ArrayVTableExt for V {
-    fn vtable() -> &'static dyn DynVTable {
-        const { &ArrayVTableAdapter::<V>(PhantomData) }
-    }
-}
-
-mod private {
-    use super::ArrayVTableAdapter;
-    use crate::vtable::VTable;
-
-    pub trait Sealed {}
-    impl<V: VTable> Sealed for ArrayVTableAdapter<V> {}
 }

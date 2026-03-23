@@ -31,7 +31,7 @@ use crate::vtable::VTable;
 
 vtable!(Variant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Variant;
 
 impl Variant {
