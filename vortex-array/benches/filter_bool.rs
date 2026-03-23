@@ -1,0 +1,351 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Benchmarks for filtering BoolArray by a boolean mask.
+//!
+//! Tests multiple mask patterns (mostly-true, mostly-false, random, correlated runs)
+//! with both uniform-random and power-law distributions, across array sizes from 1K to 500K.
+
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_precision_loss)]
+
+use divan::Bencher;
+use rand::prelude::*;
+use rand_distr::Zipf;
+use vortex_array::arrays::BoolArray;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::get_bit;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
+
+fn main() {
+    divan::main();
+}
+
+const SIZES: &[usize] = &[1_000, 10_000, 100_000, 500_000];
+const DENSITY_SWEEP_SIZE: usize = 100_000;
+
+// --- Mask generators ---
+
+/// Mostly-true mask: ~90% true bits.
+fn make_mostly_true(len: usize, rng: &mut StdRng) -> Mask {
+    Mask::from_buffer(BitBuffer::from_iter(
+        (0..len).map(|_| rng.random_ratio(9, 10)),
+    ))
+}
+
+/// Mostly-false mask: ~10% true bits.
+fn make_mostly_false(len: usize, rng: &mut StdRng) -> Mask {
+    Mask::from_buffer(BitBuffer::from_iter(
+        (0..len).map(|_| rng.random_ratio(1, 10)),
+    ))
+}
+
+/// Random 50/50 mask.
+fn make_random(len: usize, rng: &mut StdRng) -> Mask {
+    Mask::from_buffer(BitBuffer::from_iter((0..len).map(|_| rng.random_bool(0.5))))
+}
+
+/// Correlated runs: alternating runs of true/false with geometrically distributed lengths.
+fn make_correlated_runs(len: usize, rng: &mut StdRng) -> Mask {
+    let mut bits = Vec::with_capacity(len);
+    let mut current = true;
+    while bits.len() < len {
+        // Average run length ~64
+        let run_len = (rng.random::<f64>().ln() / (1.0_f64 - 1.0 / 64.0).ln()) as usize + 1;
+        let run_len = run_len.min(len - bits.len());
+        bits.extend(std::iter::repeat_n(current, run_len));
+        current = !current;
+    }
+    Mask::from_buffer(BitBuffer::from_iter(bits))
+}
+
+/// Power-law (Zipfian) mask: indices chosen from a Zipf distribution, so lower indices are
+/// much more likely to be selected.
+fn make_power_law(len: usize, rng: &mut StdRng) -> Mask {
+    let zipf = Zipf::new(len as f64, 1.0).unwrap();
+    let num_selected = len / 2;
+    let mut indices: Vec<usize> = rng
+        .sample_iter(&zipf)
+        .take(num_selected * 2)
+        .map(|v: f64| (v as usize).saturating_sub(1).min(len - 1))
+        .collect();
+    indices.sort_unstable();
+    indices.dedup();
+    indices.truncate(num_selected);
+    Mask::from_indices(len, indices)
+}
+
+/// Mask with exact density: fraction of bits set to true.
+fn make_density_mask(len: usize, density: f64, rng: &mut StdRng) -> Mask {
+    Mask::from_buffer(BitBuffer::from_iter(
+        (0..len).map(|_| rng.random_bool(density)),
+    ))
+}
+
+/// Dense runs mask: long runs of true with rare false gaps.
+fn make_dense_runs(len: usize, false_rate: f64, rng: &mut StdRng) -> Mask {
+    let mut bits = Vec::with_capacity(len);
+    let mut current = true;
+    while bits.len() < len {
+        let avg_run = if current {
+            (1.0 / false_rate).max(1.0)
+        } else {
+            2.0
+        };
+        let run_len = (rng.random::<f64>().ln() / (1.0 - 1.0 / avg_run).ln()).max(1.0) as usize;
+        let run_len = run_len.min(len - bits.len());
+        bits.extend(std::iter::repeat_n(current, run_len));
+        current = !current;
+    }
+    Mask::from_buffer(BitBuffer::from_iter(bits))
+}
+
+/// Single contiguous block of true values (best case for slice path).
+fn make_single_slice(len: usize, density: f64) -> Mask {
+    let true_count = (len as f64 * density) as usize;
+    let start = (len - true_count) / 2;
+    Mask::from_indices(len, (start..start + true_count).collect())
+}
+
+// --- Source array generators ---
+
+fn make_random_bool_array(len: usize, rng: &mut StdRng) -> BoolArray {
+    BoolArray::from_iter((0..len).map(|_| rng.random_bool(0.5)))
+}
+
+fn make_power_law_bool_array(len: usize, rng: &mut StdRng) -> BoolArray {
+    let zipf = Zipf::new(len as f64, 1.0).unwrap();
+    BoolArray::from_iter((0..len).map(|i| {
+        let threshold: f64 = rng.sample(zipf);
+        (i as f64) < threshold
+    }))
+}
+
+// --- Benchmarks: Random source array ---
+
+#[divan::bench(args = SIZES)]
+fn filter_random_by_mostly_true(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mask = make_mostly_true(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_random_by_mostly_false(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mask = make_mostly_false(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_random_by_random(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mask = make_random(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_random_by_correlated_runs(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mask = make_correlated_runs(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_random_by_power_law(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mask = make_power_law(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+// --- Benchmarks: Power-law source array ---
+
+#[divan::bench(args = SIZES)]
+fn filter_powerlaw_by_mostly_true(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_power_law_bool_array(n, &mut rng);
+    let mask = make_mostly_true(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_power_law_bool_array(n, &mut rng);
+    let mask = make_mostly_false(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_power_law_bool_array(n, &mut rng);
+    let mask = make_random(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_power_law_bool_array(n, &mut rng);
+    let mask = make_correlated_runs(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = SIZES)]
+fn filter_powerlaw_by_power_law(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_power_law_bool_array(n, &mut rng);
+    let mask = make_power_law(n, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+// --- Density sweep ---
+
+const DENSITIES: &[f64] = &[
+    0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.5, 0.9, 0.95, 0.99, 0.999, 0.9999,
+];
+
+#[divan::bench(args = DENSITIES)]
+fn density_sweep_random(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
+    let mask = make_density_mask(DENSITY_SWEEP_SIZE, density, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = DENSITIES)]
+fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
+    let false_rate = 1.0 - density;
+    let mask = make_dense_runs(DENSITY_SWEEP_SIZE, false_rate.max(0.0001), &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = DENSITIES)]
+fn density_sweep_single_slice(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
+    let mask = make_single_slice(DENSITY_SWEEP_SIZE, density);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+// --- Extreme cases ---
+
+const LARGE_SIZES: &[usize] = &[10_000, 100_000, 500_000];
+
+#[divan::bench(args = LARGE_SIZES)]
+fn filter_all_true(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mask = Mask::new_true(n);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = LARGE_SIZES)]
+fn filter_one_false(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mut bits: Vec<bool> = vec![true; n];
+    bits[n / 2] = false;
+    let mask = Mask::from_buffer(BitBuffer::from_iter(bits));
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+#[divan::bench(args = LARGE_SIZES)]
+fn filter_ultra_sparse(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(n, &mut rng);
+    let mask = make_density_mask(n, 0.0001, &mut rng);
+    bencher
+        .with_inputs(|| mask.clone())
+        .bench_values(|m| array.filter(m).unwrap());
+}
+
+// --- Head-to-head: old slice/index path vs current implementation ---
+// These replicate the old approach inline, for comparison against
+// the current FilterReduce implementation.
+
+const DENSITY_THRESHOLD: f64 = 0.8;
+
+/// Old approach: index-based or slice-based depending on density threshold.
+fn old_filter(src: &BitBuffer, mask: &Mask, true_count: usize) -> BitBuffer {
+    let mask_values = mask.values().unwrap();
+    match mask_values.threshold_iter(DENSITY_THRESHOLD) {
+        MaskIter::Indices(indices) => {
+            let buffer = src.inner().as_ref();
+            BitBuffer::collect_bool(true_count, |_idx| {
+                let idx = indices[_idx];
+                get_bit(buffer, src.offset() + idx)
+            })
+        }
+        MaskIter::Slices(slices) => {
+            let mut builder = BitBufferMut::with_capacity(true_count);
+            for &(start, end) in slices {
+                builder.append_buffer(&src.slice(start..end));
+            }
+            builder.freeze()
+        }
+    }
+}
+
+#[divan::bench(args = DENSITIES)]
+fn head_to_head_old(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let src = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(0.5)));
+    let mask_buf = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(density)));
+    let true_count = mask_buf.iter().filter(|b| *b).count();
+    bencher
+        .with_inputs(|| Mask::from_buffer(mask_buf.clone()))
+        .bench_values(|m| old_filter(&src, &m, true_count));
+}
+
+#[divan::bench(args = DENSITIES)]
+fn head_to_head_new(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut rng);
+    let mask_buf = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(density)));
+    bencher
+        .with_inputs(|| Mask::from_buffer(mask_buf.clone()))
+        .bench_values(|m| array.filter(m).unwrap());
+}
