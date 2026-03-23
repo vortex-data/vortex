@@ -17,6 +17,7 @@ use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
 use datafusion_common::stats::Precision;
+use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
 use datafusion_expr::TableType;
@@ -78,7 +79,7 @@ impl TableProvider for VortexTable {
         _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         _filters: &[Expr],
-        _limit: Option<usize>,
+        limit: Option<usize>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         // Construct the physical node representing this table.
         let data_source = VortexDataSource::builder(self.data_source.clone(), self.session.clone())
@@ -91,14 +92,14 @@ impl TableProvider for VortexTable {
             //     the physical filters later.
             //  2. There's nothing useful we can do with filters now to reduce the amount of work
             //     we have to do.
-            //
-            // We also don't push down the limit for the same reason, there's nothing useful we
-            // can do with it.
             .build()
             .await
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let data_source = data_source
+            .with_fetch(limit)
+            .unwrap_or_else(|| Arc::new(data_source) as Arc<_>);
 
-        Ok(DataSourceExec::from_data_source(data_source))
+        Ok(Arc::new(DataSourceExec::new(data_source)))
     }
 
     /// Returns statistics for the full table, prior to any projection.
@@ -131,5 +132,82 @@ impl TableProvider for VortexTable {
             total_byte_size,
             column_statistics,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use datafusion::prelude::SessionContext;
+    use datafusion_catalog::TableProvider;
+    use datafusion_common::Result as DFResult;
+    use datafusion_datasource::source::DataSourceExec;
+    use vortex::VortexSessionDefault;
+    use vortex::array::stats::StatsSet;
+    use vortex::dtype::DType;
+    use vortex::dtype::FieldPath;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    use vortex::error::VortexResult;
+    use vortex::expr::stats::Precision;
+    use vortex::scan::api::DataSourceScanRef;
+    use vortex::scan::api::ScanRequest;
+    use vortex::session::VortexSession;
+
+    use super::*;
+
+    struct MockVortexDataSource {
+        dtype: DType,
+    }
+
+    #[async_trait]
+    impl vortex::scan::api::DataSource for MockVortexDataSource {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> Option<Precision<u64>> {
+            Some(Precision::Exact(10))
+        }
+
+        async fn scan(&self, _scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+            unreachable!("scan is not exercised in this unit test")
+        }
+
+        async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+            Ok(StatsSet::default())
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_pushes_limit_into_data_source_exec() -> DFResult<()> {
+        let arrow_schema = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "a",
+            arrow_schema::DataType::Int32,
+            true,
+        )]));
+        let dtype = DType::Struct(
+            StructFields::from_iter([("a", DType::Primitive(PType::I32, Nullability::Nullable))]),
+            Nullability::NonNullable,
+        );
+        let table = VortexTable::new(
+            Arc::new(MockVortexDataSource { dtype }),
+            VortexSession::default(),
+            arrow_schema,
+        );
+
+        let ctx = SessionContext::new();
+        let state = ctx.state();
+        let plan = table.scan(&state, None, &[], Some(7)).await?;
+        let exec = plan
+            .as_any()
+            .downcast_ref::<DataSourceExec>()
+            .expect("expected DataSourceExec");
+
+        assert_eq!(exec.data_source().fetch(), Some(7));
+        Ok(())
     }
 }

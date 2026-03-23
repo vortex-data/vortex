@@ -10029,6 +10029,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "object_store",
+ "roaring 0.11.3",
  "rstest",
  "tempfile",
  "tokio",

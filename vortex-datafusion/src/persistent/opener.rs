@@ -10,7 +10,6 @@ use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
-use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -30,18 +29,25 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
+use vortex::error::VortexResult;
+use vortex::expr::Expression;
+use vortex::expr::not;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
+use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::scan::ScanBuilder;
+use vortex::scan::Selection;
+use vortex::scan::SplitBy;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -56,6 +62,13 @@ use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SplitMatch {
+    NoMatch,
+    FullMatch(u64),
+    Unknown,
+}
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -296,23 +309,6 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
-
-            if let Some(extensions) = file.extensions
-                && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
-            {
-                scan_builder = vortex_plan.apply_to_builder(scan_builder);
-            }
-
-            if let Some(file_range) = file.range {
-                scan_builder = apply_byte_range(
-                    file_range,
-                    file.object_meta.size,
-                    vxf.row_count(),
-                    scan_builder,
-                );
-            }
-
             let filter = filter
                 .and_then(|f| {
                     // Verify that all filters we've accepted from DataFusion get pushed down.
@@ -346,9 +342,40 @@ impl FileOpener for VortexOpener {
                 })
                 .transpose()?;
 
-            if let Some(limit) = limit
-                && filter.is_none()
+            let file_row_range = file.range.map(|file_range| {
+                byte_range_to_row_range(
+                    file_range.start as u64..file_range.end as u64,
+                    vxf.row_count(),
+                    file.object_meta.size,
+                )
+            });
+
+            let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader.clone());
+
+            let precomputed_plan = file
+                .extensions
+                .as_ref()
+                .and_then(|extensions| extensions.downcast_ref::<VortexAccessPlan>());
+            if let Some(vortex_plan) = precomputed_plan {
+                scan_builder = vortex_plan.apply_to_builder(scan_builder);
+            } else if let (Some(filter), Some(limit)) = (filter.as_ref(), limit)
+                && let Some(selection) = limit_pruning_selection(
+                    layout_reader.as_ref(),
+                    filter,
+                    file_row_range.as_ref(),
+                    limit,
+                    has_output_ordering,
+                )
+                .map_err(|e| exec_datafusion_err!("Failed to plan limited Vortex scan: {e}"))?
             {
+                scan_builder = scan_builder.with_selection(selection);
+            }
+
+            if let Some(file_row_range) = file_row_range {
+                scan_builder = scan_builder.with_row_range(file_row_range);
+            }
+
+            if let Some(limit) = limit {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
@@ -415,20 +442,124 @@ impl FileOpener for VortexOpener {
     }
 }
 
-/// If the file has a [`FileRange`], we translate it into a row range in the file for the scan.
-fn apply_byte_range(
-    file_range: FileRange,
-    total_size: u64,
-    row_count: u64,
-    scan_builder: ScanBuilder<ArrayRef>,
-) -> ScanBuilder<ArrayRef> {
-    let row_range = byte_range_to_row_range(
-        file_range.start as u64..file_range.end as u64,
-        row_count,
-        total_size,
-    );
+fn limit_pruning_selection(
+    layout_reader: &dyn LayoutReader,
+    filter: &Expression,
+    row_range: Option<&Range<u64>>,
+    limit: u64,
+    ordered: bool,
+) -> VortexResult<Option<Selection>> {
+    let scan_range = row_range
+        .cloned()
+        .unwrap_or_else(|| 0..layout_reader.row_count());
+    if scan_range.is_empty() {
+        return Ok(Some(Selection::IncludeRoaring(Default::default())));
+    }
 
-    scan_builder.with_row_range(row_range)
+    let split_points = SplitBy::Layout.splits(layout_reader, &scan_range, &[FieldMask::All])?;
+    let split_ranges = split_points
+        .iter()
+        .copied()
+        .tuple_windows()
+        .map(|(start, end)| start..end)
+        .collect::<Vec<_>>();
+    if split_ranges.is_empty() {
+        return Ok(None);
+    }
+
+    let negated_filter = not(filter.clone()).optimize_recursive(layout_reader.dtype())?;
+    let mut selected_rows = roaring::RoaringTreemap::new();
+    let mut changed = false;
+
+    if ordered {
+        let mut remaining = limit;
+        for (idx, split_range) in split_ranges.iter().enumerate() {
+            match classify_split(layout_reader, split_range, filter, &negated_filter)? {
+                SplitMatch::NoMatch => changed = true,
+                SplitMatch::Unknown => {
+                    selected_rows.insert_range(split_range.clone());
+                }
+                SplitMatch::FullMatch(rows) => {
+                    let rows_to_keep = remaining.min(rows);
+                    selected_rows
+                        .insert_range(split_range.start..(split_range.start + rows_to_keep));
+                    changed |= rows_to_keep != rows;
+                    remaining = remaining.saturating_sub(rows_to_keep);
+                    if remaining == 0 {
+                        changed |= idx + 1 != split_ranges.len();
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        let mut remaining = limit;
+        let mut full_ranges = Vec::new();
+        let mut unknown_ranges = Vec::new();
+
+        for split_range in &split_ranges {
+            match classify_split(layout_reader, split_range, filter, &negated_filter)? {
+                SplitMatch::NoMatch => changed = true,
+                SplitMatch::Unknown => unknown_ranges.push(split_range.clone()),
+                SplitMatch::FullMatch(rows) => {
+                    let rows_to_keep = remaining.min(rows);
+                    full_ranges.push(split_range.start..(split_range.start + rows_to_keep));
+                    changed |= rows_to_keep != rows;
+                    remaining = remaining.saturating_sub(rows_to_keep);
+                    if remaining == 0 {
+                        for range in full_ranges {
+                            selected_rows.insert_range(range);
+                        }
+                        return Ok(Some(Selection::IncludeRoaring(selected_rows)));
+                    }
+                }
+            }
+        }
+
+        for range in full_ranges.into_iter().chain(unknown_ranges) {
+            selected_rows.insert_range(range);
+        }
+    }
+
+    if !changed {
+        return Ok(None);
+    }
+
+    Ok(Some(Selection::IncludeRoaring(selected_rows)))
+}
+
+fn classify_split(
+    layout_reader: &dyn LayoutReader,
+    split_range: &Range<u64>,
+    filter: &Expression,
+    negated_filter: &Expression,
+) -> VortexResult<SplitMatch> {
+    let row_count = usize::try_from(split_range.end - split_range.start).unwrap_or(usize::MAX);
+    let mask = Mask::new_true(row_count);
+
+    let filter_mask = match layout_reader
+        .pruning_evaluation(split_range, filter, mask.clone())?
+        .now_or_never()
+    {
+        Some(mask) => mask?,
+        None => return Ok(SplitMatch::Unknown),
+    };
+    if filter_mask.all_false() {
+        return Ok(SplitMatch::NoMatch);
+    }
+
+    let negated_mask = match layout_reader
+        .pruning_evaluation(split_range, negated_filter, mask)?
+        .now_or_never()
+    {
+        Some(mask) => mask?,
+        None => return Ok(SplitMatch::Unknown),
+    };
+    if negated_mask.all_false() {
+        return Ok(SplitMatch::FullMatch(split_range.end - split_range.start));
+    }
+
+    Ok(SplitMatch::Unknown)
 }
 
 fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u64) -> Range<u64> {
@@ -474,12 +605,26 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayRef;
+    use vortex::array::MaskFuture;
     use vortex::array::arrow::FromArrowArray;
     use vortex::buffer::Buffer;
+    use vortex::dtype::DType;
+    use vortex::dtype::FieldMask;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::error::VortexExpect;
+    use vortex::expr::eq;
+    use vortex::expr::lit as vx_lit;
+    use vortex::expr::root;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
+    use vortex::layout::ArrayFuture;
+    use vortex::layout::LayoutReader;
+    use vortex::mask::Mask;
     use vortex::metrics::DefaultMetricsRegistry;
+    use vortex::scalar_fn::fns::not::Not;
     use vortex::scan::Selection;
     use vortex::session::VortexSession;
 
@@ -489,6 +634,105 @@ mod tests {
     use crate::persistent::reader::DefaultVortexReaderFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+
+    #[derive(Debug)]
+    struct PruningLayoutReader {
+        dtype: DType,
+        row_count: u64,
+        split_points: Vec<u64>,
+        full_match_starts: Vec<u64>,
+        no_match_starts: Vec<u64>,
+    }
+
+    impl PruningLayoutReader {
+        fn new(
+            row_count: u64,
+            split_points: Vec<u64>,
+            full_match_starts: Vec<u64>,
+            no_match_starts: Vec<u64>,
+        ) -> Self {
+            Self {
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count,
+                split_points,
+                full_match_starts,
+                no_match_starts,
+            }
+        }
+    }
+
+    impl LayoutReader for PruningLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            static NAME: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("pruning"));
+            &NAME
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut std::collections::BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            for split in &self.split_points {
+                if row_range.contains(split) || *split == row_range.end {
+                    splits.insert(*split);
+                }
+            }
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            expr: &Expression,
+            _mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            let is_negated = expr.is::<Not>();
+            let all_false = if is_negated {
+                self.full_match_starts.contains(&row_range.start)
+            } else {
+                self.no_match_starts.contains(&row_range.start)
+            };
+            let mask = if all_false {
+                Mask::new_false(
+                    usize::try_from(row_range.end - row_range.start)
+                        .vortex_expect("range doesn't fit in usize"),
+                )
+            } else {
+                Mask::new_true(
+                    usize::try_from(row_range.end - row_range.start)
+                        .vortex_expect("range doesn't fit in usize"),
+                )
+            };
+            Ok(MaskFuture::ready(mask))
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            unreachable!("not used by limit_pruning_selection tests")
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            unreachable!("not used by limit_pruning_selection tests")
+        }
+    }
 
     #[rstest]
     #[case(0..100, 100, 100, 0..100)]
@@ -619,6 +863,37 @@ mod tests {
         assert_eq!((num_batches, num_rows), (0, 0));
 
         Ok(())
+    }
+
+    #[test]
+    fn ordered_limit_pruning_selection_keeps_prefix() {
+        let reader = PruningLayoutReader::new(6, vec![2, 4, 6], vec![0], vec![4]);
+        let selection = limit_pruning_selection(&reader, &eq(root(), vx_lit(1_i32)), None, 2, true)
+            .unwrap()
+            .unwrap();
+
+        match selection {
+            Selection::IncludeRoaring(rows) => {
+                assert_eq!(rows.iter().collect::<Vec<_>>(), vec![0, 1]);
+            }
+            other => panic!("expected roaring selection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unordered_limit_pruning_selection_prefers_full_matches() {
+        let reader = PruningLayoutReader::new(6, vec![2, 4, 6], vec![2, 4], vec![]);
+        let selection =
+            limit_pruning_selection(&reader, &eq(root(), vx_lit(1_i32)), None, 3, false)
+                .unwrap()
+                .unwrap();
+
+        match selection {
+            Selection::IncludeRoaring(rows) => {
+                assert_eq!(rows.iter().collect::<Vec<_>>(), vec![2, 3, 4]);
+            }
+            other => panic!("expected roaring selection, got {other:?}"),
+        }
     }
 
     #[rstest]

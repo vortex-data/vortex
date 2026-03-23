@@ -26,6 +26,7 @@ use vortex_session::VortexSession;
 use crate::filter::FilterExpr;
 use crate::selection::Selection;
 use crate::splits::Splits;
+use crate::tasks::RemainingBudget;
 use crate::tasks::TaskContext;
 use crate::tasks::split_exec;
 
@@ -121,11 +122,17 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        let remaining_budget = self
+            .filter
+            .as_ref()
+            .zip(self.limit)
+            .map(|(_, limit)| Arc::new(RemainingBudget::new(limit)));
         let ctx = Arc::new(TaskContext {
             selection: self.selection.clone(),
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: self.layout_reader.clone(),
             projection: self.projection.clone(),
+            remaining_budget,
             mapper: self.map_fn.clone(),
         });
 
@@ -172,11 +179,16 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 continue;
             }
 
-            if limit.is_some_and(|l| l == 0) {
+            if self.filter.is_none() && limit.is_some_and(|l| l == 0) {
                 break;
             }
 
-            tasks.push(split_exec(ctx.clone(), range, limit.as_mut())?);
+            let eager_limit = if self.filter.is_none() {
+                limit.as_mut()
+            } else {
+                None
+            };
+            tasks.push(split_exec(ctx.clone(), range, eager_limit)?);
         }
 
         Ok(tasks)
@@ -190,7 +202,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
-        let concurrency = self.concurrency * num_workers;
+        let concurrency = self.effective_concurrency(num_workers);
         let handle = self.session.handle();
 
         let stream =
@@ -203,6 +215,15 @@ impl<A: 'static + Send> RepeatedScan<A> {
         };
 
         Ok(stream.filter_map(|chunk| async move { chunk.transpose() }))
+    }
+
+    pub(crate) fn effective_concurrency(&self, num_workers: usize) -> usize {
+        if self.ordered && self.filter.is_some() && self.limit.is_some() {
+            // Ordered filter+limit must consume the shared post-filter budget in split order.
+            1
+        } else {
+            self.concurrency * num_workers
+        }
     }
 }
 

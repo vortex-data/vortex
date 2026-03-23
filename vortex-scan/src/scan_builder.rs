@@ -30,7 +30,6 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
@@ -240,10 +239,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
 
-        if self.filter.is_some() && self.limit.is_some() {
-            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
-        }
-
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
@@ -370,7 +365,13 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = std::thread::available_parallelism()
                         .map(|n| n.get())
                         .unwrap_or(1);
-                    let concurrency = builder.concurrency * num_workers;
+                    let concurrency =
+                        if ordered && builder.filter.is_some() && builder.limit.is_some() {
+                            // Ordered filter+limit must consume the shared post-filter budget in split order.
+                            1
+                        } else {
+                            builder.concurrency * num_workers
+                        };
                     let handle = builder.session.handle();
                     let task = handle.spawn_blocking(move || {
                         builder.prepare().and_then(|scan| scan.execute(None))
@@ -464,6 +465,7 @@ mod test {
     use futures::Stream;
     use futures::task::noop_waker_ref;
     use parking_lot::Mutex;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -473,15 +475,20 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_layout::ArrayFuture;
     use vortex_layout::LayoutReader;
+    use vortex_mask::AllOr;
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
+    use crate::Selection;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -651,6 +658,147 @@ mod test {
         }
     }
 
+    #[derive(Debug)]
+    struct FilteringLayoutReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+        split_points: Vec<u64>,
+        matching_rows: Vec<u64>,
+    }
+
+    impl FilteringLayoutReader {
+        fn new(row_count: u64, split_points: Vec<u64>, matching_rows: Vec<u64>) -> Self {
+            Self {
+                name: Arc::from("filtering"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count,
+                split_points,
+                matching_rows,
+            }
+        }
+
+        fn apply_mask(&self, row_range: &Range<u64>, mask: &Mask) -> Mask {
+            let row_count = usize::try_from(row_range.end - row_range.start)
+                .expect("test row range must fit in usize");
+            let candidate_indices: Vec<usize> = match mask.indices() {
+                AllOr::All => (0..row_count).collect(),
+                AllOr::None => Vec::new(),
+                AllOr::Some(indices) => indices.to_vec(),
+            };
+
+            let matching_indices = candidate_indices
+                .into_iter()
+                .filter(|idx| {
+                    let row = row_range.start + u64::try_from(*idx).expect("test idx fits in u64");
+                    self.matching_rows.contains(&row)
+                })
+                .collect();
+
+            Mask::from_indices(row_count, matching_indices)
+        }
+    }
+
+    impl LayoutReader for FilteringLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            for split in &self.split_points {
+                if row_range.contains(split) || *split == row_range.end {
+                    splits.insert(*split);
+                }
+            }
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            Ok(MaskFuture::ready(self.apply_mask(row_range, &mask)))
+        }
+
+        fn filter_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            let matching_rows = self.matching_rows.clone();
+            let row_range = row_range.clone();
+            Ok(MaskFuture::new(mask.len(), async move {
+                let mask = mask.await?;
+                let row_count = usize::try_from(row_range.end - row_range.start)
+                    .expect("test row range must fit in usize");
+                let candidate_indices: Vec<usize> = match mask.indices() {
+                    AllOr::All => (0..row_count).collect(),
+                    AllOr::None => Vec::new(),
+                    AllOr::Some(indices) => indices.to_vec(),
+                };
+
+                let matching_indices = candidate_indices
+                    .into_iter()
+                    .filter(|idx| {
+                        let row =
+                            row_range.start + u64::try_from(*idx).expect("test idx fits in u64");
+                        matching_rows.contains(&row)
+                    })
+                    .collect();
+
+                Ok(Mask::from_indices(row_count, matching_indices))
+            }))
+        }
+
+        fn projection_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            let row_range = row_range.clone();
+            Ok(Box::pin(async move {
+                let mask = mask.await?;
+                let row_count = usize::try_from(row_range.end - row_range.start)
+                    .expect("test row range must fit in usize");
+
+                let values: Vec<i32> = match mask.indices() {
+                    AllOr::All => (row_range.start..row_range.end)
+                        .map(|row| i32::try_from(row).expect("test row must fit in i32"))
+                        .collect(),
+                    AllOr::None => Vec::new(),
+                    AllOr::Some(indices) => indices
+                        .iter()
+                        .map(|idx| {
+                            let row = row_range.start
+                                + u64::try_from(*idx).expect("test idx fits in u64");
+                            i32::try_from(row).expect("test row must fit in i32")
+                        })
+                        .collect(),
+                };
+
+                debug_assert!(values.len() <= row_count);
+                Ok(PrimitiveArray::from_iter(values).into_array())
+            }))
+        }
+    }
+
     #[test]
     fn into_stream_executes_after_prepare() -> VortexResult<()> {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -784,5 +932,68 @@ mod test {
         assert_eq!(calls.load(Ordering::Relaxed), 0);
 
         drop(runtime);
+    }
+
+    fn collect_values(
+        build: impl FnOnce(vortex_session::VortexSession) -> ScanBuilder<ArrayRef>,
+    ) -> Vec<i32> {
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::test::session_with_handle(runtime.handle());
+        let iter = build(session).into_iter(&runtime).unwrap();
+
+        iter.flat_map(|chunk| {
+            chunk
+                .unwrap()
+                .to_primitive()
+                .into_buffer::<i32>()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>()
+        })
+        .collect()
+    }
+
+    #[test]
+    fn ordered_filter_limit_returns_first_matching_rows() {
+        let reader = Arc::new(FilteringLayoutReader::new(6, vec![2, 4, 6], vec![1, 3, 4]));
+        let values = collect_values(|session| {
+            ScanBuilder::new(session, reader)
+                .with_filter(eq(root(), lit(1_i32)))
+                .with_limit(2)
+                .with_ordered(true)
+        });
+        assert_eq!(values, vec![1, 3]);
+    }
+
+    #[test]
+    fn unordered_filter_limit_enforces_global_budget() {
+        let reader = Arc::new(FilteringLayoutReader::new(6, vec![2, 4, 6], vec![1, 3, 4]));
+        let mut values = collect_values(|session| {
+            ScanBuilder::new(session, reader)
+                .with_filter(eq(root(), lit(1_i32)))
+                .with_limit(2)
+                .with_ordered(false)
+        });
+        values.sort_unstable();
+
+        assert_eq!(values.len(), 2);
+        assert!(values.iter().all(|value| [1, 3, 4].contains(value)));
+    }
+
+    #[test]
+    fn roaring_selection_uses_exact_split_ranges() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
+
+        let mut roaring = roaring::RoaringTreemap::new();
+        roaring.insert(0);
+
+        let session = crate::test::SCAN_SESSION.clone();
+        ScanBuilder::new(session, reader)
+            .with_selection(Selection::IncludeRoaring(roaring))
+            .prepare()?;
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 }

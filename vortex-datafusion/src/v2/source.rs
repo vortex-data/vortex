@@ -36,6 +36,7 @@ use datafusion_physical_plan::filter_pushdown::PushedDown;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::ready;
 use futures::future::try_join_all;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
@@ -289,6 +290,8 @@ impl DataSource for VortexDataSource {
         let projected_schema = self.projected_schema.clone();
         let session = self.session.clone();
         let num_partitions = self.num_partitions;
+        let ordered = self.ordered;
+        let limit = self.limit;
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
         let leftover_projector = self
@@ -314,18 +317,47 @@ impl DataSource for VortexDataSource {
             });
 
             let handle = session.handle();
-            let stream = scan_streams
-                .try_flatten_unordered(Some(num_partitions.get() * 2))
-                .map(move |result| {
-                    let session = session.clone();
-                    let schema = projected_schema.clone();
-                    handle.spawn_cpu(move || {
-                        let mut ctx = session.create_execution_ctx();
-                        result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
-                    })
+            let stream = if ordered {
+                scan_streams.try_flatten().boxed()
+            } else {
+                scan_streams
+                    .try_flatten_unordered(Some(num_partitions.get() * 2))
+                    .boxed()
+            }
+            .map(move |result| {
+                let session = session.clone();
+                let schema = projected_schema.clone();
+                handle.spawn_cpu(move || {
+                    let mut ctx = session.create_execution_ctx();
+                    result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
                 })
-                .buffered(num_partitions.get())
-                .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+            })
+            .buffered(num_partitions.get())
+            .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+
+            let stream = if let Some(limit) = limit {
+                stream
+                    .scan(limit, |remaining, batch_result| {
+                        if *remaining == 0 {
+                            return ready(None);
+                        }
+
+                        ready(Some(batch_result.and_then(|batch| {
+                            let rows = batch.num_rows();
+                            if rows > *remaining {
+                                let limited_batch = batch.slice(0, *remaining);
+                                *remaining = 0;
+                                Ok(limited_batch)
+                            } else {
+                                *remaining -= rows;
+                                Ok(batch)
+                            }
+                        })))
+                    })
+                    .boxed()
+            } else {
+                stream.boxed()
+            };
 
             // Apply leftover projection (expressions that couldn't be pushed into Vortex).
             let stream = if let Some(projector) = leftover_projector {

@@ -31,17 +31,22 @@ pub(super) fn attempt_split_ranges(
     selection: &Selection,
     row_range: Option<&Range<u64>>,
 ) -> Option<Vec<Range<u64>>> {
-    let Selection::IncludeByIndex(buffer) = selection else {
-        return None;
-    };
-
     // TODO(connor): We can be smarter here, as the row range is more restrictive than the
     // selection.
     if row_range.is_some() {
         return None;
     }
 
-    let indices = buffer.as_slice();
+    let indices: Vec<u64> = match selection {
+        Selection::IncludeByIndex(buffer) => buffer.to_vec(),
+        Selection::IncludeRoaring(roaring) => roaring.iter().collect(),
+        _ => return None,
+    };
+
+    ranges_for_indices(&indices)
+}
+
+fn ranges_for_indices(indices: &[u64]) -> Option<Vec<Range<u64>>> {
     if indices.is_empty() {
         return Some(Vec::new());
     }
@@ -82,4 +87,40 @@ pub(super) fn attempt_split_ranges(
     ranges.push(curr_start..curr_end);
 
     Some(ranges)
+}
+
+#[cfg(test)]
+mod tests {
+    use roaring::RoaringTreemap;
+    use vortex_buffer::Buffer;
+
+    use super::*;
+
+    #[test]
+    fn include_roaring_uses_exact_split_ranges() {
+        let second_start = MIN_GAP_BETWEEN_RANGES + 15;
+        let mut roaring = RoaringTreemap::new();
+        roaring.insert_range(10..15);
+        roaring.insert_range(second_start..(second_start + 5));
+
+        let ranges = attempt_split_ranges(&Selection::IncludeRoaring(roaring), None).unwrap();
+        assert_eq!(ranges, vec![10..15, second_start..(second_start + 5)]);
+    }
+
+    #[test]
+    fn include_roaring_matches_include_by_index_ranges() {
+        let indices = [1, 2, 3, 20, 21, 22];
+
+        let mut roaring = RoaringTreemap::new();
+        for index in indices {
+            roaring.insert(index);
+        }
+
+        let by_index =
+            attempt_split_ranges(&Selection::IncludeByIndex(Buffer::from_iter(indices)), None)
+                .unwrap();
+        let by_roaring = attempt_split_ranges(&Selection::IncludeRoaring(roaring), None).unwrap();
+
+        assert_eq!(by_index, by_roaring);
+    }
 }

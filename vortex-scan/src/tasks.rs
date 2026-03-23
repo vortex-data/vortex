@@ -6,6 +6,8 @@
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use futures::FutureExt;
@@ -22,6 +24,58 @@ use crate::filter::FilterExpr;
 use crate::selection::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
+
+#[derive(Debug)]
+pub(super) struct RemainingBudget {
+    remaining_rows: AtomicU64,
+}
+
+impl RemainingBudget {
+    pub(super) fn new(limit: u64) -> Self {
+        Self {
+            remaining_rows: AtomicU64::new(limit),
+        }
+    }
+
+    pub(super) fn take(&self, requested: usize) -> usize {
+        let requested = u64::try_from(requested).unwrap_or(u64::MAX);
+        let mut remaining = self.remaining_rows.load(Ordering::Acquire);
+
+        loop {
+            if remaining == 0 {
+                return 0;
+            }
+
+            let granted = remaining.min(requested);
+            match self.remaining_rows.compare_exchange_weak(
+                remaining,
+                remaining - granted,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return usize::try_from(granted).unwrap_or(usize::MAX);
+                }
+                Err(observed) => remaining = observed,
+            }
+        }
+    }
+
+    pub(super) fn limit_mask(&self, mask: Mask) -> Mask {
+        if mask.all_false() {
+            return mask;
+        }
+
+        let available_rows = mask.true_count();
+        let granted_rows = self.take(available_rows);
+
+        if granted_rows >= available_rows {
+            mask
+        } else {
+            mask.limit(granted_rows)
+        }
+    }
+}
 
 /// Logic for executing a single split reading task.
 ///
@@ -136,6 +190,15 @@ pub(super) fn split_exec<A: 'static + Send>(
         }
     };
 
+    let filter_mask = if let Some(remaining_budget) = ctx.remaining_budget.clone() {
+        MaskFuture::new(filter_mask.len(), async move {
+            let mask = filter_mask.await?;
+            Ok(remaining_budget.limit_mask(mask))
+        })
+    } else {
+        filter_mask
+    };
+
     // Step 4: execute the projection, only at the mask for rows which match the filter
     let projection_future =
         ctx.reader
@@ -165,6 +228,8 @@ pub(super) struct TaskContext<A> {
     pub(super) reader: Arc<dyn LayoutReader>,
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: Expression,
+    /// Shared remaining row budget for scans that need to enforce limit after filtering.
+    pub(super) remaining_budget: Option<Arc<RemainingBudget>>,
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }
