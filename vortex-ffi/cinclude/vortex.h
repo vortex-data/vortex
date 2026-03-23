@@ -748,6 +748,13 @@ void vx_session_free(vx_session *ptr);
 vx_session *vx_session_new(void);
 
 /**
+ * Clone a Vortex session, returning an owned copy.
+ *
+ * The caller is responsible for freeing the session with [`vx_session_free`].
+ */
+vx_session *vx_session_clone(vx_session *session);
+
+/**
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */

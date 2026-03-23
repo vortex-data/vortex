@@ -40,3 +40,18 @@ Stable builds use the checked-in header file at `cinclude/vortex.h`.
 - **For header changes**: Use nightly toolchain to regenerate headers after modifying FFI code
 - **For regular development**: Stable toolchain builds work with existing checked-in headers
 - **CI validation**: Automated checks verify header freshness using nightly toolchain
+
+### Testing
+
+Build the test library
+
+```
+cmake -Bbuild
+cmake --build build
+```
+
+Run the tests
+
+```
+ctest --test-dir build
+```
