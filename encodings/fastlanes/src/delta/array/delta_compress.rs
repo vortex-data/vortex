@@ -17,13 +17,18 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::bit_transpose::transpose_validity;
+use crate::fill_forward_nulls;
 
 pub fn delta_compress(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-        let (bases, deltas) = compress_primitive::<T, { T::LANES }>(array.as_slice::<T>());
+        // Fill-forward null values so that transposed deltas at null positions remain
+        // small. Without this, bitpacking may skip patches for null positions, and the
+        // corrupted delta values propagate through the cumulative sum during decompression.
+        let filled = fill_forward_nulls(array.to_buffer::<T>(), array.validity());
+        let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
         let validity = transpose_validity(array.validity(), ctx)?;
         (
@@ -123,5 +128,31 @@ mod tests {
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, array);
         Ok(())
+    }
+
+    /// Regression test: delta + bitpacked encoding must correctly round-trip nullable arrays
+    /// where null positions contain arbitrary values. Without fill-forward, the delta cumulative
+    /// sum propagates corrupted values from null positions.
+    #[test]
+    fn delta_bitpacked_trailing_nulls() {
+        use vortex_array::IntoArray;
+        use vortex_array::ToCanonical;
+
+        use crate::bitpack_compress::bitpack_encode;
+        use crate::delta_compress;
+
+        let array = PrimitiveArray::from_option_iter(
+            (0u8..200).map(|i| (!(50..100).contains(&i)).then_some(i)),
+        );
+        let (bases, deltas) = delta_compress(&array, &mut SESSION.create_execution_ctx()).unwrap();
+        let bitpacked_deltas = bitpack_encode(&deltas, 1, None).unwrap();
+        let packed_delta = DeltaArray::try_new(
+            bases.into_array(),
+            bitpacked_deltas.into_array(),
+            0,
+            array.len(),
+        )
+        .unwrap();
+        assert_arrays_eq!(packed_delta.to_primitive(), array);
     }
 }
