@@ -43,6 +43,8 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
             return Ok(None);
         };
 
+        // TODO(aduffy): NEED TO IMPLEMENT THIS FOR PATCHED(BP) to properly handle applying
+        //  patches to each chunk. This should have same performance as before.
         let result = match_each_integer_ptype!(array.ptype(), |P| {
             bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)?
         });
@@ -55,25 +57,18 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
-    let patches = array.patches().map(|p| {
-        let values = p.values().to_primitive();
-        let indices = p.indices().to_primitive();
-        let offset = p.offset();
-        (indices, values, offset)
-    });
-
     let mut header_constant_value = None;
     let mut current_idx = 0;
     if let Some(header) = bit_unpack_iterator.initial() {
-        if let Some((indices, patches, offset)) = &patches {
-            apply_patches(
-                header,
-                current_idx..header.len(),
-                indices,
-                patches.as_slice::<T>(),
-                *offset,
-            )
-        }
+        // if let Some((indices, patches, offset)) = &patches {
+        //     apply_patches(
+        //         header,
+        //         current_idx..header.len(),
+        //         indices,
+        //         patches.as_slice::<T>(),
+        //         *offset,
+        //     )
+        // }
 
         if !compute_is_constant::<_, WIDTH>(header) {
             return Ok(false);
@@ -85,16 +80,16 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     let mut first_chunk_value = None;
     let mut chunks_iter = bit_unpack_iterator.full_chunks();
     while let Some(chunk) = chunks_iter.next() {
-        if let Some((indices, patches, offset)) = &patches {
-            let chunk_len = chunk.len();
-            apply_patches(
-                chunk,
-                current_idx..current_idx + chunk_len,
-                indices,
-                patches.as_slice::<T>(),
-                *offset,
-            )
-        }
+        // if let Some((indices, patches, offset)) = &patches {
+        //     let chunk_len = chunk.len();
+        //     apply_patches(
+        //         chunk,
+        //         current_idx..current_idx + chunk_len,
+        //         indices,
+        //         patches.as_slice::<T>(),
+        //         *offset,
+        //     )
+        // }
 
         if !compute_is_constant::<_, WIDTH>(chunk) {
             return Ok(false);
@@ -117,16 +112,16 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     }
 
     if let Some(trailer) = bit_unpack_iterator.trailer() {
-        if let Some((indices, patches, offset)) = &patches {
-            let chunk_len = trailer.len();
-            apply_patches(
-                trailer,
-                current_idx..current_idx + chunk_len,
-                indices,
-                patches.as_slice::<T>(),
-                *offset,
-            )
-        }
+        // if let Some((indices, patches, offset)) = &patches {
+        //     let chunk_len = trailer.len();
+        //     apply_patches(
+        //         trailer,
+        //         current_idx..current_idx + chunk_len,
+        //         indices,
+        //         patches.as_slice::<T>(),
+        //         *offset,
+        //     )
+        // }
 
         if !compute_is_constant::<_, WIDTH>(trailer) {
             return Ok(false);
@@ -184,14 +179,18 @@ mod tests {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-    use vortex_buffer::buffer;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
 
-    use crate::BitPackedArray;
+    use crate::bitpack_compress::BitPackEncoder;
 
     #[test]
     fn is_constant_with_patches() -> VortexResult<()> {
-        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2)?;
+        let primitive = PrimitiveArray::from_iter([4; 1025]);
+        let array = BitPackEncoder::new(&primitive)
+            .with_bit_width(2)
+            .pack()?
+            .into_array()?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())

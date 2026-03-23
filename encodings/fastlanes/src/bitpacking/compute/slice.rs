@@ -59,7 +59,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::BitPacked;
-    use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpack_compress::BitPackEncoder;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -67,7 +67,10 @@ mod tests {
     #[test]
     fn test_execute_parent_returns_bitpacked_slice() -> VortexResult<()> {
         let values = PrimitiveArray::from_iter(0u32..2048);
-        let (bitpacked, patches) = bitpack_encode(&values, 11, None)?;
+        let bitpacked = BitPackEncoder::new(&values)
+            .with_bit_width(11)
+            .pack()?
+            .unwrap_unpatched();
         assert!(patches.is_none());
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);

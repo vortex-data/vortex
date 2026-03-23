@@ -8,6 +8,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_fastlanes::bitpack_compress::BitPackEncoder;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
 
 mod array;
@@ -230,20 +231,21 @@ impl RDEncoder {
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
         let primitive_left = PrimitiveArray::new(left_parts, array.validity().clone());
-        // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
-        let packed_left = unsafe {
-            bitpack_encode_unchecked(primitive_left, left_bit_width as _)
-                .vortex_expect("bitpack_encode_unchecked should succeed for left parts")
-                .into_array()
-        };
+
+        let packed_left = BitPackEncoder::new(&primitive_left)
+            .with_bit_width(left_bit_width as u8)
+            .pack()
+            .vortex_expect("packing should succeed for left parts")
+            .into_array()
+            .vortex_expect("execute in Packed::into_array should succeed for left_parts");
 
         let primitive_right = PrimitiveArray::new(right_parts, Validity::NonNullable);
-        // SAFETY: by construction, all values in right_parts are right_bit_width + leading zeros.
-        let packed_right = unsafe {
-            bitpack_encode_unchecked(primitive_right, self.right_bit_width as _)
-                .vortex_expect("bitpack_encode_unchecked should succeed for right parts")
-                .into_array()
-        };
+        let packed_right = BitPackEncoder::new(&primitive_right)
+            .with_bit_width(self.right_bit_width)
+            .pack()
+            .vortex_expect("packing should succeed for right parts")
+            .into_array()
+            .vortex_expect("execute in Packed::into_array should succeed for right_parts");
 
         // Bit-pack the dict-encoded left-parts
         // Bit-pack the right-parts
@@ -253,14 +255,12 @@ impl RDEncoder {
             let bw = bit_width!(max_exc_pos) as u8;
 
             let exc_pos_array = PrimitiveArray::new(exceptions_pos, Validity::NonNullable);
-            // SAFETY: We calculate bw such that it is wide enough to hold the largest position index.
-            let packed_pos = unsafe {
-                bitpack_encode_unchecked(exc_pos_array, bw)
-                    .vortex_expect(
-                        "bitpack_encode_unchecked should succeed for exception positions",
-                    )
-                    .into_array()
-            };
+            let packed_pos = BitPackEncoder::new(&exc_pos_array)
+                .with_bit_width(bw)
+                .pack()
+                .vortex_expect("packing should succeed for exc_pos_array")
+                .unwrap_unpatched()
+                .into_array();
 
             Patches::new(
                 doubles.len(),

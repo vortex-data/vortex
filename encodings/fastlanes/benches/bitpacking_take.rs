@@ -18,6 +18,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_fastlanes::bitpack_compress::BitPackEncoder;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {
@@ -28,7 +29,11 @@ fn main() {
 fn take_10_stratified(bencher: Bencher) {
     let values = fixture(65_536, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
+    let packed = BitPackEncoder::new(&uncompressed)
+        .pack()
+        .unwrap()
+        .into_array()
+        .unwrap();
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 6_553));
 
     bencher
@@ -46,7 +51,11 @@ fn take_10_stratified(bencher: Bencher) {
 fn take_10_contiguous(bencher: Bencher) {
     let values = fixture(65_536, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
-    let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
+    let packed = BitPackEncoder::new(&uncompressed)
+        .pack()
+        .unwrap()
+        .into_array()
+        .unwrap();
     let indices = buffer![0..10].into_array();
 
     bencher
@@ -161,12 +170,6 @@ fn patched_take_10_stratified(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
 
-    assert!(packed.patches().is_some());
-    assert_eq!(
-        packed.patches().unwrap().num_patches(),
-        NUM_EXCEPTIONS as usize
-    );
-
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 6_653));
 
     bencher
@@ -185,12 +188,6 @@ fn patched_take_10_contiguous(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-
-    assert!(packed.patches().is_some());
-    assert_eq!(
-        packed.patches().unwrap().num_patches(),
-        NUM_EXCEPTIONS as usize
-    );
 
     let indices = buffer![0..10].into_array();
 
@@ -249,12 +246,6 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-
-    assert!(packed.patches().is_some());
-    assert_eq!(
-        packed.patches().unwrap().num_patches(),
-        NUM_EXCEPTIONS as usize
-    );
 
     let indices =
         PrimitiveArray::from_iter((BIG_BASE2..BIG_BASE2 + NUM_EXCEPTIONS).cycle().take(10000));

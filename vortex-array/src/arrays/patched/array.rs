@@ -63,6 +63,9 @@ impl PatchedArray {
     /// # Errors
     ///
     /// The `inner` array must be primitive type, and it must have the same DType as the patches.
+    ///
+    /// Any execution errors from executing either of the patches children will be deployed in
+    /// this way instead.
     pub fn from_array_and_patches(
         inner: ArrayRef,
         patches: &Patches,

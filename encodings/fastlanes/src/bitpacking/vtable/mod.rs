@@ -42,8 +42,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPackedArray;
-use crate::bitpack_decompress::unpack_array;
-use crate::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpacking::array::bitpack_decompress::unpack_array;
+use crate::bitpacking::array::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 
@@ -131,15 +131,16 @@ impl VTable for BitPacked {
     }
 
     fn nchildren(array: &BitPackedArray) -> usize {
-        array.patches().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
+        array.patches.as_ref().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
     }
 
     fn child(array: &BitPackedArray, idx: usize) -> ArrayRef {
-        let pc = array.patches().map_or(0, patches_nchildren);
+        let pc = array.patches.as_ref().map_or(0, patches_nchildren);
         if idx < pc {
             patches_child(
                 array
-                    .patches()
+                    .patches
+                    .as_ref()
                     .vortex_expect("BitPackedArray child index out of bounds"),
                 idx,
             )
@@ -152,7 +153,7 @@ impl VTable for BitPacked {
     }
 
     fn child_name(array: &BitPackedArray, idx: usize) -> String {
-        let pc = array.patches().map_or(0, patches_nchildren);
+        let pc = array.patches.as_ref().map_or(0, patches_nchildren);
         if idx < pc {
             patches_child_name(idx).to_string()
         } else {
@@ -167,7 +168,7 @@ impl VTable for BitPacked {
     ) -> VortexResult<Option<ArrayRef>> {
         // Do NOT execute any reduce rules if we have interior patches.
         // We need to force an execution to convert to PatchedArray wrapping BitPackedArray.
-        if array.patches().is_some() {
+        if array.patches.is_some() {
             return Ok(None);
         }
         RULES.evaluate(array, parent, child_idx)
@@ -176,7 +177,8 @@ impl VTable for BitPacked {
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         // Children: patches (if present): indices, values, chunk_offsets; then validity (if present)
         let patches_info = array
-            .patches()
+            .patches
+            .as_ref()
             .map(|p| (p.offset(), p.chunk_offsets().is_some()));
 
         let mut child_idx = 0;
@@ -247,7 +249,8 @@ impl VTable for BitPacked {
             bit_width: array.bit_width() as u32,
             offset: array.offset() as u32,
             patches: array
-                .patches()
+                .patches
+                .as_ref()
                 .map(|p| p.to_metadata(array.len(), array.dtype()))
                 .transpose()?,
         }))
@@ -342,7 +345,7 @@ impl VTable for BitPacked {
             })?,
         )?;
 
-        packed.replace_patches(patches);
+        packed.patches = patches;
         Ok(packed)
     }
 
@@ -364,10 +367,10 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        if let Some(patches) = array.patches() {
+        if let Some(patches) = array.patches.as_ref() {
             // If there are patches, convert to PatchedArray and delegate to its execution.
             let mut inner = array.clone();
-            inner.replace_patches(None);
+            inner.patches = None;
 
             let patched = PatchedArray::from_array_and_patches(inner.into_array(), patches, ctx)?;
             Ok(ExecutionStep::done(patched.into_array()))
@@ -386,7 +389,7 @@ impl VTable for BitPacked {
         // Do NOT execute ANY parent kernels if we have interior patches.
         // Force execution to convert to PatchedArray wrapping BitPackedArray, then we
         // perform optimization through the PatchedArray.
-        if array.patches().is_some() {
+        if array.patches.is_some() {
             return Ok(None);
         }
 

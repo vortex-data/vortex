@@ -41,12 +41,15 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::dtype::NativePType;
 
     use crate::BitPackedArray;
+    use crate::bitpack_compress::BitPackEncoder;
     use crate::bitpack_compress::bitpack_encode;
     use crate::bitpacking::compute::chunked_indices;
 
@@ -63,36 +66,55 @@ mod tests {
 
     #[rstest]
     // Basic integer arrays that can be bitpacked
-    #[case::u8_small(bitpack_encode(&PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]), 3, None).unwrap())]
-    #[case::u16_array(bitpack_encode(&PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]), 6, None).unwrap())]
-    #[case::u32_array(bitpack_encode(&PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]), 9, None).unwrap())]
+    #[case::u8_small([Some(1u8), Some(2), Some(3), Some(4), Some(5)], 3)]
+    #[case::u16_array([Some(10u16), Some(20), Some(30), Some(40), Some(50)], 6)]
+    #[case::u32_array([Some(100u32), Some(200), Some(300), Some(400), Some(500)], 9)]
     // Arrays with nulls
-    #[case::nullable_u8(bitpack_encode(&PrimitiveArray::from_option_iter([Some(1u8), None, Some(3), Some(4), None]), 3, None).unwrap())]
-    #[case::nullable_u32(bitpack_encode(&PrimitiveArray::from_option_iter([Some(100u32), None, Some(300), Some(400), None]), 9, None).unwrap())]
+    #[case::nullable_u8([Some(1u8), None, Some(3), Some(4), None], 3)]
+    #[case::nullable_u32([Some(100u32), None, Some(300), Some(400), None], 9)]
     // Edge cases
-    #[case::single_element(bitpack_encode(&PrimitiveArray::from_iter([42u32]), 6, None).unwrap())]
-    #[case::all_zeros(bitpack_encode(&PrimitiveArray::from_iter([0u16; 100]), 1, None).unwrap())]
+    #[case::single_element([Some(42u32)], 6)]
+    #[case::all_zeros([Some(0u16); 100], 1)]
     // Large arrays (multiple chunks - fastlanes uses 1024-element chunks)
-    #[case::large_u16(bitpack_encode(&PrimitiveArray::from_iter((0..2048).map(|i| (i % 256) as u16)), 8, None).unwrap())]
-    #[case::large_u32(bitpack_encode(&PrimitiveArray::from_iter((0..3000).map(|i| (i % 1024) as u32)), 10, None).unwrap())]
-    #[case::large_u8_many_chunks(bitpack_encode(&PrimitiveArray::from_iter((0..5120).map(|i| (i % 128) as u8)), 7, None).unwrap())] // 5 chunks
-    #[case::large_nullable(bitpack_encode(&PrimitiveArray::from_option_iter((0..2500).map(|i| if i % 10 == 0 { None } else { Some((i % 512) as u16) })), 9, None).unwrap())]
+    #[case::large_u16((0..2048).map(|i| Some((i % 256) as u16)), 8)]
+    #[case::large_u32((0..3000).map(|i| Some((i % 1024) as u32)), 10)]
+    #[case::large_u8_many_chunks((0..5120).map(|i| Some((i % 128) as u8)), 7)]
+    #[case::large_nullable((0..2500).map(|i| if i % 10 == 0 { None } else { Some((i % 512) as u16) }), 9)]
     // Arrays with specific bit patterns
-    #[case::max_value_for_bits(bitpack_encode(&PrimitiveArray::from_iter([7u8, 7, 7, 7, 7]), 3, None).unwrap())] // max value for 3 bits
-    #[case::alternating_bits(bitpack_encode(&PrimitiveArray::from_iter([0u16, 255, 0, 255, 0, 255]), 8, None).unwrap())]
-
-    fn test_bitpacked_consistency(#[case] array: BitPackedArray) {
-        test_array_consistency(&array.into_array());
+    #[case::max_value_for_bits([Some(7u8), Some(7), Some(7), Some(7), Some(7)], 3)] // max value for 3 bits
+    #[case::alternating_bits([Some(0u16), Some(255), Some(0), Some(255), Some(0), Some(255)], 8)]
+    fn test_bitpacked_consistency<T: NativePType>(
+        #[case] values: impl IntoIterator<Item = Option<T>>,
+        #[case] bit_width: u8,
+    ) {
+        let parray = PrimitiveArray::from_option_iter(values);
+        let packed = BitPackEncoder::new(&parray)
+            .with_bit_width(bit_width)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
+        test_array_consistency(&packed);
     }
 
     #[rstest]
-    #[case::u8_basic(bitpack_encode(&PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]), 3, None).unwrap())]
-    #[case::u16_basic(bitpack_encode(&PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]), 6, None).unwrap())]
-    #[case::u32_basic(bitpack_encode(&PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]), 9, None).unwrap())]
-    #[case::u64_basic(bitpack_encode(&PrimitiveArray::from_iter([1000u64, 2000, 3000, 4000, 5000]), 13, None).unwrap())]
-    #[case::i32_basic(bitpack_encode(&PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]), 7, None).unwrap())]
-    #[case::large_u32(bitpack_encode(&PrimitiveArray::from_iter((0..100).map(|i| i as u32)), 7, None).unwrap())]
-    fn test_bitpacked_binary_numeric(#[case] array: BitPackedArray) {
-        test_binary_numeric_array(array.into_array());
+    #[case::u8_basic([1u8, 2, 3, 4, 5], 3)]
+    #[case::u16_basic([10u16, 20, 30, 40, 50], 6)]
+    #[case::u32_basic([100u32, 200, 300, 400, 500], 9)]
+    #[case::u64_basic([1000u64, 2000, 3000, 4000, 5000], 13)]
+    #[case::i32_basic([10i32, 20, 30, 40, 50], 7)]
+    #[case::large_u32((0..100).map(|i| i as u32), 7)]
+    fn test_bitpacked_binary_numeric<T: NativePType>(
+        #[case] values: impl IntoIterator<Item = T>,
+        #[case] bit_width: u8,
+    ) {
+        let parray = PrimitiveArray::from_iter(values);
+        let packed = BitPackEncoder::new(&parray)
+            .with_bit_width(bit_width)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
+        test_binary_numeric_array(packed);
     }
 }

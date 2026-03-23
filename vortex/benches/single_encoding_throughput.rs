@@ -33,6 +33,7 @@ use vortex::encodings::sequence::sequence_encode;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
 use vortex_array::dtype::Nullability;
+use vortex_fastlanes::bitpack_compress::BitPackEncoder;
 use vortex_sequence::SequenceArray;
 
 #[global_allocator]
@@ -94,23 +95,31 @@ fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
 // Primitive compression benchmarks
 #[divan::bench(name = "bitpacked_compress_u32")]
 fn bench_bitpacked_compress_u32(bencher: Bencher) {
-    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode_unchecked;
-
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| uint_array.clone())
-        .bench_values(|a| unsafe { bitpack_encode_unchecked(a, bit_width).unwrap() });
+        .bench_values(|a| unsafe {
+            BitPackEncoder::new(&a)
+                .with_bit_width(bit_width)
+                .pack()
+                .unwrap()
+                .into_array()
+                .unwrap()
+        });
 }
 
 #[divan::bench(name = "bitpacked_decompress_u32")]
 fn bench_bitpacked_decompress_u32(bencher: Bencher) {
-    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
-
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
-    let compressed = bitpack_encode(&uint_array, bit_width, None).unwrap();
+    let compressed = BitPackEncoder::new(&uint_array)
+        .with_bit_width(bit_width)
+        .pack()
+        .unwrap()
+        .into_array()
+        .unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)

@@ -26,6 +26,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::bitpack_compress::BitPackEncoder;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -50,6 +51,7 @@ use crate::SchemeExt;
 use crate::compressor::patches::compress_patches;
 use crate::compressor::rle;
 use crate::compressor::rle::RLEScheme;
+use crate::compressor::rle::RLEStats;
 
 /// All available integer compression schemes.
 pub const ALL_INT_SCHEMES: &[&dyn IntegerScheme] = &[
@@ -521,12 +523,13 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let mut packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
 
-        let patches = packed.patches().map(compress_patches).transpose()?;
-        packed.replace_patches(patches);
-
-        Ok(packed.into_array())
+        BitPackEncoder::new(stats.source())
+            .with_bit_width(bw)
+            .with_histogram(&histogram)
+            .pack()?
+            .map_patches(compress_patches)?
+            .into_array()
     }
 }
 

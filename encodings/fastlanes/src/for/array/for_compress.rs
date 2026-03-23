@@ -68,6 +68,7 @@ mod test {
 
     use super::*;
     use crate::BitPackedArray;
+    use crate::bitpack_compress::BitPackEncoder;
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 
@@ -130,7 +131,11 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(&array.into_array(), 3).unwrap();
+        let bp = BitPackEncoder::new(&array)
+            .with_bit_width(3)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
         assert_arrays_eq!(compressed, expect);
     }
@@ -138,20 +143,27 @@ mod test {
     #[test]
     fn test_decompress_fused_patches() -> VortexResult<()> {
         // Create a range offset by a million.
-        let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
-        let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(&array.into_array(), 2).unwrap();
-        let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
-        let decompressed =
-            fused_decompress::<u32>(&compressed, &bp, &mut SESSION.create_execution_ctx())?;
-        assert_arrays_eq!(decompressed, expect);
+
+        // TODO(aduffy): fix this by adding a fused pathway for FOR(Patched(BP))
+        assert!(false);
+
+        // let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
+        // let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
+        // let bp = BitPackEncoder::new(&array)
+        //     .with_bit_width(2)
+        //     .pack()?
+        //     .into_packed();
+        // let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into())?;
+        // let decompressed =
+        //     fused_decompress::<u32>(&compressed, &bp, &mut SESSION.create_execution_ctx())?;
+        // assert_arrays_eq!(decompressed, expect);
         Ok(())
     }
 
     #[test]
     fn test_overflow() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
-        let compressed = FoRArray::encode(array.clone()).unwrap();
+        let compressed = FoRArray::encode(array.clone())?;
         assert_eq!(
             i8::MIN,
             compressed

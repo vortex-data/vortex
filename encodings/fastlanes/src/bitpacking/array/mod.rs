@@ -2,12 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::arrays::PatchedArray;
-use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -16,13 +10,12 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 pub mod bitpack_compress;
+pub mod bitpack_decompress;
 pub mod unpack_iter;
 
-use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked;
 use crate::unpack_iter::BitUnpackedChunks;
 
@@ -48,7 +41,6 @@ pub struct BitPackedArray {
     pub(super) packed: BufferHandle,
     /// NOTE: interior patches are deprecated in favor of `PatchedArray` holding a `BitPackedArray`
     ///  child.
-    #[deprecated]
     pub(super) patches: Option<Patches>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
@@ -213,52 +205,24 @@ impl BitPackedArray {
         self.bit_width
     }
 
-    /// Access the patches array.
-    ///
-    /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
-    /// indices indicate the locations of patches. The indices must have non-zero length.
-    #[inline]
-    pub fn patches(&self) -> Option<&Patches> {
-        self.patches.as_ref()
-    }
+    // /// Access the patches array.
+    // ///
+    // /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
+    // /// indices indicate the locations of patches. The indices must have non-zero length.
+    // #[inline]
+    // #[deprecated(note = "BitPackedArray should instead be wrapped with a PatchedArray")]
+    // pub fn patches(&self) -> Option<&Patches> {
+    //     self.patches.as_ref()
+    // }
 
-    /// Update with a new set of patches.
-    pub fn replace_patches(&mut self, patches: Option<Patches>) {
-        self.patches = patches;
-    }
+    // /// Update with a new set of patches.
+    // pub fn replace_patches(&mut self, patches: Option<Patches>) {
+    //     self.patches = patches;
+    // }
 
     #[inline]
     pub fn offset(&self) -> u16 {
         self.offset
-    }
-
-    /// Bit-pack an array of primitive integers down to the target bit-width using the FastLanes
-    /// SIMD-accelerated packing kernels.
-    ///
-    /// # Errors
-    ///
-    /// If the provided array is not an integer type, an error will be returned.
-    ///
-    /// If the provided array contains negative values, an error will be returned.
-    ///
-    /// If the requested bit-width for packing is larger than the array's native width, an
-    /// error will be returned.
-    // FIXME(ngates): take a PrimitiveArray
-    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<ArrayRef> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            let (packed, patches) = bitpack_encode(parray, bit_width, None)?;
-            if let Some(patches) = patches {
-                let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-                Ok(
-                    PatchedArray::from_array_and_patches(packed.into_array(), &patches, &mut ctx)?
-                        .into_array(),
-                )
-            } else {
-                Ok(packed.into_array())
-            }
-        } else {
-            vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");
-        }
     }
 
     /// Calculate the maximum value that **can** be contained by this array, given its bit-width.
@@ -290,7 +254,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
 
-    use crate::BitPackedArray;
+    use crate::bitpack_compress::BitPackEncoder;
 
     #[test]
     fn test_encode() {
@@ -304,7 +268,12 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedArray::encode(&uncompressed.into_array(), 1).unwrap();
+        let packed = BitPackEncoder::new(&uncompressed)
+            .with_bit_width(1)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
         assert_arrays_eq!(packed.to_primitive(), expected);
     }
@@ -313,21 +282,28 @@ mod test {
     fn test_encode_too_wide() {
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedArray::encode(&uncompressed.clone().into_array(), 8)
+        let _packed = BitPackEncoder::new(&uncompressed)
+            .with_bit_width(8)
+            .pack()
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedArray::encode(&uncompressed.into_array(), 9)
+        let _packed = BitPackEncoder::new(&uncompressed)
+            .with_bit_width(9)
+            .pack()
             .expect_err("Cannot pack value into larger width");
     }
 
     #[test]
     fn signed_with_patches() {
         let values: Buffer<i32> = (0i32..=512).collect();
-        let parray = values.clone().into_array();
+        let parray = PrimitiveArray::from_iter(values.clone());
 
-        let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
-        assert!(packed_with_patches.patches().is_some());
+        let packed_with_patches = BitPackEncoder::new(&parray)
+            .with_bit_width(9)
+            .pack()
+            .unwrap();
+        assert!(packed_with_patches.has_patches());
         assert_arrays_eq!(
-            packed_with_patches.to_primitive(),
+            packed_with_patches.into_array().unwrap().to_primitive(),
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
         );
     }

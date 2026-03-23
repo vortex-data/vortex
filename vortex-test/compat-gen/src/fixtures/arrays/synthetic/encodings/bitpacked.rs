@@ -9,7 +9,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ArrayId;
 use vortex::encodings::fastlanes::BitPacked;
-use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
+use vortex::encodings::fastlanes::bitpack_compress::BitPackEncoder;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -79,21 +79,66 @@ impl FlatLayoutFixture for BitPackedFixture {
                 "u16_head_tail_nulls",
             ]),
             vec![
-                bitpack_encode(&u32_8bit, 8, None)?.into_array(),
-                bitpack_encode(&u64_12bit, 12, None)?.into_array(),
-                bitpack_encode(&u16_4bit, 4, None)?.into_array(),
-                bitpack_encode(&u16_1bit, 1, None)?.into_array(),
-                bitpack_encode(&u32_nullable, 7, None)?.into_array(),
-                bitpack_encode(&u32_all_zero, 1, None)?.into_array(),
-                bitpack_encode(&u16_all_equal, 3, None)?.into_array(),
-                bitpack_encode(&u16_15bit, 15, None)?.into_array(),
-                bitpack_encode(&u32_31bit, 31, None)?.into_array(),
-                bitpack_encode(&u64_63bit, 63, None)?.into_array(),
-                bitpack_encode(&u8_3bit, 3, None)?.into_array(),
-                bitpack_encode(&u8_5bit, 5, None)?.into_array(),
-                bitpack_encode(&u16_9bit, 9, None)?.into_array(),
-                bitpack_encode(&u32_17bit, 17, None)?.into_array(),
-                bitpack_encode(&u16_head_tail_nulls, 5, None)?.into_array(),
+                BitPackEncoder::new(&u32_8bit)
+                    .with_bit_width(8)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u64_12bit)
+                    .with_bit_width(12)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u16_4bit)
+                    .with_bit_width(4)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u16_1bit)
+                    .with_bit_width(1)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u32_nullable)
+                    .with_bit_width(7)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u32_all_zero)
+                    .with_bit_width(1)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u16_all_equal)
+                    .with_bit_width(3)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u16_15bit)
+                    .with_bit_width(15)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u32_31bit)
+                    .with_bit_width(31)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u64_63bit)
+                    .with_bit_width(63)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u8_3bit)
+                    .with_bit_width(3)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u8_5bit)
+                    .with_bit_width(5)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u16_9bit)
+                    .with_bit_width(9)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u32_17bit)
+                    .with_bit_width(17)
+                    .pack()?
+                    .into_array()?,
+                BitPackEncoder::new(&u16_head_tail_nulls)
+                    .with_bit_width(5)
+                    .pack()?
+                    .into_array()?,
             ],
             N,
             Validity::NonNullable,
