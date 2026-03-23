@@ -79,7 +79,7 @@ pub trait Benchmark: Send + Sync {
     /// Directory containing expected `.slt.no` result files for validation.
     ///
     /// Reference files are stored as `{dir}/q{idx:02}.slt.no` in sqllogictest format.
-    /// Use `--generate-reference` to create them, `--validate` to check against them.
+    /// Use `--validate` to check results against them.
     fn expected_results_dir(&self) -> Option<PathBuf> {
         None
     }

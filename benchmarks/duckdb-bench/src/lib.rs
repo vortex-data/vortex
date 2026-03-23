@@ -215,8 +215,6 @@ pub struct DuckQueryResult {
     display_string: String,
     column_names: Vec<String>,
     normalized_rows: Vec<Vec<String>>,
-    /// sqllogictest column type string (e.g. "IIRT").
-    slt_column_types: String,
 }
 
 impl DuckQueryResult {
@@ -226,7 +224,6 @@ impl DuckQueryResult {
         let col_count = usize::try_from(result.column_count()).unwrap_or(0);
 
         let mut column_names = Vec::with_capacity(col_count);
-        let mut slt_column_types = String::with_capacity(col_count);
         for col_idx in 0..col_count {
             column_names.push(
                 result
@@ -234,7 +231,6 @@ impl DuckQueryResult {
                     .vortex_expect("column name should be valid")
                     .to_string(),
             );
-            slt_column_types.push(result.column_type(col_idx).slt_type_char());
         }
 
         let mut display_string = String::new();
@@ -264,7 +260,6 @@ impl DuckQueryResult {
             display_string,
             column_names,
             normalized_rows,
-            slt_column_types,
         }
     }
 }
@@ -280,10 +275,6 @@ impl BenchmarkQueryResult for DuckQueryResult {
 
     fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
         (self.column_names.clone(), self.normalized_rows.clone())
-    }
-
-    fn column_types(&self) -> String {
-        self.slt_column_types.clone()
     }
 }
 

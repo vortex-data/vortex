@@ -101,12 +101,12 @@ struct Args {
     explain: bool,
 
     /// Validate query results against reference files.
-    #[arg(long, default_value_t = false, conflicts_with_all = &["explain", "generate_reference"])]
+    #[arg(long, default_value_t = false, conflicts_with = "explain")]
     validate: bool,
 
-    /// Generate reference result files for future validation.
-    #[arg(long, default_value_t = false, conflicts_with_all = &["explain", "validate"])]
-    generate_reference: bool,
+    /// Print query results to stdout after execution.
+    #[arg(long, default_value_t = false, conflicts_with = "explain")]
+    print_results: bool,
 
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
@@ -176,12 +176,11 @@ async fn main() -> anyhow::Result<()> {
         BenchmarkMode::Explain
     } else if args.validate {
         BenchmarkMode::Validate
-    } else if args.generate_reference {
-        BenchmarkMode::GenerateReference
     } else {
         BenchmarkMode::Run {
             iterations: args.iterations,
             validate: std::env::var("CI").is_ok(),
+            print_results: args.print_results,
         }
     };
 
@@ -231,7 +230,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-    if !args.explain && !args.validate && !args.generate_reference {
+    if !args.explain && !args.validate {
         // Print metrics if requested
         if show_metrics {
             let plans = collected_plans.lock();
@@ -420,47 +419,6 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
     fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
         normalize_record_batches(&self.0)
     }
-
-    fn column_types(&self) -> String {
-        arrow_schema_to_slt_types(&self.0)
-    }
-}
-
-/// Map Arrow schema fields to sqllogictest type characters.
-fn arrow_schema_to_slt_types(batches: &[RecordBatch]) -> String {
-    use datafusion::arrow::datatypes::DataType;
-
-    let Some(batch) = batches.first() else {
-        return String::new();
-    };
-
-    batch
-        .schema()
-        .fields()
-        .iter()
-        .map(|f| match f.data_type() {
-            DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64 => 'I',
-            DataType::Float16
-            | DataType::Float32
-            | DataType::Float64
-            | DataType::Decimal128(..)
-            | DataType::Decimal256(..) => 'R',
-            DataType::Boolean => 'B',
-            DataType::Timestamp(..)
-            | DataType::Date32
-            | DataType::Date64
-            | DataType::Time32(..)
-            | DataType::Time64(..) => 'P',
-            _ => 'T',
-        })
-        .collect()
 }
 
 /// Convert Arrow `RecordBatch`es into normalized column names and row values.

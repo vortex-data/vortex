@@ -75,12 +75,12 @@ struct Args {
     explain: bool,
 
     /// Validate query results against reference files.
-    #[arg(long, default_value_t = false, conflicts_with_all = &["explain", "generate_reference"])]
+    #[arg(long, default_value_t = false, conflicts_with = "explain")]
     validate: bool,
 
-    /// Generate reference result files for future validation.
-    #[arg(long, default_value_t = false, conflicts_with_all = &["explain", "validate"])]
-    generate_reference: bool,
+    /// Print query results to stdout after execution.
+    #[arg(long, default_value_t = false, conflicts_with = "explain")]
+    print_results: bool,
 
     #[arg(
         long,
@@ -161,12 +161,11 @@ fn main() -> anyhow::Result<()> {
         BenchmarkMode::Explain
     } else if args.validate {
         BenchmarkMode::Validate
-    } else if args.generate_reference {
-        BenchmarkMode::GenerateReference
     } else {
         BenchmarkMode::Run {
             iterations: args.iterations,
             validate: std::env::var("CI").is_ok(),
+            print_results: args.print_results,
         }
     };
 
@@ -198,7 +197,7 @@ fn main() -> anyhow::Result<()> {
         },
     )?;
 
-    if !args.explain && !args.validate && !args.generate_reference {
+    if !args.explain && !args.validate {
         let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
         let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
         runner.export_to(&args.display_format, writer)?;

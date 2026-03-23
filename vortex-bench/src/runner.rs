@@ -3,7 +3,6 @@
 
 //! Generic benchmark runner infrastructure to reduce boilerplate across engine-specific benchmarks.
 
-use std::fs;
 use std::fs::File;
 use std::future::Future;
 use std::io::Write;
@@ -20,20 +19,22 @@ use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
 use crate::Target;
-use crate::validation::rows_to_slt;
 use crate::validation::validate_against_slt;
 
 /// Controls whether queries are benchmarked or explained.
 pub enum BenchmarkMode {
     /// Run each query `iterations` times, collecting timing.
     /// When `validate` is true, also compare results against reference files.
-    Run { iterations: usize, validate: bool },
+    /// When `print_results` is true, print each query's result after execution.
+    Run {
+        iterations: usize,
+        validate: bool,
+        print_results: bool,
+    },
     /// Prepend `EXPLAIN` to each query, print the result, skip timing.
     Explain,
     /// Run each query once and compare results against reference files.
     Validate,
-    /// Run each query once and write results as new reference files.
-    GenerateReference,
 }
 
 /// Trait implemented by engine-specific query results so the runner can
@@ -51,15 +52,6 @@ pub trait BenchmarkQueryResult {
     /// sqllogictest conventions (floats rounded to 12 decimal places, etc.)
     /// via [`crate::validation`].
     fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>);
-    /// Column type string for sqllogictest format.
-    ///
-    /// Returns a string of single-character type codes:
-    /// - `I` for integer types
-    /// - `R` for real/float/decimal types
-    /// - `T` for text/string types
-    /// - `B` for boolean
-    /// - `P` for timestamp/date types
-    fn column_types(&self) -> String;
 }
 use crate::display::DisplayFormat;
 use crate::display::print_measurements_json;
@@ -297,7 +289,7 @@ impl SqlBenchmarkRunner {
         if !path.exists() {
             eprintln!(
                 "Reference file {} does not exist, skipping validation for q{query_idx}. \
-                 Run with --generate-reference to create it.",
+                 Run with --print-results and redirect output to regenerate it.",
                 path.display()
             );
             return true;
@@ -314,28 +306,6 @@ impl SqlBenchmarkRunner {
                 false
             }
         }
-    }
-
-    /// Write a query result as a `.slt.no` reference file.
-    fn write_reference_result(&self, query_idx: usize, result: &str) {
-        let Some(path) = self.reference_path(query_idx) else {
-            eprintln!(
-                "No expected_results_dir configured, cannot generate reference for q{query_idx}"
-            );
-            return;
-        };
-
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap_or_else(|e| {
-                vortex_panic!("Failed to create directory {}: {e}", parent.display());
-            });
-        }
-
-        fs::write(&path, result).unwrap_or_else(|e| {
-            vortex_panic!("Failed to write reference file {}: {e}", path.display());
-        });
-
-        eprintln!("Wrote reference for q{query_idx} to {}", path.display());
     }
 
     /// Run (or explain) all queries for all formats synchronously.
@@ -363,6 +333,7 @@ impl SqlBenchmarkRunner {
             BenchmarkMode::Run {
                 iterations,
                 validate,
+                print_results,
             } => {
                 let bar_length = queries.len() * self.formats.len();
                 let progress_bar = if self.hide_progress_bar || bar_length == 0 {
@@ -393,6 +364,12 @@ impl SqlBenchmarkRunner {
                             if !self.validate_query_result(query_idx, &mut rows) {
                                 validation_failures.push((query_idx, format));
                             }
+                        }
+
+                        if print_results {
+                            println!("=== Q{query_idx} ===");
+                            println!("{}", result.display());
+                            println!();
                         }
 
                         progress_bar.inc(1);
@@ -451,21 +428,6 @@ impl SqlBenchmarkRunner {
                     );
                 }
             }
-            BenchmarkMode::GenerateReference => {
-                // Generate using only the first format
-                let format = *self.formats.first().ok_or_else(|| {
-                    anyhow::anyhow!("At least one format is required for reference generation")
-                })?;
-                let mut ctx = setup(format)?;
-
-                for (query_idx, query) in queries.iter() {
-                    let (_, result) = execute(&mut ctx, *query_idx, format, query.as_str())?;
-                    let col_types = result.column_types();
-                    let (_cols, mut rows) = result.normalized_result();
-                    let slt = rows_to_slt(query, &col_types, &mut rows);
-                    self.write_reference_result(*query_idx, &slt);
-                }
-            }
         }
 
         Ok(())
@@ -498,6 +460,7 @@ impl SqlBenchmarkRunner {
             BenchmarkMode::Run {
                 iterations,
                 validate,
+                print_results,
             } => {
                 let bar_length = queries.len() * self.formats.len();
                 let progress_bar = if self.hide_progress_bar || bar_length == 0 {
@@ -543,6 +506,12 @@ impl SqlBenchmarkRunner {
                             if !self.validate_query_result(query_idx, &mut rows) {
                                 validation_failures.push((query_idx, format));
                             }
+                        }
+
+                        if print_results {
+                            println!("=== Q{query_idx} ===");
+                            println!("{}", result.display());
+                            println!();
                         }
 
                         progress_bar.inc(1);
@@ -598,20 +567,6 @@ impl SqlBenchmarkRunner {
                         "Result validation failed for one or more queries ({engine})",
                         engine = self.engine,
                     );
-                }
-            }
-            BenchmarkMode::GenerateReference => {
-                let format = *self.formats.first().ok_or_else(|| {
-                    anyhow::anyhow!("At least one format is required for reference generation")
-                })?;
-                let ctx = setup(format).await?;
-
-                for (query_idx, query) in queries.iter() {
-                    let (_, result) = execute(*query_idx, &ctx, query.as_str()).await?;
-                    let col_types = result.column_types();
-                    let (_cols, mut rows) = result.normalized_result();
-                    let slt = rows_to_slt(query, &col_types, &mut rows);
-                    self.write_reference_result(*query_idx, &slt);
                 }
             }
         }
