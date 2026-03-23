@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
@@ -11,7 +12,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
@@ -260,8 +261,8 @@ impl VTable for Sparse {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        execute_sparse(array, ctx).map(ExecutionStep::Done)
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        execute_sparse(&array, ctx).map(ExecutionResult::done)
     }
 }
 
@@ -272,7 +273,7 @@ pub struct SparseArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sparse;
 
 impl Sparse {

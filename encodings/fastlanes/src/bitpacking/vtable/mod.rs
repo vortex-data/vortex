@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -358,8 +359,10 @@ impl VTable for BitPacked {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(unpack_array(array, ctx)?.into_array()))
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            unpack_array(&array, ctx)?.into_array(),
+        ))
     }
 
     fn execute_parent(
@@ -372,7 +375,7 @@ impl VTable for BitPacked {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BitPacked;
 
 impl BitPacked {

@@ -5,6 +5,7 @@ mod operations;
 mod validity;
 
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -16,7 +17,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::VariantArray;
@@ -30,7 +31,7 @@ use crate::vtable::VTable;
 
 vtable!(Variant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Variant;
 
 impl Variant {
@@ -154,8 +155,8 @@ impl VTable for Variant {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // VariantArray is the canonical variant representation.
-        Ok(ExecutionStep::done(array.clone().into_array()))
+        Ok(ExecutionResult::done(array.as_ref().clone().into_array()))
     }
 }

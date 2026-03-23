@@ -10,7 +10,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -37,7 +37,7 @@ use crate::ZstdBuffersMetadata;
 
 vtable!(ZstdBuffers);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
@@ -471,12 +471,12 @@ impl VTable for ZstdBuffers {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
         inner_array
             .execute::<ArrayRef>(ctx)
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
 
