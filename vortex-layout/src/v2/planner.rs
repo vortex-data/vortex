@@ -33,6 +33,7 @@ pub struct NodeId(usize);
 /// The builder tracks positional context as layouts recurse into their children via
 /// [`step_into`](Self::step_into). This context is used to translate local row coordinates
 /// to global coordinates for lifetime assignment.
+#[derive(Default)]
 pub struct PlanBuilder {
     /// Accumulated row offset from the root of the layout tree.
     base_offset: u64,
@@ -42,15 +43,6 @@ pub struct PlanBuilder {
     /// Set to `Some` when stepping into an [`Auxiliary`](ChildRelationship::Auxiliary) child,
     /// where the lifetime is the parent's row range rather than the child's own coordinates.
     lifetime_scope: Option<Range<u64>>,
-}
-
-impl Default for PlanBuilder {
-    fn default() -> Self {
-        Self {
-            base_offset: 0,
-            lifetime_scope: None,
-        }
-    }
 }
 
 impl PlanBuilder {
