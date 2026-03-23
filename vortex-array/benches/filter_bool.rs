@@ -4,7 +4,7 @@
 //! Benchmarks for filtering BoolArray by a boolean mask.
 //!
 //! Tests multiple mask patterns (mostly-true, mostly-false, random, correlated runs)
-//! with both uniform-random and power-law distributions, across array sizes from 1K to 500K.
+//! with both uniform-random and power-law distributions, across array sizes from 1K to 250K.
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
@@ -25,7 +25,7 @@ fn main() {
     divan::main();
 }
 
-const SIZES: &[usize] = &[1_000, 10_000, 100_000, 500_000];
+const SIZES: &[usize] = &[1_000, 10_000, 100_000, 250_000];
 const DENSITY_SWEEP_SIZE: usize = 100_000;
 const ARRAY_SEED: u64 = 42;
 const MASK_SEED: u64 = 43;
@@ -249,7 +249,7 @@ fn density_sweep_single_slice(bencher: Bencher, density: f64) {
 
 // --- Extreme cases ---
 
-const LARGE_SIZES: &[usize] = &[10_000, 100_000, 500_000];
+const LARGE_SIZES: &[usize] = &[10_000, 100_000, 250_000];
 
 #[divan::bench(args = LARGE_SIZES)]
 fn filter_all_true(bencher: Bencher, n: usize) {
