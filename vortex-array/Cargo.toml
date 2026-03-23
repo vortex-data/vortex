@@ -169,6 +169,10 @@ name = "take_struct"
 harness = false
 
 [[bench]]
+name = "take_bool"
+harness = false
+
+[[bench]]
 name = "take_fsl"
 harness = false
 
