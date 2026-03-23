@@ -14,8 +14,8 @@ use crate::arrays::BoolArray;
 use crate::arrays::filter::FilterReduce;
 use crate::vtable::ValidityHelper;
 
-/// Below this density threshold, use the index-based path which avoids scanning
-/// empty mask words. Above it, the word-level PEXT approach is faster.
+/// Below this density threshold, use the sparse path which iterates only set
+/// bits in the mask. Above it, the word-level PEXT approach is faster.
 const SPARSE_DENSITY_THRESHOLD: f64 = 0.05;
 
 impl FilterReduce for Bool {
@@ -29,7 +29,7 @@ impl FilterReduce for Bool {
         let src = array.to_bit_buffer();
         let density = mask_values.density();
         let buffer = if density < SPARSE_DENSITY_THRESHOLD {
-            filter_by_indices(&src, mask_values.indices(), mask.true_count())
+            filter_sparse(&src, mask_values.bit_buffer(), mask.true_count())
         } else {
             filter_bitbuffer_by_mask(&src, mask_values.bit_buffer(), mask.true_count())
         };
@@ -38,13 +38,15 @@ impl FilterReduce for Bool {
     }
 }
 
-/// Index-based filter for very sparse masks. Avoids scanning empty words.
-fn filter_by_indices(src: &BitBuffer, indices: &[usize], true_count: usize) -> BitBuffer {
+/// Sparse filter using direct bit iteration. Avoids materializing a `Vec<usize>`
+/// of indices by streaming set-bit positions from the mask's `BitIndexIterator`.
+fn filter_sparse(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
     let buffer = src.inner().as_ref();
     let offset = src.offset();
-    BitBuffer::collect_bool(true_count, |i| {
-        // SAFETY: indices length equals true_count, so i is always in bounds.
-        let idx = unsafe { *indices.get_unchecked(i) };
+    let mut indices = mask_buf.set_indices();
+    BitBuffer::collect_bool(true_count, |_| {
+        // SAFETY: the iterator yields exactly true_count indices.
+        let idx = unsafe { indices.next().unwrap_unchecked() };
         get_bit(buffer, offset + idx)
     })
 }
