@@ -658,7 +658,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
       - uses: ./.github/actions/system-info
       - name: Install Codspeed
-        uses: taiki-e/cache-cargo-install-action@59027ebf20a9617c4e819eb53ccd2673cb162b89
+        uses: taiki-e/cache-cargo-install-action@1ce845d7672f06bdf703007779598583b6c62f61
         with:
           tool: cargo-codspeed
       - name: Build benchmarks
@@ -869,7 +869,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-prebuild
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@59027ebf20a9617c4e819eb53ccd2673cb162b89
+        uses: taiki-e/cache-cargo-install-action@1ce845d7672f06bdf703007779598583b6c62f61
         with:
           tool: cargo-edit
       - name: Set Version
