@@ -28,7 +28,7 @@ impl OperationsVTable<Patched> for Patched {
         //  be slower.
         for (index, patch_index) in accessor.offsets_iter(chunk, lane) {
             if patch_index == chunk_index {
-                return array.values.scalar_at(index);
+                return array.values.scalar_at(index)?.cast(array.dtype());
             }
         }
 
