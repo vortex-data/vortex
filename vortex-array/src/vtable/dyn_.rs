@@ -5,22 +5,22 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::buffer::BufferHandle;
-use crate::dtype::DType;
-use crate::executor::ExecutionCtx;
-use crate::serde::ArrayChildren;
-use crate::vtable::VTable;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionResult;
 use crate::ExecutionStep;
 use crate::IntoArray;
+use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::executor::ExecutionCtx;
+use crate::serde::ArrayChildren;
+use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
