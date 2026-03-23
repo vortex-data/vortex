@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod layout;
-mod layout_plan;
 mod layouts;
+mod plan;
 mod scan;
-mod split_plan;

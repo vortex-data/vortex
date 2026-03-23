@@ -13,6 +13,8 @@ use vortex_error::VortexResult;
 
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
+use crate::v2::plan::PlanBuilder;
+use crate::v2::plan::SplitPlan;
 
 /// The vtable for a pluggable layout.
 pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
@@ -29,20 +31,12 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
     /// Returns the relationship of the given child.
     fn child_relationship(layout: &Layout<Self>, child_idx: usize) -> ChildRelationship;
 
-    /// Planning phase (invoked once per expression).
-    ///
-    /// Implementations should inspect and partition the expression, and then recursively call
-    /// `plan` on their children while pruning as many unnecessary children as possible.
-    ///
-    /// The resulting plan is used to construct per-split I/O graphs in the next phase.
     fn plan(
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &RowSelection,
-    ) -> VortexResult<Self::Plan>;
-
-    /// Return the I/O graph for a single split of the plan.
-    fn split(plan: &Self::Plan) -> VortexResult<()>;
+        builder: &PlanBuilder,
+    ) -> VortexResult<SplitIterator>;
 }
 
 /// The positional relationship of a layout to its parent.
@@ -60,3 +54,5 @@ pub enum RowSelection {
     All,
     IncludeRanges(Vec<Range<u64>>),
 }
+
+pub type SplitIterator = Box<dyn Iterator<Item = VortexResult<SplitPlan>> + Send + 'static>;
