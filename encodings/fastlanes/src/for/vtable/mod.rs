@@ -185,7 +185,7 @@ impl VTable for FoR {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FoR;
 
 impl FoR {

@@ -268,7 +268,7 @@ pub struct DateTimePartsArrayParts {
     pub subseconds: ArrayRef,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DateTimeParts;
 
 impl DateTimeParts {

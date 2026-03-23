@@ -313,7 +313,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Pco;
 
 impl Pco {

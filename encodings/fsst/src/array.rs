@@ -393,7 +393,7 @@ impl Debug for FSSTArray {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FSST;
 
 impl FSST {

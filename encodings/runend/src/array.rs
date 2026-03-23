@@ -227,7 +227,7 @@ pub struct RunEndArrayParts {
     pub values: ArrayRef,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RunEnd;
 
 impl RunEnd {

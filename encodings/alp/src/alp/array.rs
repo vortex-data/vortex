@@ -274,7 +274,7 @@ pub struct ALPArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ALP;
 
 impl ALP {

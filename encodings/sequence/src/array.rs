@@ -423,7 +423,7 @@ impl ValidityVTable<Sequence> for Sequence {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sequence;
 
 impl Sequence {

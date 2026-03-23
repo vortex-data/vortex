@@ -273,7 +273,7 @@ pub struct SparseArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sparse;
 
 impl Sparse {

@@ -214,7 +214,7 @@ pub struct ByteBoolArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ByteBool;
 
 impl ByteBool {

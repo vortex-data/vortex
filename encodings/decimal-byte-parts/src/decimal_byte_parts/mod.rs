@@ -275,7 +275,7 @@ impl DecimalBytePartsArray {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DecimalByteParts;
 
 impl DecimalByteParts {

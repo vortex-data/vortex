@@ -37,7 +37,7 @@ use crate::ZstdBuffersMetadata;
 
 vtable!(ZstdBuffers);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
