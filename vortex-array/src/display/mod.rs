@@ -4,7 +4,6 @@
 mod extractor;
 mod extractors;
 mod node;
-mod tree;
 mod tree_display;
 
 use std::fmt::Display;
@@ -12,11 +11,11 @@ use std::fmt::Display;
 pub use extractor::TreeContext;
 pub use extractor::TreeExtractor;
 pub use extractors::BufferExtractor;
+pub use extractors::EncodingSummaryExtractor;
 pub use extractors::MetadataExtractor;
 pub use extractors::NbytesExtractor;
 pub use extractors::StatsExtractor;
 use itertools::Itertools as _;
-use tree::TreeDisplayWrapper;
 pub use tree_display::TreeDisplay;
 
 use crate::DynArray;
@@ -401,15 +400,8 @@ impl dyn DynArray + '_ {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree_encodings_only()), expected);
     /// ```
-    pub fn display_tree_encodings_only(&self) -> impl Display {
-        DisplayArrayAs(
-            self,
-            DisplayOptions::TreeDisplay {
-                buffers: false,
-                metadata: false,
-                stats: false,
-            },
-        )
+    pub fn display_tree_encodings_only(&self) -> TreeDisplay {
+        self.tree_display_builder().with(EncodingSummaryExtractor)
     }
 
     /// Display the tree of encodings of this array as an indented lists.
@@ -431,15 +423,8 @@ impl dyn DynArray + '_ {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree()), expected);
     /// ```
-    pub fn display_tree(&self) -> impl Display {
-        DisplayArrayAs(
-            self,
-            DisplayOptions::TreeDisplay {
-                buffers: true,
-                metadata: true,
-                stats: true,
-            },
-        )
+    pub fn display_tree(&self) -> TreeDisplay {
+        TreeDisplay::default_display(self.to_array())
     }
 
     /// Create a tree display with all built-in extractors (nbytes, stats, metadata, buffers).
@@ -464,29 +449,34 @@ impl dyn DynArray + '_ {
 
     /// Create a composable tree display builder with no extractors.
     ///
-    /// With no extractors, only encoding headers and the tree structure are shown.
+    /// With no extractors, only the node names are shown.
     /// Add extractors with [`.with()`][TreeDisplay::with] to include additional information.
+    /// Most builders should start with [`EncodingSummaryExtractor`] to include encoding headers.
     ///
     /// # Examples
     /// ```
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
-    /// use vortex_array::display::{NbytesExtractor, MetadataExtractor, BufferExtractor};
+    /// use vortex_array::display::{EncodingSummaryExtractor, NbytesExtractor, MetadataExtractor, BufferExtractor};
     ///
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     ///
-    /// // Encodings only (no extractors)
-    /// let encodings = array.tree_display_builder().to_string();
+    /// // Encodings only
+    /// let encodings = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
+    ///     .to_string();
     /// assert_eq!(encodings, "root: vortex.primitive(i16, len=5)\n");
     ///
-    /// // With nbytes
+    /// // With encoding + nbytes
     /// let with_nbytes = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
     ///     .with(NbytesExtractor)
     ///     .to_string();
     /// assert_eq!(with_nbytes, "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)\n");
     ///
-    /// // With metadata and buffers
+    /// // With encoding, metadata, and buffers
     /// let detailed = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
     ///     .with(MetadataExtractor)
     ///     .with(BufferExtractor { show_percent: false })
     ///     .to_string();
@@ -563,16 +553,25 @@ impl dyn DynArray + '_ {
                 metadata,
                 stats,
             } => {
-                write!(
-                    f,
-                    "{}",
-                    TreeDisplayWrapper {
-                        array: self.to_array(),
-                        buffers: *buffers,
-                        metadata: *metadata,
-                        stats: *stats
+                let extractors: [(bool, Box<dyn TreeExtractor>); 5] = [
+                    (true, Box::new(EncodingSummaryExtractor)),
+                    (*stats, Box::new(NbytesExtractor)),
+                    (*stats, Box::new(StatsExtractor)),
+                    (*metadata, Box::new(MetadataExtractor)),
+                    (
+                        *buffers,
+                        Box::new(BufferExtractor {
+                            show_percent: *stats,
+                        }),
+                    ),
+                ];
+                let mut display = TreeDisplay::new(self.to_array());
+                for (enabled, extractor) in extractors {
+                    if enabled {
+                        display = display.with_boxed(extractor);
                     }
-                )
+                }
+                write!(f, "{display}")
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {

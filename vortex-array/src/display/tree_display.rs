@@ -5,10 +5,10 @@ use std::fmt;
 
 use crate::ArrayRef;
 use crate::arrays::Chunked;
-use crate::display::DisplayOptions;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 use crate::display::extractors::BufferExtractor;
+use crate::display::extractors::EncodingSummaryExtractor;
 use crate::display::extractors::MetadataExtractor;
 use crate::display::extractors::NbytesExtractor;
 use crate::display::extractors::StatsExtractor;
@@ -22,7 +22,7 @@ use crate::display::node::DisplayNode;
 /// ```
 /// # use vortex_array::IntoArray;
 /// # use vortex_buffer::buffer;
-/// use vortex_array::display::{NbytesExtractor, MetadataExtractor, BufferExtractor};
+/// use vortex_array::display::{EncodingSummaryExtractor, NbytesExtractor, MetadataExtractor, BufferExtractor};
 ///
 /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
 ///
@@ -31,6 +31,7 @@ use crate::display::node::DisplayNode;
 ///
 /// // Custom: pick only what you need
 /// let custom = array.tree_display_builder()
+///     .with(EncodingSummaryExtractor)
 ///     .with(NbytesExtractor)
 ///     .with(MetadataExtractor);
 /// ```
@@ -42,7 +43,7 @@ pub struct TreeDisplay {
 impl TreeDisplay {
     /// Create a new tree display for the given array with no extractors.
     ///
-    /// With no extractors, only encoding headers and the tree structure are shown.
+    /// With no extractors, only node names and the tree structure are shown.
     /// Use [`Self::default_display`] for the standard set of all built-in extractors.
     pub fn new(array: ArrayRef) -> Self {
         Self {
@@ -51,9 +52,11 @@ impl TreeDisplay {
         }
     }
 
-    /// Create a tree display with all built-in extractors: nbytes, stats, metadata, and buffers.
+    /// Create a tree display with all built-in extractors: encoding summary, nbytes, stats,
+    /// metadata, and buffers.
     pub fn default_display(array: ArrayRef) -> Self {
         Self::new(array)
+            .with(EncodingSummaryExtractor)
             .with(NbytesExtractor)
             .with(StatsExtractor)
             .with(MetadataExtractor)
@@ -108,7 +111,6 @@ impl TreeDisplay {
 
         DisplayNode {
             name: name.to_string(),
-            encoding_summary: format!("{}", array.display_as(DisplayOptions::MetadataOnly)),
             header_annotations,
             detail_lines,
             children,

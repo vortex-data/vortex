@@ -9,8 +9,6 @@ use std::fmt;
 pub(crate) struct DisplayNode {
     /// The name label for this node (e.g. "root", "x", "values").
     pub(crate) name: String,
-    /// The encoding summary (e.g. "vortex.primitive(i16, len=5)").
-    pub(crate) encoding_summary: String,
     /// Annotations appended to the header line, collected from extractors.
     pub(crate) header_annotations: Vec<String>,
     /// Detail lines shown below the header, collected from extractors.
@@ -22,8 +20,8 @@ pub(crate) struct DisplayNode {
 impl DisplayNode {
     /// Render this node and all descendants to the formatter with the given indent prefix.
     pub(crate) fn render(&self, f: &mut fmt::Formatter<'_>, indent: &str) -> fmt::Result {
-        // Header line: "{indent}{name}: {encoding_summary} {annotations...}\n"
-        write!(f, "{indent}{}: {}", self.name, self.encoding_summary)?;
+        // Header line: "{indent}{name}: {annotations...}\n"
+        write!(f, "{indent}{}:", self.name)?;
         for ann in &self.header_annotations {
             write!(f, " {ann}")?;
         }

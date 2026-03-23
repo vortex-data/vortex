@@ -9954,6 +9954,14 @@ impl core::fmt::Display for vortex_array::display::DisplayArrayAs<'_>
 
 pub fn vortex_array::display::DisplayArrayAs<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+pub struct vortex_array::display::EncodingSummaryExtractor
+
+impl vortex_array::display::TreeExtractor for vortex_array::display::EncodingSummaryExtractor
+
+pub fn vortex_array::display::EncodingSummaryExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+
+pub fn vortex_array::display::EncodingSummaryExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+
 pub struct vortex_array::display::MetadataExtractor
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::MetadataExtractor
@@ -10011,6 +10019,12 @@ impl vortex_array::display::TreeExtractor for vortex_array::display::BufferExtra
 pub fn vortex_array::display::BufferExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
 
 pub fn vortex_array::display::BufferExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+
+impl vortex_array::display::TreeExtractor for vortex_array::display::EncodingSummaryExtractor
+
+pub fn vortex_array::display::EncodingSummaryExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+
+pub fn vortex_array::display::EncodingSummaryExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::MetadataExtractor
 
