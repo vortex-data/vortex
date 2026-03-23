@@ -21,7 +21,8 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
-use crate::vtable::{upcast_array, VTable};
+use crate::vtable::VTable;
+use crate::vtable::upcast_array;
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error.
@@ -405,7 +406,7 @@ impl ExecutionResult {
         }
     }
 
-    pub fn done_upcast<V: VTable>(arr: Arc<V::Array>) ->Self {
+    pub fn done_upcast<V: VTable>(arr: Arc<V::Array>) -> Self {
         Self {
             array: upcast_array::<V>(arr),
             step: ExecutionStep::Done,
