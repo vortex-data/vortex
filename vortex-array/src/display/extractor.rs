@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
+use std::fmt::Write;
+
 use crate::DynArray;
 
 /// Context threaded through tree traversal for percentage calculations etc.
@@ -33,6 +36,51 @@ impl TreeContext {
     }
 }
 
+/// A formatter wrapper that automatically prepends indentation at the start of each line.
+pub(crate) struct IndentedFormatter<'a, 'b> {
+    inner: &'a mut fmt::Formatter<'b>,
+    indent: &'a str,
+    at_line_start: bool,
+}
+
+impl<'a, 'b> IndentedFormatter<'a, 'b> {
+    pub(crate) fn new(f: &'a mut fmt::Formatter<'b>, indent: &'a str) -> Self {
+        Self {
+            inner: f,
+            indent,
+            at_line_start: true,
+        }
+    }
+}
+
+impl Write for IndentedFormatter<'_, '_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let mut parts = s.split('\n');
+
+        if let Some(first) = parts.next()
+            && !first.is_empty()
+        {
+            if self.at_line_start {
+                self.inner.write_str(self.indent)?;
+                self.at_line_start = false;
+            }
+            self.inner.write_str(first)?;
+        }
+
+        for part in parts {
+            self.inner.write_char('\n')?;
+            self.at_line_start = true;
+            if !part.is_empty() {
+                self.inner.write_str(self.indent)?;
+                self.at_line_start = false;
+                self.inner.write_str(part)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Trait for contributing display information to tree nodes.
 ///
 /// Each extractor represents one "dimension" of display (e.g., nbytes, stats, metadata, buffers).
@@ -40,15 +88,27 @@ impl TreeContext {
 ///
 /// [`TreeDisplay::with`]: super::TreeDisplay::with
 pub trait TreeExtractor: Send + Sync {
-    /// Annotations appended to the header line (e.g., `nbytes=10 B (100.00%)`).
-    fn header_annotations(&self, array: &dyn DynArray, ctx: &TreeContext) -> Vec<String> {
-        let _ = (array, ctx);
-        vec![]
+    /// Write header annotations (space-prefixed) to the formatter.
+    fn write_header(
+        &self,
+        array: &dyn DynArray,
+        ctx: &TreeContext,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        let _ = (array, ctx, f);
+        Ok(())
     }
 
-    /// Additional detail lines shown below the header (e.g., `metadata: EmptyMetadata`).
-    fn detail_lines(&self, array: &dyn DynArray, ctx: &TreeContext) -> Vec<String> {
-        let _ = (array, ctx);
-        vec![]
+    /// Write detail lines below the header.
+    ///
+    /// The caller handles indentation — extractors just write their content directly.
+    fn write_details(
+        &self,
+        array: &dyn DynArray,
+        ctx: &TreeContext,
+        f: &mut dyn Write,
+    ) -> fmt::Result {
+        let _ = (array, ctx, f);
+        Ok(())
     }
 }

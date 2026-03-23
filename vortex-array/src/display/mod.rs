@@ -3,7 +3,6 @@
 
 mod extractor;
 mod extractors;
-mod node;
 mod tree_display;
 
 use std::fmt::Display;

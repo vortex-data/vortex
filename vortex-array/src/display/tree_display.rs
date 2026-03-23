@@ -5,6 +5,7 @@ use std::fmt;
 
 use crate::ArrayRef;
 use crate::arrays::Chunked;
+use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 use crate::display::extractors::BufferExtractor;
@@ -12,7 +13,6 @@ use crate::display::extractors::EncodingSummaryExtractor;
 use crate::display::extractors::MetadataExtractor;
 use crate::display::extractors::NbytesExtractor;
 use crate::display::extractors::StatsExtractor;
-use crate::display::node::DisplayNode;
 
 /// Composable tree display builder.
 ///
@@ -75,21 +75,30 @@ impl TreeDisplay {
         self
     }
 
-    /// Recursively build the display node tree.
-    fn build_node(&self, name: &str, array: &ArrayRef, ctx: &mut TreeContext) -> DisplayNode {
-        // Collect header annotations from all extractors
-        let header_annotations: Vec<String> = self
-            .extractors
-            .iter()
-            .flat_map(|e| e.header_annotations(array.as_ref(), ctx))
-            .collect();
+    /// Recursively write a node and all its descendants directly to the formatter.
+    fn write_node(
+        &self,
+        name: &str,
+        array: &ArrayRef,
+        ctx: &mut TreeContext,
+        indent: &str,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        // Header line: "{indent}{name}:{annotations...}\n"
+        write!(f, "{indent}{name}:")?;
+        for extractor in &self.extractors {
+            extractor.write_header(array.as_ref(), ctx, f)?;
+        }
+        writeln!(f)?;
 
-        // Collect detail lines from all extractors
-        let detail_lines: Vec<String> = self
-            .extractors
-            .iter()
-            .flat_map(|e| e.detail_lines(array.as_ref(), ctx))
-            .collect();
+        // Detail lines
+        let child_indent = format!("{indent}  ");
+        {
+            let mut indented = IndentedFormatter::new(f, &child_indent);
+            for extractor in &self.extractors {
+                extractor.write_details(array.as_ref(), ctx, &mut indented)?;
+            }
+        }
 
         // Push context for children: chunked arrays reset the percentage root
         let child_size = if array.is::<Chunked>() {
@@ -100,28 +109,19 @@ impl TreeDisplay {
         ctx.push(child_size);
 
         // Recurse into children
-        let children: Vec<DisplayNode> = array
-            .children_names()
-            .into_iter()
-            .zip(array.children())
-            .map(|(child_name, child)| self.build_node(&child_name, &child, ctx))
-            .collect();
+        for (child_name, child) in array.children_names().into_iter().zip(array.children()) {
+            self.write_node(&child_name, &child, ctx, &child_indent, f)?;
+        }
 
         ctx.pop();
 
-        DisplayNode {
-            name: name.to_string(),
-            header_annotations,
-            detail_lines,
-            children,
-        }
+        Ok(())
     }
 }
 
 impl fmt::Display for TreeDisplay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ctx = TreeContext::new();
-        let root = self.build_node("root", &self.array, &mut ctx);
-        root.render(f, "")
+        self.write_node("root", &self.array, &mut ctx, "", f)
     }
 }

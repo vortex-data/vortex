@@ -115,13 +115,12 @@ impl fmt::Display for StatsDisplay<'_> {
 pub struct StatsExtractor;
 
 impl TreeExtractor for StatsExtractor {
-    fn header_annotations(&self, array: &dyn DynArray, _ctx: &TreeContext) -> Vec<String> {
-        let s = StatsDisplay(array).to_string();
-        let trimmed = s.trim_start();
-        if trimmed.is_empty() {
-            vec![]
-        } else {
-            vec![trimmed.to_string()]
-        }
+    fn write_header(
+        &self,
+        array: &dyn DynArray,
+        _ctx: &TreeContext,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write!(f, "{}", StatsDisplay(array))
     }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
+
 use crate::DynArray;
 use crate::display::DisplayOptions;
 use crate::display::extractor::TreeContext;
@@ -10,10 +12,12 @@ use crate::display::extractor::TreeExtractor;
 pub struct EncodingSummaryExtractor;
 
 impl TreeExtractor for EncodingSummaryExtractor {
-    fn header_annotations(&self, array: &dyn DynArray, _ctx: &TreeContext) -> Vec<String> {
-        vec![format!(
-            "{}",
-            array.display_as(DisplayOptions::MetadataOnly)
-        )]
+    fn write_header(
+        &self,
+        array: &dyn DynArray,
+        _ctx: &TreeContext,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write!(f, " {}", array.display_as(DisplayOptions::MetadataOnly))
     }
 }

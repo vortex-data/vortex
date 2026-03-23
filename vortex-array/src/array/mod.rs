@@ -737,10 +737,11 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         V::serialize(V::metadata(&self.0)?)
     }
 
-    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn metadata_fmt(&self, f: &mut dyn std::fmt::Write) -> std::fmt::Result {
         match V::metadata(&self.0) {
             Err(e) => write!(f, "<serde error: {e}>"),
-            Ok(metadata) => Debug::fmt(&metadata, f),
+            #[allow(clippy::use_debug)]
+            Ok(metadata) => write!(f, "{metadata:?}"),
         }
     }
 

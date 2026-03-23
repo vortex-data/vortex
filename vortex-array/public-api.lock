@@ -9944,9 +9944,9 @@ pub vortex_array::display::BufferExtractor::show_percent: bool
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::BufferExtractor
 
-pub fn vortex_array::display::BufferExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::BufferExtractor::write_details(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::BufferExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::BufferExtractor::write_header(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_array::display::DisplayArrayAs<'a>(pub &'a dyn vortex_array::DynArray, pub vortex_array::display::DisplayOptions)
 
@@ -9958,33 +9958,33 @@ pub struct vortex_array::display::EncodingSummaryExtractor
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::EncodingSummaryExtractor
 
-pub fn vortex_array::display::EncodingSummaryExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::EncodingSummaryExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::EncodingSummaryExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::EncodingSummaryExtractor::write_header(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_array::display::MetadataExtractor
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::MetadataExtractor
 
-pub fn vortex_array::display::MetadataExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::MetadataExtractor::write_details(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::MetadataExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::MetadataExtractor::write_header(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_array::display::NbytesExtractor
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::NbytesExtractor
 
-pub fn vortex_array::display::NbytesExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::NbytesExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::NbytesExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::NbytesExtractor::write_header(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_array::display::StatsExtractor
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::StatsExtractor
 
-pub fn vortex_array::display::StatsExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::StatsExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::StatsExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::StatsExtractor::write_header(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_array::display::TreeContext
 
@@ -10010,39 +10010,39 @@ pub fn vortex_array::display::TreeDisplay::fmt(&self, f: &mut core::fmt::Formatt
 
 pub trait vortex_array::display::TreeExtractor: core::marker::Send + core::marker::Sync
 
-pub fn vortex_array::display::TreeExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::TreeExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::TreeExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::TreeExtractor::write_header(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::BufferExtractor
 
-pub fn vortex_array::display::BufferExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::BufferExtractor::write_details(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::BufferExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::BufferExtractor::write_header(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::EncodingSummaryExtractor
 
-pub fn vortex_array::display::EncodingSummaryExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::EncodingSummaryExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::EncodingSummaryExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::EncodingSummaryExtractor::write_header(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::MetadataExtractor
 
-pub fn vortex_array::display::MetadataExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::MetadataExtractor::write_details(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::MetadataExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::MetadataExtractor::write_header(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::NbytesExtractor
 
-pub fn vortex_array::display::NbytesExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::NbytesExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::NbytesExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::NbytesExtractor::write_header(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::display::TreeExtractor for vortex_array::display::StatsExtractor
 
-pub fn vortex_array::display::StatsExtractor::detail_lines(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::StatsExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
-pub fn vortex_array::display::StatsExtractor::header_annotations(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext) -> alloc::vec::Vec<alloc::string::String>
+pub fn vortex_array::display::StatsExtractor::write_header(&self, array: &dyn vortex_array::DynArray, _ctx: &vortex_array::display::TreeContext, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub mod vortex_array::dtype
 
@@ -22138,7 +22138,7 @@ pub fn vortex_array::ArrayAdapter<V>::is_host(&self) -> bool
 
 pub fn vortex_array::ArrayAdapter<V>::metadata(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_array::ArrayAdapter<V>::metadata_fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::ArrayAdapter<V>::metadata_fmt(&self, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
 pub fn vortex_array::ArrayAdapter<V>::named_buffers(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::buffer::BufferHandle)>
 
@@ -22430,7 +22430,7 @@ pub fn vortex_array::ArrayVisitor::is_host(&self) -> bool
 
 pub fn vortex_array::ArrayVisitor::metadata(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_array::ArrayVisitor::metadata_fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::ArrayVisitor::metadata_fmt(&self, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
 pub fn vortex_array::ArrayVisitor::named_buffers(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::buffer::BufferHandle)>
 
@@ -22458,7 +22458,7 @@ pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::is_host(&self) -> bool
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::metadata(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::metadata_fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::metadata_fmt(&self, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::named_buffers(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::buffer::BufferHandle)>
 
@@ -22486,7 +22486,7 @@ pub fn vortex_array::ArrayAdapter<V>::is_host(&self) -> bool
 
 pub fn vortex_array::ArrayAdapter<V>::metadata(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_array::ArrayAdapter<V>::metadata_fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::ArrayAdapter<V>::metadata_fmt(&self, f: &mut dyn core::fmt::Write) -> core::fmt::Result
 
 pub fn vortex_array::ArrayAdapter<V>::named_buffers(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::buffer::BufferHandle)>
 

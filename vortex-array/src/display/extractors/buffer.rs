@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
+
 use humansize::DECIMAL;
 use humansize::format_size;
 
@@ -15,9 +17,13 @@ pub struct BufferExtractor {
 }
 
 impl TreeExtractor for BufferExtractor {
-    fn detail_lines(&self, array: &dyn DynArray, _ctx: &TreeContext) -> Vec<String> {
+    fn write_details(
+        &self,
+        array: &dyn DynArray,
+        _ctx: &TreeContext,
+        f: &mut dyn fmt::Write,
+    ) -> fmt::Result {
         let nbytes = array.nbytes();
-        let mut lines = Vec::new();
         for (name, buffer) in array.named_buffers() {
             let loc = if buffer.is_on_device() {
                 "device"
@@ -38,22 +44,24 @@ impl TreeExtractor for BufferExtractor {
                 } else {
                     100_f64 * buffer.len() as f64 / nbytes as f64
                 };
-                lines.push(format!(
+                writeln!(
+                    f,
                     "buffer: {} {loc} {} (align={}) ({:.2}%)",
                     name,
                     format_size(buffer.len(), DECIMAL),
                     align,
                     buffer_percent,
-                ));
+                )?;
             } else {
-                lines.push(format!(
+                writeln!(
+                    f,
                     "buffer: {} {loc} {} (align={})",
                     name,
                     format_size(buffer.len(), DECIMAL),
                     align,
-                ));
+                )?;
             }
         }
-        lines
+        Ok(())
     }
 }
