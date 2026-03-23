@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 #
-# Runs SQL benchmarks (datafusion-bench, duckdb-bench, lance-bench) for the given targets.
-# This script is used by the sql-benchmarks.yml workflow.
+# Runs SQL benchmarks (datafusion-bench, duckdb-bench, lance-bench, clickhouse-bench)
+# for the given targets. This script is used by the sql-benchmarks.yml workflow.
 #
 # Usage:
 #   run-sql-bench.sh <subcommand> <targets> [options]
@@ -11,13 +11,13 @@
 # Arguments:
 #   subcommand   The benchmark subcommand (e.g., tpch, clickbench, tpcds)
 #   targets      Comma-separated list of engine:format pairs
-#                (e.g., "datafusion:parquet,datafusion:vortex,duckdb:parquet")
+#                (e.g., "datafusion:parquet,datafusion:vortex,duckdb:parquet,clickhouse:parquet")
 #
 # Options:
 #   --scale-factor <sf>       Scale factor for the benchmark (e.g., 1.0, 10.0)
 #   --iterations <n>          Number of iterations to pass to each benchmark binary
 #   --remote-storage <url>    Remote storage URL (e.g., s3://bucket/path/)
-#                             If provided, runs in remote mode (no lance support).
+#                             If provided, runs in remote mode (no lance/clickhouse support).
 #   --benchmark-id <id>       Benchmark ID for error messages (e.g., tpch-s3)
 
 set -Eeu -o pipefail
@@ -71,6 +71,13 @@ if $is_remote && echo "$targets" | grep -q 'lance'; then
     exit 1
 fi
 
+# ClickHouse on remote storage is not supported. clickhouse-local reads local files only.
+if $is_remote && echo "$targets" | grep -q 'clickhouse:'; then
+    echo "ERROR: ClickHouse benchmarks are not supported for remote storage."
+    echo "Remove 'clickhouse:' targets for benchmark '${benchmark_id:-unknown}'."
+    exit 1
+fi
+
 # Extract formats for each engine from the targets string.
 # Example input: "datafusion:parquet,datafusion:vortex,datafusion:lance,duckdb:parquet"
 #
@@ -84,6 +91,7 @@ fi
 df_formats=$(echo "$targets" | tr ',' '\n' | (grep '^datafusion:' | grep -v ':lance$' || true) | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
 ddb_formats=$(echo "$targets" | tr ',' '\n' | (grep '^duckdb:' || true) | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
 has_lance=$(echo "$targets" | grep -q 'datafusion:lance' && echo "true" || echo "false")
+has_clickhouse=$(echo "$targets" | grep -q 'clickhouse:' && echo "true" || echo "false")
 
 # Build options string.
 opts=""
@@ -135,4 +143,15 @@ if ! $is_remote && [[ "$has_lance" == "true" ]] && [[ -f "target/release_debug/l
         -o lance-results.json
 
     cat lance-results.json >> results.json
+fi
+
+# ClickHouse-bench only runs for local benchmarks (clickhouse-local reads local files).
+if ! $is_remote && [[ "$has_clickhouse" == "true" ]] && [[ -f "target/release_debug/clickhouse-bench" ]]; then
+    # shellcheck disable=SC2086
+    target/release_debug/clickhouse-bench "$subcommand" \
+        -d gh-json \
+        $opts \
+        -o ch-results.json
+
+    cat ch-results.json >> results.json
 fi

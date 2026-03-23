@@ -49,6 +49,7 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     # Benchmarks
+    "benchmarks/clickhouse-bench",
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
     "benchmarks/datafusion-bench",

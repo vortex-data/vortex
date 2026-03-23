@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use reqwest::Client;
 use url::Url;
-use vortex::error::VortexExpect;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
@@ -37,14 +35,21 @@ impl ClickBenchBenchmark {
         })
     }
 
+    /// Returns the path to the queries file.
+    fn queries_file_path(&self) -> PathBuf {
+        if let Some(file) = &self.queries_file {
+            return file.into();
+        }
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir.join("clickbench_queries.sql")
+    }
+
     fn create_data_url(remote_data_dir: &Option<String>, flavor: Flavor) -> Result<Url> {
         match remote_data_dir {
             None => {
                 let basepath = format!("clickbench_{flavor}").to_data_path();
-                Ok(Url::parse(&format!(
-                    "file:{}/",
-                    basepath.to_str().vortex_expect("path should be utf8")
-                ))?)
+                Url::from_directory_path(basepath)
+                    .map_err(|_| anyhow::anyhow!("Failed to convert ClickBench data path to URL"))
             }
             Some(remote_data_dir) => {
                 if !remote_data_dir.ends_with("/") {
@@ -69,10 +74,7 @@ impl ClickBenchBenchmark {
 #[async_trait::async_trait]
 impl Benchmark for ClickBenchBenchmark {
     fn queries(&self) -> Result<Vec<(usize, String)>> {
-        let queries_filepath = match &self.queries_file {
-            Some(file) => file.into(),
-            None => Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"),
-        };
+        let queries_filepath = self.queries_file_path();
 
         Ok(fs::read_to_string(queries_filepath)?
             .split(';')

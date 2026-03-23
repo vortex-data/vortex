@@ -21,7 +21,7 @@ on:
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
-              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb,clickhouse:parquet"
             },
             {
               "id": "tpch-nvme",
@@ -135,6 +135,16 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
+      - name: Install ClickHouse
+        if: contains(matrix.targets, 'clickhouse:')
+        env:
+          CLICKHOUSE_VERSION: "25.8.18.1"
+        run: |
+          wget -qO- "https://github.com/ClickHouse/ClickHouse/releases/download/v${CLICKHOUSE_VERSION}-lts/clickhouse-common-static-${CLICKHOUSE_VERSION}-amd64.tgz" | tar xz
+          cp clickhouse-common-static-${CLICKHOUSE_VERSION}/usr/bin/clickhouse .
+          chmod +x clickhouse
+          echo "CLICKHOUSE_BINARY=$PWD/clickhouse" >> $GITHUB_ENV
+
       - name: Build binaries
         shell: bash
         env:
@@ -143,6 +153,9 @@ jobs:
           packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
           if [ "${{ matrix.build_lance }}" = "true" ]; then
             packages="$packages --bin lance-bench"
+          fi
+          if echo "${{ matrix.targets }}" | grep -q 'clickhouse:'; then
+            packages="$packages --bin clickhouse-bench"
           fi
           cargo build $packages --profile release_debug
 
