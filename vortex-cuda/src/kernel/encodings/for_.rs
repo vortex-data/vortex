@@ -131,9 +131,9 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::NativePType;
-    use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArray;
+    use vortex::encodings::fastlanes::bitpack_compress::BitPackedEncoder;
     use vortex::error::VortexExpect;
     use vortex::scalar::Scalar;
     use vortex::session::VortexSession;
@@ -180,12 +180,13 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let values = (0i8..8i8)
-            .cycle()
-            .take(1024)
-            .collect::<Buffer<_>>()
-            .into_array();
-        let packed = BitPacked::encode(&values, 3).unwrap().into_array();
+        let values = PrimitiveArray::from_iter((0i8..8i8).cycle().take(1024));
+        let packed = BitPackedEncoder::new(&values)
+            .with_bit_width(3)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
         let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();
 
         let cpu_result = for_array.to_canonical().unwrap();

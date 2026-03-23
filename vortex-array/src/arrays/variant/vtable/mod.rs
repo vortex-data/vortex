@@ -13,8 +13,10 @@ use vortex_error::vortex_panic;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -26,6 +28,7 @@ use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(Variant, Variant, VariantData);
@@ -40,32 +43,30 @@ impl Variant {
 impl VTable for Variant {
     type ArrayData = VariantData;
 
+    type Metadata = EmptyMetadata;
+
     type OperationsVTable = Self;
 
     type ValidityVTable = Self;
+
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Variant
+    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            matches!(dtype, DType::Variant(_)),
-            "Expected Variant DType, got {dtype}"
-        );
-        vortex_ensure!(
-            data.child().dtype() == dtype,
-            "VariantArray child dtype {} does not match outer dtype {}",
-            data.child().dtype(),
-            dtype
-        );
-        vortex_ensure!(
-            data.len() == len,
-            "VariantArray length {} does not match outer length {}",
-            data.len(),
-            len
-        );
-        Ok(())
+    fn len(array: &Self::ArrayData) -> usize {
+        array.child().len()
+    }
+
+    fn dtype(array: &Self::ArrayData) -> &DType {
+        array.child().dtype()
+    }
+
+    fn stats(array: &Self::ArrayData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: Hasher>(array: &VariantData, state: &mut H, precision: Precision) {
@@ -88,25 +89,31 @@ impl VTable for Variant {
         None
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        &self,
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
         dtype: &DType,
         len: usize,
-        metadata: &[u8],
-
+        _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "VariantArray expects empty metadata, got {} bytes",
-            metadata.len()
-        );
+    ) -> VortexResult<ArrayRef> {
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,
@@ -115,7 +122,7 @@ impl VTable for Variant {
         );
         // The child carries the nullability for the whole VariantArray.
         let child = children.get(0, dtype, len)?;
-        Ok(VariantData::new(child))
+        Ok(VariantData::new(child).into_array())
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -153,16 +160,11 @@ impl VTable for Variant {
 mod tests {
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::ConstantArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::scalar::Scalar;
+    use crate::arrays::PrimitiveArray;
 
     #[test]
     fn with_slots_rejects_missing_child() {
-        let child =
-            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 3).into_array();
-        let array = VariantArray::new(child);
+        let array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
         let mut data = array.into_data();
 
         let err = <Variant as VTable>::with_slots(&mut data, vec![None]).unwrap_err();

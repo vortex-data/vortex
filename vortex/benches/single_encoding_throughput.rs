@@ -30,6 +30,7 @@ use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::DeltaData;
 use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fastlanes::bitpack_compress::BitPackedEncoder;
 use vortex::encodings::fastlanes::delta_compress;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
@@ -116,17 +117,18 @@ fn bench_bitpacked_compress_u32(bencher: Bencher) {
 
 #[divan::bench(name = "bitpacked_decompress_u32")]
 fn bench_bitpacked_decompress_u32(bencher: Bencher) {
-    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
-
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
-    let compressed = bitpack_encode(&uint_array, bit_width, None)
+    let compressed = BitPackedEncoder::new(&uint_array)
+        .with_bit_width(bit_width)
+        .pack()
         .unwrap()
-        .into_array();
+        .into_array()
+        .unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .bench_refs(|a| a.to_canonical().unwrap());
 }
 
 #[divan::bench(name = "runend_compress_u32")]

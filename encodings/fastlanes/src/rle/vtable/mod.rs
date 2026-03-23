@@ -146,6 +146,7 @@ impl VTable for RLE {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+<<<<<<< HEAD
         _session: &VortexSession,
     ) -> VortexResult<RLEData> {
         vortex_ensure!(
@@ -154,6 +155,10 @@ impl VTable for RLE {
             buffers.len()
         );
         let metadata = RLEMetadata::decode(metadata)?;
+=======
+    ) -> VortexResult<ArrayRef> {
+        let metadata = &metadata.0;
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let values = children.get(
             0,
             &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
@@ -175,13 +180,14 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEData::try_new(
+        Ok(RLEData::try_new(
             values,
             indices,
             values_idx_offsets,
             metadata.offset as usize,
             len,
-        )
+        )?
+        .into_array())
     }
 
     fn execute_parent(

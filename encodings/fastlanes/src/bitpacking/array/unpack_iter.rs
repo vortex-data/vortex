@@ -98,7 +98,11 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             array.packed().clone().unwrap_host(),
             array.bit_width() as usize,
             array.offset() as usize,
+<<<<<<< HEAD
             len,
+=======
+            array.len,
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         )
     }
 

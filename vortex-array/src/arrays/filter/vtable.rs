@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use vortex_error::VortexResult;
@@ -34,6 +36,7 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 
@@ -48,33 +51,27 @@ impl Filter {
 
 impl VTable for Filter {
     type ArrayData = FilterData;
+    type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+    fn vtable(_array: &FilterData) -> &Self {
+        &Filter
+    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            data.child().dtype() == dtype,
-            "FilterArray dtype {} does not match outer dtype {}",
-            data.child().dtype(),
-            dtype
-        );
-        vortex_ensure!(
-            data.len() == len,
-            "FilterArray length {} does not match outer length {}",
-            data.len(),
-            len
-        );
-        vortex_ensure!(
-            data.child().len() == data.mask.len(),
-            "FilterArray child length {} does not match mask length {}",
-            data.child().len(),
-            data.mask.len()
-        );
-        Ok(())
+    fn len(array: &FilterData) -> usize {
+        array.mask.true_count()
+    }
+
+    fn dtype(array: &FilterData) -> &DType {
+        array.child().dtype()
+    }
+
+    fn stats(array: &FilterData) -> &ArrayStats {
+        &array.stats
     }
 
     fn array_hash<H: Hasher>(array: &FilterData, state: &mut H, precision: Precision) {
@@ -107,22 +104,35 @@ impl VTable for Filter {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(FilterMetadata(array.mask.clone()))
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
         vortex_bail!("Filter array is not serializable")
     }
 
     fn deserialize(
-        &self,
+        _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
-        _metadata: &[u8],
-
         _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<FilterData> {
+    ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Filter array is not serializable")
+    }
+
+    fn build(
+        dtype: &DType,
+        len: usize,
+        metadata: &FilterMetadata,
+        _buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ArrayRef> {
+        assert_eq!(len, metadata.0.true_count());
+        let child = children.get(0, dtype, metadata.0.len())?;
+        Ok(FilterData::try_new(child, metadata.0.clone())?.into_array())
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
@@ -177,5 +187,19 @@ impl OperationsVTable<Filter> for Filter {
 impl ValidityVTable<Filter> for Filter {
     fn validity(array: ArrayView<'_, Filter>) -> VortexResult<Validity> {
         array.child().validity()?.filter(&array.mask)
+    }
+}
+
+pub struct FilterMetadata(pub(super) Mask);
+
+impl Debug for FilterMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} / {} => {}",
+            self.0.true_count(),
+            self.0.len(),
+            self.0.density()
+        )
     }
 }

@@ -24,6 +24,7 @@ use vortex::utils::aliases::dash_map::DashMap;
 mod arrays;
 mod encodings;
 mod filter;
+mod patched;
 mod patches;
 mod slice;
 

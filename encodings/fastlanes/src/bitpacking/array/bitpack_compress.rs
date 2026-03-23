@@ -4,7 +4,11 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PatchedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
@@ -20,6 +24,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -27,10 +32,149 @@ use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
 
-pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
-    let bit_width_freq = bit_width_histogram(array)?;
-    let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
-    bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
+/// The result of bit-packing an array.
+#[derive(Debug)]
+pub enum Packed {
+    // TODO(aduffy): hold onto the stats?
+    Unpatched(BitPackedArray),
+    Patched(BitPackedArray, Patches),
+}
+
+impl Packed {
+    pub fn has_patches(&self) -> bool {
+        matches!(self, Self::Patched(_, _))
+    }
+
+    /// Unwrap the `packed` structure as the `Packed` variant without patches.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if there are patches.
+    pub fn unwrap_unpatched(self) -> BitPackedArray {
+        match self {
+            Self::Unpatched(unpacked) => unpacked,
+            Self::Patched(..) => vortex_panic!("cannot unwrap Patched values as Unpatched"),
+        }
+    }
+
+    /// Unwrap the patches from the `Packed` structure.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if there are no patches.
+    pub fn unwrap_patches(self) -> Patches {
+        match self {
+            Self::Unpatched(_) => vortex_panic!("cannot unwrap patches from Unpatched"),
+            Self::Patched(_, patches) => patches,
+        }
+    }
+
+    /// Consume and retrieve only the packed result, discarding any patches.
+    pub fn into_packed(self) -> BitPackedArray {
+        match self {
+            Packed::Unpatched(packed) => packed,
+            Packed::Patched(packed, _) => packed,
+        }
+    }
+
+    /// Get the full `ArrayRef` for the packed result.
+    ///
+    /// This will either point to a raw `BitPackedArray`, or a `PatchedArray` with a
+    /// `BitPackedArray` child.
+    ///
+    /// # Errors
+    ///
+    /// If there are patches, we need to perform an array execution to transpose the patches. This
+    /// will propagate any error from calling `execute` on the patches components.
+    pub fn into_array(self) -> VortexResult<ArrayRef> {
+        // We might need to execute the patches instead.
+        match self {
+            Packed::Unpatched(unpatched) => Ok(unpatched.into_array()),
+            Packed::Patched(packed, patches) => Ok(PatchedArray::from_array_and_patches(
+                packed.into_array(),
+                &patches,
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )?
+            .into_array()),
+        }
+    }
+
+    /// Apply a function to the patches, returning a new set of patches.
+    pub fn map_patches<F>(self, func: F) -> VortexResult<Self>
+    where
+        F: FnOnce(Patches) -> VortexResult<Patches>,
+    {
+        match self {
+            Packed::Unpatched(packed) => Ok(Packed::Unpatched(packed)),
+            Packed::Patched(packed, patches) => {
+                let mapped = func(patches)?;
+                Ok(Packed::Patched(packed, mapped))
+            }
+        }
+    }
+}
+
+/// An encoder for bit-packing `PrimitiveArray`s using FastLanes.
+pub struct BitPackedEncoder<'a> {
+    array: &'a PrimitiveArray,
+    bit_width: Option<u8>,
+    histogram: Option<&'a [usize]>,
+}
+
+impl<'a> BitPackedEncoder<'a> {
+    /// Create a new encoder that will bit-pack the provided array.
+    pub fn new(array: &'a PrimitiveArray) -> Self {
+        Self {
+            array,
+            bit_width: None,
+            histogram: None,
+        }
+    }
+
+    /// Configure the encoder with a pre-selected bit-width for the output.
+    ///
+    /// If this is not configured, `pack` will scan the values and determine the optimal bit-width
+    /// for compression.
+    pub fn with_bit_width(mut self, bit_width: u8) -> Self {
+        self.bit_width = Some(bit_width);
+        self
+    }
+
+    /// Configure the encoder with a pre-computed histogram of values by bit-width.
+    ///
+    /// If not set, `pack` will scan the values and build the histogram.
+    pub fn with_histogram(mut self, histogram: &'a [usize]) -> Self {
+        self.histogram = Some(histogram);
+        self
+    }
+
+    /// Consume the encoder and return the packed result. Any configured bit-width will be
+    /// respected.
+    ///
+    /// # Error
+    ///
+    /// Packing will return an error if [`bitpack_encode`] would return an error, namely if the
+    /// types or values of the input `PrimitiveArray` are out of range.
+    pub fn pack(mut self) -> VortexResult<Packed> {
+        let bit_width_freq = bit_width_histogram(self.array)?;
+        let bw: u8 = match self.bit_width.take() {
+            Some(bw) => bw,
+            None => find_best_bit_width(self.array.ptype(), &bit_width_freq)?,
+        };
+
+        let (packed, patches) = bitpack_encode(self.array, bw, Some(&bit_width_freq))?;
+        match patches {
+            Some(patches) => Ok(Packed::Patched(packed, patches)),
+            None => Ok(Packed::Unpatched(packed)),
+        }
+    }
+}
+
+/// Find the ideal bit width that maximally compresses the input array.
+///
+/// Returns the bit-packed, possibly patched, array.
+pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<ArrayRef> {
+    BitPackedEncoder::new(array).pack()?.into_array()
 }
 
 #[allow(unused_comparisons, clippy::absurd_extreme_comparisons)]
@@ -38,7 +182,7 @@ pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
-) -> VortexResult<BitPackedArray> {
+) -> VortexResult<(BitPackedArray, Option<Patches>)> {
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
         None => &bit_width_histogram(array)?,
@@ -71,6 +215,7 @@ pub fn bitpack_encode(
         .transpose()?
         .flatten();
 
+<<<<<<< HEAD
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
         array.ptype(),
@@ -82,6 +227,29 @@ pub fn bitpack_encode(
     )?;
     bitpacked.statistics().inherit_from(array.statistics());
     Ok(bitpacked)
+=======
+    // SAFETY: all components validated above
+    let bitpacked = unsafe {
+        BitPackedData::new_unchecked(
+            BufferHandle::new_host(packed),
+            array.dtype().clone(),
+            array.validity(),
+            bit_width,
+            array.len(),
+            0,
+        )
+    };
+    let bitpacked =
+        BitPackedArray::try_from_data(bitpacked).vortex_expect("BitPackedData is always valid");
+    {
+        let bp_ref = bitpacked.clone().into_array();
+        bitpacked
+            .stats_set
+            .to_ref(&bp_ref)
+            .inherit_from(array.statistics());
+    }
+    Ok((bitpacked, patches))
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -99,6 +267,7 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
+<<<<<<< HEAD
     let arr_ref = array.clone().into_array();
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
@@ -111,6 +280,29 @@ pub unsafe fn bitpack_encode_unchecked(
     )
     .vortex_expect("bitpacked array construction should succeed");
     bitpacked.statistics().inherit_from(arr_ref.statistics());
+=======
+    // SAFETY: checked by bitpack_unchecked
+    let data = unsafe {
+        BitPackedData::new_unchecked(
+            BufferHandle::new_host(packed),
+            array.dtype().clone(),
+            array.validity(),
+            bit_width,
+            array.len(),
+            0,
+        )
+    };
+    let bitpacked =
+        BitPackedArray::try_from_data(data).vortex_expect("BitPackedData is always valid");
+    {
+        let bp_ref = bitpacked.clone().into_array();
+        let arr_ref = array.into_array();
+        bitpacked
+            .stats_set
+            .to_ref(&bp_ref)
+            .inherit_from(arr_ref.statistics());
+    }
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     Ok(bitpacked)
 }
 
@@ -376,7 +568,7 @@ pub mod test_harness {
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
-    use super::bitpack_encode;
+    use super::BitPackedEncoder;
 
     pub fn make_array(
         rng: &mut StdRng,
@@ -401,7 +593,10 @@ pub mod test_harness {
             PrimitiveArray::new(values, validity)
         };
 
-        bitpack_encode(&values, 12, None).map(|a| a.into_array())
+        BitPackedEncoder::new(&values)
+            .with_bit_width(12)
+            .pack()?
+            .into_array()
     }
 }
 
@@ -448,8 +643,17 @@ mod test {
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
+<<<<<<< HEAD
         let compressed = BitPackedData::encode(&values.into_array(), 4).unwrap();
         assert!(compressed.patches(compressed.len()).is_none());
+=======
+        let packed = BitPackedEncoder::new(&values)
+            .with_bit_width(4)
+            .pack()
+            .unwrap();
+        assert!(!packed.has_patches());
+        let compressed = packed.into_packed();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
@@ -467,7 +671,10 @@ mod test {
         let array = PrimitiveArray::new(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        let err = BitPackedData::encode(&array.into_array(), 1024u32.ilog2() as u8).unwrap_err();
+        let err = BitPackedEncoder::new(&array)
+            .with_bit_width(1024u32.ilog2() as u8)
+            .pack()
+            .unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 
@@ -509,9 +716,17 @@ mod test {
             .for_each(|&idx| values[idx] = patch_value);
 
         let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+        let packed = BitPackedEncoder::new(&array)
+            .with_bit_width(4)
+            .pack()
+            .unwrap();
+        assert!(packed.has_patches());
 
+<<<<<<< HEAD
         let patches = bitpacked.patches(bitpacked.len()).unwrap();
+=======
+        let patches = packed.unwrap_patches();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -532,9 +747,17 @@ mod test {
             .for_each(|&idx| values[idx] = patch_value);
 
         let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+        let packed = BitPackedEncoder::new(&array)
+            .with_bit_width(4)
+            .pack()
+            .unwrap();
+        assert!(packed.has_patches());
 
+<<<<<<< HEAD
         let patches = bitpacked.patches(bitpacked.len()).unwrap();
+=======
+        let patches = packed.unwrap_patches();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
@@ -551,9 +774,17 @@ mod test {
             .for_each(|&idx| values[idx] = patch_value);
 
         let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+        let packed = BitPackedEncoder::new(&array)
+            .with_bit_width(4)
+            .pack()
+            .unwrap();
+        assert!(packed.has_patches());
 
+<<<<<<< HEAD
         let patches = bitpacked.patches(bitpacked.len()).unwrap();
+=======
+        let patches = packed.unwrap_patches();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -575,9 +806,17 @@ mod test {
             .for_each(|&idx| values[idx] = patch_value);
 
         let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+        let packed = BitPackedEncoder::new(&array)
+            .with_bit_width(4)
+            .pack()
+            .unwrap();
+        assert!(packed.has_patches());
 
+<<<<<<< HEAD
         let patches = bitpacked.patches(bitpacked.len()).unwrap();
+=======
+        let patches = packed.unwrap_patches();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // Single chunk starting at patch index 0.

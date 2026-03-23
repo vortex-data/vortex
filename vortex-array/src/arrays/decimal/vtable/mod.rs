@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use kernel::PARENT_KERNELS;
-use prost::Message;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -11,8 +10,12 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -38,6 +41,7 @@ use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::stats::ArrayStats;
 vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?
@@ -50,11 +54,36 @@ pub struct DecimalMetadata {
 impl VTable for Decimal {
     type ArrayData = DecimalData;
 
+    type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Decimal
+    }
+
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &DecimalData) -> usize {
+        let divisor = match array.values_type {
+            DecimalType::I8 => 1,
+            DecimalType::I16 => 2,
+            DecimalType::I32 => 4,
+            DecimalType::I64 => 8,
+            DecimalType::I128 => 16,
+            DecimalType::I256 => 32,
+        };
+        array.values.len() / divisor
+    }
+
+    fn dtype(array: &DecimalData) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &DecimalData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &DecimalData, state: &mut H, precision: Precision) {
@@ -87,45 +116,34 @@ impl VTable for Decimal {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DecimalMetadata {
-                values_type: array.values_type() as i32,
-            }
-            .encode_to_vec(),
-        ))
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DecimalMetadata {
+            values_type: array.values_type() as i32,
+        }))
     }
 
-    fn validate(&self, data: &DecimalData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            data.len() == len,
-            "DecimalArray length {} does not match outer length {}",
-            data.len(),
-            len
-        );
-
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "DecimalArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
-
-        Ok(())
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
     }
 
     fn deserialize(
-        &self,
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(bytes)?;
+        Ok(ProstMetadata(metadata))
+    }
+
+    fn build(
         dtype: &DType,
         len: usize,
-        metadata: &[u8],
-
+        metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<DecimalData> {
-        let metadata = DecimalMetadata::decode(metadata)?;
+    ) -> VortexResult<ArrayRef> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -151,7 +169,13 @@ impl VTable for Decimal {
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
-            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
+            Ok(DecimalData::try_new_handle(
+                values,
+                metadata.values_type(),
+                *decimal_dtype,
+                validity,
+            )?
+            .into_array())
         })
     }
 
@@ -216,8 +240,8 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
+    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
-    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
@@ -242,7 +266,7 @@ mod tests {
 
         let concat = concat.freeze();
 
-        let parts = SerializedArray::try_from(concat).unwrap();
+        let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts
             .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
             .unwrap();
@@ -270,7 +294,7 @@ mod tests {
             concat.extend_from_slice(buf.as_ref());
         }
 
-        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

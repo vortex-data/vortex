@@ -48,7 +48,7 @@ impl FilterKernel for BitPacked {
     fn filter(
         array: ArrayView<'_, Self>,
         mask: &Mask,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
@@ -80,6 +80,7 @@ impl FilterKernel for BitPacked {
                 }
             });
 
+<<<<<<< HEAD
         let patches = array
             .patches()
             .map(|patches| patches.filter(&Mask::Values(values.clone()), ctx))
@@ -92,6 +93,8 @@ impl FilterKernel for BitPacked {
             return Ok(Some(prim_array.into_array()));
         }
 
+=======
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         Ok(Some(primitive.into_array()))
     }
 }
@@ -182,16 +185,19 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::BitPackedData;
+    use crate::bitpack_compress::BitPackedEncoder;
 
     #[test]
     fn take_indices() {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(6)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
@@ -206,7 +212,11 @@ mod test {
     fn take_sliced_indices() {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(6)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
         let sliced = bitpacked.slice(128..2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
@@ -218,7 +228,11 @@ mod test {
     #[test]
     fn filter_bitpacked() {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(6)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
         let filtered = bitpacked
             .filter(Mask::from_indices(4096, (0..1024).collect()))
             .unwrap();
@@ -232,7 +246,11 @@ mod test {
     fn filter_bitpacked_signed() {
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(9)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), (0..250).collect()))
             .unwrap()
@@ -247,18 +265,30 @@ mod test {
     #[test]
     fn test_filter_bitpacked_conformance() {
         // Test with u8 values
-        let unpacked = buffer![1u8, 2, 3, 4, 5].into_array();
-        let bitpacked = BitPackedData::encode(&unpacked, 3).unwrap();
+        let unpacked = PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]);
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(3)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with u32 values
-        let unpacked = buffer![100u32, 200, 300, 400, 500].into_array();
-        let bitpacked = BitPackedData::encode(&unpacked, 9).unwrap();
+        let unpacked = PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]);
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(9)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with nullable values
         let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 3).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(3)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
         test_filter_conformance(&bitpacked.into_array());
     }
 
@@ -273,14 +303,23 @@ mod test {
         // Values 0-127 fit in 7 bits, but 1000 and 2000 do not.
         let values: Vec<i32> = vec![0, 10, 1000, 20, 30, 2000, 40, 50, 60, 70];
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(7)
+            .pack()
+            .unwrap();
         assert!(
+<<<<<<< HEAD
             bitpacked.patches(bitpacked.len()).is_some(),
+=======
+            bitpacked.has_patches(),
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
             "Expected patches for values exceeding bit width"
         );
 
         // Filter to include some patched and some non-patched values.
         let filtered = bitpacked
+            .into_array()
+            .unwrap()
             .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
             .unwrap()
             .to_primitive();
@@ -305,15 +344,24 @@ mod test {
             })
             .collect();
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(7)
+            .pack()
+            .unwrap();
         assert!(
+<<<<<<< HEAD
             bitpacked.patches(bitpacked.len()).is_some(),
+=======
+            bitpacked.has_patches(),
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
             "Expected patches for values exceeding bit width"
         );
 
         // Use low selectivity (only select 2% of values) to avoid full decompression.
         let indices: Vec<usize> = (0..20).collect();
         let filtered = bitpacked
+            .into_array()
+            .unwrap()
             .filter(Mask::from_indices(values.len(), indices))
             .unwrap()
             .to_primitive();

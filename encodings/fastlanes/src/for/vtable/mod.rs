@@ -114,6 +114,7 @@ impl VTable for FoR {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+<<<<<<< HEAD
         session: &VortexSession,
     ) -> VortexResult<FoRData> {
         vortex_ensure!(
@@ -121,6 +122,9 @@ impl VTable for FoR {
             "FoRArray expects 0 buffers, got {}",
             buffers.len()
         );
+=======
+    ) -> VortexResult<ArrayRef> {
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         if children.len() != 1 {
             vortex_bail!(
                 "Expected 1 child for FoR encoding, found {}",
@@ -132,7 +136,11 @@ impl VTable for FoR {
         let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
         let encoded = children.get(0, dtype, len)?;
 
+<<<<<<< HEAD
         FoRData::try_new(encoded, reference)
+=======
+        Ok(FoRData::try_new(encoded, metadata.clone())?.into_array())
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     }
 
     fn reduce_parent(

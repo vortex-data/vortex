@@ -133,6 +133,7 @@ impl VTable for Delta {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+<<<<<<< HEAD
         _session: &VortexSession,
     ) -> VortexResult<DeltaData> {
         vortex_ensure!(
@@ -146,6 +147,10 @@ impl VTable for Delta {
             children.len()
         );
         let metadata = DeltaMetadata::decode(metadata)?;
+=======
+    ) -> VortexResult<ArrayRef> {
+        assert_eq!(children.len(), 2);
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let ptype = PType::try_from(dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
 
@@ -159,7 +164,11 @@ impl VTable for Delta {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
+<<<<<<< HEAD
         DeltaData::try_new(bases, deltas, metadata.offset as usize, len)
+=======
+        Ok(DeltaData::try_new(bases, deltas, metadata.0.offset as usize, len)?.into_array())
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -8,8 +8,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -36,17 +38,35 @@ use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::stats::ArrayStats;
 
 vtable!(Primitive, Primitive, PrimitiveData);
 
 impl VTable for Primitive {
     type ArrayData = PrimitiveData;
 
+    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Primitive
+    }
+
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &PrimitiveData) -> usize {
+        array.buffer_handle().len() / array.ptype().byte_width()
+    }
+
+    fn dtype(array: &PrimitiveData) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PrimitiveData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: Hasher>(array: &PrimitiveData, state: &mut H, precision: Precision) {
@@ -77,45 +97,31 @@ impl VTable for Primitive {
         }
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &PrimitiveData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            data.len() == len,
-            "PrimitiveArray length {} does not match outer length {}",
-            data.len(),
-            len
-        );
-
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "PrimitiveArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
-
-        Ok(())
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
     }
 
-    fn deserialize(
-        &self,
+    fn build(
         dtype: &DType,
         len: usize,
-        metadata: &[u8],
-
+        _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<PrimitiveData> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "PrimitiveArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
+    ) -> VortexResult<ArrayRef> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -155,11 +161,9 @@ impl VTable for Primitive {
         );
 
         // SAFETY: checked ahead of time
-        unsafe {
-            Ok(PrimitiveData::new_unchecked_from_handle(
-                buffer, ptype, validity,
-            ))
-        }
+        Ok(unsafe {
+            PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity).into_array()
+        })
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -222,8 +226,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
-    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
@@ -246,7 +250,7 @@ mod tests {
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
-        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

@@ -13,8 +13,10 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -30,6 +32,7 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(Extension, Extension, ExtensionData);
@@ -37,11 +40,28 @@ vtable!(Extension, Extension, ExtensionData);
 impl VTable for Extension {
     type ArrayData = ExtensionData;
 
+    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Extension
+    }
+
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ExtensionData) -> usize {
+        array.storage_array().len()
+    }
+
+    fn dtype(array: &ExtensionData) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ExtensionData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -78,45 +98,31 @@ impl VTable for Extension {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &ExtensionData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            data.len() == len,
-            "ExtensionArray length {} does not match outer length {}",
-            data.len(),
-            len
-        );
-
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "ExtensionArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
-
-        Ok(())
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
     }
 
-    fn deserialize(
-        &self,
+    fn build(
         dtype: &DType,
         len: usize,
-        metadata: &[u8],
-
+        _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ExtensionData> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "ExtensionArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
+    ) -> VortexResult<ArrayRef> {
         let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Not an extension DType");
         };
@@ -124,7 +130,7 @@ impl VTable for Extension {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(ExtensionData::new(ext_dtype.clone(), storage))
+        Ok(ExtensionData::new(ext_dtype.clone(), storage).into_array())
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

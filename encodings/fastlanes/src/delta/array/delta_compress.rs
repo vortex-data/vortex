@@ -104,8 +104,14 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+<<<<<<< HEAD
     use crate::Delta;
     use crate::bitpack_compress::bitpack_encode;
+=======
+    use crate::DeltaArray;
+    use crate::DeltaData;
+    use crate::bitpack_compress::BitPackedEncoder;
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
 
@@ -135,12 +141,23 @@ mod tests {
             (0u8..200).map(|i| (!(50..100).contains(&i)).then_some(i)),
         );
         let (bases, deltas) = delta_compress(&array, &mut SESSION.create_execution_ctx()).unwrap();
+<<<<<<< HEAD
         let bitpacked_deltas = bitpack_encode(&deltas, 1, None).unwrap();
         let packed_delta = Delta::try_new(
             bases.into_array(),
             bitpacked_deltas.into_array(),
             0,
             array.len(),
+=======
+        let bitpacked_deltas = BitPackedEncoder::new(&deltas)
+            .with_bit_width(1)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
+        let packed_delta = DeltaArray::try_from_data(
+            DeltaData::try_new(bases.into_array(), bitpacked_deltas, 0, array.len()).unwrap(),
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         )
         .vortex_expect("Delta array construction should succeed");
         assert_arrays_eq!(packed_delta.as_array().to_primitive(), array);

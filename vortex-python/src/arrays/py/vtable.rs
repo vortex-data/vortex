@@ -4,6 +4,9 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
+use pyo3::intern;
+use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use vortex::array::Array;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
@@ -12,15 +15,19 @@ use vortex::array::ExecutionCtx;
 use vortex::array::ExecutionResult;
 use vortex::array::OperationsVTable;
 use vortex::array::Precision;
+use vortex::array::RawMetadata;
+use vortex::array::SerializeMetadata;
 use vortex::array::VTable;
 use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::serde::ArrayChildren;
+use vortex::array::stats::ArrayStats;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -38,18 +45,28 @@ pub struct PythonVTable {
 impl VTable for PythonVTable {
     type ArrayData = PythonArray;
 
+    type Metadata = RawMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+
+    fn vtable(array: &Self::ArrayData) -> &Self {
+        &array.vtable
+    }
 
     fn id(&self) -> ArrayId {
         self.id.clone()
     }
 
-    fn validate(&self, data: &PythonArray, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(data.vtable.id == self.id, "PythonArray vtable id mismatch");
-        vortex_ensure!(&data.dtype == dtype, "PythonArray dtype mismatch");
-        vortex_ensure!(data.len == len, "PythonArray len mismatch");
-        Ok(())
+    fn len(array: &PythonArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &PythonArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PythonArray) -> &ArrayStats {
+        &array.stats
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
@@ -84,21 +101,51 @@ impl VTable for PythonVTable {
         vortex_panic!("PythonArray child_name index {idx} out of bounds")
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Python::attach(|py| {
+            let obj = array.object.bind(py);
+            if !obj
+                .hasattr(intern!(py, "metadata"))
+                .map_err(|e| vortex_err!("{}", e))?
+            {
+                // The class does not have a metadata attribute so does not support serialization.
+                return Ok(RawMetadata(vec![]));
+            }
+
+            let bytes = obj
+                .call_method(intern!(py, "__vx_metadata__"), (), None)
+                .map_err(|e| vortex_err!("{}", e))?
+                .cast::<PyBytes>()
+                .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
+                .as_bytes()
+                .to_vec();
+
+            Ok(RawMetadata(bytes))
+        })
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
     }
 
     fn deserialize(
-        &self,
+        bytes: &[u8],
         _dtype: &DType,
         _len: usize,
-        bytes: &[u8],
         _buffers: &[BufferHandle],
-        _children: &dyn vortex::array::serde::ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<PythonArray> {
-        _ = bytes;
-        vortex_bail!("PythonArray deserialization is not supported");
+    ) -> VortexResult<Self::Metadata> {
+        Ok(RawMetadata(bytes.to_vec()))
+    }
+
+    fn build(
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<ArrayRef> {
+        todo!()
     }
 
     fn slots(_array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

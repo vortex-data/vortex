@@ -10,8 +10,10 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -26,6 +28,7 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 mod kernel;
@@ -44,11 +47,27 @@ impl FixedSizeList {
 impl VTable for FixedSizeList {
     type ArrayData = FixedSizeListData;
 
+    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+    fn vtable(_array: &FixedSizeListData) -> &Self {
+        &FixedSizeList
+    }
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &FixedSizeListData) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &FixedSizeListData) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &FixedSizeListData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -100,45 +119,34 @@ impl VTable for FixedSizeList {
         Self::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &FixedSizeListData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            data.len() == len,
-            "FixedSizeListArray length {} does not match outer length {}",
-            data.len(),
-            len
-        );
-
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "FixedSizeListArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
-
-        Ok(())
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
     }
 
-    fn deserialize(
-        &self,
+    /// Builds a [`FixedSizeListArray`].
+    ///
+    /// This method expects 1 or 2 children (a second child indicates a validity array).
+    fn build(
         dtype: &DType,
         len: usize,
-        metadata: &[u8],
-
+        _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<FixedSizeListData> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "FixedSizeListArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
+    ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             buffers.is_empty(),
             "`FixedSizeList::build` expects no buffers"
@@ -165,7 +173,7 @@ impl VTable for FixedSizeList {
         let num_elements = len * (*list_size as usize);
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        FixedSizeListData::try_new(elements, *list_size, validity, len)
+        Ok(FixedSizeListData::try_new(elements, *list_size, validity, len)?.into_array())
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

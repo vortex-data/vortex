@@ -68,7 +68,12 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
+<<<<<<< HEAD
     use crate::BitPackedData;
+=======
+    use crate::FoRArray;
+    use crate::bitpack_compress::BitPackedEncoder;
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 
@@ -131,8 +136,19 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
+<<<<<<< HEAD
         let bp = BitPackedData::encode(&array.into_array(), 3).unwrap();
         let compressed = FoR::try_new(bp.into_array(), 10u32.into()).unwrap();
+=======
+        let bp = BitPackedEncoder::new(&array)
+            .with_bit_width(3)
+            .pack()
+            .unwrap()
+            .into_packed();
+        let compressed =
+            FoRArray::try_from_data(FoRData::try_new(bp.into_array(), 10u32.into()).unwrap())
+                .unwrap();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_arrays_eq!(compressed, expect);
     }
 
@@ -141,8 +157,19 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
+<<<<<<< HEAD
         let bp = BitPackedData::encode(&array.into_array(), 2).unwrap();
         let compressed = FoR::try_new(bp.clone().into_array(), 10u32.into())?;
+=======
+        let bp = BitPackedEncoder::new(&array)
+            .with_bit_width(2)
+            .pack()
+            .unwrap()
+            .into_packed();
+        let compressed = FoRArray::try_from_data(
+            FoRData::try_new(bp.clone().into_array(), 10u32.into()).unwrap(),
+        )?;
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let decompressed = fused_decompress::<u32>(
             &compressed,
             bp.as_view(),

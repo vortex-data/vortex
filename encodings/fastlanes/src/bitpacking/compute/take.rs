@@ -11,6 +11,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::primitive::PrimitiveData;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -19,6 +20,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
@@ -54,7 +56,11 @@ impl TakeExecute for BitPacked {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
+<<<<<<< HEAD
                 take_primitive::<T, I>(array, &indices, taken_validity, ctx)?
+=======
+                take_primitive::<T, I>(&array, &indices, taken_validity)?
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
             })
         });
         let taken = if ptype.is_signed_int() {
@@ -74,7 +80,6 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     array: ArrayView<'_, BitPacked>,
     indices: &PrimitiveArray,
     taken_validity: Validity,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     if indices.is_empty() {
         return Ok(PrimitiveArray::new(Buffer::<T>::empty(), taken_validity));
@@ -137,6 +142,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         }
     });
 
+<<<<<<< HEAD
     let unpatched_taken = if array.dtype().as_ptype().is_signed_int() {
         let primitive = PrimitiveArray::new(output, taken_validity);
         PrimitiveArray::from_buffer_handle(
@@ -152,9 +158,15 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     {
         let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
         return unpatched_taken.patch(&cast_patches, ctx);
+=======
+    let mut unpatched_taken_data = PrimitiveData::new(output, taken_validity);
+    // Flip back to signed type before patching.
+    if array.ptype().is_signed_int() {
+        unpatched_taken_data = unpatched_taken_data.reinterpret_cast(array.ptype());
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     }
 
-    Ok(unpatched_taken)
+    Ok(PrimitiveArray::try_from_data(unpatched_taken_data).vortex_expect("valid primitive data"))
 }
 
 #[cfg(test)]
@@ -165,18 +177,14 @@ mod test {
     use rand::rng;
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
-    use crate::BitPackedArray;
-    use crate::BitPackedData;
-    use crate::bitpacking::compute::take::take_primitive;
+    use crate::bitpack_compress::BitPackedEncoder;
 
     #[test]
     fn take_indices() {
@@ -184,7 +192,11 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(6)
+            .pack()
+            .unwrap()
+            .into_packed();
 
         let primitive_result = bitpacked.take(indices).unwrap();
         assert_arrays_eq!(
@@ -195,8 +207,13 @@ mod test {
 
     #[test]
     fn take_with_patches() {
-        let unpacked = Buffer::from_iter(0u32..1024).into_array();
-        let bitpacked = BitPackedData::encode(&unpacked, 2).unwrap();
+        let unpacked = PrimitiveArray::from_iter(0u32..1024);
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(2)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
 
         let indices = buffer![0, 2, 4, 6].into_array();
 
@@ -210,7 +227,11 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedEncoder::new(&unpacked)
+            .with_bit_width(6)
+            .pack()
+            .unwrap()
+            .into_packed();
         let sliced = bitpacked.slice(128..2050).unwrap();
 
         let primitive_result = sliced.take(indices).unwrap();
@@ -223,8 +244,17 @@ mod test {
         let num_patches: usize = 128;
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
         let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
+<<<<<<< HEAD
         let packed = BitPackedData::encode(&uncompressed.into_array(), 16).unwrap();
         assert!(packed.patches(packed.len()).is_some());
+=======
+        let packed_result = BitPackedEncoder::new(&uncompressed)
+            .with_bit_width(16)
+            .pack()
+            .unwrap();
+        assert!(packed_result.has_patches());
+        let packed = packed_result.into_array().unwrap();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 
         let rng = rng();
         let range = Uniform::new(0, values.len()).unwrap();
@@ -252,9 +282,15 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn take_signed_with_patches() {
-        let start =
-            BitPackedData::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
+        let values = PrimitiveArray::from_iter([1i32, 2i32, 3i32, 4i32]);
+        let start = BitPackedEncoder::new(&values)
+            .with_bit_width(1)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
 
+<<<<<<< HEAD
         let taken_primitive = take_primitive::<u32, u64>(
             start.as_view(),
             &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
@@ -262,13 +298,24 @@ mod test {
             &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
+=======
+        let taken_primitive = start
+            .take(buffer![0u64, 1, 2, 3].into_array())
+            .unwrap()
+            .to_primitive();
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_arrays_eq!(taken_primitive, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
     }
 
     #[test]
     fn take_nullable_with_nullables() {
-        let start =
-            BitPackedData::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
+        let values = PrimitiveArray::from_iter([1i32, 2i32, 3i32, 4i32]);
+        let start = BitPackedEncoder::new(&values)
+            .with_bit_width(1)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
 
         let taken_primitive = start
             .take(
@@ -282,18 +329,24 @@ mod test {
         assert_eq!(taken_primitive.to_primitive().invalid_count().unwrap(), 1);
     }
 
+    fn encode_bitpacked(parray: &PrimitiveArray, bit_width: u8) -> vortex_array::ArrayRef {
+        BitPackedEncoder::new(parray)
+            .with_bit_width(bit_width)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap()
+    }
+
     #[rstest]
-    #[case(BitPackedData::encode(&PrimitiveArray::from_iter((0..100).map(|i| (i % 63) as u8)).into_array(), 6).unwrap())]
-    #[case(BitPackedData::encode(&PrimitiveArray::from_iter((0..256).map(|i| i as u32)).into_array(), 8).unwrap())]
-    #[case(BitPackedData::encode(&buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array(), 3).unwrap())]
-    #[case(BitPackedData::encode(
-        &PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]).into_array(),
-        5
-    ).unwrap())]
-    #[case(BitPackedData::encode(&buffer![42u32].into_array(), 6).unwrap())]
-    #[case(BitPackedData::encode(&PrimitiveArray::from_iter((0..1024).map(|i| i as u32)).into_array(), 8).unwrap())]
-    fn test_take_bitpacked_conformance(#[case] bitpacked: BitPackedArray) {
+    #[case::u8_mod63(PrimitiveArray::from_iter((0..100).map(|i| (i % 63) as u8)), 6)]
+    #[case::u32_256(PrimitiveArray::from_iter((0..256).map(|i| i as u32)), 8)]
+    #[case::i32_small(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8]), 3)]
+    #[case::u16_nullable(PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]), 5)]
+    #[case::u32_single(PrimitiveArray::from_iter([42u32]), 6)]
+    #[case::u32_1024(PrimitiveArray::from_iter((0..1024).map(|i| i as u32)), 8)]
+    fn test_take_bitpacked_conformance(#[case] parray: PrimitiveArray, #[case] bit_width: u8) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(&bitpacked.into_array());
+        test_take_conformance(&encode_bitpacked(&parray, bit_width));
     }
 }

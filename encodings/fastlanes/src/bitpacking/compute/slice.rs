@@ -26,6 +26,7 @@ impl SliceReduce for BitPacked {
         Ok(Some(
             BitPacked::try_new(
                 array.packed().slice(encoded_start..encoded_stop),
+<<<<<<< HEAD
                 array.dtype().as_ptype(),
                 array
                     .validity(array.dtype().nullability())
@@ -35,6 +36,10 @@ impl SliceReduce for BitPacked {
                     .map(|p| p.slice(range.clone()))
                     .transpose()?
                     .flatten(),
+=======
+                array.dtype().clone(),
+                array.validity().slice(range.clone())?,
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
                 array.bit_width(),
                 range.len(),
                 offset as u16,
@@ -52,12 +57,15 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::BitPacked;
-    use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpack_compress::BitPackedEncoder;
 
     #[test]
     fn test_reduce_parent_returns_bitpacked_slice() -> VortexResult<()> {
         let values = PrimitiveArray::from_iter(0u32..2048);
-        let bitpacked = bitpack_encode(&values, 11, None)?;
+        let bitpacked = BitPackedEncoder::new(&values)
+            .with_bit_width(11)
+            .pack()?
+            .into_packed();
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 

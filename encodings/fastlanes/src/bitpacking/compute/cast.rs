@@ -4,9 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
@@ -22,6 +20,7 @@ impl CastReduce for BitPacked {
                     array.packed().clone(),
                     dtype.as_ptype(),
                     new_validity,
+<<<<<<< HEAD
                     array
                         .patches(array.len())
                         .map(|patches| {
@@ -35,6 +34,8 @@ impl CastReduce for BitPacked {
                             )
                         })
                         .transpose()?,
+=======
+>>>>>>> c2fc4fd43 (add a LazyPatchedArray)
                     array.bit_width(),
                     array.len(),
                     array.offset(),
@@ -59,18 +60,18 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_buffer::buffer;
 
-    use crate::BitPackedArray;
-    use crate::BitPackedData;
-
-    fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
-        BitPackedData::encode(array, bit_width).unwrap()
-    }
+    use crate::bitpack_compress::BitPackedEncoder;
 
     #[test]
     fn test_cast_bitpacked_u8_to_u32() {
-        let packed = bp(&buffer![10u8, 20, 30, 40, 50, 60].into_array(), 6);
+        let parray = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50, 60]);
+
+        let packed = BitPackedEncoder::new(&parray)
+            .with_bit_width(6)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
 
         let casted = packed
             .into_array()
@@ -90,7 +91,11 @@ mod tests {
     #[test]
     fn test_cast_bitpacked_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
-        let packed = bp(&values.into_array(), 4);
+        let packed = BitPackedEncoder::new(&values)
+            .with_bit_width(4)
+            .pack()
+            .unwrap()
+            .unwrap_unpatched();
 
         let casted = packed
             .into_array()
@@ -103,11 +108,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case(bp(&buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array(), 6))]
-    #[case(bp(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9))]
-    #[case(bp(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12))]
-    #[case(bp(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4))]
-    fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
-        test_cast_conformance(&array.into_array());
+    #[case(PrimitiveArray::from_iter([0u8, 10, 20, 30, 40, 50, 60, 63]), 6)]
+    #[case(PrimitiveArray::from_iter([0u16, 100, 200, 300, 400, 500]), 9)]
+    #[case(PrimitiveArray::from_iter([0u32, 1000, 2000, 3000, 4000]), 12)]
+    #[case(PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]), 4)]
+    fn test_cast_bitpacked_conformance(#[case] parray: PrimitiveArray, #[case] bw: u8) {
+        let array = BitPackedEncoder::new(&parray)
+            .with_bit_width(bw)
+            .pack()
+            .unwrap()
+            .into_array()
+            .unwrap();
+        test_cast_conformance(&array);
     }
 }

@@ -20,7 +20,6 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FoRArray;
-use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;
 
@@ -108,7 +107,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask());
+        uninit_range.append_mask(bp.validity().to_mask(bp.len()));
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -117,14 +116,15 @@ pub(crate) fn fused_decompress<
     // Decode all chunks (initial, full, and trailer) in one call.
     unpacked.decode_into(uninit_slice);
 
-    if let Some(ref patches) = bp.patches() {
-        bitpack_decompress::apply_patches_to_uninit_range_fn(
-            &mut uninit_range,
-            patches,
-            ctx,
-            |v| v.wrapping_add(&ref_),
-        )?;
-    };
+    // TODO(aduffy): make sure we do Patched(FOR(BP)) instead of FOR(Patched(BP))
+    // if let Some(patches) = bp.patches() {
+    //     bitpack_decompress::apply_patches_to_uninit_range_fn(
+    //         &mut uninit_range,
+    //         patches,
+    //         ctx,
+    //         |v| v.wrapping_add(&ref_),
+    //     )?;
+    // };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
     // initialized the same number of values needed via `decode_into`.

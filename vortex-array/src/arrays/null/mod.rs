@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
-use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
@@ -22,6 +24,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 
@@ -34,16 +37,28 @@ vtable!(Null, Null, NullData);
 impl VTable for Null {
     type ArrayData = NullData;
 
+    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Null
+    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn validate(&self, _data: &NullData, dtype: &DType, _len: usize) -> VortexResult<()> {
-        vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
-        Ok(())
+    fn len(array: &NullData) -> usize {
+        array.len
+    }
+
+    fn dtype(_array: &NullData) -> &DType {
+        &DType::Null
+    }
+
+    fn stats(array: &NullData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(_array: &NullData, _state: &mut H, _precision: Precision) {
@@ -85,26 +100,32 @@ impl VTable for Null {
         Ok(())
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        &self,
+        _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
-        metadata: &[u8],
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
 
+    fn build(
+        _dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<NullData> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "NullArray expects empty metadata, got {} bytes",
-            metadata.len()
-        );
-        Ok(NullData::new())
+    ) -> VortexResult<ArrayRef> {
+        Ok(NullData::new(len).into_array())
     }
 
     fn reduce_parent(
@@ -149,7 +170,9 @@ impl VTable for Null {
 /// ```
 #[derive(Clone, Debug)]
 pub struct NullData {
+    len: usize,
     slots: Vec<Option<ArrayRef>>,
+    stats_set: ArrayStats,
 }
 
 #[derive(Clone, Debug)]
@@ -161,21 +184,32 @@ impl Null {
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Null, DType::Null, len, NullData::new()))
-        }
-    }
-}
-
-impl Default for NullData {
-    fn default() -> Self {
-        Self::new()
+        Array::try_from_data(NullData::new(len)).vortex_expect("NullData is always valid")
     }
 }
 
 impl NullData {
-    pub fn new() -> Self {
-        Self { slots: vec![] }
+    pub fn new(len: usize) -> Self {
+        Self {
+            len,
+            slots: vec![],
+            stats_set: Default::default(),
+        }
+    }
+
+    /// Returns the dtype of the array (always [`DType::Null`]).
+    pub fn dtype(&self) -> &DType {
+        &DType::Null
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 impl OperationsVTable<Null> for Null {

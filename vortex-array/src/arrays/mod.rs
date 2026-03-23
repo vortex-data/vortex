@@ -104,3 +104,4 @@ pub use variant::VariantArray;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+pub mod lazy_patched;

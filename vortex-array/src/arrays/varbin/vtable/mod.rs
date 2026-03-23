@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -9,9 +8,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -39,6 +41,7 @@ use crate::Precision;
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::stats::ArrayStats;
 
 vtable!(VarBin, VarBin, VarBinData);
 
@@ -51,11 +54,27 @@ pub struct VarBinMetadata {
 impl VTable for VarBin {
     type ArrayData = VarBinData;
 
+    type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+    fn vtable(_array: &VarBinData) -> &Self {
+        &VarBin
+    }
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &VarBinData) -> usize {
+        array.offsets().len().saturating_sub(1)
+    }
+
+    fn dtype(array: &VarBinData) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &VarBinData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &VarBinData, state: &mut H, precision: Precision) {
@@ -74,22 +93,6 @@ impl VTable for VarBin {
         1
     }
 
-    fn validate(&self, data: &VarBinData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            data.len() == len,
-            "VarBinArray length {} does not match outer length {}",
-            data.len(),
-            len
-        );
-        vortex_ensure!(
-            data.dtype() == *dtype,
-            "VarBinArray dtype {} does not match outer dtype {}",
-            data.dtype(),
-            dtype
-        );
-        Ok(())
-    }
-
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.bytes_handle().clone(),
@@ -104,27 +107,36 @@ impl VTable for VarBin {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            VarBinMetadata {
-                offsets_ptype: PType::try_from(array.offsets().dtype())
-                    .vortex_expect("Must be a valid PType") as i32,
-            }
-            .encode_to_vec(),
-        ))
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(VarBinMetadata {
+            offsets_ptype: PType::try_from(array.offsets().dtype())
+                .vortex_expect("Must be a valid PType") as i32,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
     }
 
     fn deserialize(
-        &self,
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(ProstMetadata::<VarBinMetadata>::deserialize(
+            bytes,
+        )?))
+    }
+
+    fn build(
         dtype: &DType,
         len: usize,
-        metadata: &[u8],
-
+        metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<VarBinData> {
-        let metadata = VarBinMetadata::decode(metadata)?;
+    ) -> VortexResult<ArrayRef> {
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
         } else if children.len() == 2 {
@@ -145,7 +157,7 @@ impl VTable for VarBin {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        VarBinData::try_new(offsets, bytes, dtype.clone(), validity)
+        Ok(VarBinData::try_new(offsets, bytes, dtype.clone(), validity)?.into_array())
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
