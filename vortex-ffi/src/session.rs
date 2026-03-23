@@ -29,7 +29,7 @@ pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
 ///
 /// The caller is responsible for freeing the session with [`vx_session_free`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_clone(session: *mut vx_session) -> *mut vx_session {
-    let session = vx_session::as_mut(session);
+pub unsafe extern "C-unwind" fn vx_session_clone(session: *const vx_session) -> *mut vx_session {
+    let session = vx_session::as_ref(session);
     vx_session::new(Box::new(session.clone()))
 }
