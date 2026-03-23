@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use vortex_session::Ref;
+use vortex_session::SessionExt;
+use vortex_session::registry::Registry;
+
+use crate::v2::layout::LayoutPluginRef;
+use crate::v2::layout::LayoutVTable;
+
+pub type LayoutRegistry = Registry<LayoutPluginRef>;
+
+/// Session state for layout encodings.
+#[derive(Debug)]
+pub struct LayoutSession {
+    registry: LayoutRegistry,
+}
+
+impl LayoutSession {
+    /// Register a layout vtable in the session, replacing any existing vtable with the same ID.
+    pub fn register<V: LayoutVTable>(&self, vtable: V) {
+        self.registry
+            .register(vtable.id(), Arc::new(vtable) as LayoutPluginRef);
+    }
+
+    /// Returns the layout encoding registry.
+    pub fn registry(&self) -> &LayoutRegistry {
+        &self.registry
+    }
+}
+
+impl Default for LayoutSession {
+    fn default() -> Self {
+        let layouts = LayoutRegistry::default();
+        //
+        // // Register the built-in layout encodings.
+        // layouts.register(ChunkedLayoutEncoding.id(), ChunkedLayoutEncoding.as_ref());
+        // layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
+        // layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
+        // layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
+        // layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
+
+        Self { registry: layouts }
+    }
+}
+
+/// Extension trait for accessing layout session data.
+pub trait LayoutSessionExt: SessionExt {
+    /// Returns the layout encoding registry.
+    fn layouts2(&self) -> Ref<'_, LayoutSession> {
+        self.get::<LayoutSession>()
+    }
+}
+impl<S: SessionExt> LayoutSessionExt for S {}

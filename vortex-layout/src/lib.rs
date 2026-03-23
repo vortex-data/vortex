@@ -24,6 +24,7 @@ pub mod session;
 mod strategy;
 #[cfg(test)]
 mod test;
+pub mod v2;
 pub mod vtable;
 
 pub type LayoutContext = Context<LayoutEncodingRef>;
