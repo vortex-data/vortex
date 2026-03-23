@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::*;
+
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
@@ -57,11 +60,22 @@ const MAX_STACK_WORDS: usize = 64;
 fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
     if bools.len() <= MAX_STACK_WORDS * 64 {
         take_word_index(bools, indices)
-    } else if indices.len() < bools.len() / 4 {
+    } else if indices.len() < bools.len() / no_lut_divisor() {
         take_no_lut(bools, indices)
     } else {
         take_lut_output_bytes(bools, indices)
     }
+}
+
+/// Returns the divisor for the no_lut threshold: `indices.len() < src_len / divisor`.
+/// With AVX2, the SIMD LUT build amortizes faster, so we use a larger divisor (8)
+/// to prefer the LUT path for sparser takes.
+fn no_lut_divisor() -> usize {
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("avx2") {
+        return 8;
+    }
+    4
 }
 
 /// Fast path for small arrays: copy source bits into a stack-allocated `[u64]` array, then
@@ -106,14 +120,99 @@ fn take_word_index<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> B
 ///
 /// Best when `indices.len()` is small relative to `src_len`, avoiding the wasted O(src_len)
 /// LUT build that `take_lut_output_bytes` requires.
+///
+/// When source bytes exceed L1 cache (~32KB), software prefetch is used to hide random-access
+/// latency by bringing source bytes into cache ahead of use.
 fn take_no_lut<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
     let src_bytes = bools.inner().as_ref();
     let src_offset = bools.offset();
 
-    pack_output_bytes(src_bytes, indices, |src, idx| {
-        let abs = idx + src_offset;
-        (src[abs / 8] >> (abs % 8)) & 1
-    })
+    let num_indices = indices.len();
+    let num_bytes = num_indices.div_ceil(8);
+    let mut out_bytes: Vec<u8> = vec![0u8; num_bytes];
+
+    let full_bytes = num_indices / 8;
+    let use_prefetch = needs_prefetch(src_bytes.len());
+
+    for byte_idx in 0..full_bytes {
+        let base = byte_idx * 8;
+
+        #[cfg(target_arch = "x86_64")]
+        if use_prefetch {
+            prefetch_upcoming_indices(indices, src_bytes, src_offset, byte_idx, full_bytes);
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        let _ = use_prefetch;
+
+        // SAFETY: base + bit < num_indices, index values in [0, src_len).
+        unsafe {
+            let mut byte_val = 0u8;
+            for bit in 0..8u8 {
+                let idx = indices.get_unchecked(base + bit as usize).as_() + src_offset;
+                byte_val |= ((src_bytes.get_unchecked(idx / 8) >> (idx % 8)) & 1) << bit;
+            }
+            *out_bytes.get_unchecked_mut(byte_idx) = byte_val;
+        }
+    }
+
+    if !num_indices.is_multiple_of(8) {
+        let base = full_bytes * 8;
+        let mut byte_val = 0u8;
+        for bit in 0..(num_indices % 8) {
+            let idx = unsafe { indices.get_unchecked(base + bit).as_() } + src_offset;
+            byte_val |= ((src_bytes[idx / 8] >> (idx % 8)) & 1) << bit;
+        }
+        out_bytes[full_bytes] = byte_val;
+    }
+
+    BitBuffer::new(ByteBuffer::from(out_bytes), num_indices)
+}
+
+/// Threshold for enabling software prefetch: source bytes must exceed L1 cache (~32KB).
+const PREFETCH_SRC_THRESHOLD: usize = 32 * 1024;
+
+/// How many output bytes ahead to prefetch (16 output bytes = 128 indices).
+const PREFETCH_DISTANCE: usize = 16;
+
+/// Returns true if the source data is large enough to benefit from software prefetch.
+fn needs_prefetch(src_byte_len: usize) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        src_byte_len > PREFETCH_SRC_THRESHOLD && is_x86_feature_detected!("sse2")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = src_byte_len;
+        false
+    }
+}
+
+/// Issue prefetch hints for source bytes that will be accessed ~`PREFETCH_DISTANCE` output
+/// bytes in the future.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn prefetch_upcoming_indices<I: AsPrimitive<usize>>(
+    indices: &[I],
+    src_bytes: &[u8],
+    src_offset: usize,
+    byte_idx: usize,
+    full_bytes: usize,
+) {
+    let pf_byte_idx = byte_idx + PREFETCH_DISTANCE;
+    if pf_byte_idx < full_bytes {
+        let pf_base = pf_byte_idx * 8;
+        for k in (0..8).step_by(2) {
+            // SAFETY: pf_base + k < full_bytes * 8 <= num_indices, indices in bounds.
+            let pf_idx = unsafe { indices.get_unchecked(pf_base + k).as_() } + src_offset;
+            let src_ptr = unsafe { src_bytes.as_ptr().add(pf_idx / 8) };
+            // SAFETY: SSE2 is available (checked by caller). Prefetch is a hint and
+            // does not fault on invalid addresses.
+            unsafe {
+                _mm_prefetch(src_ptr as *const i8, _MM_HINT_T0);
+            }
+        }
+    }
 }
 
 /// Dense-take path for large arrays: build a byte-per-bit LUT, then gather 8 bits at a time
@@ -127,12 +226,22 @@ fn take_lut_output_bytes<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]
     let src_offset = bools.offset();
     let src_len = bools.len();
 
-    let bit_lut = build_bit_lut_scalar(src_bytes, src_offset, src_len);
+    let bit_lut = build_bit_lut(src_bytes, src_offset, src_len);
 
     pack_output_bytes(&bit_lut, indices, |lut, idx| lut[idx])
 }
 
 /// Build a byte-per-bit LUT: each source bit is expanded to a byte (0 or 1).
+/// On x86_64 with AVX2, uses SIMD to process 32 bits per iteration.
+fn build_bit_lut(src_bytes: &[u8], src_offset: usize, src_len: usize) -> Vec<u8> {
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("avx2") {
+        // SAFETY: AVX2 is available (checked above).
+        return unsafe { build_bit_lut_avx2(src_bytes, src_offset, src_len) };
+    }
+    build_bit_lut_scalar(src_bytes, src_offset, src_len)
+}
+
 #[allow(clippy::uninit_vec)]
 fn build_bit_lut_scalar(src_bytes: &[u8], src_offset: usize, src_len: usize) -> Vec<u8> {
     // SAFETY: every element in 0..src_len is written exactly once in the loop below.
@@ -143,6 +252,57 @@ fn build_bit_lut_scalar(src_bytes: &[u8], src_offset: usize, src_len: usize) -> 
         // SAFETY: abs_bit / 8 is within src_bytes by BitBuffer invariants.
         bit_lut[i] = (unsafe { *src_bytes.get_unchecked(abs_bit / 8) } >> (abs_bit % 8)) & 1;
     }
+    bit_lut
+}
+
+/// AVX2-accelerated LUT build: expand 32 source bits into 32 LUT bytes per iteration
+/// using vpshufb + vpand + vpcmpgtb.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(clippy::uninit_vec)]
+unsafe fn build_bit_lut_avx2(src_bytes: &[u8], src_offset: usize, src_len: usize) -> Vec<u8> {
+    // SAFETY: every element is written by either the SIMD loop or the scalar tail.
+    let mut bit_lut: Vec<u8> = Vec::with_capacity(src_len);
+    unsafe { bit_lut.set_len(src_len) };
+
+    // SAFETY: all intrinsics require AVX2 which is guaranteed by #[target_feature].
+    unsafe {
+        let shuf = _mm256_set_epi8(
+            3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
+            0, 0, 0,
+        );
+        #[allow(clippy::cast_possible_wrap)]
+        let bit_mask = _mm256_set_epi8(
+            -128_i8, 64, 32, 16, 8, 4, 2, 1, -128_i8, 64, 32, 16, 8, 4, 2, 1, -128_i8, 64, 32, 16,
+            8, 4, 2, 1, -128_i8, 64, 32, 16, 8, 4, 2, 1,
+        );
+        let zero = _mm256_setzero_si256();
+        let one_byte = _mm256_set1_epi8(1);
+
+        let full_groups = src_len / 32;
+        for g in 0..full_groups {
+            let bit_base = g * 32;
+            let abs_byte = (src_offset + bit_base) / 8;
+
+            let src_word = src_bytes.as_ptr().add(abs_byte) as *const i32;
+            let broadcasted = _mm256_set1_epi32(*src_word);
+            let spread = _mm256_shuffle_epi8(broadcasted, shuf);
+            let masked = _mm256_and_si256(spread, bit_mask);
+            let nonzero = _mm256_cmpgt_epi8(masked, zero);
+            let bits = _mm256_and_si256(nonzero, one_byte);
+
+            _mm256_storeu_si256(bit_lut.as_mut_ptr().add(bit_base) as *mut __m256i, bits);
+        }
+
+        // Scalar tail for remaining bits.
+        let tail_start = full_groups * 32;
+        for i in tail_start..src_len {
+            let abs_bit = src_offset + i;
+            *bit_lut.get_unchecked_mut(i) =
+                (src_bytes.get_unchecked(abs_bit / 8) >> (abs_bit % 8)) & 1;
+        }
+    }
+
     bit_lut
 }
 
