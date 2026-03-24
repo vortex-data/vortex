@@ -6,6 +6,7 @@ pub(crate) mod plan;
 mod output;
 pub mod planner;
 pub mod scheduler;
+pub mod shim;
 mod split;
 
 use std::collections::BTreeMap;

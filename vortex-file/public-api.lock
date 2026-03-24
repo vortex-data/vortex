@@ -272,11 +272,15 @@ pub fn vortex_file::VortexFile::file_stats(&self) -> core::option::Option<&vorte
 
 pub fn vortex_file::VortexFile::footer(&self) -> &vortex_file::Footer
 
+pub fn vortex_file::VortexFile::layout2(&self) -> vortex_error::VortexResult<vortex_layout::v2::layout::erased::LayoutRef>
+
 pub fn vortex_file::VortexFile::layout_reader(&self) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_layout::reader::LayoutReader>>
 
 pub fn vortex_file::VortexFile::row_count(&self) -> u64
 
 pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_scan::scan_builder::ScanBuilder<vortex_array::array::ArrayRef>>
+
+pub fn vortex_file::VortexFile::scan2(&self) -> vortex_error::VortexResult<vortex_layout::v2::scan::shim::ScanBuilder>
 
 pub fn vortex_file::VortexFile::segment_source(&self) -> alloc::sync::Arc<dyn vortex_layout::segments::source::SegmentSource>
 

@@ -79,11 +79,9 @@ impl Selection {
                     })
                     .unwrap_or_else(|| Mask::new_false(range_len))
             }
-            Selection::ExcludeByIndex(exclude) => {
-                Selection::IncludeByIndex(exclude.clone())
-                    .row_mask(range)
-                    .not()
-            }
+            Selection::ExcludeByIndex(exclude) => Selection::IncludeByIndex(exclude.clone())
+                .row_mask(range)
+                .not(),
             Selection::IncludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 

@@ -138,6 +138,11 @@ impl VortexFile {
         ))
     }
 
+    /// Initiate a v2 scan of the file, returning a builder for configuring the scan.
+    pub fn scan2(&self) -> VortexResult<v2::scan::shim::ScanBuilder> {
+        Ok(v2::scan::shim::ScanBuilder::new(self.layout2()?))
+    }
+
     /// Returns true if the expression will never match any rows in the file.
     pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
         let Some((stats, fields)) = self

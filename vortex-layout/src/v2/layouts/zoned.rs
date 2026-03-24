@@ -144,7 +144,9 @@ impl SplitPlanner for ZonedSplitPlanner {
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         // Always plan the data child split.
-        let data_output = self.data_planner.plan_split(row_range, selection, builder)?;
+        let data_output = self
+            .data_planner
+            .plan_split(row_range, selection, builder)?;
 
         let Some(zone_map_planner) = &self.zone_map_planner else {
             // No pruning predicate, just return the data output directly.
