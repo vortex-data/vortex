@@ -10,6 +10,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -34,6 +35,8 @@ use crate::arrays::patched::patch_lanes;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveArrayParts;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
@@ -167,6 +170,61 @@ impl VTable for Patched {
     ) -> VortexResult<Self::Metadata> {
         let inner = <ProstMetadata<PatchedMetadata> as DeserializeMetadata>::deserialize(bytes)?;
         Ok(ProstMetadata(inner))
+    }
+
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let dtype = array.dtype();
+
+        if !dtype.is_primitive() {
+            // Default pathway: canonicalize and propagate.
+            let canonical = array
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)?
+                .into_array();
+            builder.extend_from_array(&canonical);
+            return Ok(());
+        }
+
+        let ptype = dtype.as_ptype();
+
+        let len = array.len();
+        array.inner.append_to_builder(builder, ctx)?;
+
+        let offset = array.offset;
+        let lane_offsets: Buffer<u32> =
+            Buffer::from_byte_buffer(array.lane_offsets.clone().unwrap_host());
+        let indices: Buffer<u16> = Buffer::from_byte_buffer(array.indices.clone().unwrap_host());
+        let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
+
+        match_each_native_ptype!(ptype, |V| {
+            let typed_builder = builder
+                .as_any_mut()
+                .downcast_mut::<PrimitiveBuilder<V>>()
+                .vortex_expect("correctly typed builder");
+
+            // Overwrite the last `len` elements of the builder. These would have been
+            // populated by the inner.append_to_builder() call above.
+            let output = typed_builder.values_mut();
+            let trailer = output.len() - len;
+
+            apply_patches_primitive::<V>(
+                &mut output[trailer..],
+                offset,
+                len,
+                array.n_chunks,
+                array.n_lanes,
+                &lane_offsets,
+                &indices,
+                values.as_slice::<V>(),
+            );
+        });
+
+        Ok(())
     }
 
     fn build(
@@ -320,9 +378,13 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::arrays::PatchedArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::builders::builder_with_capacity;
     use crate::dtype::Nullability;
     use crate::patches::Patches;
     use crate::scalar::Scalar;
+    use crate::validity::Validity;
 
     #[test]
     fn test_execute() {
@@ -392,5 +454,84 @@ mod tests {
             array.scalar_at(3).unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn test_append_to_builder_non_nullable() {
+        let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
+        let patches = Patches::new(
+            1024,
+            0,
+            buffer![1u32, 2, 3].into_array(),
+            buffer![10u16, 20, 30].into_array(),
+            None,
+        )
+        .unwrap();
+
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
+        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+            .unwrap()
+            .into_array();
+
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
+
+        let result = builder.finish();
+
+        let mut expected = buffer_mut![0u16; 1024];
+        expected[1] = 10;
+        expected[2] = 20;
+        expected[3] = 30;
+        let expected = expected.into_array();
+
+        assert_arrays_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_append_to_builder_with_validity() {
+        // Create inner array with nulls at indices 0 and 5.
+        let validity = Validity::from_iter((0..10).map(|i| i != 0 && i != 5));
+        let values = PrimitiveArray::new(buffer![0u16; 10], validity).into_array();
+
+        // Apply patches at indices 1, 2, 3.
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![1u32, 2, 3].into_array(),
+            buffer![10u16, 20, 30].into_array(),
+            None,
+        )
+        .unwrap();
+
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
+        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+            .unwrap()
+            .into_array();
+
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
+
+        let result = builder.finish();
+
+        // Expected: null at 0, patched 10/20/30 at 1/2/3, zero at 4, null at 5, zeros at 6-9.
+        let expected = PrimitiveArray::from_option_iter([
+            None,
+            Some(10u16),
+            Some(20),
+            Some(30),
+            Some(0),
+            None,
+            Some(0),
+            Some(0),
+            Some(0),
+            Some(0),
+        ])
+        .into_array();
+
+        assert_arrays_eq!(expected, result);
     }
 }
