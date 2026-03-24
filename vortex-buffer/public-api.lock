@@ -302,8 +302,6 @@ impl vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::into_inner(self) -> (usize, usize, vortex_buffer::ByteBuffer)
 
-pub fn vortex_buffer::BitBuffer::into_mut(self) -> vortex_buffer::BitBufferMut
-
 pub fn vortex_buffer::BitBuffer::try_into_mut(self) -> core::result::Result<vortex_buffer::BitBufferMut, Self>
 
 impl core::clone::Clone for vortex_buffer::BitBuffer

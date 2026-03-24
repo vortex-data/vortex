@@ -63,17 +63,26 @@ fn fill_bool_array(
         }
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
-            let validity_bool_array = validity_array.to_bool();
-            let validity_bits = validity_bool_array.to_bit_buffer();
+            let validity_bits = validity_array.to_bool().to_bit_buffer();
             let data_bits = array.to_bit_buffer();
 
-            let mut new_bits = data_bits.into_mut();
+            let new_bits = match data_bits.try_into_mut() {
+                Ok(mut buf) => {
+                    (!&validity_bits)
+                        .set_indices()
+                        .for_each(|i| buf.set_to(i, fill_bool));
+                    buf.freeze()
+                }
+                Err(data_bits) => {
+                    if fill_bool {
+                        data_bits | !validity_bits
+                    } else {
+                        data_bits & validity_bits
+                    }
+                }
+            };
 
-            (!validity_bits)
-                .set_indices()
-                .for_each(|i| new_bits.set_to(i, fill_bool));
-
-            BoolArray::new(new_bits.freeze(), result_nullability.into()).into_array()
+            BoolArray::new(new_bits, result_nullability.into()).into_array()
         }
     }
 }
