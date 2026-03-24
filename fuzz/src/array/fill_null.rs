@@ -34,11 +34,11 @@ pub fn fill_null_canonical_array(
 
     Ok(match canonical {
         Canonical::Null(array) => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
-        Canonical::Bool(array) => fill_bool_array(&array, fill_value, result_nullability),
-        Canonical::Primitive(array) => fill_primitive_array(&array, fill_value, result_nullability),
-        Canonical::Decimal(array) => fill_decimal_array(&array, fill_value, result_nullability),
+        Canonical::Bool(array) => fill_bool_array(array, fill_value, result_nullability),
+        Canonical::Primitive(array) => fill_primitive_array(array, fill_value, result_nullability),
+        Canonical::Decimal(array) => fill_decimal_array(array, fill_value, result_nullability),
         Canonical::VarBinView(array) => {
-            fill_varbinview_array(&array, fill_value, result_nullability)
+            fill_varbinview_array(array, fill_value, result_nullability)
         }
         Canonical::Struct(_)
         | Canonical::List(_)
@@ -48,7 +48,7 @@ pub fn fill_null_canonical_array(
 }
 
 fn fill_bool_array(
-    array: &BoolArray,
+    array: BoolArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
@@ -59,16 +59,16 @@ fn fill_bool_array(
 
     match array.validity() {
         Validity::NonNullable | Validity::AllValid => {
-            BoolArray::new(array.to_bit_buffer(), result_nullability.into()).into_array()
+            BoolArray::new(array.into_bit_buffer(), result_nullability.into()).into_array()
         }
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
-            let validity_bits = validity_array.to_bool().to_bit_buffer();
-            let data_bits = array.to_bit_buffer();
+            let validity_bits = validity_array.to_bool().into_bit_buffer();
+            let data_bits = array.into_bit_buffer();
 
             let new_bits = match data_bits.try_into_mut() {
                 Ok(mut buf) => {
-                    (!&validity_bits)
+                    (!validity_bits)
                         .set_indices()
                         .for_each(|i| buf.set_to(i, fill_bool));
                     buf.freeze()
@@ -89,7 +89,7 @@ fn fill_bool_array(
 
 #[expect(clippy::cognitive_complexity)]
 fn fill_primitive_array(
-    array: &PrimitiveArray,
+    array: PrimitiveArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
@@ -126,7 +126,7 @@ fn fill_primitive_array(
 }
 
 fn fill_decimal_array(
-    array: &DecimalArray,
+    array: DecimalArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
@@ -170,7 +170,7 @@ fn fill_decimal_array(
 }
 
 fn fill_varbinview_array(
-    array: &VarBinViewArray,
+    array: VarBinViewArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
