@@ -11,30 +11,12 @@ typedef void FFI_ArrowSchema;
 typedef void FFI_ArrowArrayStream;
 
 #include "vortex.h"
+#include "common.h"
 
 namespace fs = std::filesystem;
 using namespace std::string_literals;
 using namespace std::string_view_literals;
 using Catch::Matchers::ContainsSubstring;
-
-std::string to_string(vx_error *err) {
-    const vx_string *msg = vx_error_get_message(err);
-    return {vx_string_ptr(msg), vx_string_len(msg)};
-}
-
-std::string_view to_string_view(const vx_string *msg) {
-    return {vx_string_ptr(msg), vx_string_len(msg)};
-}
-
-std::string_view to_string_view(vx_error *err) {
-    return to_string_view(vx_error_get_message(err));
-}
-
-void require_no_error(vx_error *err) {
-    if (err) {
-        FAIL(to_string(err));
-    }
-}
 
 TEST_CASE("Session creation", "[session]") {
     vx_session *session = vx_session_new();
@@ -132,11 +114,12 @@ struct TempPath : fs::path {
     ~TempPath() { fs::remove(*this); }
 };
 
-[[nodiscard]] TempPath write_empty(vx_session *session, const fs::path &path) {
+//constexpr size_t SAMPLE_ROWS = 10;
+[[nodiscard]] TempPath write_sample(vx_session *session, fs::path && path) {
     REQUIRE(path.is_absolute());
 
-    constexpr const std::string_view col1 = "col1";
-    constexpr const std::string_view col2 = "col2";
+    constexpr auto col1 = "col1"sv;
+    constexpr auto col2 = "col2"sv;
 
     vx_error *error = nullptr;
     vx_struct_fields_builder *builder = vx_struct_fields_builder_new();
@@ -156,6 +139,12 @@ struct TempPath : fs::path {
     REQUIRE(sink != nullptr);
     require_no_error(error);
     vx_dtype_free(file_dtype);
+
+    //for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
+    //    vx_array_sink_push(sink, array, &error);
+    //    require_no_error(error);
+    //    vx_array_free(array);
+    //}
 
     vx_array_sink_close(sink, &error);
     require_no_error(error);
@@ -197,7 +186,7 @@ TEST_CASE("Creating datasources", "[datasource]") {
     // REQUIRE_THAT(to_string(error), ContainsSubstring("No such file or directory"));
     vx_error_free(error);
 
-    TempPath file = write_empty(session, fs::current_path() / "empty.vortex");
+    TempPath file = write_sample(session, fs::current_path() / "empty.vortex");
 
     for (const char *files :
          // TODO Object store error: Generic LocalFileSystem error: Unable to walk dir: File
@@ -217,7 +206,7 @@ TEST_CASE("Creating datasources", "[datasource]") {
 
 TEST_CASE("Write file and read back types", "[datasource]") {
     vx_session *session = vx_session_new();
-    TempPath path = write_empty(session, fs::current_path() / "write-read-types.vortex");
+    TempPath path = write_sample(session, fs::current_path() / "write-read-types.vortex");
     vx_error *error = nullptr;
 
     vx_data_source_options opts = {};
@@ -263,7 +252,7 @@ TEST_CASE("Write file and read back types", "[datasource]") {
 
 TEST_CASE("Write file and read back", "[datasource]") {
     vx_session *session = vx_session_new();
-    TempPath path = write_empty(session, fs::current_path() / "write-read.vortex");
+    TempPath path = write_sample(session, fs::current_path() / "write-read.vortex");
     vx_error *error = nullptr;
 
     vx_data_source_options ds_options = {};
