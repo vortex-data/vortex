@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
@@ -116,7 +117,7 @@ impl<'a> PlanBuilder<'a> {
     /// Takes `options` by value so that the `FnOnce` compute closure can be moved into the plan.
     pub fn create_node<F>(&mut self, options: NodeOpts<'_, F>) -> VortexResult<NodeId>
     where
-        F: FnOnce(Vec<ByteBuffer>, Vec<ArrayRef>) -> VortexResult<ArrayRef> + Send + 'static,
+        F: FnOnce(ComputeArgs) -> VortexResult<ArrayRef> + Send + 'static,
     {
         let compute: ComputeFn = Box::new(options.compute);
         let id = self
@@ -133,7 +134,7 @@ impl<'a> PlanBuilder<'a> {
         self.plan.add_node(
             &[],
             Vec::new(),
-            Box::new(move |_, _| Ok(array)),
+            Box::new(move |_| Ok(array)),
             Lifetime::Scan,
         )
     }
@@ -149,8 +150,14 @@ pub struct NodeOpts<'a, F> {
 }
 
 /// A function to produce an array from resolved segment buffers and upstream node outputs.
-pub type ComputeFn =
-    Box<dyn FnOnce(Vec<ByteBuffer>, Vec<ArrayRef>) -> VortexResult<ArrayRef> + Send + 'static>;
+pub type ComputeFn = Box<dyn FnOnce(ComputeArgs) -> VortexResult<ArrayRef> + Send + 'static>;
+
+/// Arguments passed into the compute function.
+pub struct ComputeArgs {
+    pub segments: Vec<ByteBuffer>,
+    pub inputs: Vec<ArrayRef>,
+    // ctx: &'a mut ExecutionCtx,
+}
 
 /// Describes the lifetime of a plan node.
 pub enum Lifetime {

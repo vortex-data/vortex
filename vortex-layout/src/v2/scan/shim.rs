@@ -20,6 +20,7 @@ use vortex_session::VortexSession;
 use crate::v2::layout::LayoutRef;
 use crate::v2::scan::Scan;
 use crate::v2::scan::ScanConfig;
+use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::scheduler::ScanAction;
 use crate::v2::scan::scheduler::ScanEvent;
 use crate::v2::selection::Selection;
@@ -152,7 +153,7 @@ impl ScanStreamState {
                     } => match source.request(segment_id).await {
                         Ok(buffer_handle) => match buffer_handle.try_into_host_sync() {
                             Ok(byte_buffer) => {
-                                if let Err(e) = self.scan.event(ScanEvent::SegmentReady {
+                                if let Err(e) = self.scan.post_event(ScanEvent::SegmentReady {
                                     read_id,
                                     buffer: byte_buffer,
                                 }) {
@@ -162,7 +163,7 @@ impl ScanStreamState {
                             Err(e) => {
                                 if let Err(e2) = self
                                     .scan
-                                    .event(ScanEvent::SegmentFailed { read_id, error: e })
+                                    .post_event(ScanEvent::SegmentFailed { read_id, error: e })
                                 {
                                     return Some((Err(e2), self));
                                 }
@@ -171,7 +172,7 @@ impl ScanStreamState {
                         Err(e) => {
                             if let Err(e2) = self
                                 .scan
-                                .event(ScanEvent::SegmentFailed { read_id, error: e })
+                                .post_event(ScanEvent::SegmentFailed { read_id, error: e })
                             {
                                 return Some((Err(e2), self));
                             }
@@ -182,11 +183,11 @@ impl ScanStreamState {
                         compute,
                         segments,
                         inputs,
-                    } => match compute(segments, inputs) {
+                    } => match compute(ComputeArgs { segments, inputs }) {
                         Ok(result) => {
                             if let Err(e) = self
                                 .scan
-                                .event(ScanEvent::ComputeReady { compute_id, result })
+                                .post_event(ScanEvent::ComputeReady { compute_id, result })
                             {
                                 return Some((Err(e), self));
                             }
@@ -194,7 +195,7 @@ impl ScanStreamState {
                         Err(error) => {
                             if let Err(e) = self
                                 .scan
-                                .event(ScanEvent::ComputeFailed { compute_id, error })
+                                .post_event(ScanEvent::ComputeFailed { compute_id, error })
                             {
                                 return Some((Err(e), self));
                             }

@@ -37,6 +37,7 @@ use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
+use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
@@ -301,9 +302,10 @@ impl SplitPlanner for SingleFieldSplitPlanner {
             inputs: &[data_output, validity_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |_segments: Vec<ByteBuffer>, inputs: Vec<ArrayRef>| {
-                let data = inputs[0].clone();
-                let validity = inputs[1].clone();
+            compute: move |args: ComputeArgs| {
+                let mut inputs = args.inputs.into_iter();
+                let data = inputs.next().vortex_expect("missing");
+                let validity = inputs.next().vortex_expect("missing");
                 data.mask(validity)
             },
         })
@@ -345,13 +347,17 @@ impl SplitPlanner for MultiFieldSplitPlanner {
             inputs: &child_outputs,
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |_segments: Vec<ByteBuffer>, mut inputs: Vec<ArrayRef>| {
-                let validity = if has_validity { inputs.pop() } else { None };
-                let len = inputs.first().map_or(0, |a| a.len());
+            compute: move |mut args: ComputeArgs| {
+                let validity = if has_validity {
+                    args.inputs.pop()
+                } else {
+                    None
+                };
+                let len = args.inputs.first().map_or(0, |a| a.len());
 
                 // Assemble a StructArray from the field arrays.
                 let root_scope =
-                    StructArray::try_new(partition_names, inputs, len, Validity::NonNullable)?
+                    StructArray::try_new(partition_names, args.inputs, len, Validity::NonNullable)?
                         .into_array();
 
                 // Evaluate the root expression on the assembled struct.

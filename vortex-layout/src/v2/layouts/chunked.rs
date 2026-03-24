@@ -22,6 +22,7 @@ use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
+use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
@@ -176,9 +177,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
                     inputs: &[],
                     segments: vec![],
                     lifetime: builder.row_range_lifetime(row_range.clone()),
-                    compute: move |_segments: Vec<ByteBuffer>, _inputs: Vec<ArrayRef>| {
-                        Ok(Canonical::empty(&dtype).into_array())
-                    },
+                    compute: move |args: ComputeArgs| Ok(Canonical::empty(&dtype).into_array()),
                 })
             }
             1 => {
@@ -203,8 +202,8 @@ impl SplitPlanner for ChunkedSplitPlanner {
                     inputs: &child_outputs,
                     segments: vec![],
                     lifetime: builder.row_range_lifetime(row_range.clone()),
-                    compute: move |_segments: Vec<ByteBuffer>, inputs: Vec<ArrayRef>| {
-                        Ok(ChunkedArray::try_new(inputs, dtype)?.into_array())
+                    compute: move |args: ComputeArgs| {
+                        Ok(ChunkedArray::try_new(args.inputs, dtype)?.into_array())
                     },
                 })
             }

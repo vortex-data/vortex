@@ -24,6 +24,7 @@ use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
+use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
@@ -192,9 +193,9 @@ impl SplitPlanner for ZonedSplitPlanner {
             inputs: &[zm_output, data_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |_segments: Vec<ByteBuffer>, inputs: Vec<ArrayRef>| {
-                let _zm_array = &inputs[0];
-                let data_array = inputs[1].clone();
+            compute: move |args: ComputeArgs| {
+                let _zm_array = &args.inputs[0];
+                let data_array = args.inputs[1].clone();
                 // TODO: evaluate pruning predicate on zone map result,
                 // expand zone-level bits to row-level mask (each zone covers zone_len rows),
                 // intersect with data — filter or return empty if pruned.

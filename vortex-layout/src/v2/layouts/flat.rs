@@ -28,6 +28,7 @@ use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::plan::SegmentRequest;
+use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
@@ -142,14 +143,14 @@ impl SplitPlanner for FlatLayoutPlanner {
                 segment_id: self.segment_id,
             }],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |mut segments: Vec<ByteBuffer>, mut inputs: Vec<ArrayRef>| {
+            compute: move |mut args: ComputeArgs| {
                 let mut ctx = session.create_execution_ctx();
 
                 // The segment is deserialized into an array by the scheduler.
-                let buffer = segments.remove(0);
+                let buffer = args.segments.remove(0);
 
                 // The selection mask
-                let mask = inputs.remove(0).execute::<Mask>(&mut ctx)?;
+                let mask = args.inputs.remove(0).execute::<Mask>(&mut ctx)?;
 
                 let parts = ArrayParts::try_from(buffer)?;
                 let array = parts.decode(&dtype, len, &array_ctx, &session)?;

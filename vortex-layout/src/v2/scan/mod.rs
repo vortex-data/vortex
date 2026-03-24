@@ -16,8 +16,11 @@ use std::collections::HashMap;
 use planner::PlanBuilder;
 use planner::SplitPlannerRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::expr::Expression;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use self::output::OutputQueue;
@@ -30,7 +33,9 @@ pub use self::split::SplitId;
 use self::split::SplitRange;
 use self::split::form_splits;
 use crate::v2::layout::LayoutRef;
+use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeOpts;
 use crate::v2::selection::Selection;
 
 /// Configuration for a scan.
@@ -66,12 +71,13 @@ impl Default for ScanConfig {
 ///
 /// The scan is a pure state machine: it never performs I/O or computation itself. Instead,
 /// the external driver calls [`actions`](Self::actions) to get work items, performs them,
-/// and reports completions via [`event`](Self::event).
+/// and reports completions via [`event`](Self::post_event).
 pub struct Scan {
     project_planner: SplitPlannerRef,
     filter_planner: Option<SplitPlannerRef>,
     splits: Vec<SplitRange>,
     config: ScanConfig,
+    session: VortexSession,
     state: State,
 }
 
@@ -134,6 +140,7 @@ impl Scan {
             filter_planner,
             splits,
             config,
+            session: session.clone(),
             state: State {
                 next_split_to_plan: 0,
                 plan: Plan::new(),
@@ -204,7 +211,7 @@ impl Scan {
     }
 
     /// Reports an event from the driver back to the scan.
-    pub fn event(&mut self, event: ScanEvent) -> VortexResult<()> {
+    pub fn post_event(&mut self, event: ScanEvent) -> VortexResult<()> {
         match event {
             ScanEvent::SegmentReady { read_id, buffer } => {
                 let (node_id, slot) = self
@@ -292,11 +299,37 @@ impl Scan {
 
                 // Map through the filter planner.
                 if let Some(filter_planner) = &self.filter_planner {
-                    selection = filter_planner.plan_split(
+                    let filter_result = filter_planner.plan_split(
                         &split_range.row_range,
+                        // FIXME(ngates): note that we always pass down the initial selection.
+                        //  We should instead pass separate selection and definition masks.
+                        //  That way we can have the filter plan return a refined mask, rather
+                        //  than one with lower cardinality.
                         selection,
                         &mut plan_builder,
                     )?;
+
+                    // FIXME(ngates): per the comment above, we currently need to perform a rank
+                    //  intersection after the fact on the filter result.
+                    let session = self.session.clone();
+                    selection = plan_builder.create_node(NodeOpts {
+                        inputs: &[selection, filter_result],
+                        segments: vec![],
+                        lifetime: plan_builder.row_range_lifetime(split_range.row_range.clone()),
+                        compute: move |args: ComputeArgs| {
+                            let mut arrays = args.inputs.into_iter();
+                            let initial_selection = arrays.next().vortex_expect("missing");
+                            let filter_result = arrays.next().vortex_expect("missing");
+
+                            let mut ctx = session.create_execution_ctx();
+                            let initial_selection = initial_selection.execute::<Mask>(&mut ctx)?;
+                            let filter_result = filter_result.execute::<Mask>(&mut ctx)?;
+
+                            let refined_selection =
+                                initial_selection.intersect_by_rank(&filter_result);
+                            Ok(refined_selection.into_array())
+                        },
+                    })?;
                 }
 
                 // And plan the projection.
