@@ -783,7 +783,7 @@ impl Scheme for RunEndScheme {
         // SAFETY: compression doesn't affect invariants
         unsafe {
             Ok(
-                RunEndArray::new_unchecked(compressed_ends, compressed_values, 0, stats.src.len())
+                RunEndArray::new_unchecked(compressed_ends, compressed_values, stats.src.len())
                     .into_array(),
             )
         }

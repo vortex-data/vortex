@@ -234,12 +234,10 @@ impl VTable for ALPRD {
                 let indices = children.get(2, &p.indices_dtype()?, p.len()?)?;
                 let values = children.get(3, &left_parts_dtype, p.len()?)?;
 
+                // The indices child already has the offset embedded (via Binary(Sub) expression),
+                // so we pass offset 0 to avoid double-wrapping.
                 Patches::new(
-                    len,
-                    p.offset()?,
-                    indices,
-                    values,
-                    // TODO(0ax1): handle chunk offsets
+                    len, 0, indices, values, // TODO(0ax1): handle chunk offsets
                     None,
                 )
             })
@@ -262,10 +260,7 @@ impl VTable for ALPRD {
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         // Children: left_parts, right_parts, patches (if present): indices, values
-        let patches_info = array
-            .left_parts_patches
-            .as_ref()
-            .map(|p| (p.array_len(), p.offset()));
+        let patches_info = array.left_parts_patches.as_ref().map(|p| p.array_len());
 
         let expected_children = if patches_info.is_some() { 4 } else { 2 };
 
@@ -284,7 +279,7 @@ impl VTable for ALPRD {
             .next()
             .ok_or_else(|| vortex_err!("Expected right_parts child"))?;
 
-        if let Some((array_len, offset)) = patches_info {
+        if let Some(array_len) = patches_info {
             let indices = children_iter
                 .next()
                 .ok_or_else(|| vortex_err!("Expected patch indices child"))?;
@@ -292,8 +287,10 @@ impl VTable for ALPRD {
                 .next()
                 .ok_or_else(|| vortex_err!("Expected patch values child"))?;
 
+            // The indices child already has the offset embedded (via Binary(Sub) expression),
+            // so we pass offset 0 to avoid double-wrapping.
             array.left_parts_patches = Some(Patches::new(
-                array_len, offset, indices, values,
+                array_len, 0, indices, values,
                 None, // chunk_offsets not currently supported for ALPRD
             )?);
         }

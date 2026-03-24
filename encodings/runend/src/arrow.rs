@@ -47,7 +47,8 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees
-        Ok(unsafe { RunEndArray::new_unchecked(ends_slice, values_slice, offset, len) })
+        let ends_with_offset = vortex_array::patches::wrap_with_offset(ends_slice, offset)?;
+        Ok(unsafe { RunEndArray::new_unchecked(ends_with_offset, values_slice, len) })
     }
 }
 

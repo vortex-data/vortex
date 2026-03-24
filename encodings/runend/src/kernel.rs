@@ -52,8 +52,9 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
 fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
+    let (raw_ends, offset) = array.raw_ends_and_offset();
     let slice_begin = array.find_physical_index(range.start)?;
-    let slice_end = crate::ops::find_slice_end_index(array.ends(), range.end + array.offset())?;
+    let slice_end = crate::ops::find_slice_end_index(raw_ends, range.end + offset)?;
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {
@@ -61,12 +62,15 @@ fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
         return Ok(ConstantArray::new(value, new_length).into_array());
     }
 
+    let new_offset = range.start + offset;
+    let sliced_raw_ends = raw_ends.slice(slice_begin..slice_end)?;
+    let new_ends = vortex_array::patches::wrap_with_offset(sliced_raw_ends, new_offset)?;
+
     // SAFETY: we maintain the ends invariant in our slice implementation
     Ok(unsafe {
         RunEndArray::new_unchecked(
-            array.ends().slice(slice_begin..slice_end)?,
+            new_ends,
             array.values().slice(slice_begin..slice_end)?,
-            range.start + array.offset(),
             new_length,
         )
         .into_array()

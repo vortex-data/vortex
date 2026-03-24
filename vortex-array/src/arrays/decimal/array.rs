@@ -372,8 +372,8 @@ impl DecimalArray {
         reason = "complexity from nested match_each_* macros"
     )]
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let offset = patches.offset();
-        let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, offset) = patches.raw_indices_and_offset();
+        let patch_indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
 
         let patched_validity = self.validity().clone().patch(

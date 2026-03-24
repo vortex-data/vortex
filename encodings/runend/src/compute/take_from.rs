@@ -36,12 +36,11 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
         }
 
         // Create a new run-end array containing values as values, instead of indices as values.
-        // SAFETY: we are copying ends from an existing valid RunEndArray
+        // SAFETY: we are copying ends from an existing valid RunEndArray (including offset wrapper)
         let ree_array = unsafe {
             RunEndArray::new_unchecked(
                 array.ends().clone(),
                 dict.values().take(array.values().clone())?,
-                array.offset(),
                 array.len(),
             )
         };
@@ -97,14 +96,12 @@ mod tests {
     fn test_execute_parent_with_offset() -> VortexResult<()> {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice codes to positions 2..5 → logical codes [0, 1, 1] → values [2, 3, 3]
-        let sliced_codes = unsafe {
-            RunEndArray::new_unchecked(
-                codes.ends().clone(),
-                codes.values().clone(),
-                2, // offset
-                3, // len
-            )
-        };
+        let sliced_codes = RunEndArray::try_new_offset_length(
+            codes.ends().clone(),
+            codes.values().clone(),
+            2, // offset
+            3, // len
+        )?;
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
@@ -120,14 +117,14 @@ mod tests {
     fn test_execute_parent_offset_at_run_boundary() -> VortexResult<()> {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice codes to positions 3..7 → logical codes [1, 1, 0, 0] → values [3, 3, 2, 2]
-        let sliced_codes = unsafe {
-            RunEndArray::new_unchecked(
-                codes.ends().clone(),
-                codes.values().clone(),
-                3, // offset at exact run boundary
-                4, // len
-            )
-        };
+        // Use try_new_offset_length with sliced physical arrays (runs 1..3 cover offset 3..7)
+        let (raw_ends, _) = codes.raw_ends_and_offset();
+        let sliced_codes = RunEndArray::try_new_offset_length(
+            raw_ends.slice(1..3)?,
+            codes.values().slice(1..3)?,
+            3, // offset at exact run boundary
+            4, // len
+        )?;
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
@@ -143,14 +140,12 @@ mod tests {
     fn test_execute_parent_single_element_offset() -> VortexResult<()> {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice to single element at position 4 → code=1 → value=3
-        let sliced_codes = unsafe {
-            RunEndArray::new_unchecked(
-                codes.ends().slice(1..3)?,
-                codes.values().slice(1..3)?,
-                4, // offset
-                1, // len
-            )
-        };
+        let sliced_codes = RunEndArray::try_new_offset_length(
+            codes.ends().slice(1..3)?,
+            codes.values().slice(1..3)?,
+            4, // offset
+            1, // len
+        )?;
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom

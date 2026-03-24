@@ -129,10 +129,9 @@ pub async fn transpose_patches(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DevicePatches> {
     let array_len = patches.array_len();
-    let offset = patches.offset();
+    let (raw_indices, offset) = patches.raw_indices_and_offset();
 
-    let indices = patches
-        .indices()
+    let indices = raw_indices
         .clone()
         .execute::<Canonical>(ctx.execution_ctx())?
         .into_primitive();

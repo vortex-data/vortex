@@ -78,13 +78,9 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
                 .into_array();
 
         Ok(Some(
+            // SAFETY: we only modify values, ends (including offset wrapper) are preserved.
             unsafe {
-                RunEndArray::new_unchecked(
-                    run_end.ends().clone(),
-                    new_values,
-                    run_end.offset(),
-                    run_end.len(),
-                )
+                RunEndArray::new_unchecked(run_end.ends().clone(), new_values, run_end.len())
             }
             .into_array(),
         ))

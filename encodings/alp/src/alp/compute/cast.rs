@@ -31,10 +31,11 @@ impl CastReduce for ALP {
                     if p.values().dtype() == dtype {
                         Ok(p.clone())
                     } else {
+                        let (raw_indices, offset) = p.raw_indices_and_offset();
                         Patches::new(
                             p.array_len(),
-                            p.offset(),
-                            p.indices().clone(),
+                            offset,
+                            raw_indices.clone(),
                             p.values().cast(dtype.clone())?,
                             p.chunk_offsets().clone(),
                         )

@@ -13,6 +13,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -96,7 +97,7 @@ pub fn runend_decode_typed_bool(
 /// This avoids the `trimmed_ends_iter` iterator chain which adds significant overhead
 /// for small numbers of runs.
 #[inline(always)]
-fn decode_few_runs_no_offset<E: vortex_array::dtype::IntegerPType>(
+fn decode_few_runs_no_offset<E: IntegerPType>(
     ends: &[E],
     values: &BitBuffer,
     validity: Mask,

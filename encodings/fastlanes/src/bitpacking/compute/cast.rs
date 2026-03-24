@@ -29,10 +29,11 @@ impl CastReduce for BitPacked {
                         .patches()
                         .map(|patches| {
                             let new_values = patches.values().cast(dtype.clone())?;
+                            let (raw_indices, offset) = patches.raw_indices_and_offset();
                             Patches::new(
                                 patches.array_len(),
-                                patches.offset(),
-                                patches.indices().clone(),
+                                offset,
+                                raw_indices.clone(),
                                 new_values,
                                 patches.chunk_offsets().clone(),
                             )

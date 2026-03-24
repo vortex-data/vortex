@@ -181,7 +181,9 @@ impl VTable for ALP {
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
+                // The indices child already has the offset embedded (via Binary(Sub) expression),
+                // so we pass offset 0 to avoid double-wrapping.
+                Patches::new(len, 0, indices, values, chunk_offsets)
             })
             .transpose()?;
 
@@ -200,10 +202,10 @@ impl VTable for ALP {
         let patches_info = array
             .patches
             .as_ref()
-            .map(|p| (p.array_len(), p.offset(), p.chunk_offsets().is_some()));
+            .map(|p| (p.array_len(), p.chunk_offsets().is_some()));
 
         let expected_children = match &patches_info {
-            Some((_, _, has_chunk_offsets)) => 1 + 2 + if *has_chunk_offsets { 1 } else { 0 },
+            Some((_, has_chunk_offsets)) => 1 + 2 + if *has_chunk_offsets { 1 } else { 0 },
             None => 1,
         };
 
@@ -219,7 +221,7 @@ impl VTable for ALP {
             .next()
             .ok_or_else(|| vortex_err!("Expected encoded child"))?;
 
-        if let Some((array_len, offset, _has_chunk_offsets)) = patches_info {
+        if let Some((array_len, _has_chunk_offsets)) = patches_info {
             let indices = children_iter
                 .next()
                 .ok_or_else(|| vortex_err!("Expected patch indices child"))?;
@@ -228,13 +230,9 @@ impl VTable for ALP {
                 .ok_or_else(|| vortex_err!("Expected patch values child"))?;
             let chunk_offsets = children_iter.next();
 
-            array.patches = Some(Patches::new(
-                array_len,
-                offset,
-                indices,
-                values,
-                chunk_offsets,
-            )?);
+            // The indices child already has the offset embedded (via Binary(Sub) expression),
+            // so we pass offset 0 to avoid double-wrapping.
+            array.patches = Some(Patches::new(array_len, 0, indices, values, chunk_offsets)?);
         }
 
         Ok(())
@@ -799,10 +797,11 @@ mod tests {
         );
 
         // Rebuild the patches WITHOUT chunk_offsets to simulate deserialized patches.
+        let (raw_indices, offset) = original_patches.raw_indices_and_offset();
         let patches_without_chunk_offsets = Patches::new(
             original_patches.array_len(),
-            original_patches.offset(),
-            original_patches.indices().clone(),
+            offset,
+            raw_indices.clone(),
             original_patches.values().clone(),
             None, // NO chunk_offsets - this triggers the bug!
         )

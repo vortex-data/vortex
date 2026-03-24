@@ -20,24 +20,20 @@ use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, offset) = patches.raw_indices_and_offset();
+        let patch_indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
-            patches.offset(),
+            offset,
             &patch_indices.clone().into_array(),
             patch_values.validity(),
             ctx,
         )?;
         Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {
             match_each_native_ptype!(self.ptype(), |T| {
-                self.patch_typed::<T, I>(
-                    patch_indices,
-                    patches.offset(),
-                    patch_values,
-                    patched_validity,
-                )
+                self.patch_typed::<T, I>(patch_indices, offset, patch_values, patched_validity)
             })
         }))
     }

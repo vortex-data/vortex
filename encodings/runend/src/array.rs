@@ -22,6 +22,8 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::patches::extract_offset;
+use vortex_array::patches::wrap_with_offset;
 use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -89,14 +91,12 @@ impl VTable for RunEnd {
     fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
         array.ends.array_hash(state, precision);
         array.values.array_hash(state, precision);
-        array.offset.hash(state);
         array.length.hash(state);
     }
 
     fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
         array.ends.array_eq(&other.ends, precision)
             && array.values.array_eq(&other.values, precision)
-            && array.offset == other.offset
             && array.length == other.length
     }
 
@@ -118,7 +118,9 @@ impl VTable for RunEnd {
 
     fn child(array: &RunEndArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.ends().clone(),
+            // Return raw ends (without Binary(Sub) wrapper) for serialization.
+            // The offset is stored in metadata.
+            0 => array.raw_ends_and_offset().0.clone(),
             1 => array.values().clone(),
             _ => vortex_panic!("RunEndArray child index {idx} out of bounds"),
         }
@@ -133,11 +135,12 @@ impl VTable for RunEnd {
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
+        let (raw_ends, offset) = array.raw_ends_and_offset();
         Ok(ProstMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
+            ends_ptype: PType::try_from(raw_ends.dtype()).vortex_expect("Must be a valid PType")
                 as i32,
-            num_runs: array.ends().len() as u64,
-            offset: array.offset() as u64,
+            num_runs: raw_ends.len() as u64,
+            offset: offset as u64,
         }))
     }
 
@@ -166,15 +169,11 @@ impl VTable for RunEnd {
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
         let ends = children.get(0, &ends_dtype, runs)?;
+        let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
 
         let values = children.get(1, dtype, runs)?;
 
-        RunEndArray::try_new_offset_length(
-            ends,
-            values,
-            usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
-            len,
-        )
+        RunEndArray::try_new_offset_length(ends, values, offset, len)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -215,9 +214,10 @@ impl VTable for RunEnd {
 
 #[derive(Clone, Debug)]
 pub struct RunEndArray {
+    /// The run ends. May be a raw primitive array (offset=0) or a
+    /// `Binary(Sub, raw_ends, Constant(offset))` expression when offset != 0.
     ends: ArrayRef,
     values: ArrayRef,
-    offset: usize,
     length: usize,
     stats_set: ArrayStats,
 }
@@ -235,27 +235,28 @@ impl RunEnd {
 }
 
 impl RunEndArray {
+    /// Validate the raw (unwrapped) ends and values with a given offset and length.
     fn validate(
-        ends: &ArrayRef,
+        raw_ends: &ArrayRef,
         values: &ArrayRef,
         offset: usize,
         length: usize,
     ) -> VortexResult<()> {
         // DType validation
         vortex_ensure!(
-            ends.dtype().is_unsigned_int(),
+            raw_ends.dtype().is_unsigned_int(),
             "run ends must be unsigned integers, was {}",
-            ends.dtype(),
+            raw_ends.dtype(),
         );
         vortex_ensure!(
-            ends.len() == values.len(),
+            raw_ends.len() == values.len(),
             "run ends len != run values len, {} != {}",
-            ends.len(),
+            raw_ends.len(),
             values.len()
         );
 
         // Handle empty run-ends
-        if ends.is_empty() {
+        if raw_ends.is_empty() {
             vortex_ensure!(
                 offset == 0,
                 "non-zero offset provided for empty RunEndArray"
@@ -266,7 +267,7 @@ impl RunEndArray {
         // Avoid building a non-empty array with zero logical length.
         if length == 0 {
             vortex_ensure!(
-                ends.is_empty(),
+                raw_ends.is_empty(),
                 "run ends must be empty when length is zero"
             );
             return Ok(());
@@ -274,33 +275,33 @@ impl RunEndArray {
 
         debug_assert!({
             // Run ends must be strictly sorted for binary search to work correctly.
-            let pre_validation = ends.statistics().to_owned();
+            let pre_validation = raw_ends.statistics().to_owned();
 
-            let is_sorted = ends
+            let is_sorted = raw_ends
                 .statistics()
                 .compute_is_strict_sorted()
                 .unwrap_or(false);
 
             // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
             // We don't want to run with different stats in debug mode and outside.
-            ends.statistics().inherit(pre_validation.iter());
+            raw_ends.statistics().inherit(pre_validation.iter());
             is_sorted
         });
 
         // Skip host-only validation when ends are not host-resident.
-        if !ends.is_host() {
+        if !raw_ends.is_host() {
             return Ok(());
         }
 
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
-            let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
+            let first_run_end = usize::try_from(&raw_ends.scalar_at(0)?)?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
         }
 
-        let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1)?)?;
+        let last_run_end = usize::try_from(&raw_ends.scalar_at(raw_ends.len() - 1)?)?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
             vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
@@ -357,7 +358,8 @@ impl RunEndArray {
 
     /// Construct a new sliced `RunEndArray` with the provided offset and length.
     ///
-    /// This performs all the same validation as [`RunEndArray::try_new`].
+    /// When `offset` is non-zero, the `ends` are wrapped in a lazy `Binary(Sub)` expression
+    /// so that the offset information is embedded in the ends array rather than stored separately.
     pub fn try_new_offset_length(
         ends: ArrayRef,
         values: ArrayRef,
@@ -365,11 +367,11 @@ impl RunEndArray {
         length: usize,
     ) -> VortexResult<Self> {
         Self::validate(&ends, &values, offset, length)?;
+        let ends = wrap_with_offset(ends, offset)?;
 
         Ok(Self {
             ends,
             values,
-            offset,
             length,
             stats_set: Default::default(),
         })
@@ -377,52 +379,43 @@ impl RunEndArray {
 
     /// Build a new `RunEndArray` without validation.
     ///
+    /// The `ends` should already encode any offset via a `Binary(Sub)` expression
+    /// (use [`wrap_with_offset`] if needed).
+    ///
     /// # Safety
     ///
     /// The caller must ensure that all the validation performed in [`RunEndArray::try_new`] is
     /// satisfied before calling this function.
-    ///
-    /// See [`RunEndArray::try_new`] for the preconditions needed to build a new array.
-    pub unsafe fn new_unchecked(
-        ends: ArrayRef,
-        values: ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> Self {
+    pub unsafe fn new_unchecked(ends: ArrayRef, values: ArrayRef, length: usize) -> Self {
         Self {
             ends,
             values,
-            offset,
             length,
             stats_set: Default::default(),
         }
     }
 
-    /// Convert the given logical index to an index into the `values` array
+    /// Convert the given logical index to an index into the `values` array.
+    ///
+    /// Uses the raw (unwrapped) ends and offset extracted from the expression tree.
     pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        Ok(self
-            .ends()
+        let (raw_ends, offset) = self.raw_ends_and_offset();
+        Ok(raw_ends
             .as_primitive_typed()
-            .search_sorted(
-                &PValue::from(index + self.offset()),
-                SearchSortedSide::Right,
-            )?
-            .to_ends_index(self.ends().len()))
+            .search_sorted(&PValue::from(index + offset), SearchSortedSide::Right)?
+            .to_ends_index(raw_ends.len()))
     }
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<Primitive>() {
             let (ends, values) = runend_encode(parray);
-            // SAFETY: runend_encode handles this
-            unsafe {
-                Ok(Self::new_unchecked(
-                    ends.into_array(),
-                    values,
-                    0,
-                    array.len(),
-                ))
-            }
+            Ok(Self {
+                ends: ends.into_array(),
+                values,
+                length: array.len(),
+                stats_set: Default::default(),
+            })
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }
@@ -431,15 +424,24 @@ impl RunEndArray {
     /// The offset that the `ends` is relative to.
     ///
     /// This is generally zero for a "new" array, and non-zero after a slicing operation.
+    /// The offset is extracted from the Binary(Sub) expression wrapping the ends.
     #[inline]
     pub fn offset(&self) -> usize {
-        self.offset
+        self.raw_ends_and_offset().1
+    }
+
+    /// Extract the raw (unwrapped) ends array and the offset from the expression tree.
+    ///
+    /// If `ends` is `Binary(Sub, raw_ends, Constant(offset))`, returns `(raw_ends, offset)`.
+    /// Otherwise returns `(ends, 0)`.
+    pub fn raw_ends_and_offset(&self) -> (&ArrayRef, usize) {
+        extract_offset(&self.ends)
     }
 
     /// The encoded "ends" of value runs.
     ///
-    /// The `i`-th element indicates that there is a run of the same value, beginning
-    /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
+    /// If the array has been sliced, this returns the Binary(Sub) expression.
+    /// Use [`raw_ends_and_offset`](Self::raw_ends_and_offset) to get the raw ends and offset.
     #[inline]
     pub fn ends(&self) -> &ArrayRef {
         &self.ends
@@ -470,39 +472,39 @@ impl ValidityVTable<RunEnd> for RunEnd {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => Validity::AllInvalid,
             Validity::Array(values_validity) => Validity::Array(unsafe {
-                RunEndArray::new_unchecked(
-                    array.ends().clone(),
-                    values_validity,
-                    array.offset(),
-                    array.len(),
-                )
-                .into_array()
+                RunEndArray::new_unchecked(array.ends().clone(), values_validity, array.len())
+                    .into_array()
             }),
         })
     }
 }
 
+/// Fused decompression: extracts the offset from a Binary(Sub) expression on ends
+/// and passes it directly to the decode functions, avoiding materialization of the
+/// subtracted ends array.
 pub(super) fn run_end_canonicalize(
     array: &RunEndArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let pends = array.ends().clone().execute_as("ends", ctx)?;
+    // Fused execution: extract offset from Binary(Sub) expression without materializing.
+    let (raw_ends, offset) = array.raw_ends_and_offset();
+    let pends = raw_ends.clone().execute_as("ends", ctx)?;
 
     Ok(match array.dtype() {
         DType::Bool(_) => {
             let bools = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_bools(pends, bools, array.offset(), array.len())?
+            runend_decode_bools(pends, bools, offset, array.len())?
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_primitive(pends, pvalues, array.offset(), array.len())?.into_array()
+            runend_decode_primitive(pends, pvalues, offset, array.len())?.into_array()
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let values = array
                 .values()
                 .clone()
                 .execute_as::<VarBinViewArray>("values", ctx)?;
-            runend_decode_varbinview(pends, values, array.offset(), array.len())?.into_array()
+            runend_decode_varbinview(pends, values, offset, array.len())?.into_array()
         }
         _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
     })

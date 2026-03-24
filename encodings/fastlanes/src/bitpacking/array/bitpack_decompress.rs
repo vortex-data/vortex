@@ -155,7 +155,8 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
 ) -> VortexResult<()> {
     assert_eq!(patches.array_len(), dst.len());
 
-    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let (raw_indices, offset) = patches.raw_indices_and_offset();
+    let indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     let validity = values.validity_mask()?;
     let values = values.as_slice::<T>();
@@ -166,7 +167,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
             indices.as_slice::<P>(),
             values,
             validity,
-            patches.offset(),
+            offset,
             f,
         )
     });

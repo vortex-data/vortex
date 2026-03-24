@@ -31,10 +31,12 @@ impl CompareKernel for RunEnd {
                 ConstantArray::new(const_scalar, lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;
+            // Fused execution: extract offset from ends expression
+            let (raw_ends, offset) = lhs.raw_ends_and_offset();
             return runend_decode_bools(
-                lhs.ends().clone().execute::<PrimitiveArray>(ctx)?,
+                raw_ends.clone().execute::<PrimitiveArray>(ctx)?,
                 values.execute::<BoolArray>(ctx)?,
-                lhs.offset(),
+                offset,
                 lhs.len(),
             )
             .map(Some);

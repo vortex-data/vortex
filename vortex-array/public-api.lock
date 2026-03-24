@@ -15012,13 +15012,15 @@ pub fn vortex_array::patches::Patches::min_index(&self) -> vortex_error::VortexR
 
 pub fn vortex_array::patches::Patches::new(array_len: usize, offset: usize, indices: vortex_array::ArrayRef, values: vortex_array::ArrayRef, chunk_offsets: core::option::Option<vortex_array::ArrayRef>) -> vortex_error::VortexResult<Self>
 
-pub unsafe fn vortex_array::patches::Patches::new_unchecked(array_len: usize, offset: usize, indices: vortex_array::ArrayRef, values: vortex_array::ArrayRef, chunk_offsets: core::option::Option<vortex_array::ArrayRef>, offset_within_chunk: core::option::Option<usize>) -> Self
+pub unsafe fn vortex_array::patches::Patches::new_unchecked(array_len: usize, indices: vortex_array::ArrayRef, values: vortex_array::ArrayRef, chunk_offsets: core::option::Option<vortex_array::ArrayRef>, offset_within_chunk: core::option::Option<usize>) -> Self
 
 pub fn vortex_array::patches::Patches::num_patches(&self) -> usize
 
 pub fn vortex_array::patches::Patches::offset(&self) -> usize
 
 pub fn vortex_array::patches::Patches::offset_within_chunk(&self) -> core::option::Option<usize>
+
+pub fn vortex_array::patches::Patches::raw_indices_and_offset(&self) -> (&vortex_array::ArrayRef, usize)
 
 pub fn vortex_array::patches::Patches::search_index(&self, index: usize) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
@@ -15105,6 +15107,10 @@ pub fn vortex_array::patches::PatchesMetadata::clear(&mut self)
 pub fn vortex_array::patches::PatchesMetadata::encoded_len(&self) -> usize
 
 pub const vortex_array::patches::PATCH_CHUNK_SIZE: usize
+
+pub fn vortex_array::patches::extract_offset(array: &vortex_array::ArrayRef) -> (&vortex_array::ArrayRef, usize)
+
+pub fn vortex_array::patches::wrap_with_offset(array: vortex_array::ArrayRef, offset: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub mod vortex_array::scalar
 

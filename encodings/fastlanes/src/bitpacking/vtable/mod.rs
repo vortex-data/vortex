@@ -173,12 +173,14 @@ impl VTable for BitPacked {
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         // Children: patches (if present): indices, values, chunk_offsets; then validity (if present)
-        let patches_info = array
+        let has_patches = array.patches().is_some();
+        let has_chunk_offsets = array
             .patches()
-            .map(|p| (p.offset(), p.chunk_offsets().is_some()));
+            .map(|p| p.chunk_offsets().is_some())
+            .unwrap_or(false);
 
         let mut child_idx = 0;
-        let patches = if let Some((patch_offset, has_chunk_offsets)) = patches_info {
+        let patches = if has_patches {
             let patch_indices = children
                 .get(child_idx)
                 .ok_or_else(|| vortex_err!("Expected patch_indices child at index {}", child_idx))?
@@ -204,9 +206,11 @@ impl VTable for BitPacked {
                 None
             };
 
+            // The indices child already has the offset embedded (via Binary(Sub) expression),
+            // so we pass offset 0 to avoid double-wrapping.
             Some(Patches::new(
                 array.len(),
-                patch_offset,
+                0,
                 patch_indices,
                 patch_values,
                 patch_chunk_offsets,
@@ -317,7 +321,9 @@ impl VTable for BitPacked {
                     .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
                     .transpose()?;
 
-                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
+                // The indices child already has the offset embedded (via Binary(Sub) expression),
+                // so we pass offset 0 to avoid double-wrapping.
+                Patches::new(len, 0, indices, values, chunk_offsets)
             })
             .transpose()?;
 

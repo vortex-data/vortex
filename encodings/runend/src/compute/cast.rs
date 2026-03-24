@@ -16,16 +16,12 @@ impl CastReduce for RunEnd {
         // Cast the values array to the target type
         let casted_values = array.values().cast(dtype.clone())?;
 
-        // SAFETY: casting does not affect the ends being valid
+        // SAFETY: casting does not affect the ends being valid.
+        // We clone the full ends (including any Binary(Sub) wrapper) to preserve offset.
         unsafe {
             Ok(Some(
-                RunEndArray::new_unchecked(
-                    array.ends().clone(),
-                    casted_values,
-                    array.offset(),
-                    array.len(),
-                )
-                .into_array(),
+                RunEndArray::new_unchecked(array.ends().clone(), casted_values, array.len())
+                    .into_array(),
             ))
         }
     }

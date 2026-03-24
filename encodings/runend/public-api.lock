@@ -124,9 +124,11 @@ pub fn vortex_runend::RunEndArray::into_parts(self) -> vortex_runend::RunEndArra
 
 pub fn vortex_runend::RunEndArray::new(ends: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef) -> Self
 
-pub unsafe fn vortex_runend::RunEndArray::new_unchecked(ends: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef, offset: usize, length: usize) -> Self
+pub unsafe fn vortex_runend::RunEndArray::new_unchecked(ends: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef, length: usize) -> Self
 
 pub fn vortex_runend::RunEndArray::offset(&self) -> usize
+
+pub fn vortex_runend::RunEndArray::raw_ends_and_offset(&self) -> (&vortex_array::array::ArrayRef, usize)
 
 pub fn vortex_runend::RunEndArray::try_new(ends: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
 

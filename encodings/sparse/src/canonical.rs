@@ -412,11 +412,12 @@ fn execute_sparse_struct(
         .execute::<StructArray>(ctx)?;
     let columns_patch_values = patch_values_as_struct.unmasked_fields();
     let names = patch_values_as_struct.names();
+    let (raw_indices, offset) = unresolved_patches.raw_indices_and_offset();
     let validity = if dtype.is_nullable() {
         top_level_fill_validity.patch(
             len,
-            unresolved_patches.offset(),
-            unresolved_patches.indices(),
+            offset,
+            raw_indices,
             &Validity::from_mask(
                 unresolved_patches
                     .values()

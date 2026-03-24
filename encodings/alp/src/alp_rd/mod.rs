@@ -311,9 +311,10 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Apply any patches
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, offset) = patches.raw_indices_and_offset();
+        let indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        alp_rd_apply_patches(&mut values, &indices, &patch_values, patches.offset());
+        alp_rd_apply_patches(&mut values, &indices, &patch_values, offset);
     }
 
     // Shift the left-parts and add in the right-parts.

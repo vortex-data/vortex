@@ -233,9 +233,11 @@ impl VTable for Sparse {
         let patch_indices = children_iter.next().vortex_expect("patch_indices child");
         let patch_values = children_iter.next().vortex_expect("patch_values child");
 
+        // The indices child already has the offset embedded (via Binary(Sub) expression),
+        // so we pass offset 0 to avoid double-wrapping.
         array.patches = Patches::new(
             array.patches.array_len(),
-            array.patches.offset(),
+            0,
             patch_indices,
             patch_values,
             array.patches.chunk_offsets().clone(),
@@ -353,16 +355,11 @@ impl SparseArray {
     #[inline]
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
         let patches = self.patches();
-        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = patches.indices().to_array().binary(
-            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
-            Operator::Sub,
-        )?;
-
+        // indices() already returns a Binary(Sub) expression that evaluates to logical indices.
         Patches::new(
             patches.array_len(),
             0,
-            indices,
+            patches.indices().clone(),
             patches.values().clone(),
             // TODO(0ax1): handle chunk offsets
             None,
@@ -475,7 +472,6 @@ impl ValidityVTable<Sparse> for Sparse {
         let patches = unsafe {
             Patches::new_unchecked(
                 array.patches.array_len(),
-                array.patches.offset(),
                 array.patches.indices().clone(),
                 array
                     .patches

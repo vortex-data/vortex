@@ -16,10 +16,9 @@ impl FillNullReduce for RunEnd {
     fn fill_null(array: &RunEndArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
         let RunEndArrayParts { values, ends } = array.clone().into_parts();
         let new_values = values.fill_null(fill_value.clone())?;
-        // SAFETY: modifying values only, does not affect ends
+        // SAFETY: modifying values only, does not affect ends (including offset wrapper)
         Ok(Some(
-            unsafe { RunEndArray::new_unchecked(ends, new_values, array.offset(), array.len()) }
-                .into_array(),
+            unsafe { RunEndArray::new_unchecked(ends, new_values, array.len()) }.into_array(),
         ))
     }
 }

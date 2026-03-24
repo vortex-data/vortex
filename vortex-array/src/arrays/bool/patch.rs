@@ -14,17 +14,14 @@ use crate::vtable::ValidityHelper;
 impl BoolArray {
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let len = self.len();
-        let offset = patches.offset();
-        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, offset) = patches.raw_indices_and_offset();
+        let indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let values = patches.values().clone().execute::<BoolArray>(ctx)?;
 
-        let patched_validity = self.validity().clone().patch(
-            len,
-            offset,
-            patches.indices(),
-            values.validity(),
-            ctx,
-        )?;
+        let patched_validity =
+            self.validity()
+                .clone()
+                .patch(len, offset, raw_indices, values.validity(), ctx)?;
 
         let mut own_values = self.into_bit_buffer().into_mut();
         match_each_unsigned_integer_ptype!(indices.ptype(), |I| {

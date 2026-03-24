@@ -28,7 +28,11 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnVTable;
+use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -41,11 +45,50 @@ use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
+
+/// Extract the raw array and offset from a potentially-wrapped `Binary(Sub)` expression.
+///
+/// If `array` is `Binary(Sub, raw_array, Constant(offset))`, returns `(raw_array, offset)`.
+/// Otherwise returns `(array, 0)`.
+pub fn extract_offset(array: &ArrayRef) -> (&ArrayRef, usize) {
+    if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>()
+        && let Some(view) = array.as_opt::<ExactScalarFn<Binary>>()
+        && *view.options == Operator::Sub
+    {
+        let children = scalar_fn_array.children();
+        if let Some(scalar) = children[1].as_constant()
+            && let Some(offset) = scalar.as_primitive().as_::<usize>()
+        {
+            return (&children[0], offset);
+        }
+    }
+    (array, 0)
+}
+
+/// Wrap an array in a lazy `Binary(Sub, array, Constant(offset))` expression.
+///
+/// If offset is 0, returns the array unchanged.
+pub fn wrap_with_offset(array: ArrayRef, offset: usize) -> VortexResult<ArrayRef> {
+    if offset == 0 {
+        return Ok(array);
+    }
+    let offset_scalar = Scalar::from(offset as u64).cast(array.dtype())?;
+    Binary.try_new_array(
+        array.len(),
+        Operator::Sub,
+        vec![
+            array.clone(),
+            ConstantArray::new(offset_scalar, array.len()).into_array(),
+        ],
+    )
+}
 
 /// One patch index offset is stored for each chunk.
 /// This allows for constant time patch index lookups.
@@ -130,7 +173,6 @@ impl PatchesMetadata {
 #[derive(Debug, Clone)]
 pub struct Patches {
     array_len: usize,
-    offset: usize,
     indices: ArrayRef,
     values: ArrayRef,
     /// Stores the patch index offset for each chunk.
@@ -198,9 +240,10 @@ impl Patches {
             }
         }
 
+        let indices = wrap_with_offset(indices, offset)?;
+
         Ok(Self {
             array_len,
-            offset,
             indices,
             values,
             chunk_offsets: chunk_offsets.clone(),
@@ -218,9 +261,9 @@ impl Patches {
     /// * Indices is an unsigned integer type
     /// * Indices must be sorted
     /// * Last value in indices is smaller than array_len
+    /// * If an offset is needed, the indices must already be wrapped via `wrap_with_offset`
     pub unsafe fn new_unchecked(
         array_len: usize,
-        offset: usize,
         indices: ArrayRef,
         values: ArrayRef,
         chunk_offsets: Option<ArrayRef>,
@@ -228,7 +271,6 @@ impl Patches {
     ) -> Self {
         Self {
             array_len,
-            offset,
             indices,
             values,
             chunk_offsets,
@@ -284,7 +326,12 @@ impl Patches {
     #[inline]
     // Absolute offset: 0 if the array is unsliced.
     pub fn offset(&self) -> usize {
-        self.offset
+        extract_offset(&self.indices).1
+    }
+
+    /// Returns the raw indices array (unwrapped from any Binary(Sub) expression) and the offset.
+    pub fn raw_indices_and_offset(&self) -> (&ArrayRef, usize) {
+        extract_offset(&self.indices)
     }
 
     #[inline]
@@ -339,13 +386,14 @@ impl Patches {
                 dtype
             );
         }
+        let (raw_indices, offset) = self.raw_indices_and_offset();
         let chunk_offsets_len = self.chunk_offsets.as_ref().map(|co| co.len());
         let chunk_offsets_ptype = self.chunk_offsets.as_ref().map(|co| co.dtype().as_ptype());
 
         Ok(PatchesMetadata::new(
             self.indices.len(),
-            self.offset,
-            self.indices.dtype().as_ptype(),
+            offset,
+            raw_indices.dtype().as_ptype(),
             chunk_offsets_len,
             chunk_offsets_ptype,
             self.offset_within_chunk,
@@ -357,7 +405,6 @@ impl Patches {
         unsafe {
             Ok(Self::new_unchecked(
                 self.array_len,
-                self.offset,
                 self.indices,
                 self.values.cast(values_dtype.clone())?,
                 self.chunk_offsets,
@@ -396,7 +443,8 @@ impl Patches {
             return self.search_index_chunked(index);
         }
 
-        Self::search_index_binary_search(&self.indices, index + self.offset)
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+        Self::search_index_binary_search(raw_indices, index + offset)
     }
 
     /// Binary searches for `needle` in the indices array.
@@ -447,7 +495,9 @@ impl Patches {
             return Ok(SearchResult::NotFound(self.indices().len()));
         }
 
-        let chunk_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+
+        let chunk_idx = (index + offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
 
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
         let base_offset = self.chunk_offset_at(0)?;
@@ -467,8 +517,8 @@ impl Patches {
             self.indices.len()
         };
 
-        let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx)?;
-        let result = Self::search_index_binary_search(&chunk_indices, index + self.offset)?;
+        let chunk_indices = raw_indices.slice(patches_start_idx..patches_end_idx)?;
+        let result = Self::search_index_binary_search(&chunk_indices, index + offset)?;
 
         Ok(match result {
             SearchResult::Found(idx) => SearchResult::Found(patches_start_idx + idx),
@@ -497,6 +547,8 @@ impl Patches {
             vortex_bail!("offset_within_chunk is required to be set")
         };
 
+        let (_, offset) = self.raw_indices_and_offset();
+
         let chunk_idx = {
             let Ok(index) = usize::try_from(index) else {
                 // If the needle cannot be converted to usize, it's larger than all values in this array.
@@ -507,7 +559,7 @@ impl Patches {
                 return Ok(SearchResult::NotFound(self.indices().len()));
             }
 
-            (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE
+            (index + offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE
         };
 
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
@@ -535,7 +587,7 @@ impl Patches {
             self.indices.len()
         };
 
-        let Some(offset) = T::from(self.offset) else {
+        let Some(offset) = T::from(offset) else {
             // If the offset cannot be converted to T, it's larger than all values in this array.
             return Ok(SearchResult::NotFound(indices.len()));
         };
@@ -551,24 +603,24 @@ impl Patches {
 
     /// Returns the minimum patch index
     pub fn min_index(&self) -> VortexResult<usize> {
-        let first = self
-            .indices
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+        let first = raw_indices
             .scalar_at(0)?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
-        Ok(first - self.offset)
+        Ok(first - offset)
     }
 
     /// Returns the maximum patch index
     pub fn max_index(&self) -> VortexResult<usize> {
-        let last = self
-            .indices
-            .scalar_at(self.indices.len() - 1)?
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+        let last = raw_indices
+            .scalar_at(raw_indices.len() - 1)?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
-        Ok(last - self.offset)
+        Ok(last - offset)
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
@@ -585,11 +637,12 @@ impl Patches {
             AllOr::All => Ok(Some(self.clone())),
             AllOr::None => Ok(None),
             AllOr::Some(mask_indices) => {
-                let flat_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
+                let (raw_indices, offset) = self.raw_indices_and_offset();
+                let flat_indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
                     filter_patches_with_mask(
                         flat_indices.as_slice::<I>(),
-                        self.offset(),
+                        offset,
                         self.values(),
                         mask_indices,
                     )
@@ -611,16 +664,18 @@ impl Patches {
             );
         }
 
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+
         let filter_mask = match mask.bit_buffer() {
             AllOr::All => return Ok(None),
             AllOr::None => return Ok(Some(self.clone())),
             AllOr::Some(masked) => {
-                let patch_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
+                let patch_indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
                     let patch_indices = patch_indices.as_slice::<P>();
                     Mask::from_buffer(BitBuffer::collect_bool(patch_indices.len(), |i| {
                         #[allow(clippy::cast_possible_truncation)]
-                        let idx = (patch_indices[i] as usize) - self.offset;
+                        let idx = (patch_indices[i] as usize) - offset;
                         !masked.value(idx)
                     }))
                 })
@@ -637,7 +692,6 @@ impl Patches {
 
         Ok(Some(Self {
             array_len: self.array_len,
-            offset: self.offset,
             indices: filtered_indices,
             values: filtered_values,
             // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
@@ -655,14 +709,18 @@ impl Patches {
             return Ok(None);
         }
 
+        let (raw_indices, old_offset) = self.raw_indices_and_offset();
+
         let values = self.values().slice(slice_start_idx..slice_end_idx)?;
-        let indices = self.indices().slice(slice_start_idx..slice_end_idx)?;
+        let sliced_raw_indices = raw_indices.slice(slice_start_idx..slice_end_idx)?;
+        let new_offset = range.start + old_offset;
+        let indices = wrap_with_offset(sliced_raw_indices, new_offset)?;
 
         let chunk_offsets = self
             .chunk_offsets
             .as_ref()
             .map(|chunk_offsets| -> VortexResult<ArrayRef> {
-                let chunk_relative_offset = self.offset % PATCH_CHUNK_SIZE;
+                let chunk_relative_offset = old_offset % PATCH_CHUNK_SIZE;
                 let chunk_start_idx = (chunk_relative_offset + range.start) / PATCH_CHUNK_SIZE;
                 let chunk_end_idx = (chunk_relative_offset + range.end).div_ceil(PATCH_CHUNK_SIZE);
                 chunk_offsets.slice(chunk_start_idx..chunk_end_idx)
@@ -683,7 +741,6 @@ impl Patches {
 
         Ok(Some(Self {
             array_len: range.len(),
-            offset: range.start + self.offset(),
             indices,
             values,
             chunk_offsets,
@@ -750,7 +807,8 @@ impl Patches {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
         let take_indices_validity = take_indices.validity();
-        let patch_indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+        let patch_indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let chunk_offsets = self
             .chunk_offsets()
             .as_ref()
@@ -787,7 +845,7 @@ impl Patches {
                             take_indices.validity_mask()?,
                             include_nulls,
                             |take_idx| {
-                                let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
+                                let Some(offset) = <PatchT as NumCast>::from(offset) else {
                                     // If the offset cannot be converted to T, it's larger than all values in this array.
                                     return Ok(SearchResult::NotFound(patch_indices_slice.len()));
                                 };
@@ -810,7 +868,6 @@ impl Patches {
 
         Ok(Some(Self {
             array_len: new_array_len,
-            offset: 0,
             indices: new_indices.clone(),
             values: self
                 .values()
@@ -826,7 +883,8 @@ impl Patches {
         include_nulls: bool,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
-        let indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+        let indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let new_length = take_indices.len();
 
         let min_index = self.min_index()?;
@@ -845,7 +903,7 @@ impl Patches {
                         take_slice,
                         take_validity,
                         take_nullability,
-                        self.offset(),
+                        offset,
                         min_index,
                         max_index,
                         include_nulls,
@@ -860,7 +918,6 @@ impl Patches {
 
         Ok(Some(Patches {
             array_len: new_length,
-            offset: 0,
             indices: new_sparse_indices,
             values: taken_values,
             // TODO(0ax1): Chunk offsets are invalid after take is applied.
@@ -885,8 +942,8 @@ impl Patches {
         validity: &mut MaskMut,
         ctx: &mut ExecutionCtx,
     ) {
-        let patch_indices = self
-            .indices
+        let (raw_indices, offset) = self.raw_indices_and_offset();
+        let patch_indices = raw_indices
             .clone()
             .execute::<PrimitiveArray>(ctx)
             .vortex_expect("patch indices must be convertible to PrimitiveArray");
@@ -911,7 +968,7 @@ impl Patches {
                     buffer,
                     validity,
                     patch_indices_slice,
-                    self.offset,
+                    offset,
                     patch_values_slice,
                     patches_validity,
                     ctx,
@@ -935,7 +992,6 @@ impl Patches {
 
         Ok(Self {
             array_len: self.array_len,
-            offset: self.offset,
             indices: self.indices,
             values,
             chunk_offsets: self.chunk_offsets,
@@ -1556,7 +1612,8 @@ mod test {
             .unwrap();
         assert_eq!(masked.array_len(), 10);
         assert_eq!(masked.offset(), 5);
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([10u64, 13]));
+        // indices() returns the Binary(Sub) expression that evaluates to logical indices
+        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([5u64, 8]));
         assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([200i32, 300]));
     }
 
@@ -1694,7 +1751,8 @@ mod test {
         // Slice from 3 to 8 (includes patch at 5)
         let sliced = patches.slice(3..8).unwrap().unwrap();
 
-        assert_arrays_eq!(sliced.indices(), PrimitiveArray::from_iter([5u64])); // Index stays the same
+        // indices() evaluates Binary(Sub, [5], 3) = [2], the logical index in the sliced array
+        assert_arrays_eq!(sliced.indices(), PrimitiveArray::from_iter([2u64]));
         assert_arrays_eq!(sliced.values(), PrimitiveArray::from_iter([200i32]));
         assert_eq!(sliced.array_len(), 5); // 8 - 3 = 5
         assert_eq!(sliced.offset(), 3); // New offset
@@ -1730,7 +1788,8 @@ mod test {
         // Slice from 3 to 8 (includes patch at actual index 5)
         let sliced = patches.slice(3..8).unwrap().unwrap();
 
-        assert_arrays_eq!(sliced.indices(), PrimitiveArray::from_iter([10u64])); // Index stays the same (offset + 5 = 10)
+        // indices() evaluates Binary(Sub, [10], 8) = [2], the logical index in the sliced array
+        assert_arrays_eq!(sliced.indices(), PrimitiveArray::from_iter([2u64]));
         assert_arrays_eq!(sliced.values(), PrimitiveArray::from_iter([200i32]));
         assert_eq!(sliced.offset(), 8); // New offset = 5 + 3
     }
@@ -1948,7 +2007,8 @@ mod test {
             .unwrap()
             .unwrap();
 
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([16u64, 19]));
+        // indices() evaluates Binary(Sub, [16, 19], 15) = [1, 4], the logical indices
+        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([1u64, 4]));
         assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([100i32, 300]));
     }
 

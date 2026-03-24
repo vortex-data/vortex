@@ -44,12 +44,13 @@ impl FilterKernel for RunEnd {
                 &Validity::NonNullable,
             )?))
         } else {
-            let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
+            let (raw_ends, offset) = array.raw_ends_and_offset();
+            let primitive_run_ends = raw_ends.clone().execute::<PrimitiveArray>(ctx)?;
             let (run_ends, values_mask) =
                 match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
                     filter_run_end_primitive(
                         primitive_run_ends.as_slice::<P>(),
-                        array.offset() as u64,
+                        offset as u64,
                         array.len() as u64,
                         mask_values.bit_buffer(),
                     )?
@@ -62,7 +63,6 @@ impl FilterKernel for RunEnd {
                     RunEndArray::new_unchecked(
                         run_ends.into_array(),
                         values,
-                        0,
                         mask_values.true_count(),
                     )
                     .into_array(),

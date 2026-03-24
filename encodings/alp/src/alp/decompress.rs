@@ -34,7 +34,8 @@ pub fn decompress_into_array(
     {
         let prim_encoded = encoded.execute::<PrimitiveArray>(ctx)?;
         let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-        let patches_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, _) = patches.raw_indices_and_offset();
+        let patches_indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let patches_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
         Ok(decompress_chunked_core(
             prim_encoded,
@@ -67,7 +68,8 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
         // TODO(joe): have into parts.
         let encoded = encoded.execute::<PrimitiveArray>(ctx)?;
         let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-        let patches_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let (raw_indices, _) = patches.raw_indices_and_offset();
+        let patches_indices = raw_indices.clone().execute::<PrimitiveArray>(ctx)?;
         let patches_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
         Ok(decompress_chunked_core(
             encoded,

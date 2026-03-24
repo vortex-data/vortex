@@ -60,7 +60,8 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {
-    let ends = array.ends().to_primitive();
+    let (raw_ends, offset) = array.raw_ends_and_offset();
+    let ends = raw_ends.to_primitive();
     let ends_len = ends.len();
 
     // TODO(joe): use the validity mask to skip search sorted.
@@ -68,7 +69,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
         let end_slices = ends.as_slice::<I>();
         let physical_indices_vec: Vec<u64> = indices
             .iter()
-            .map(|idx| idx.as_() + array.offset())
+            .map(|idx| idx.as_() + offset)
             .map(|idx| {
                 match <I as NumCast>::from(idx) {
                     Some(idx) => end_slices.search_sorted(&idx, SearchSortedSide::Right),
