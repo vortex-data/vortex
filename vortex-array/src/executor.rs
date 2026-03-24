@@ -21,6 +21,8 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
+use crate::vtable::VTable;
+use crate::vtable::upcast_array;
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error.
@@ -141,22 +143,24 @@ impl dyn DynArray + '_ {
                 continue;
             }
 
-            // Execute the array itself
-            match current.vtable().execute(&current, ctx)? {
+            // Execute the array itself.
+            let result = execute_step(current, ctx)?;
+            let (array, step) = result.into_parts();
+            match step {
                 ExecutionStep::ExecuteChild(i, done) => {
-                    let child = current
+                    let child = array
                         .nth_child(i)
                         .vortex_expect("ExecuteChild index in bounds");
                     ctx.log(format_args!(
                         "ExecuteChild({i}): pushing {}, focusing on {}",
-                        current, child
+                        array, child
                     ));
-                    stack.push((current, i, done));
+                    stack.push((array, i, done));
                     current = child.optimize()?;
                 }
-                ExecutionStep::Done(result) => {
-                    ctx.log(format_args!("Done: {} -> {}", current, result));
-                    current = result;
+                ExecutionStep::Done => {
+                    ctx.log(format_args!("Done: {}", array));
+                    current = array;
                 }
             }
         }
@@ -286,6 +290,7 @@ impl Executable for ArrayRef {
 
         // 3. execute_parent (child-driven optimized execution)
         for child_idx in 0..array.nchildren() {
+            // TODO(joe): remove internal copy in nth_child.
             let child = array.nth_child(child_idx).vortex_expect("checked length");
             if let Some(executed_parent) = child
                 .vtable()
@@ -305,12 +310,14 @@ impl Executable for ArrayRef {
             }
         }
 
-        // 4. execute (returns an ExecutionStep)
+        // 4. execute (returns an ExecutionResult)
         ctx.log(format_args!("executing {}", array));
-        match array.vtable().execute(&array, ctx)? {
-            ExecutionStep::Done(result) => {
-                ctx.log(format_args!("-> {}", result.as_ref()));
-                Ok(result)
+        let result = execute_step(array, ctx)?;
+        let (array, step) = result.into_parts();
+        match step {
+            ExecutionStep::Done => {
+                ctx.log(format_args!("-> {}", array.as_ref()));
+                Ok(array)
             }
             ExecutionStep::ExecuteChild(i, _) => {
                 // For single-step execution, handle ExecuteChild by executing the child,
@@ -321,6 +328,14 @@ impl Executable for ArrayRef {
             }
         }
     }
+}
+
+/// Execute a single step on an array, consuming it.
+///
+/// Extracts the vtable before consuming the array to avoid borrow conflicts.
+fn execute_step(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    let vtable = array.vtable().clone_boxed();
+    vtable.execute(array, ctx)
 }
 
 /// Try execute_parent on each child of the array.
@@ -343,7 +358,7 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
 /// A predicate that determines when an array has reached a desired form during execution.
 pub type DonePredicate = fn(&dyn DynArray) -> bool;
 
-/// The result of a single execution step on an array encoding.
+/// Metadata-only step indicator returned alongside an array in [`ExecutionResult`].
 ///
 /// Instead of recursively executing children, encodings return an `ExecutionStep` that tells the
 /// scheduler what to do next. This enables the scheduler to manage execution iteratively using
@@ -355,25 +370,11 @@ pub enum ExecutionStep {
     ///
     /// Between steps, the scheduler runs reduce/reduce_parent rules to fixpoint, enabling
     /// cross-step optimization (e.g., pushing scalar functions through newly-decoded children).
-    ///
-    /// Use [`ExecutionStep::execute_child`] instead of constructing this variant directly.
     ExecuteChild(usize, DonePredicate),
 
-    /// Execution is complete. The result may be in any encoding — not necessarily canonical.
-    /// The scheduler will continue executing the result if it has not yet reached the target form.
-    Done(ArrayRef),
-}
-
-impl ExecutionStep {
-    /// Request execution of child at `child_idx` until it matches the given [`Matcher`].
-    pub fn execute_child<M: Matcher>(child_idx: usize) -> Self {
-        ExecutionStep::ExecuteChild(child_idx, M::matches)
-    }
-
-    /// Signal that execution is complete with the given result.
-    pub fn done(result: ArrayRef) -> Self {
-        ExecutionStep::Done(result)
-    }
+    /// Execution is complete. The array in the accompanying [`ExecutionResult`] is the result.
+    /// The scheduler will continue executing if it has not yet reached the target form.
+    Done,
 }
 
 impl fmt::Debug for ExecutionStep {
@@ -382,8 +383,68 @@ impl fmt::Debug for ExecutionStep {
             ExecutionStep::ExecuteChild(idx, _) => {
                 f.debug_tuple("ExecuteChild").field(idx).finish()
             }
-            ExecutionStep::Done(result) => f.debug_tuple("Done").field(result).finish(),
+            ExecutionStep::Done => write!(f, "Done"),
         }
+    }
+}
+
+/// The result of a single execution step on an array encoding.
+///
+/// Combines an [`ArrayRef`] with an [`ExecutionStep`] to tell the scheduler both what to do next
+/// and what array to work with.
+pub struct ExecutionResult {
+    array: ArrayRef,
+    step: ExecutionStep,
+}
+
+impl ExecutionResult {
+    /// Signal that execution is complete with the given result array.
+    pub fn done(result: impl IntoArray) -> Self {
+        Self {
+            array: result.into_array(),
+            step: ExecutionStep::Done,
+        }
+    }
+
+    pub fn done_upcast<V: VTable>(arr: Arc<V::Array>) -> Self {
+        Self {
+            array: upcast_array::<V>(arr),
+            step: ExecutionStep::Done,
+        }
+    }
+
+    /// Request execution of child at `child_idx` until it matches the given [`Matcher`].
+    ///
+    /// The provided array is the (possibly modified) parent that still needs its child executed.
+    pub fn execute_child<M: Matcher>(array: impl IntoArray, child_idx: usize) -> Self {
+        Self {
+            array: array.into_array(),
+            step: ExecutionStep::ExecuteChild(child_idx, M::matches),
+        }
+    }
+
+    /// Returns a reference to the array.
+    pub fn array(&self) -> &ArrayRef {
+        &self.array
+    }
+
+    /// Returns a reference to the step.
+    pub fn step(&self) -> &ExecutionStep {
+        &self.step
+    }
+
+    /// Decompose into parts.
+    pub fn into_parts(self) -> (ArrayRef, ExecutionStep) {
+        (self.array, self.step)
+    }
+}
+
+impl fmt::Debug for ExecutionResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExecutionResult")
+            .field("array", &self.array)
+            .field("step", &self.step)
+            .finish()
     }
 }
 

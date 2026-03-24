@@ -4,13 +4,12 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use pyo3::Python;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
-use vortex::array::ExecutionStep;
+use vortex::array::ExecutionResult;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
@@ -33,11 +32,13 @@ use vortex::session::VortexSession;
 
 use crate::arrays::py::PythonArray;
 
-vtable!(Python);
+vtable!(Python, PythonVTable);
 
 /// Wrapper struct encapsulating a Python encoding.
-#[derive(Debug)]
-pub struct PythonVTable;
+#[derive(Debug, Clone)]
+pub struct PythonVTable {
+    pub id: ArrayId,
+}
 
 impl VTable for PythonVTable {
     type Array = PythonArray;
@@ -46,8 +47,12 @@ impl VTable for PythonVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(array: &Self::Array) -> ArrayId {
-        array.id.clone()
+    fn vtable(array: &Self::Array) -> &Self {
+        &array.vtable
+    }
+
+    fn id(&self) -> ArrayId {
+        self.id.clone()
     }
 
     fn len(array: &PythonArray) -> usize {
@@ -64,14 +69,14 @@ impl VTable for PythonVTable {
 
     fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
         Arc::as_ptr(&array.object).hash(state);
-        array.id.hash(state);
+        array.vtable.id.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
     }
 
     fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
-            && array.id == other.id
+            && array.vtable.id == other.vtable.id // TODO(ngates): in the future this check is already done
             && array.len == other.len
             && array.dtype == other.dtype
     }
@@ -156,7 +161,7 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(_array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         todo!()
     }
 }

@@ -4,9 +4,9 @@
 mod cast;
 pub(crate) mod compare;
 mod filter;
-mod is_sorted;
+pub(crate) mod is_sorted;
 mod list_contains;
-mod min_max;
+pub(crate) mod min_max;
 mod slice;
 mod take;
 

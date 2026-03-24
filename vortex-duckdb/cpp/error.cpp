@@ -4,9 +4,12 @@
 #include <cassert>
 #include <exception>
 
+#include "duckdb_vx/duckdb_diagnostics.h"
+DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/vector_buffer.hpp"
 #include "duckdb/common/types/vector.hpp"
+DUCKDB_INCLUDES_END
 
 #include "duckdb_vx.h"
 

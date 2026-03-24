@@ -52,18 +52,6 @@ pub struct ComputeFn {
     kernels: RwLock<Vec<ArcRef<dyn Kernel>>>,
 }
 
-/// Force all the default [`ComputeFn`] vtables to register all available compute kernels.
-///
-/// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
-pub fn warm_up_vtables() {
-    #[allow(unused_qualifications)]
-    is_constant::warm_up_vtable();
-    is_sorted::warm_up_vtable();
-    min_max::warm_up_vtable();
-    nan_count::warm_up_vtable();
-    sum::warm_up_vtable();
-}
-
 impl ComputeFn {
     /// Create a new compute function from the given [`ComputeFnVTable`].
     pub fn new(id: ArcRef<str>, vtable: ArcRef<dyn ComputeFnVTable>) -> Self {

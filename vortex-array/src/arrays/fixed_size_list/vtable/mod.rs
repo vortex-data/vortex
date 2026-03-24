@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -13,8 +14,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
@@ -34,22 +34,27 @@ use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
+
 vtable!(FixedSizeList);
 
-#[derive(Debug)]
-pub struct FixedSizeListVTable;
+#[derive(Clone, Debug)]
+pub struct FixedSizeList;
 
-impl FixedSizeListVTable {
+impl FixedSizeList {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
 }
 
-impl VTable for FixedSizeListVTable {
+impl VTable for FixedSizeList {
     type Array = FixedSizeListArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &FixedSizeList
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -169,7 +174,7 @@ impl VTable for FixedSizeListVTable {
     ) -> VortexResult<FixedSizeListArray> {
         vortex_ensure!(
             buffers.is_empty(),
-            "`FixedSizeListVTable::build` expects no buffers"
+            "`FixedSizeList::build` expects no buffers"
         );
 
         let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
@@ -178,7 +183,7 @@ impl VTable for FixedSizeListVTable {
 
         let validity = {
             if children.len() > 2 {
-                vortex_bail!("`FixedSizeListVTable::build` method expected 1 or 2 children")
+                vortex_bail!("`FixedSizeList::build` method expected 1 or 2 children")
             }
 
             if children.len() == 2 {
@@ -219,7 +224,7 @@ impl VTable for FixedSizeListVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 }

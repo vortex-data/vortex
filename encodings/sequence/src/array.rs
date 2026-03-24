@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -235,14 +236,18 @@ impl SequenceArray {
     }
 }
 
-impl VTable for SequenceVTable {
+impl VTable for Sequence {
     type Array = SequenceArray;
 
     type Metadata = SequenceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Sequence
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -381,8 +386,8 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        sequence_decompress(array).map(ExecutionStep::Done)
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        sequence_decompress(&array).map(ExecutionResult::done)
     }
 
     fn execute_parent(
@@ -403,7 +408,7 @@ impl VTable for SequenceVTable {
     }
 }
 
-impl OperationsVTable<SequenceVTable> for SequenceVTable {
+impl OperationsVTable<Sequence> for Sequence {
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
         Scalar::try_new(
             array.dtype().clone(),
@@ -412,16 +417,16 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
     }
 }
 
-impl ValidityVTable<SequenceVTable> for SequenceVTable {
+impl ValidityVTable<Sequence> for Sequence {
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
     }
 }
 
-#[derive(Debug)]
-pub struct SequenceVTable;
+#[derive(Clone, Debug)]
+pub struct Sequence;
 
-impl SequenceVTable {
+impl Sequence {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
 }
 

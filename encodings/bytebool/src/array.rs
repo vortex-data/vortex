@@ -3,13 +3,14 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
@@ -41,14 +42,18 @@ use crate::kernel::PARENT_KERNELS;
 
 vtable!(ByteBool);
 
-impl VTable for ByteBoolVTable {
+impl VTable for ByteBool {
     type Array = ByteBoolArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ByteBool
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -183,10 +188,10 @@ impl VTable for ByteBoolVTable {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Ok(ExecutionStep::Done(
+        Ok(ExecutionResult::done(
             BoolArray::new(boolean_buffer, validity).into_array(),
         ))
     }
@@ -209,10 +214,10 @@ pub struct ByteBoolArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
-pub struct ByteBoolVTable;
+#[derive(Clone, Debug)]
+pub struct ByteBool;
 
-impl ByteBoolVTable {
+impl ByteBool {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
 }
 
@@ -260,7 +265,7 @@ impl ValidityHelper for ByteBoolArray {
     }
 }
 
-impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
+impl OperationsVTable<ByteBool> for ByteBool {
     fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             array.buffer.as_host()[index] == 1,

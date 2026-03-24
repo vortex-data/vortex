@@ -11,8 +11,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -30,6 +29,7 @@ mod validity;
 
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
@@ -43,14 +43,18 @@ use crate::vtable::ArrayId;
 
 vtable!(Primitive);
 
-impl VTable for PrimitiveVTable {
+impl VTable for Primitive {
     type Array = PrimitiveArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Primitive
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -199,8 +203,8 @@ impl VTable for PrimitiveVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 
     fn reduce_parent(
@@ -221,9 +225,9 @@ impl VTable for PrimitiveVTable {
     }
 }
 
-#[derive(Debug)]
-pub struct PrimitiveVTable;
+#[derive(Clone, Debug)]
+pub struct Primitive;
 
-impl PrimitiveVTable {
+impl Primitive {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.primitive");
 }

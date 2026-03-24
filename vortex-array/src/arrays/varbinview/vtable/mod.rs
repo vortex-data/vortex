@@ -17,8 +17,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
@@ -41,20 +40,24 @@ mod operations;
 mod validity;
 vtable!(VarBinView);
 
-#[derive(Debug)]
-pub struct VarBinViewVTable;
+#[derive(Clone, Debug)]
+pub struct VarBinView;
 
-impl VarBinViewVTable {
+impl VarBinView {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
 }
 
-impl VTable for VarBinViewVTable {
+impl VTable for VarBinView {
     type Array = VarBinViewArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &VarBinView
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -243,7 +246,7 @@ impl VTable for VarBinViewVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 }

@@ -4,20 +4,20 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::DictVTable;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
 
+use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndVTable;
 
 #[derive(Debug)]
-pub(crate) struct RunEndVTableTakeFrom;
+pub(crate) struct RunEndTakeFrom;
 
-impl ExecuteParentKernel<RunEndVTable> for RunEndVTableTakeFrom {
-    type Parent = DictVTable;
+impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
+    type Parent = Dict;
 
     fn execute_parent(
         &self,
@@ -64,7 +64,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::RunEndArray;
-    use crate::compute::take_from::RunEndVTableTakeFrom;
+    use crate::compute::take_from::RunEndTakeFrom;
 
     /// Build a DictArray whose codes are run-end encoded.
     ///
@@ -84,7 +84,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let result = RunEndVTableTakeFrom
+        let result = RunEndTakeFrom
             .execute_parent(&codes, &dict, 0, &mut ctx)?
             .expect("kernel should return Some");
 
@@ -107,7 +107,7 @@ mod tests {
         };
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let result = RunEndVTableTakeFrom
+        let result = RunEndTakeFrom
             .execute_parent(&sliced_codes, &dict, 0, &mut ctx)?
             .expect("kernel should return Some");
 
@@ -130,7 +130,7 @@ mod tests {
         };
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let result = RunEndVTableTakeFrom
+        let result = RunEndTakeFrom
             .execute_parent(&sliced_codes, &dict, 0, &mut ctx)?
             .expect("kernel should return Some");
 
@@ -153,7 +153,7 @@ mod tests {
         };
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let result = RunEndVTableTakeFrom
+        let result = RunEndTakeFrom
             .execute_parent(&sliced_codes, &dict, 0, &mut ctx)?
             .expect("kernel should return Some");
 
@@ -167,7 +167,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let result = RunEndVTableTakeFrom.execute_parent(&codes, &dict, 1, &mut ctx)?;
+        let result = RunEndTakeFrom.execute_parent(&codes, &dict, 1, &mut ctx)?;
         assert!(result.is_none());
         Ok(())
     }

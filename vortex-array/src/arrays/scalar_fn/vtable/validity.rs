@@ -62,7 +62,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
             })
             .collect::<VortexResult<_>>()?;
 
-        let expr = Expression::try_new(array.scalar_fn.clone(), inputs)?;
+        let expr = Expression::try_new(array.scalar_fn().clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
         // Execute the validity expression. All leaves are ArrayExpr nodes.

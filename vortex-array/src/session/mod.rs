@@ -1,28 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
-use crate::arrays::BoolVTable;
-use crate::arrays::ChunkedVTable;
-use crate::arrays::ConstantVTable;
-use crate::arrays::DecimalVTable;
-use crate::arrays::ExtensionVTable;
-use crate::arrays::FixedSizeListVTable;
-use crate::arrays::ListVTable;
-use crate::arrays::ListViewVTable;
-use crate::arrays::MaskedVTable;
-use crate::arrays::NullVTable;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::StructVTable;
-use crate::arrays::VarBinVTable;
-use crate::arrays::VarBinViewVTable;
-use crate::vtable::ArrayId;
-use crate::vtable::DynVTable;
+use crate::arrays::Bool;
+use crate::arrays::Chunked;
+use crate::arrays::Constant;
+use crate::arrays::Decimal;
+use crate::arrays::Extension;
+use crate::arrays::FixedSizeList;
+use crate::arrays::List;
+use crate::arrays::ListView;
+use crate::arrays::Masked;
+use crate::arrays::Null;
+use crate::arrays::Primitive;
+use crate::arrays::Struct;
+use crate::arrays::VarBin;
+use crate::arrays::VarBinView;
+use crate::vtable::DynVTableRef;
+use crate::vtable::VTable;
 
-pub type ArrayRegistry = Registry<&'static dyn DynVTable>;
+pub type ArrayRegistry = Registry<DynVTableRef>;
 
 #[derive(Debug)]
 pub struct ArraySession {
@@ -31,41 +33,48 @@ pub struct ArraySession {
 }
 
 impl ArraySession {
+    pub fn empty() -> ArraySession {
+        Self {
+            registry: ArrayRegistry::default(),
+        }
+    }
+
     pub fn registry(&self) -> &ArrayRegistry {
         &self.registry
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
-    pub fn register(&self, id: impl Into<ArrayId>, encoding: impl Into<&'static dyn DynVTable>) {
-        self.registry.register(id.into(), encoding.into())
+    pub fn register<V: VTable>(&self, vtable: V) {
+        self.registry
+            .register(vtable.id(), Arc::new(vtable) as DynVTableRef);
     }
 }
 
 impl Default for ArraySession {
     fn default() -> Self {
-        let encodings = ArrayRegistry::default();
+        let this = ArraySession {
+            registry: ArrayRegistry::default(),
+        };
 
         // Register the canonical encodings.
-        encodings.register(NullVTable::ID, NullVTable);
-        encodings.register(BoolVTable::ID, BoolVTable);
-        encodings.register(PrimitiveVTable::ID, PrimitiveVTable);
-        encodings.register(DecimalVTable::ID, DecimalVTable);
-        encodings.register(VarBinViewVTable::ID, VarBinViewVTable);
-        encodings.register(ListViewVTable::ID, ListViewVTable);
-        encodings.register(FixedSizeListVTable::ID, FixedSizeListVTable);
-        encodings.register(StructVTable::ID, StructVTable);
-        encodings.register(ExtensionVTable::ID, ExtensionVTable);
+        this.register(Null);
+        this.register(Bool);
+        this.register(Primitive);
+        this.register(Decimal);
+        this.register(VarBinView);
+        this.register(ListView);
+        this.register(FixedSizeList);
+        this.register(Struct);
+        this.register(Extension);
 
         // Register the utility encodings.
-        encodings.register(ChunkedVTable::ID, ChunkedVTable);
-        encodings.register(ConstantVTable::ID, ConstantVTable);
-        encodings.register(MaskedVTable::ID, MaskedVTable);
-        encodings.register(ListVTable::ID, ListVTable);
-        encodings.register(VarBinVTable::ID, VarBinVTable);
+        this.register(Chunked);
+        this.register(Constant);
+        this.register(Masked);
+        this.register(List);
+        this.register(VarBin);
 
-        Self {
-            registry: encodings,
-        }
+        this
     }
 }
 

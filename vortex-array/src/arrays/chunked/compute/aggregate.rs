@@ -7,7 +7,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::Chunked;
 use crate::scalar::Scalar;
 
 #[derive(Debug)]
@@ -20,15 +20,17 @@ impl DynAggregateKernel for ChunkedArrayAggregate {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        let Some(chunked) = batch.as_opt::<ChunkedVTable>() else {
+        let Some(chunked) = batch.as_opt::<Chunked>() else {
             return Ok(None);
         };
 
-        let mut acc = aggregate_fn.accumulator(chunked.dtype(), ctx.session())?;
+        let mut acc = aggregate_fn.accumulator(chunked.dtype())?;
         for chunk in chunked.chunks() {
-            acc.accumulate(chunk)?;
+            acc.accumulate(chunk, ctx)?;
         }
-        Ok(Some(acc.finish()?))
+        // Return the partial (not finalized) result, since the outer accumulator
+        // will call combine_partials() on this value.
+        Ok(Some(acc.flush()?))
     }
 }
 
@@ -37,9 +39,10 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
@@ -52,13 +55,10 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
 
-    fn session() -> VortexSession {
-        VortexSession::empty()
-    }
-
     fn run_sum(batch: &crate::ArrayRef) -> VortexResult<Scalar> {
-        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone(), session())?;
-        acc.accumulate(batch)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone())?;
+        acc.accumulate(batch, &mut ctx)?;
         acc.finish()
     }
 

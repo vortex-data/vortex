@@ -135,6 +135,13 @@ function formatQuery(q) {
   return q.toUpperCase().replace(/[_-]/g, " ");
 }
 
+function normalizeChartName(group, chartName) {
+  if (group === "Compression Size" && chartName === "VORTEX FILE COMPRESSED SIZE") {
+    return "VORTEX SIZE";
+  }
+  return chartName;
+}
+
 // LTTB downsampling
 function lttbIndices(seriesMap, target) {
   const keys = [...seriesMap.keys()];
@@ -298,6 +305,7 @@ async function refresh() {
         seriesName = rename(parts[1] || "default");
         chartName = formatQuery(parts[0]);
       }
+      chartName = normalizeChartName(group, chartName);
       if (chartName.includes("PARQUET-UNC")) return;
 
       // Skip throughput metrics (keep only time/size)

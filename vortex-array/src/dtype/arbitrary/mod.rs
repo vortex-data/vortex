@@ -6,6 +6,8 @@ use std::sync::Arc;
 use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
+use itertools::Itertools;
+use vortex_error::VortexExpect;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -34,8 +36,7 @@ impl<'a> Arbitrary<'a> for FieldName {
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
     const BASE_TYPE_COUNT: i32 = 5;
-    // TODO(joe): update to 3 once fsl works
-    const CONTAINER_TYPE_COUNT: i32 = 2;
+    const CONTAINER_TYPE_COUNT: i32 = 3;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
     } else {
@@ -52,12 +53,12 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         // container types
         6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
         7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
-        // 8 => DType::FixedSizeList(
-        //     Arc::new(random_dtype(u, depth - 1)?),
-        //     // We limit the list size to 3 rather (following random struct fields).
-        //     u.choose_index(3)?.try_into().vortex_expect("impossible"),
-        //     u.arbitrary()?,
-        // ),
+        8 => DType::FixedSizeList(
+            Arc::new(random_dtype(u, depth - 1)?),
+            // We limit the list size to 3 rather (following random struct fields).
+            u.choose_index(3)?.try_into().vortex_expect("impossible"),
+            u.arbitrary()?,
+        ),
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),
@@ -108,11 +109,15 @@ impl<'a> Arbitrary<'a> for StructFields {
     }
 }
 
+// TODO(joe): enable duplicate field gen in the fuzzer.
+// we dont for now to unblock this to find more interesting things
 fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFields> {
     let field_count = u.choose_index(3)?;
-    let names: FieldNames = (0..field_count)
+    let names: Vec<FieldName> = (0..field_count)
         .map(|_| FieldName::arbitrary(u))
-        .collect::<Result<FieldNames>>()?;
+        .collect::<Result<Vec<_>>>()?;
+    // Deduplicate field names, keeping only the first occurrence of each.
+    let names: FieldNames = names.into_iter().unique().collect();
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;

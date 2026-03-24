@@ -13,16 +13,19 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
+use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
@@ -81,14 +84,18 @@ type ViewLen = u32;
 
 vtable!(Zstd);
 
-impl VTable for ZstdVTable {
+impl VTable for Zstd {
     type Array = ZstdArray;
 
     type Metadata = ProstMetadata<ZstdMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Zstd
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -272,11 +279,11 @@ impl VTable for ZstdVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
-            .decompress()?
+            .decompress(ctx)?
             .execute::<ArrayRef>(ctx)
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 
     fn reduce_parent(
@@ -288,10 +295,10 @@ impl VTable for ZstdVTable {
     }
 }
 
-#[derive(Debug)]
-pub struct ZstdVTable;
+#[derive(Clone, Debug)]
+pub struct Zstd;
 
-impl ZstdVTable {
+impl Zstd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
 }
 
@@ -378,9 +385,20 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
 /// Reconstruct BinaryView structs from length-prefixed byte data.
 ///
 /// The buffer contains interleaved u32 lengths (little-endian) and string data.
-pub fn reconstruct_views(buffer: &ByteBuffer) -> Buffer<BinaryView> {
-    let mut res = BufferMut::<BinaryView>::empty();
+/// When the cumulative data exceeds `max_buffer_len`, the buffer is split (zero-copy) into
+/// multiple segments so that BinaryView's u32 offsets can address all data.
+///
+/// Pass [`MAX_BUFFER_LEN`] for `max_buffer_len` in production; a smaller value can be used in
+/// tests to exercise the splitting path without allocating >2 GiB.
+pub fn reconstruct_views(
+    buffer: &ByteBuffer,
+    max_buffer_len: usize,
+) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    let mut views = BufferMut::<BinaryView>::empty();
+    let mut buffers = Vec::new();
+    let mut segment_start: usize = 0;
     let mut offset = 0;
+
     while offset < buffer.len() {
         let str_len = ViewLen::from_le_bytes(
             buffer
@@ -390,16 +408,28 @@ pub fn reconstruct_views(buffer: &ByteBuffer) -> Buffer<BinaryView> {
                 .ok()
                 .vortex_expect("must fit ViewLen size"),
         ) as usize;
-        offset += size_of::<ViewLen>();
-        let value = &buffer[offset..offset + str_len];
-        res.push(BinaryView::make_view(
-            value,
-            0,
-            u32::try_from(offset).vortex_expect("offset must fit in u32"),
-        ));
-        offset += str_len;
+
+        let value_data_offset = offset + size_of::<ViewLen>();
+        let local_offset = value_data_offset - segment_start;
+
+        if local_offset + str_len > max_buffer_len && offset > segment_start {
+            buffers.push(buffer.slice(segment_start..offset));
+            segment_start = offset;
+        }
+
+        let local_offset = u32::try_from(value_data_offset - segment_start)
+            .vortex_expect("local offset within segment must fit in u32");
+        let buf_index = u32::try_from(buffers.len()).vortex_expect("buffer index must fit in u32");
+        let value = &buffer[value_data_offset..value_data_offset + str_len];
+        views.push(BinaryView::make_view(value, buf_index, local_offset));
+        offset = value_data_offset + str_len;
     }
-    res.freeze()
+
+    if segment_start < buffer.len() {
+        buffers.push(buffer.slice(segment_start..buffer.len()));
+    }
+
+    (buffers, views.freeze())
 }
 
 impl ZstdArray {
@@ -702,14 +732,14 @@ impl ZstdArray {
         }
     }
 
-    pub fn decompress(&self) -> VortexResult<ArrayRef> {
+    pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
         let byte_width = self.byte_width();
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
-            .to_mask(self.unsliced_n_rows)
+            .execute_mask(self.unsliced_n_rows, ctx)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
         let slice_value_idx_start = slice_value_indices[0];
@@ -787,14 +817,14 @@ impl ZstdArray {
         //
         // We ensure that the validity of the decompressed array ALWAYS matches the validity
         // implied by the DType.
-        if !self.dtype().is_nullable() && slice_validity != Validity::NonNullable {
+        if !self.dtype().is_nullable() && !matches!(slice_validity, Validity::NonNullable) {
             assert!(
-                slice_validity.all_valid(slice_n_rows)?,
+                matches!(slice_validity, Validity::AllValid),
                 "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
 
             slice_validity = Validity::NonNullable;
-        } else if self.dtype.is_nullable() && slice_validity == Validity::NonNullable {
+        } else if self.dtype.is_nullable() && matches!(slice_validity, Validity::NonNullable) {
             slice_validity = Validity::AllValid;
         }
         //
@@ -817,12 +847,10 @@ impl ZstdArray {
                 Ok(primitive.into_array())
             }
             DType::Binary(_) | DType::Utf8(_) => {
-                match slice_validity.to_mask(slice_n_rows).indices() {
+                match slice_validity.execute_mask(slice_n_rows, ctx)?.indices() {
                     AllOr::All => {
-                        // the decompressed buffer is a bunch of interleaved u32 lengths
-                        // and strings of those lengths, we need to reconstruct the
-                        // views into those strings by passing through the buffer.
-                        let valid_views = reconstruct_views(&decompressed).slice(
+                        let (buffers, all_views) = reconstruct_views(&decompressed, MAX_BUFFER_LEN);
+                        let valid_views = all_views.slice(
                             slice_value_idx_start - n_skipped_values
                                 ..slice_value_idx_stop - n_skipped_values,
                         );
@@ -831,7 +859,7 @@ impl ZstdArray {
                         Ok(unsafe {
                             VarBinViewArray::new_unchecked(
                                 valid_views,
-                                Arc::from([decompressed]),
+                                Arc::from(buffers),
                                 self.dtype.clone(),
                                 slice_validity,
                             )
@@ -844,10 +872,8 @@ impl ZstdArray {
                     )
                     .into_array()),
                     AllOr::Some(valid_indices) => {
-                        // the decompressed buffer is a bunch of interleaved u32 lengths
-                        // and strings of those lengths, we need to reconstruct the
-                        // views into those strings by passing through the buffer.
-                        let valid_views = reconstruct_views(&decompressed).slice(
+                        let (buffers, all_views) = reconstruct_views(&decompressed, MAX_BUFFER_LEN);
+                        let valid_views = all_views.slice(
                             slice_value_idx_start - n_skipped_values
                                 ..slice_value_idx_stop - n_skipped_values,
                         );
@@ -861,7 +887,7 @@ impl ZstdArray {
                         Ok(unsafe {
                             VarBinViewArray::new_unchecked(
                                 views.freeze(),
-                                Arc::from([decompressed]),
+                                Arc::from(buffers),
                                 self.dtype.clone(),
                                 slice_validity,
                             )
@@ -935,8 +961,62 @@ impl ValiditySliceHelper for ZstdArray {
     }
 }
 
-impl OperationsVTable<ZstdVTable> for ZstdVTable {
+impl OperationsVTable<Zstd> for Zstd {
     fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        array
+            ._slice(index, index + 1)
+            .decompress(&mut ctx)?
+            .scalar_at(0)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
+mod tests {
+    use vortex_buffer::ByteBuffer;
+
+    use super::reconstruct_views;
+    use crate::array::BinaryView;
+
+    /// Build a Zstd-style interleaved buffer: [u32-LE length][string bytes] repeated.
+    fn make_interleaved(strings: &[&[u8]]) -> ByteBuffer {
+        let mut buf = Vec::new();
+        for s in strings {
+            let len = s.len() as u32;
+            buf.extend_from_slice(&len.to_le_bytes());
+            buf.extend_from_slice(s);
+        }
+        ByteBuffer::copy_from(buf.as_slice())
+    }
+
+    #[test]
+    fn test_reconstruct_views_no_split() {
+        let strings: &[&[u8]] = &[b"hello", b"world"];
+        let buf = make_interleaved(strings);
+        let (buffers, views) = reconstruct_views(&buf, 1024);
+
+        assert_eq!(buffers.len(), 1);
+        assert_eq!(views.len(), 2);
+        // Each entry: [u32 len (4 bytes)][data], so offsets are 4 and 4+5+4=13
+        assert_eq!(views[0], BinaryView::make_view(b"hello", 0, 4));
+        assert_eq!(views[1], BinaryView::make_view(b"world", 0, 13));
+    }
+
+    #[test]
+    fn test_reconstruct_views_split_across_segments() {
+        // "aaaaaaaaaaaaa" (13 bytes) and "bbbbbbbbbbbbb" (13 bytes).
+        // Each entry occupies 4 (length prefix) + 13 (data) = 17 bytes.
+        // With max_buffer_len=20, the second entry's data (offset 4+13+4=21) exceeds the limit,
+        // so it rolls into a second segment.
+        let strings: &[&[u8]] = &[b"aaaaaaaaaaaaa", b"bbbbbbbbbbbbb"];
+        let buf = make_interleaved(strings);
+        let (buffers, views) = reconstruct_views(&buf, 20);
+
+        assert_eq!(buffers.len(), 2);
+        assert_eq!(views.len(), 2);
+        assert_eq!(views[0], BinaryView::make_view(b"aaaaaaaaaaaaa", 0, 4));
+        // Second entry starts a new segment at byte 17 (the length prefix), so local offset = 4.
+        assert_eq!(views[1], BinaryView::make_view(b"bbbbbbbbbbbbb", 1, 4));
     }
 }

@@ -11,8 +11,8 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
-use vortex::array::arrays::DictVTable;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::decimal::DecimalArrayParts;
@@ -49,7 +49,7 @@ impl CudaExecute for DictExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let dict_array = array
-            .try_into::<DictVTable>()
+            .try_into::<Dict>()
             .ok()
             .vortex_expect("Array is not a Dict array");
 

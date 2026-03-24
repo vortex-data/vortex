@@ -6,7 +6,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
-use vortex::array::arrays::SliceVTable;
+use vortex::array::arrays::Slice;
 use vortex::array::arrays::slice::SliceArrayParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -26,7 +26,7 @@ impl CudaExecute for SliceExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let slice_array = array.try_into::<SliceVTable>().map_err(|array| {
+        let slice_array = array.try_into::<Slice>().map_err(|array| {
             vortex_err!(
                 "SliceExecutor requires input of SliceArray, was {}",
                 array.encoding_id()

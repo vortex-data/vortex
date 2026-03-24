@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use super::Dict;
 use super::DictArray;
-use super::DictVTable;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
@@ -16,7 +16,7 @@ use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
-impl CompareKernel for DictVTable {
+impl CompareKernel for Dict {
     fn compare(
         lhs: &DictArray,
         rhs: &ArrayRef,

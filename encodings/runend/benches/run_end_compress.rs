@@ -11,7 +11,6 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -19,7 +18,6 @@ use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 
 fn main() {
-    warm_up_vtables();
     divan::main();
 }
 
@@ -36,12 +34,6 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (100_000, 256),
     (100_000, 1024),
     (100_000, 4096),
-    (1_000_000, 4),
-    (1_000_000, 16),
-    (1_000_000, 256),
-    (1_000_000, 1024),
-    (1_000_000, 4096),
-    (1_000_000, 8192),
 ];
 
 #[divan::bench(args = BENCH_ARGS)]

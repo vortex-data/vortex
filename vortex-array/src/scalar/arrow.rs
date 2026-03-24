@@ -65,6 +65,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             DType::List(..) => unimplemented!("list scalar conversion"),
             DType::FixedSizeList(..) => unimplemented!("fixed-size list scalar conversion"),
             DType::Extension(..) => extension_to_arrow(value.as_extension()),
+            DType::Variant(_) => unimplemented!("Variant scalar conversion"),
         }
     }
 }
@@ -202,6 +203,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
     use crate::dtype::i256;
@@ -464,18 +466,12 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(
-                &self,
-                _options: &Self::Metadata,
-                _storage_dtype: &DType,
-            ) -> VortexResult<()> {
+            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
-                &self,
-                _metadata: &'a Self::Metadata,
-                _storage_dtype: &'a DType,
+                _ext_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")

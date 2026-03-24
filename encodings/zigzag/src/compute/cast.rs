@@ -8,10 +8,10 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::ZigZag;
 use crate::ZigZagArray;
-use crate::ZigZagVTable;
 
-impl CastReduce for ZigZagVTable {
+impl CastReduce for ZigZag {
     fn cast(array: &ZigZagArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_signed_int() {
             return Ok(None);

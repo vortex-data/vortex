@@ -11,7 +11,7 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::DynArray;
@@ -28,7 +28,7 @@ fn main() {
 }
 
 /// Number of lists in the source array.
-const NUM_LISTS: usize = 10_000;
+const NUM_LISTS: usize = 500;
 
 /// Number of indices to take.
 const NUM_INDICES: &[usize] = &[100, 1_000];

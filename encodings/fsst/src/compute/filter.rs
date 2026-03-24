@@ -4,27 +4,27 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::VarBinVTable;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::FSST;
 use crate::FSSTArray;
-use crate::FSSTVTable;
 
-impl FilterKernel for FSSTVTable {
+impl FilterKernel for FSST {
     fn filter(
         array: &FSSTArray,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Directly invoke VarBin's FilterKernel to get a concrete VarBinArray back.
-        let filtered_codes = <VarBinVTable as FilterKernel>::filter(array.codes(), mask, ctx)?
+        let filtered_codes = <VarBin as FilterKernel>::filter(array.codes(), mask, ctx)?
             .vortex_expect("VarBin filter kernel always returns Some")
-            .try_into::<VarBinVTable>()
+            .try_into::<VarBin>()
             .ok()
-            .vortex_expect("must be VarBinVTable");
+            .vortex_expect("must be VarBin");
 
         Ok(Some(
             FSSTArray::try_new(

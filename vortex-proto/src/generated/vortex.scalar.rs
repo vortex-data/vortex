@@ -3,12 +3,12 @@
 pub struct Scalar {
     #[prost(message, optional, tag = "1")]
     pub dtype: ::core::option::Option<super::dtype::DType>,
-    #[prost(message, optional, tag = "2")]
-    pub value: ::core::option::Option<ScalarValue>,
+    #[prost(message, optional, boxed, tag = "2")]
+    pub value: ::core::option::Option<::prost::alloc::boxed::Box<ScalarValue>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScalarValue {
-    #[prost(oneof = "scalar_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(oneof = "scalar_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub kind: ::core::option::Option<scalar_value::Kind>,
 }
 /// Nested message and enum types in `ScalarValue`.
@@ -35,6 +35,10 @@ pub mod scalar_value {
         ListValue(super::ListValue),
         #[prost(uint64, tag = "10")]
         F16Value(u64),
+        /// Variant scalars carry a row-specific nested scalar.
+        /// See RFC 0015: <https://github.com/vortex-data/rfcs/blob/develop/accepted/0015-variant-type.md>
+        #[prost(message, tag = "11")]
+        VariantValue(::prost::alloc::boxed::Box<super::Scalar>),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -98,6 +98,10 @@ pub fn vortex_mask::Mask::values(&self) -> core::option::Option<&vortex_mask::Ma
 
 impl vortex_mask::Mask
 
+pub fn vortex_mask::Mask::bitand_not(self, rhs: &vortex_mask::Mask) -> vortex_mask::Mask
+
+impl vortex_mask::Mask
+
 pub fn vortex_mask::Mask::intersect_by_rank(&self, mask: &vortex_mask::Mask) -> vortex_mask::Mask
 
 impl vortex_mask::Mask

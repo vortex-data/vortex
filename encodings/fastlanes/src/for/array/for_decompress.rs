@@ -17,8 +17,8 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
 use crate::FoRArray;
 use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
@@ -49,7 +49,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
 
     // Try to do fused unpack.
     if array.reference_scalar().dtype().is_unsigned_int()
-        && let Some(bp) = array.encoded().as_opt::<BitPackedVTable>()
+        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
     {
         return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
             fused_decompress::<T>(array, bp, ctx)

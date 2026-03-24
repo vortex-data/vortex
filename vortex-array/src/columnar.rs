@@ -12,8 +12,8 @@ use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
@@ -71,7 +71,7 @@ impl IntoArray for Columnar {
 impl Executable for Columnar {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let result = array.execute_until::<AnyColumnar>(ctx)?;
-        if let Some(constant) = result.as_opt::<ConstantVTable>() {
+        if let Some(constant) = result.as_opt::<Constant>() {
             Ok(Columnar::Constant(constant.clone()))
         } else {
             Ok(Columnar::Canonical(
@@ -103,7 +103,7 @@ impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
-        if let Some(constant) = array.as_opt::<ConstantVTable>() {
+        if let Some(constant) = array.as_opt::<Constant>() {
             Some(ColumnarView::Constant(constant))
         } else {
             array.as_opt::<AnyCanonical>().map(ColumnarView::Canonical)

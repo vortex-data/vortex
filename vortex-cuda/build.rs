@@ -138,7 +138,7 @@ fn nvcc_compile_ptx(
         .join(cu_path.file_name().unwrap())
         .with_extension("ptx");
 
-    cmd.arg("-std=c++17")
+    cmd.arg("-std=c++20")
         .arg("-arch=native")
         // Flags forwarded to Clang.
         .arg("--compiler-options=-Wall -Wextra -Wpedantic -Werror")

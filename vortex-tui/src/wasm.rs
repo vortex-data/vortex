@@ -17,7 +17,7 @@ use vortex::array::MaskFuture;
 use vortex::array::serde::ArrayParts;
 use vortex::error::VortexExpect;
 use vortex::expr::root;
-use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::layouts::flat::Flat;
 use vortex::layout::segments::SegmentSource;
 use vortex::session::VortexSession;
 use wasm_bindgen::prelude::*;
@@ -41,7 +41,7 @@ pub fn init() {
 /// since the single-threaded event loop can't process spawned tasks while busy-waiting.
 fn maybe_load_flat_data(app: &Rc<RefCell<AppState>>) {
     let borrowed = app.borrow();
-    if !borrowed.cursor.layout().is::<FlatVTable>() {
+    if !borrowed.cursor.layout().is::<Flat>() {
         return;
     }
     if borrowed.cached_flat_array.is_some() {
@@ -97,7 +97,7 @@ async fn load_flatbuffer_size(
     layout: &vortex::layout::LayoutRef,
     segment_source: &Arc<dyn SegmentSource>,
 ) -> usize {
-    let segment_id = layout.as_::<FlatVTable>().segment_id();
+    let segment_id = layout.as_::<Flat>().segment_id();
     let segment = segment_source
         .request(segment_id)
         .await

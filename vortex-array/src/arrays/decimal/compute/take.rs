@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
@@ -17,7 +17,7 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
-impl TakeExecute for DecimalVTable {
+impl TakeExecute for Decimal {
     fn take(
         array: &DecimalArray,
         indices: &ArrayRef,
@@ -42,7 +42,6 @@ impl TakeExecute for DecimalVTable {
     }
 }
 
-#[inline]
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {
     indices.iter().map(|idx| values[idx.as_()]).collect()
 }

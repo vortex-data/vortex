@@ -15,8 +15,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -41,13 +40,17 @@ use crate::vtable::ArrayId;
 
 vtable!(Struct);
 
-impl VTable for StructVTable {
+impl VTable for Struct {
     type Array = StructArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Struct
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -207,8 +210,8 @@ impl VTable for StructVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 
     fn reduce_parent(
@@ -229,9 +232,9 @@ impl VTable for StructVTable {
     }
 }
 
-#[derive(Debug)]
-pub struct StructVTable;
+#[derive(Clone, Debug)]
+pub struct Struct;
 
-impl StructVTable {
+impl Struct {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
 }

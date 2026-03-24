@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -10,7 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -71,14 +72,18 @@ impl DateTimePartsMetadata {
     }
 }
 
-impl VTable for DateTimePartsVTable {
+impl VTable for DateTimeParts {
     type Array = DateTimePartsArray;
 
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &DateTimeParts
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -222,9 +227,9 @@ impl VTable for DateTimePartsVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            decode_to_temporal(array, ctx)?.into_array(),
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            decode_to_temporal(&array, ctx)?.into_array(),
         ))
     }
 
@@ -263,10 +268,10 @@ pub struct DateTimePartsArrayParts {
     pub subseconds: ArrayRef,
 }
 
-#[derive(Debug)]
-pub struct DateTimePartsVTable;
+#[derive(Clone, Debug)]
+pub struct DateTimeParts;
 
-impl DateTimePartsVTable {
+impl DateTimeParts {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.datetimeparts");
 }
 
@@ -347,7 +352,7 @@ impl DateTimePartsArray {
     }
 }
 
-impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
+impl ValidityChild<DateTimeParts> for DateTimeParts {
     fn validity_child(array: &DateTimePartsArray) -> &ArrayRef {
         array.days()
     }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
@@ -31,7 +32,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::require_child;
@@ -47,21 +48,25 @@ mod validity;
 
 vtable!(Dict);
 
-#[derive(Debug)]
-pub struct DictVTable;
+#[derive(Clone, Debug)]
+pub struct Dict;
 
-impl DictVTable {
+impl Dict {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
 }
 
-impl VTable for DictVTable {
+impl VTable for Dict {
     type Array = DictArray;
 
     type Metadata = ProstMetadata<DictMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Dict
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -194,14 +199,12 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        if array.is_empty() {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+       if array.is_empty() {
             let result_dtype = array
                 .dtype()
                 .union_nullability(array.codes().dtype().nullability());
-            return Ok(ExecutionStep::Done(
-                Canonical::empty(&result_dtype).into_array(),
-            ));
+           return Ok(ExecutionResult::done(canonical));
         }
 
         let codes = require_child!(array.codes(), 0 => PrimitiveVTable);
@@ -216,8 +219,8 @@ impl VTable for DictVTable {
         let values = require_child!(array.values(), 1 => AnyCanonical);
         let values = Canonical::from(values);
 
-        Ok(ExecutionStep::Done(
-            take_canonical(values, codes, ctx)?.into_array(),
+        Ok(ExecutionResult::done(
+            take_canonical(values, &codes, ctx)?.into_array(),
         ))
     }
 

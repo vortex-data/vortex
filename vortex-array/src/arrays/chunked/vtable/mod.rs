@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -15,7 +16,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
@@ -42,20 +43,24 @@ mod operations;
 mod validity;
 vtable!(Chunked);
 
-#[derive(Debug)]
-pub struct ChunkedVTable;
+#[derive(Clone, Debug)]
+pub struct Chunked;
 
-impl ChunkedVTable {
+impl Chunked {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.chunked");
 }
 
-impl VTable for ChunkedVTable {
+impl VTable for Chunked {
     type Array = ChunkedArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Chunked
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -240,8 +245,10 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            _canonicalize(&array, ctx)?.into_array(),
+        ))
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

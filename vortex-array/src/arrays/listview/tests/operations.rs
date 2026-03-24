@@ -12,16 +12,18 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;
-use crate::compute::is_constant;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -43,7 +45,7 @@ fn test_slice_comprehensive() {
 
     // Test basic slice [1..3] - middle portion.
     let sliced = listview.slice(1..3).unwrap();
-    let sliced_list = sliced.as_::<ListViewVTable>();
+    let sliced_list = sliced.as_::<ListView>();
     assert_eq!(sliced_list.len(), 2, "Wrong slice length");
     assert_eq!(sliced_list.offset_at(0), 3, "Wrong offset for list[1]");
     assert_eq!(sliced_list.size_at(0), 2, "Wrong size for list[1]");
@@ -52,7 +54,7 @@ fn test_slice_comprehensive() {
 
     // Test full array slice [0..4].
     let full = listview.slice(0..4).unwrap();
-    let full_list = full.as_::<ListViewVTable>();
+    let full_list = full.as_::<ListView>();
     assert_eq!(full_list.len(), 4, "Full slice should preserve length");
     for i in 0..4 {
         // Compare the sliced elements
@@ -66,7 +68,7 @@ fn test_slice_comprehensive() {
 
     // Test single element slice [2..3].
     let single = listview.slice(2..3).unwrap();
-    let single_list = single.as_::<ListViewVTable>();
+    let single_list = single.as_::<ListView>();
     assert_eq!(single_list.len(), 1, "Single element slice failed");
     assert_eq!(single_list.offset_at(0), 5, "Wrong offset for single slice");
     assert_eq!(single_list.size_at(0), 3, "Wrong size for single slice");
@@ -84,7 +86,7 @@ fn test_slice_out_of_order() {
 
     // Slice [1..4] should maintain the out-of-order offsets.
     let sliced = listview.slice(1..4).unwrap();
-    let sliced_list = sliced.as_::<ListViewVTable>();
+    let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(
         sliced_list.len(),
@@ -143,7 +145,7 @@ fn test_slice_with_nulls() {
 
     // Slice [1..3] should preserve nulls.
     let sliced = listview.slice(1..3).unwrap();
-    let sliced_list = sliced.as_::<ListViewVTable>();
+    let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(sliced_list.len(), 2);
     assert!(sliced_list.is_invalid(0).unwrap()); // Original index 1 was null.
@@ -408,7 +410,8 @@ fn test_is_constant_basic(
     )
     .into_array();
 
-    assert_eq!(is_constant(&listview).unwrap(), Some(expected));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert_eq!(is_constant(&listview, &mut ctx).unwrap(), expected);
 }
 
 #[test]
@@ -426,7 +429,8 @@ fn test_constant_with_constant_elements() {
     .into_array();
 
     // All lists contain [42, 42] so should be constant.
-    assert_eq!(is_constant(&listview).unwrap(), Some(true));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
 #[test]
@@ -449,7 +453,8 @@ fn test_constant_with_nulls() {
         .with_zero_copy_to_list(true)
     }
     .into_array();
-    assert_eq!(is_constant(&listview_mixed).unwrap(), Some(false));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(!is_constant(&listview_mixed, &mut ctx).unwrap());
 
     // Case 2: All nulls - should be constant.
     let validity_all_null = Validity::AllInvalid;
@@ -463,7 +468,8 @@ fn test_constant_with_nulls() {
         .with_zero_copy_to_list(true)
     }
     .into_array();
-    assert_eq!(is_constant(&listview_all_null).unwrap(), Some(true));
+    let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
+    assert!(is_constant(&listview_all_null, &mut ctx2).unwrap());
 }
 
 #[test]
@@ -477,7 +483,8 @@ fn test_constant_repeated_same_lists() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // All lists are [10, 20, 30] so should be constant.
-    assert_eq!(is_constant(&listview).unwrap(), Some(true));
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

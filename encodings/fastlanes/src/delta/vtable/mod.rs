@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use fastlanes::FastLanes;
 use prost::Message;
@@ -9,7 +10,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -22,7 +23,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -48,15 +48,19 @@ pub struct DeltaMetadata {
     offset: u32, // must be <1024
 }
 
-impl VTable for DeltaVTable {
+impl VTable for Delta {
     type Array = DeltaArray;
 
     type Metadata = ProstMetadata<DeltaMetadata>;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromChildSliceHelper;
+    type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Delta
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -190,17 +194,17 @@ impl VTable for DeltaVTable {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            delta_decompress(array, ctx)?.into_array(),
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            delta_decompress(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
-pub struct DeltaVTable;
+#[derive(Clone, Debug)]
+pub struct Delta;
 
-impl DeltaVTable {
+impl Delta {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
 }
 

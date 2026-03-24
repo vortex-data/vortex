@@ -26,6 +26,8 @@ pub vortex_proto::dtype::d_type::DtypeType::Struct(vortex_proto::dtype::Struct)
 
 pub vortex_proto::dtype::d_type::DtypeType::Utf8(vortex_proto::dtype::Utf8)
 
+pub vortex_proto::dtype::d_type::DtypeType::Variant(vortex_proto::dtype::Variant)
+
 impl vortex_proto::dtype::d_type::DtypeType
 
 pub fn vortex_proto::dtype::d_type::DtypeType::encode(&self, buf: &mut impl bytes::buf::buf_mut::BufMut)
@@ -608,6 +610,42 @@ pub fn vortex_proto::dtype::Utf8::clear(&mut self)
 
 pub fn vortex_proto::dtype::Utf8::encoded_len(&self) -> usize
 
+pub struct vortex_proto::dtype::Variant
+
+pub vortex_proto::dtype::Variant::nullable: bool
+
+impl core::clone::Clone for vortex_proto::dtype::Variant
+
+pub fn vortex_proto::dtype::Variant::clone(&self) -> vortex_proto::dtype::Variant
+
+impl core::cmp::Eq for vortex_proto::dtype::Variant
+
+impl core::cmp::PartialEq for vortex_proto::dtype::Variant
+
+pub fn vortex_proto::dtype::Variant::eq(&self, other: &vortex_proto::dtype::Variant) -> bool
+
+impl core::default::Default for vortex_proto::dtype::Variant
+
+pub fn vortex_proto::dtype::Variant::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::dtype::Variant
+
+pub fn vortex_proto::dtype::Variant::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::dtype::Variant
+
+pub fn vortex_proto::dtype::Variant::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::dtype::Variant
+
+impl core::marker::StructuralPartialEq for vortex_proto::dtype::Variant
+
+impl prost::message::Message for vortex_proto::dtype::Variant
+
+pub fn vortex_proto::dtype::Variant::clear(&mut self)
+
+pub fn vortex_proto::dtype::Variant::encoded_len(&self) -> usize
+
 pub mod vortex_proto::expr
 
 pub mod vortex_proto::expr::binary_opts
@@ -729,6 +767,46 @@ impl core::hash::Hash for vortex_proto::expr::select_opts::Opts
 pub fn vortex_proto::expr::select_opts::Opts::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_proto::expr::select_opts::Opts
+
+pub struct vortex_proto::expr::AggregateFn
+
+pub vortex_proto::expr::AggregateFn::id: alloc::string::String
+
+pub vortex_proto::expr::AggregateFn::metadata: core::option::Option<alloc::vec::Vec<u8>>
+
+impl vortex_proto::expr::AggregateFn
+
+pub fn vortex_proto::expr::AggregateFn::metadata(&self) -> &[u8]
+
+impl core::clone::Clone for vortex_proto::expr::AggregateFn
+
+pub fn vortex_proto::expr::AggregateFn::clone(&self) -> vortex_proto::expr::AggregateFn
+
+impl core::cmp::Eq for vortex_proto::expr::AggregateFn
+
+impl core::cmp::PartialEq for vortex_proto::expr::AggregateFn
+
+pub fn vortex_proto::expr::AggregateFn::eq(&self, other: &vortex_proto::expr::AggregateFn) -> bool
+
+impl core::default::Default for vortex_proto::expr::AggregateFn
+
+pub fn vortex_proto::expr::AggregateFn::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::AggregateFn
+
+pub fn vortex_proto::expr::AggregateFn::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::AggregateFn
+
+pub fn vortex_proto::expr::AggregateFn::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::AggregateFn
+
+impl prost::message::Message for vortex_proto::expr::AggregateFn
+
+pub fn vortex_proto::expr::AggregateFn::clear(&mut self)
+
+pub fn vortex_proto::expr::AggregateFn::encoded_len(&self) -> usize
 
 pub struct vortex_proto::expr::BetweenOpts
 
@@ -1140,6 +1218,8 @@ pub vortex_proto::scalar::scalar_value::Kind::StringValue(alloc::string::String)
 
 pub vortex_proto::scalar::scalar_value::Kind::Uint64Value(u64)
 
+pub vortex_proto::scalar::scalar_value::Kind::VariantValue(alloc::boxed::Box<vortex_proto::scalar::Scalar>)
+
 impl vortex_proto::scalar::scalar_value::Kind
 
 pub fn vortex_proto::scalar::scalar_value::Kind::encode(&self, buf: &mut impl bytes::buf::buf_mut::BufMut)
@@ -1194,7 +1274,7 @@ pub struct vortex_proto::scalar::Scalar
 
 pub vortex_proto::scalar::Scalar::dtype: core::option::Option<vortex_proto::dtype::DType>
 
-pub vortex_proto::scalar::Scalar::value: core::option::Option<vortex_proto::scalar::ScalarValue>
+pub vortex_proto::scalar::Scalar::value: core::option::Option<alloc::boxed::Box<vortex_proto::scalar::ScalarValue>>
 
 impl core::clone::Clone for vortex_proto::scalar::Scalar
 

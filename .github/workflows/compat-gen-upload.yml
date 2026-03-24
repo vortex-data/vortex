@@ -1,0 +1,100 @@
+name: Compat Fixture Upload
+
+on:
+  workflow_call:
+    inputs:
+      git_ref:
+        description: "Git ref for version detection (e.g. v0.62.0). Defaults to HEAD."
+        required: false
+        type: string
+      confirm_upload:
+        description: "Set to 'yes' to confirm upload."
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Git ref for version detection (e.g. v0.62.0). Defaults to HEAD."
+        required: false
+      confirm_upload:
+        description: "Type 'yes' to confirm upload after reviewing the dry-run output."
+        required: true
+        default: "no"
+
+jobs:
+  dry-run:
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=compat-gen-dry-run', github.run_id)
+          || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-prebuild
+
+      - name: Detect version
+        id: detect
+        run: |
+          GIT_REF="${{ inputs.git_ref }}"
+          if [ -n "$GIT_REF" ]; then
+            TAG=$(git describe --tags --abbrev=0 "$GIT_REF")
+          else
+            TAG=$(git describe --tags --abbrev=0)
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $VERSION (from tag: $TAG)"
+
+      - name: Dry run publish
+        run: |
+          GIT_REF="${{ inputs.git_ref }}"
+          CMD="uv run vortex-test/compat-gen/scripts/compat.py publish --dry-run"
+          if [ -n "$GIT_REF" ]; then
+            CMD="$CMD --git-ref $GIT_REF"
+          fi
+          $CMD
+
+  upload:
+    needs: dry-run
+    if: inputs.confirm_upload == 'yes'
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=compat-gen-upload', github.run_id)
+          || 'ubuntu-latest' }}
+    environment: compat-upload
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-prebuild
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: "arn:aws:iam::245040174862:role/GitHubBenchmarkRole"
+          aws-region: us-east-1
+
+      - name: Upload fixtures for v${{ needs.dry-run.outputs.version }}
+        run: |
+          GIT_REF="${{ inputs.git_ref }}"
+          CMD="uv run vortex-test/compat-gen/scripts/compat.py publish --yes"
+          if [ -n "$GIT_REF" ]; then
+            CMD="$CMD --git-ref $GIT_REF"
+          fi
+          $CMD

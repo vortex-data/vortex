@@ -50,7 +50,7 @@ jobs:
           echo "Found llvm-profdata at $LLVM_PROFDATA"
 
       - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@414f3dcf09b67609550ec97e25f4797ab16b615c
+        uses: taiki-e/cache-cargo-install-action@1ce845d7672f06bdf703007779598583b6c62f61
         with:
           tool: cargo-fuzz
 
@@ -115,7 +115,7 @@ jobs:
             --ignore-filename-regex='(\.cargo|rustc|registry)'
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.fuzz_target }}-coverage
           path: coverage_html/

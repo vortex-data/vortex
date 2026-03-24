@@ -76,12 +76,12 @@ mod test {
     use vortex_array::assert_arrays_eq;
 
     use super::*;
-    use crate::ZigZagVTable;
+    use crate::ZigZag;
 
     #[test]
     fn test_compress_i8() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
-        assert!(compressed.is::<ZigZagVTable>());
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i8..100)
@@ -90,7 +90,7 @@ mod test {
     #[test]
     fn test_compress_i16() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
-        assert!(compressed.is::<ZigZagVTable>());
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i16..100)
@@ -99,7 +99,7 @@ mod test {
     #[test]
     fn test_compress_i32() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
-        assert!(compressed.is::<ZigZagVTable>());
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i32..100)
@@ -108,7 +108,7 @@ mod test {
     #[test]
     fn test_compress_i64() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
-        assert!(compressed.is::<ZigZagVTable>());
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i64..100)

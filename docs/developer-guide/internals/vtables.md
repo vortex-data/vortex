@@ -43,6 +43,8 @@ via normal method resolution.
 **Sealed trait** `DynFoo` is object-safe and has a blanket `impl<V: FooVTable> DynFoo for Foo<V>`.
 This blanket impl is a thin forwarder to `Foo<V>` inherent methods — no logic of its own.
 Its purpose is to enable dynamic dispatch from `FooRef` through to the typed `Foo<V>`.
+`DynFoo` must stay private (`pub(super)`) because it exposes internal plumbing
+(`as_any`, `metadata_any`) that should not be part of the public API.
 
 **Erased form** `FooRef` wraps `Arc<dyn DynFoo>`. It delegates to `DynFoo` methods, which
 forward to `Foo<V>`. It can be stored in collections, serialized, and threaded through APIs
@@ -63,21 +65,21 @@ registered in the session by their ID.
 
 For a concept `Foo`, the components are organized into these files:
 
-| File          | Contains                                                              |
-|---------------|-----------------------------------------------------------------------|
-| `vtable.rs`   | `FooVTable` trait definition                                         |
-| `typed.rs`    | `Foo<V>` data struct, inherent methods, `Deref` impl                |
-| `erased.rs`   | `FooRef` struct, `DynFoo` sealed trait, blanket impl                 |
-| `plugin.rs`   | `FooPlugin` trait, registration                                      |
-| `matcher.rs`  | Downcasting helpers (`is`, `as_`, `as_opt`, pattern matching traits) |
+| File         | Contains                                                                    |
+|--------------|-----------------------------------------------------------------------------|
+| `vtable.rs`  | `FooVTable` trait definition                                                |
+| `typed.rs`   | `Foo<V>` data struct, inherent methods, `DynFoo` sealed trait, blanket impl |
+| `erased.rs`  | `FooRef` struct                                                             |
+| `plugin.rs`  | `FooPlugin` trait, registration                                             |
+| `matcher.rs` | Downcasting helpers (`is`, `as_`, `as_opt`, pattern matching traits)        |
 
 For Array encodings, each encoding has its own module (e.g. `arrays/primitive/`):
 
-| File                    | Contains                                                    |
-|-------------------------|-------------------------------------------------------------|
-| `arrays/foo/mod.rs`     | `V::Array` associated type, encoding-specific methods on it |
-| `arrays/foo/vtable.rs`  | `ArrayVTable` impl for this encoding                        |
-| `arrays/foo/compute/`   | Compute kernel implementations                              |
+| File                   | Contains                                                    |
+|------------------------|-------------------------------------------------------------|
+| `arrays/foo/mod.rs`    | `V::Array` associated type, encoding-specific methods on it |
+| `arrays/foo/vtable.rs` | `ArrayVTable` impl for this encoding                        |
+| `arrays/foo/compute/`  | Compute kernel implementations                              |
 
 ## Example: ExtDType
 
@@ -129,6 +131,48 @@ enabling type-safe APIs for plugin authors while the erased form handles heterog
 plugin authors implement) from the public API (what callers use). The public API can validate
 inputs, enforce invariants, and transform outputs without exposing those concerns to vtable
 implementors. With `dyn Trait`, the trait surface is the public API.
+
+## Method Overlap and `same_name_method`
+
+`Foo<V>` and `DynFoo` necessarily share method names: `Foo<V>` needs inherent methods
+so callers (including VTable authors who receive `&Foo<Self>`) can use them directly,
+and `DynFoo` needs the same methods for object-safe dispatch from `FooRef`.
+
+Because `Foo<V>` implements `DynFoo`, having both an inherent `id()` and a trait `id()`
+on the same type triggers `clippy::same_name_method`. The correct handling is:
+
+1. **Logic lives in `Foo<V>` inherent methods.** Pre/post-conditions, field access, and
+   delegation to `FooVTable` all happen here.
+2. **`DynFoo` blanket impl is a thin forwarder.** Each method body is just `self.method()`.
+   Rust's method resolution picks inherent methods over trait methods, so this calls the
+   inherent impl — no infinite recursion.
+3. **`#[allow(clippy::same_name_method)]`** on the `Foo<V>` inherent impl block
+   acknowledges the intentional shadowing.
+
+```rust
+#[allow(clippy::same_name_method)]
+impl<V: FooVTable> Foo<V> {
+    pub fn id(&self) -> FooId {
+        self.vtable.id()            // logic lives here
+    }
+}
+
+impl<V: FooVTable> DynFoo for Foo<V> {
+    fn id(&self) -> FooId {
+        self.id()                   // thin forwarder to inherent
+    }
+}
+```
+
+`DynFoo` must stay **private** (`pub(super)`) because it exposes internal plumbing
+(`as_any`, `metadata_any`) that external callers should never reach. Making it public
+or implementing it for `FooRef` would leak these internals. Instead, `FooRef` has its
+own inherent methods that delegate to `DynFoo` — providing a clean public API without
+exposing the dispatch machinery.
+
+Methods that exist only for erased dispatch (e.g. `as_any`, `metadata_any`,
+`metadata_hash`) have no inherent counterpart on `Foo<V>` and live exclusively in
+`DynFoo`.
 
 ## Registration and Deserialization
 

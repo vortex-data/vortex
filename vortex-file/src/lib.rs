@@ -109,23 +109,14 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::ALPRDVTable;
-use vortex_alp::ALPVTable;
-use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::Dict;
 use vortex_array::session::ArraySessionExt;
-use vortex_bytebool::ByteBoolVTable;
-use vortex_datetime_parts::DateTimePartsVTable;
-use vortex_decimal_byte_parts::DecimalBytePartsVTable;
-use vortex_fastlanes::BitPackedVTable;
-use vortex_fastlanes::DeltaVTable;
-use vortex_fastlanes::FoRVTable;
-use vortex_fastlanes::RLEVTable;
-use vortex_fsst::FSSTVTable;
-use vortex_pco::PcoVTable;
-use vortex_sequence::SequenceVTable;
+use vortex_bytebool::ByteBool;
+use vortex_fsst::FSST;
+use vortex_pco::Pco;
 use vortex_session::VortexSession;
-use vortex_sparse::SparseVTable;
-use vortex_zigzag::ZigZagVTable;
+use vortex_sparse::Sparse;
+use vortex_zigzag::ZigZag;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -167,31 +158,24 @@ mod forever_constant {
 pub fn register_default_encodings(session: &mut VortexSession) {
     {
         let arrays = session.arrays();
-        arrays.register(ALPVTable::ID, ALPVTable);
-        arrays.register(ALPRDVTable::ID, ALPRDVTable);
-        arrays.register(BitPackedVTable::ID, BitPackedVTable);
-        arrays.register(ByteBoolVTable::ID, ByteBoolVTable);
-        arrays.register(DateTimePartsVTable::ID, DateTimePartsVTable);
-        arrays.register(DecimalBytePartsVTable::ID, DecimalBytePartsVTable);
-        arrays.register(DeltaVTable::ID, DeltaVTable);
-        arrays.register(DictVTable::ID, DictVTable);
-        arrays.register(FSSTVTable::ID, FSSTVTable);
-        arrays.register(FoRVTable::ID, FoRVTable);
-        arrays.register(PcoVTable::ID, PcoVTable);
-        arrays.register(RLEVTable::ID, RLEVTable);
-        arrays.register(SequenceVTable::ID, SequenceVTable);
-        arrays.register(SparseVTable::ID, SparseVTable);
-        arrays.register(ZigZagVTable::ID, ZigZagVTable);
+        arrays.register(ByteBool);
+        arrays.register(Dict);
+        arrays.register(FSST);
+        arrays.register(Pco);
+        arrays.register(Sparse);
+        arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
-        arrays.register(vortex_zstd::ZstdVTable::ID, vortex_zstd::ZstdVTable);
+        arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-        arrays.register(
-            vortex_zstd::ZstdBuffersVTable::ID,
-            vortex_zstd::ZstdBuffersVTable,
-        );
+        arrays.register(vortex_zstd::ZstdBuffers);
     }
 
     // Eventually all encodings crates should expose an initialize function. For now it's only
     // a few of them.
-    vortex_runend::initialize(session)
+    vortex_alp::initialize(session);
+    vortex_datetime_parts::initialize(session);
+    vortex_decimal_byte_parts::initialize(session);
+    vortex_fastlanes::initialize(session);
+    vortex_runend::initialize(session);
+    vortex_sequence::initialize(session);
 }

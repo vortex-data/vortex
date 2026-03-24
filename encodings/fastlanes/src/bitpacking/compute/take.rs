@@ -24,8 +24,8 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use super::chunked_indices;
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedVTable;
 use crate::bitpack_decompress;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
@@ -34,7 +34,7 @@ use crate::bitpack_decompress;
 /// see https://github.com/vortex-data/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
-impl TakeExecute for BitPackedVTable {
+impl TakeExecute for BitPacked {
     fn take(
         array: &BitPackedArray,
         indices: &ArrayRef,
@@ -147,7 +147,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use rand::Rng;
+    use rand::RngExt;
     use rand::distr::Uniform;
     use rand::rng;
     use rstest::rstest;

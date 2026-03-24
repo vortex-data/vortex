@@ -3,7 +3,7 @@
 #![expect(clippy::unwrap_used)]
 
 use num_traits::NumCast;
-use rand::Rng;
+use rand::RngExt;
 use rand::rngs::StdRng;
 use vortex_alp::ALPArray;
 use vortex_alp::alp_encode;
@@ -11,13 +11,11 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {
-    warm_up_vtables();
     divan::main();
 }
 

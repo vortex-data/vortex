@@ -7,10 +7,10 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use super::FoRVTable;
+use super::FoR;
 use crate::FoRArray;
 
-impl OperationsVTable<FoRVTable> for FoRVTable {
+impl OperationsVTable<FoR> for FoR {
     fn scalar_at(array: &FoRArray, index: usize) -> VortexResult<Scalar> {
         let encoded_pvalue = array.encoded().scalar_at(index)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();

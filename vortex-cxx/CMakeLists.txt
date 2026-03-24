@@ -8,8 +8,9 @@ cmake_policy(SET CMP0135 NEW)
 
 project(vortex)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_program(SCCACHE_PROGRAM sccache)
 if (SCCACHE_PROGRAM)
@@ -24,7 +25,7 @@ if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wpedantic -Wno-dollar-in-identifier-extension")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-dollar-in-identifier-extension")
 
 option(VORTEX_ENABLE_TESTING "Enable building test binary for vortex-cxx" OFF)
 option(VORTEX_ENABLE_ASAN "Enable address sanitizer" OFF)
@@ -72,17 +73,17 @@ set(CPP_PRIVATE_INCLUDE_DIRS
 
 # Create the main library combining C++ and Rust code
 add_library(vortex STATIC ${CPP_SOURCE_FILE})
-target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS} 
+target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include)
-target_include_directories(vortex PRIVATE 
+target_include_directories(vortex PRIVATE
     ${CPP_PRIVATE_INCLUDE_DIRS}
 )
-target_link_libraries(vortex 
+target_link_libraries(vortex
     PUBLIC nanoarrow_static
     PRIVATE vortex_cxx_bridge
 )
 
-if (VORTEX_ENABLE_ASAN) 
+if (VORTEX_ENABLE_ASAN)
     target_compile_options(vortex PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
     target_link_options(vortex PRIVATE -fsanitize=leak,address,undefined)
 endif()
@@ -102,7 +103,7 @@ if (VORTEX_ENABLE_TESTING)
     target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIRS})
     target_include_directories(vortex_cxx_test PRIVATE cpp/tests)
     target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex nanoarrow_static)
-    target_include_directories(vortex_cxx_test PRIVATE 
+    target_include_directories(vortex_cxx_test PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
     )
     # Platform-specific configuration
@@ -110,7 +111,7 @@ if (VORTEX_ENABLE_TESTING)
         set(APPLE_LINK_FLAGS "-framework CoreFoundation -framework Security")
     endif()
     target_link_libraries(vortex_cxx_test PRIVATE vortex_cxx_bridge ${APPLE_LINK_FLAGS})
-    if (VORTEX_ENABLE_ASAN) 
+    if (VORTEX_ENABLE_ASAN)
         target_compile_options(vortex_cxx_test PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
         target_link_options(vortex_cxx_test PRIVATE -fsanitize=leak,address,undefined)
     endif()

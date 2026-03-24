@@ -7,7 +7,9 @@ use vortex_error::VortexResult;
 use super::*;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical as _;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -97,5 +99,13 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     let array = MaskedArray::try_new(child, validity.clone()).unwrap();
 
     assert_eq!(array.len(), len);
-    assert_eq!(array.validity_mask().unwrap(), validity.to_mask(len));
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert!(
+        array
+            .validity()
+            .unwrap()
+            .mask_eq(&validity, &mut ctx)
+            .unwrap(),
+    );
 }

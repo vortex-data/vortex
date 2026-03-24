@@ -11,6 +11,23 @@ mod compute;
 mod ops;
 mod timestamp;
 
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
+/// Initialize datetime-parts encoding in the given session.
+pub fn initialize(session: &mut VortexSession) {
+    session.arrays().register(DateTimeParts);
+
+    session.aggregate_fns().register_aggregate_kernel(
+        DateTimeParts::ID,
+        Some(IsConstant.id()),
+        &compute::is_constant::DateTimePartsIsConstantKernel,
+    );
+}
+
 #[cfg(test)]
 mod test {
     use vortex_array::ProstMetadata;

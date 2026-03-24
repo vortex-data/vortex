@@ -13,8 +13,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
@@ -35,6 +34,7 @@ mod operations;
 mod validity;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::Precision;
 use crate::arrays::decimal::compute::rules::RULES;
@@ -51,14 +51,18 @@ pub struct DecimalMetadata {
     pub(super) values_type: i32,
 }
 
-impl VTable for DecimalVTable {
+impl VTable for Decimal {
     type Array = DecimalArray;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Decimal
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -207,8 +211,8 @@ impl VTable for DecimalVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 
     fn reduce_parent(
@@ -229,10 +233,10 @@ impl VTable for DecimalVTable {
     }
 }
 
-#[derive(Debug)]
-pub struct DecimalVTable;
+#[derive(Clone, Debug)]
+pub struct Decimal;
 
-impl DecimalVTable {
+impl Decimal {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal");
 }
 
@@ -245,8 +249,8 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
-    use crate::arrays::DecimalVTable;
     use crate::dtype::DecimalDType;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
@@ -278,6 +282,6 @@ mod tests {
         let decoded = parts
             .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
             .unwrap();
-        assert!(decoded.is::<DecimalVTable>());
+        assert!(decoded.is::<Decimal>());
     }
 }

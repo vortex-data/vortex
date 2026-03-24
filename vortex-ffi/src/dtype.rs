@@ -68,6 +68,7 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
+            DType::Variant(_) => vortex_panic!("Variant DType is not supported in FFI yet"),
         }
     }
 }
@@ -205,10 +206,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
 ) -> *const vx_struct_fields {
-    // TODO(joe): propagate this error up instead of expecting
-    let struct_dtype = vx_dtype::as_ref(dtype)
-        .as_struct_fields_opt()
-        .vortex_expect("not a struct dtype");
+    let Some(struct_dtype) = vx_dtype::as_ref(dtype).as_struct_fields_opt() else {
+        return ptr::null();
+    };
     vx_struct_fields::new_ref(struct_dtype)
 }
 
@@ -218,10 +218,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
 /// Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) -> *const vx_dtype {
-    // TODO(joe): propagate this error up instead of expecting
-    let element_dtype = vx_dtype::as_ref(dtype)
-        .as_list_element_opt()
-        .vortex_expect("not a list dtype");
+    let Some(element_dtype) = vx_dtype::as_ref(dtype).as_list_element_opt() else {
+        return ptr::null();
+    };
     vx_dtype::new_ref(element_dtype)
 }
 

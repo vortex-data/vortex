@@ -7,8 +7,8 @@ use vortex_mask::AllOr;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
@@ -16,7 +16,7 @@ use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
-impl TakeReduce for ConstantVTable {
+impl TakeReduce for Constant {
     fn take(array: &ConstantArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
@@ -52,7 +52,7 @@ impl TakeReduce for ConstantVTable {
     }
 }
 
-impl ConstantVTable {
+impl Constant {
     pub const TAKE_RULES: ParentRuleSet<Self> =
         ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
 }

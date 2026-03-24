@@ -7,26 +7,30 @@
 //! to the device, computes shared memory offsets, and produces a plan that the
 //! dynamic dispatch kernel can execute in a single launch.
 
+use std::sync::Arc;
+
 use futures::executor::block_on;
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::DictVTable;
-use vortex::array::arrays::PrimitiveVTable;
-use vortex::array::arrays::SliceVTable;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::Primitive;
+use vortex::array::arrays::Slice;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
+use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPFloat;
-use vortex::encodings::alp::ALPVTable;
+use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayParts;
-use vortex::encodings::fastlanes::BitPackedVTable;
+use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
-use vortex::encodings::fastlanes::FoRVTable;
+use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayParts;
-use vortex::encodings::runend::RunEndVTable;
-use vortex::encodings::zigzag::ZigZagVTable;
+use vortex::encodings::sequence::Sequence;
+use vortex::encodings::sequence::SequenceArrayParts;
+use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -82,6 +86,7 @@ struct Pipeline {
 /// - `ALPArray` → recurse + `ALP` scalar op (f32 only, no patches)
 /// - `DictArray` → input stage for values + recurse codes + `DICT` scalar op
 /// - `RunEndArray` → input stages for ends/values + `RUNEND` source
+/// - `SequenceArray` → `SEQUENCE` source (integer ptypes only)
 /// - `SliceArray` → resolve via child's slice reduce/kernel
 ///
 /// # Limitations
@@ -99,11 +104,30 @@ pub fn build_plan(
     array: &ArrayRef,
     ctx: &CudaExecutionCtx,
 ) -> VortexResult<(DynamicDispatchPlan, Vec<BufferHandle>)> {
+    build_plan_with_subtrees(array, ctx, &[])
+}
+
+/// Build a [`DynamicDispatchPlan`] with subtrees run as separate
+/// kernels that provide device buffers as inputs integrated via `LOAD`.
+pub fn build_plan_with_subtrees(
+    array: &ArrayRef,
+    ctx: &CudaExecutionCtx,
+    subtree_inputs: &[(ArrayRef, BufferHandle)],
+) -> VortexResult<(DynamicDispatchPlan, Vec<BufferHandle>)> {
+    let sub_map = subtree_inputs
+        .iter()
+        .map(|(arr, handle)| {
+            let ptr = handle.cuda_device_ptr()?;
+            Ok((Arc::as_ptr(arr) as *const () as usize, ptr))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
     let mut state = PlanBuilderState {
         ctx,
         stages: Vec::new(),
         smem_cursor: 0,
         device_buffers: Vec::new(),
+        subtree_inputs: sub_map,
     };
 
     let pipeline = state.walk(array.clone())?;
@@ -126,6 +150,88 @@ pub fn build_plan(
     Ok((DynamicDispatchPlan::new(state.stages), state.device_buffers))
 }
 
+/// Walk the encoding tree and find subtrees that cannot be fused into a
+/// dynamic-dispatch plan. The root of each subtree has a node that cannot
+/// be fused.
+///
+/// Returns an empty vec if the root itself cannot be fused.
+pub fn find_subtrees(array: &ArrayRef) -> Vec<ArrayRef> {
+    if !is_dyn_dispatch_compatible(array) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    collect_subtrees(array, &mut out);
+    out
+}
+
+/// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
+fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
+    let id = array.encoding_id();
+    if id == ALP::ID {
+        if let Ok(a) = array.clone().try_into::<ALP>() {
+            return a.patches().is_none() && a.dtype().as_ptype() == PType::F32;
+        }
+        return false;
+    }
+    if id == BitPacked::ID {
+        if let Ok(a) = array.clone().try_into::<BitPacked>() {
+            return a.patches().is_none();
+        }
+        return false;
+    }
+    id == FoR::ID
+        || id == ZigZag::ID
+        || id == Dict::ID
+        || id == RunEnd::ID
+        || id == Primitive::ID
+        || id == Slice::ID
+        || id == Sequence::ID
+}
+
+/// Walk the children of a dynamic dispatch compatible root node. Any child
+/// that is not dyn dispatch compatible is recorded as a subtree that must be
+/// executed separately.
+fn collect_subtrees(array: &ArrayRef, out: &mut Vec<ArrayRef>) {
+    let id = array.encoding_id();
+
+    fn visit_child(child: &ArrayRef, out: &mut Vec<ArrayRef>) {
+        if is_dyn_dispatch_compatible(child) {
+            collect_subtrees(child, out);
+        } else {
+            out.push(child.clone());
+        }
+    }
+
+    if id == FoR::ID {
+        if let Ok(a) = array.clone().try_into::<FoR>() {
+            visit_child(a.encoded(), out);
+        }
+    } else if id == ZigZag::ID {
+        if let Ok(a) = array.clone().try_into::<ZigZag>() {
+            visit_child(a.encoded(), out);
+        }
+    } else if id == ALP::ID {
+        if let Ok(a) = array.clone().try_into::<ALP>() {
+            visit_child(a.encoded(), out);
+        }
+    } else if id == Slice::ID {
+        if let Some(a) = array.as_opt::<Slice>() {
+            visit_child(a.child(), out);
+        }
+    } else if id == Dict::ID
+        && let Ok(a) = array.clone().try_into::<Dict>()
+    {
+        visit_child(a.values(), out);
+        visit_child(a.codes(), out);
+    } else if id == RunEnd::ID
+        && let Ok(a) = array.clone().try_into::<RunEnd>()
+    {
+        visit_child(a.ends(), out);
+        visit_child(a.values(), out);
+    }
+    // BitPacked, Primitive, Sequence — leaves, no children.
+}
+
 /// Internal mutable state for the recursive tree walk.
 struct PlanBuilderState<'a> {
     ctx: &'a CudaExecutionCtx,
@@ -135,29 +241,50 @@ struct PlanBuilderState<'a> {
     smem_cursor: u32,
     /// Device buffers to keep alive.
     device_buffers: Vec<BufferHandle>,
+    /// Pre-executed subtree outputs injected as `LOAD` sources: `(identity, device_ptr)`.
+    subtree_inputs: Vec<(usize, u64)>,
 }
 
 impl PlanBuilderState<'_> {
+    /// If `array` matches a pre-executed subtree input, return a `LOAD` pipeline pointing at its device buffer.
+    fn find_subtree(&self, array: &ArrayRef) -> Option<Pipeline> {
+        let subtree_id = Arc::as_ptr(array) as *const () as usize;
+        self.subtree_inputs
+            .iter()
+            .find(|(id, _)| *id == subtree_id)
+            .map(|(_, ptr)| Pipeline {
+                source: SourceOp::load(),
+                scalar_ops: vec![],
+                input_ptr: *ptr,
+            })
+    }
+
     /// Recursively walk the encoding tree.
     fn walk(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+        if let Some(pipeline) = self.find_subtree(&array) {
+            return Ok(pipeline);
+        }
+
         let id = array.encoding_id();
 
-        if id == BitPackedVTable::ID {
+        if id == BitPacked::ID {
             self.walk_bitpacked(array)
-        } else if id == FoRVTable::ID {
+        } else if id == FoR::ID {
             self.walk_for(array)
-        } else if id == ZigZagVTable::ID {
+        } else if id == ZigZag::ID {
             self.walk_zigzag(array)
-        } else if id == ALPVTable::ID {
+        } else if id == ALP::ID {
             self.walk_alp(array)
-        } else if id == DictVTable::ID {
+        } else if id == Dict::ID {
             self.walk_dict(array)
-        } else if id == RunEndVTable::ID {
+        } else if id == RunEnd::ID {
             self.walk_runend(array)
-        } else if id == PrimitiveVTable::ID {
+        } else if id == Primitive::ID {
             self.walk_primitive(array)
-        } else if id == SliceVTable::ID {
+        } else if id == Slice::ID {
             self.walk_slice(array)
+        } else if id == Sequence::ID {
+            self.walk_sequence(array)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",
@@ -171,7 +298,7 @@ impl PlanBuilderState<'_> {
     /// When the plan builder encounters a `SliceArray`, it resolves the slice
     /// by invoking the child's `reduce_parent`, `execute_parent`.
     fn walk_slice(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
-        let slice_arr = array.as_::<SliceVTable>();
+        let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
         // reduce_parent: (for types with SliceReduceAdaptor, like FoR/ZigZag)
@@ -213,7 +340,7 @@ impl PlanBuilderState<'_> {
     /// as it cannot be expressed as pointer arithmetic on the device pointer.
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let bp = array
-            .try_into::<BitPackedVTable>()
+            .try_into::<BitPacked>()
             .map_err(|_| vortex_err!("Expected BitPackedArray"))?;
         let BitPackedArrayParts {
             offset,
@@ -240,7 +367,7 @@ impl PlanBuilderState<'_> {
     /// FoRArray → recurse into encoded child, add FoR scalar op.
     fn walk_for(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let for_arr = array
-            .try_into::<FoRVTable>()
+            .try_into::<FoR>()
             .map_err(|_| vortex_err!("Expected FoRArray"))?;
         let ref_u64 = extract_for_reference(&for_arr)?;
         let encoded = for_arr.encoded().clone();
@@ -253,7 +380,7 @@ impl PlanBuilderState<'_> {
     /// ZigZagArray → recurse into encoded child, add ZigZag scalar op.
     fn walk_zigzag(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let zz = array
-            .try_into::<ZigZagVTable>()
+            .try_into::<ZigZag>()
             .map_err(|_| vortex_err!("Expected ZigZagArray"))?;
         let encoded = zz.encoded().clone();
 
@@ -265,7 +392,7 @@ impl PlanBuilderState<'_> {
     /// ALPArray → recurse into encoded child, add ALP scalar op (f32 only).
     fn walk_alp(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let alp = array
-            .try_into::<ALPVTable>()
+            .try_into::<ALP>()
             .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
         if alp.patches().is_some() {
@@ -293,7 +420,7 @@ impl PlanBuilderState<'_> {
     /// DictArray → add input stage for values, recurse into codes, add DICT scalar op.
     fn walk_dict(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let dict = array
-            .try_into::<DictVTable>()
+            .try_into::<Dict>()
             .map_err(|_| vortex_err!("Expected DictArray"))?;
         let values = dict.values().clone();
         let codes = dict.codes().clone();
@@ -305,10 +432,29 @@ impl PlanBuilderState<'_> {
         Ok(pipeline)
     }
 
+    /// SequenceArray → SEQUENCE source op
+    ///
+    /// Generates `value[i] = base + i * multiplier` on the GPU.
+    fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+        let seq = array
+            .try_into::<Sequence>()
+            .map_err(|_| vortex_err!("Expected SequenceArray"))?;
+        let SequenceArrayParts {
+            base, multiplier, ..
+        } = seq.into_parts();
+
+        Ok(Pipeline {
+            source: SourceOp::sequence(base.cast()?, multiplier.cast()?),
+            scalar_ops: vec![],
+            // SEQUENCE does not have an input pointer.
+            input_ptr: 0,
+        })
+    }
+
     /// RunEndArray → add input stages for ends and values, RUNEND source op.
     fn walk_runend(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let re = array
-            .try_into::<RunEndVTable>()
+            .try_into::<RunEnd>()
             .map_err(|_| vortex_err!("Expected RunEndArray"))?;
         let offset = re.offset() as u64;
         let RunEndArrayParts { ends, values } = re.into_parts();

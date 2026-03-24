@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod compute;
+pub(crate) mod compute;
 mod rules;
 mod slice;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use prost::Message as _;
 use vortex_array::ArrayEq;
@@ -13,7 +14,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -58,14 +59,18 @@ pub struct DecimalBytesPartsMetadata {
     lower_part_count: u32,
 }
 
-impl VTable for DecimalBytePartsVTable {
+impl VTable for DecimalByteParts {
     type Array = DecimalBytePartsArray;
 
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &DecimalByteParts
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -190,8 +195,8 @@ impl VTable for DecimalBytePartsVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        to_canonical_decimal(array, ctx).map(ExecutionStep::Done)
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        to_canonical_decimal(&array, ctx).map(ExecutionResult::done)
     }
 
     fn execute_parent(
@@ -270,10 +275,10 @@ impl DecimalBytePartsArray {
     }
 }
 
-#[derive(Debug)]
-pub struct DecimalBytePartsVTable;
+#[derive(Clone, Debug)]
+pub struct DecimalByteParts;
 
-impl DecimalBytePartsVTable {
+impl DecimalByteParts {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
 }
 
@@ -301,7 +306,7 @@ fn to_canonical_decimal(
     }))
 }
 
-impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index)?;
@@ -317,7 +322,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     }
 }
 
-impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+impl ValidityChild<DecimalByteParts> for DecimalByteParts {
     fn validity_child(array: &DecimalBytePartsArray) -> &ArrayRef {
         // validity stored in 0th child
         &array.msp

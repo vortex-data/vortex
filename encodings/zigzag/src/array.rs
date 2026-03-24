@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -9,7 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
@@ -41,14 +42,18 @@ use crate::zigzag_decode;
 
 vtable!(ZigZag);
 
-impl VTable for ZigZagVTable {
+impl VTable for ZigZag {
     type Array = ZigZagArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ZigZag
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -149,8 +154,8 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
             zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
         ))
     }
@@ -180,10 +185,10 @@ pub struct ZigZagArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
-pub struct ZigZagVTable;
+#[derive(Clone, Debug)]
+pub struct ZigZag;
 
-impl ZigZagVTable {
+impl ZigZag {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
 }
 
@@ -217,7 +222,7 @@ impl ZigZagArray {
     }
 }
 
-impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
+impl OperationsVTable<ZigZag> for ZigZag {
     fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
         let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
@@ -238,7 +243,7 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
     }
 }
 
-impl ValidityChild<ZigZagVTable> for ZigZagVTable {
+impl ValidityChild<ZigZag> for ZigZag {
     fn validity_child(array: &ZigZagArray) -> &ArrayRef {
         array.encoded()
     }
@@ -275,7 +280,7 @@ mod test {
         );
 
         let sliced = zigzag.slice(0..2).unwrap();
-        let sliced = sliced.as_::<ZigZagVTable>();
+        let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
             sliced.scalar_at(sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)

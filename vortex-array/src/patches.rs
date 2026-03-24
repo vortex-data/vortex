@@ -30,10 +30,10 @@ use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::is_sorted;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
@@ -186,10 +186,16 @@ impl Patches {
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
             );
 
-            debug_assert!(
-                is_sorted(&indices).unwrap_or(Some(false)).unwrap_or(false),
-                "Patch indices must be sorted"
-            );
+            #[cfg(debug_assertions)]
+            {
+                use crate::VortexSessionExecute;
+                let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+                assert!(
+                    crate::aggregate_fn::fns::is_sorted::is_sorted(&indices, &mut ctx)
+                        .unwrap_or(false),
+                    "Patch indices must be sorted"
+                );
+            }
         }
 
         Ok(Self {
@@ -829,9 +835,16 @@ impl Patches {
         let Some((new_sparse_indices, value_indices)) =
             match_each_unsigned_integer_ptype!(indices.ptype(), |Indices| {
                 match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
+                    let take_validity = take_indices
+                        .validity()
+                        .execute_mask(take_indices.len(), ctx)?;
+                    let take_nullability = take_indices.validity().nullability();
+                    let take_slice = take_indices.as_slice::<TakeIndices>();
                     take_map::<_, TakeIndices>(
                         indices.as_slice::<Indices>(),
-                        take_indices,
+                        take_slice,
+                        take_validity,
+                        take_nullability,
                         self.offset(),
                         min_index,
                         max_index,
@@ -1007,9 +1020,12 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // private function, can clean up one day
 fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     indices: &[I],
-    take_indices: PrimitiveArray,
+    take_indices: &[T],
+    take_validity: Mask,
+    take_nullability: Nullability,
     indices_offset: usize,
     min_index: usize,
     max_index: usize,
@@ -1019,10 +1035,6 @@ where
     usize: TryFrom<T>,
     VortexError: From<<I as TryFrom<usize>>::Error>,
 {
-    let take_indices_len = take_indices.len();
-    let take_indices_validity = take_indices.validity();
-    let take_indices_validity_mask = take_indices_validity.to_mask(take_indices_len);
-    let take_indices = take_indices.as_slice::<T>();
     let offset_i = I::try_from(indices_offset)?;
 
     let sparse_index_to_value_index: HashMap<I, usize> = indices
@@ -1041,7 +1053,7 @@ where
             .map_err(|_| vortex_err!("Failed to convert index to usize"))?;
 
         // If we have to take nulls the take index doesn't matter, make it 0 for consistency
-        let is_null = match take_indices_validity_mask.bit_buffer() {
+        let is_null = match take_validity.bit_buffer() {
             AllOr::All => false,
             AllOr::None => true,
             AllOr::Some(buf) => !buf.value(idx_in_take),
@@ -1066,7 +1078,8 @@ where
     }
 
     let new_sparse_indices = new_sparse_indices.into_array();
-    let values_validity = take_indices_validity.take(&new_sparse_indices)?;
+    let values_validity =
+        Validity::from_mask(take_validity, take_nullability).take(&new_sparse_indices)?;
     Ok(Some((
         new_sparse_indices,
         PrimitiveArray::new(value_indices, values_validity).into_array(),

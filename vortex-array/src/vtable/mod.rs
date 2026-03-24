@@ -10,6 +10,7 @@ mod validity;
 use std::fmt::Debug;
 use std::hash::Hasher;
 use std::ops::Deref;
+use std::sync::Arc;
 
 pub use dyn_::*;
 pub use operations::*;
@@ -22,7 +23,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -48,15 +49,20 @@ use crate::validity::Validity;
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
-pub trait VTable: 'static + Sized + Send + Sync + Debug {
+pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn DynArray> + IntoArray;
     type Metadata: Debug;
 
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
 
+    /// Returns the VTable from the array instance.
+    ///
+    // NOTE(ngates): this function is temporary while we migrate Arrays over to the unified vtable
+    fn vtable(array: &Self::Array) -> &Self;
+
     /// Returns the ID of the array.
-    fn id(array: &Self::Array) -> ArrayId;
+    fn id(&self) -> ArrayId;
 
     /// Returns the length of the array.
     fn len(array: &Self::Array) -> usize;
@@ -181,13 +187,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
+    /// Execute this array by returning an [`ExecutionResult`] that tells the scheduler what to
     /// do next.
     ///
     /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionStep::ExecuteChild(i)`] to request that the scheduler execute a child first,
-    /// or [`ExecutionStep::Done(result)`] when the
-    /// encoding can produce a result directly.
+    /// [`ExecutionResult::execute_child`] to request that the scheduler execute a child first,
+    /// or [`ExecutionResult::done`] when the encoding can produce a result directly.
     ///
     /// Array execution is designed such that repeated execution of an array will eventually
     /// converge to a canonical representation. Implementations of this function should therefore
@@ -198,7 +203,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     ///
@@ -304,38 +309,41 @@ pub fn patches_child_name(idx: usize) -> &'static str {
 #[macro_export]
 macro_rules! vtable {
     ($V:ident) => {
+        $crate::vtable!($V, $V);
+    };
+    ($Base:ident, $VT:ident) => {
         $crate::aliases::paste::paste! {
-            impl AsRef<dyn $crate::DynArray> for [<$V Array>] {
+            impl AsRef<dyn $crate::DynArray> for [<$Base Array>] {
                 fn as_ref(&self) -> &dyn $crate::DynArray {
                     // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
                 }
             }
 
-            impl std::ops::Deref for [<$V Array>] {
+            impl std::ops::Deref for [<$Base Array>] {
                 type Target = dyn $crate::DynArray;
 
                 fn deref(&self) -> &Self::Target {
                     // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
+                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
                 }
             }
 
-            impl $crate::IntoArray for [<$V Array>] {
+            impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
                     // We can unsafe transmute ourselves to an ArrayAdapter.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Array>], $crate::ArrayAdapter::<[<$V VTable>]>>(self) })
+                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$Base Array>], $crate::ArrayAdapter::<$VT>>(self) })
                 }
             }
 
-            impl From<[<$V Array>]> for $crate::ArrayRef {
-                fn from(value: [<$V Array>]) -> $crate::ArrayRef {
+            impl From<[<$Base Array>]> for $crate::ArrayRef {
+                fn from(value: [<$Base Array>]) -> $crate::ArrayRef {
                     use $crate::IntoArray;
                     value.into_array()
                 }
             }
 
-            impl [<$V Array>] {
+            impl [<$Base Array>] {
                 #[deprecated(note = "use `.into_array()` (owned) or `.clone().into_array()` (ref) to make clones explicit")]
                 pub fn to_array(&self) -> $crate::ArrayRef {
                     use $crate::IntoArray;

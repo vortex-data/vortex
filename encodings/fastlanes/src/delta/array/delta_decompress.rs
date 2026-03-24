@@ -1,22 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrayref::array_mut_ref;
-use arrayref::array_ref;
+use std::mem;
+use std::mem::MaybeUninit;
+
 use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
-use num_traits::WrappingAdd;
+use itertools::Itertools;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::DeltaArray;
+use crate::bit_transpose::untranspose_validity;
 
 pub fn delta_decompress(
     array: &DeltaArray,
@@ -28,10 +30,7 @@ pub fn delta_decompress(
     let start = array.offset();
     let end = start + array.len();
 
-    // TODO(connor): This is incorrect, we need to untranspose the validity!!!
-
-    let validity =
-        Validity::from_mask(array.deltas().validity_mask()?, array.dtype().nullability());
+    let validity = untranspose_validity(deltas.validity(), ctx)?;
     let validity = validity.slice(start..end)?;
 
     Ok(match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
@@ -44,53 +43,41 @@ pub fn delta_decompress(
     }))
 }
 
-// TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the
-//  traversal ordering, but possibly doable.
 /// Performs the low-level delta decompression on primitive values.
+///
+/// All chunks must be full 1024-element chunks (deltas length must be a multiple of 1024).
 pub(crate) fn decompress_primitive<T, const LANES: usize>(bases: &[T], deltas: &[T]) -> Buffer<T>
 where
-    T: NativePType + Delta + Transpose + WrappingAdd,
+    T: NativePType + Delta + Transpose,
 {
-    // How many fastlanes vectors we will process.
-    let num_chunks = deltas.len() / 1024;
+    let (chunks, remainder) = deltas.as_chunks::<1024>();
+    debug_assert!(
+        remainder.is_empty(),
+        "deltas must be padded to a multiple of 1024"
+    );
+    // Use >= because cross-type casts (e.g. u32→u64) may produce more bases than the
+    // target LANES requires. Only the first chunks.len() * LANES bases are used.
+    assert!(bases.len() >= chunks.len() * LANES);
 
     // Allocate a result array.
     let mut output = BufferMut::with_capacity(deltas.len());
+    let (output_chunks, _) = output.spare_capacity_mut().as_chunks_mut::<1024>();
 
     // Loop over all the chunks
-    if num_chunks > 0 {
-        let mut transposed: [T; 1024] = [T::default(); 1024];
+    let mut transposed: [T; 1024] = [T::default(); 1024];
+    for ((i, chunk), output_chunk) in chunks.iter().enumerate().zip_eq(output_chunks.iter_mut()) {
+        Delta::undelta::<LANES>(
+            chunk,
+            unsafe { &*(bases[i * LANES..(i + 1) * LANES].as_ptr().cast()) },
+            &mut transposed,
+        );
 
-        for i in 0..num_chunks {
-            let start_elem = i * 1024;
-            let chunk: &[T; 1024] = array_ref![deltas, start_elem, 1024];
-
-            // Initialize the base vector for this chunk
-            Delta::undelta::<LANES>(
-                chunk,
-                unsafe { &*(bases[i * LANES..(i + 1) * LANES].as_ptr().cast()) },
-                &mut transposed,
-            );
-
-            let output_len = output.len();
-            unsafe { output.set_len(output_len + 1024) }
-            Transpose::untranspose(&transposed, array_mut_ref![output[output_len..], 0, 1024]);
-        }
+        Transpose::untranspose(&transposed, unsafe {
+            mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(output_chunk)
+        });
     }
-    assert_eq!(output.len() % 1024, 0);
 
-    // The remainder was encoded with scalar logic, so we need to scalar decode it.
-    let remainder_size = deltas.len() % 1024;
-    if remainder_size > 0 {
-        let chunk = &deltas[num_chunks * 1024..];
-        assert_eq!(bases.len(), num_chunks * LANES + 1);
-        let mut base_scalar = bases[num_chunks * LANES];
-        for next_diff in chunk {
-            let next = next_diff.wrapping_add(&base_scalar);
-            output.push(next);
-            base_scalar = next;
-        }
-    }
+    unsafe { output.set_len(deltas.len()) };
 
     output.freeze()
 }

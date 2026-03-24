@@ -119,6 +119,18 @@ impl Scalar {
                 }
             }
             DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
+            DType::Variant(_) => {
+                let ScalarValue::Variant(inner) = value else {
+                    vortex_bail!("variant dtype expected Variant value, got {value}");
+                };
+
+                Self::validate(inner.dtype(), inner.value())?;
+                vortex_ensure!(
+                    !inner.is_null() || matches!(inner.dtype(), DType::Null),
+                    "variant nulls must use a nested null scalar, got {}",
+                    inner.dtype(),
+                );
+            }
         }
 
         Ok(())

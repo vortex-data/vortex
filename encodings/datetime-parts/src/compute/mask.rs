@@ -7,11 +7,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
+use crate::DateTimeParts;
 use crate::DateTimePartsArray;
 use crate::DateTimePartsArrayParts;
-use crate::DateTimePartsVTable;
 
-impl MaskReduce for DateTimePartsVTable {
+impl MaskReduce for DateTimeParts {
     fn mask(array: &DateTimePartsArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let DateTimePartsArrayParts {
             dtype,

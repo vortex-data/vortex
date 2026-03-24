@@ -102,10 +102,11 @@ where
 impl<T> Eq for AllOr<T> where T: Eq {}
 
 /// Represents a set of sorted unique positive integers.
+/// If a value is included in a Mask, it's valid.
 ///
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum Mask {
     /// All values are included.
@@ -116,6 +117,16 @@ pub enum Mask {
     Values(Arc<MaskValues>),
 }
 
+impl Debug for Mask {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AllTrue(len) => write!(f, "All true({len})"),
+            Self::AllFalse(len) => write!(f, "All false({len})"),
+            Self::Values(mask) => write!(f, "{mask:?}"),
+        }
+    }
+}
+
 impl Default for Mask {
     fn default() -> Self {
         Self::new_true(0)
@@ -123,7 +134,6 @@ impl Default for Mask {
 }
 
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
-#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MaskValues {
     buffer: BitBuffer,
@@ -139,6 +149,23 @@ pub struct MaskValues {
     true_count: usize,
     // i.e., the fraction of values that are true
     density: f64,
+}
+
+impl Debug for MaskValues {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "true_count={}, ", self.true_count)?;
+        write!(f, "density={}, ", self.density)?;
+        if let Some(v) = self.indices.get() {
+            write!(f, "indices={v:?}, ")?;
+        }
+        if let Some(v) = self.slices.get() {
+            write!(f, "slices={v:?}, ")?;
+        }
+        if f.alternate() {
+            f.write_str("\n")?;
+        }
+        write!(f, "{}", self.buffer)
+    }
 }
 
 impl Mask {

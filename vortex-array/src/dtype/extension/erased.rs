@@ -20,7 +20,6 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
 use crate::dtype::extension::typed::DynExtDType;
-use crate::dtype::extension::typed::ExtDTypeInner;
 use crate::scalar::ScalarValue;
 
 /// A type-erased extension dtype.
@@ -79,7 +78,7 @@ impl ExtDTypeRef {
     // TODO(connor): We should add a different type that returns something that can be serialized.
     /// Serialize the metadata into a byte vector.
     pub fn serialize_metadata(&self) -> VortexResult<Vec<u8>> {
-        self.0.metadata_serialize()
+        self.0.serialize_metadata()
     }
 
     /// Returns a `Display`-able view of just the metadata.
@@ -98,7 +97,22 @@ impl ExtDTypeRef {
 
     /// Validates that the given storage scalar value is valid for this dtype.
     pub(crate) fn validate_storage_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
-        self.0.value_validate(storage_value)
+        self.0.validate_scalar_value(storage_value)
+    }
+
+    /// Can a value of `other` be implicitly coerced into this extension type?
+    pub fn can_coerce_from(&self, other: &DType) -> bool {
+        self.0.can_coerce_from(other)
+    }
+
+    /// Can this extension type be implicitly coerced into `other`?
+    pub fn can_coerce_to(&self, other: &DType) -> bool {
+        self.0.can_coerce_to(other)
+    }
+
+    /// Compute the least supertype of this extension type and another type.
+    pub fn least_supertype(&self, other: &DType) -> Option<DType> {
+        self.0.least_supertype(other)
     }
 }
 
@@ -127,12 +141,10 @@ impl ExtDTypeRef {
     /// Downcast to the concrete [`ExtDType`].
     ///
     /// Returns `Err(self)` if the downcast fails.
-    pub fn try_downcast<V: ExtVTable>(self) -> Result<ExtDType<V>, ExtDTypeRef> {
-        if self.0.as_any().is::<ExtDTypeInner<V>>() {
-            // SAFETY: type matches and ExtDTypeInner<V> is the only implementor
-            let ptr = Arc::into_raw(self.0) as *const ExtDTypeInner<V>;
-            let inner = unsafe { Arc::from_raw(ptr) };
-            Ok(ExtDType(inner))
+    pub fn try_downcast<V: ExtVTable>(self) -> Result<Arc<ExtDType<V>>, ExtDTypeRef> {
+        if self.0.as_any().is::<ExtDType<V>>() {
+            let ptr = Arc::into_raw(self.0) as *const ExtDType<V>;
+            Ok(unsafe { Arc::from_raw(ptr) })
         } else {
             Err(self)
         }
@@ -143,7 +155,7 @@ impl ExtDTypeRef {
     /// # Panics
     ///
     /// Panics if the downcast fails.
-    pub fn downcast<V: ExtVTable>(self) -> ExtDType<V> {
+    pub fn downcast<V: ExtVTable>(self) -> Arc<ExtDType<V>> {
         self.try_downcast::<V>()
             .map_err(|this| {
                 vortex_err!(

@@ -6,27 +6,28 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use vortex_alp::ALP;
 // Compressed encodings from encoding crates
 // Canonical array encodings from vortex-array
-use vortex_alp::ALPRDVTable;
-use vortex_alp::ALPVTable;
-use vortex_array::arrays::BoolVTable;
-use vortex_array::arrays::ChunkedVTable;
-use vortex_array::arrays::ConstantVTable;
-use vortex_array::arrays::DecimalVTable;
-use vortex_array::arrays::DictVTable;
-use vortex_array::arrays::ExtensionVTable;
-use vortex_array::arrays::FixedSizeListVTable;
-use vortex_array::arrays::ListVTable;
-use vortex_array::arrays::ListViewVTable;
-use vortex_array::arrays::MaskedVTable;
-use vortex_array::arrays::NullVTable;
-use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::arrays::StructVTable;
-use vortex_array::arrays::VarBinVTable;
-use vortex_array::arrays::VarBinViewVTable;
+use vortex_alp::ALPRD;
+use vortex_array::arrays::Bool;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Decimal;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Extension;
+use vortex_array::arrays::FixedSizeList;
+use vortex_array::arrays::List;
+use vortex_array::arrays::ListView;
+use vortex_array::arrays::Masked;
+use vortex_array::arrays::Null;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBin;
+use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
+use vortex_array::session::ArraySession;
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 #[cfg(feature = "zstd")]
@@ -35,14 +36,14 @@ use vortex_btrblocks::FloatCode;
 use vortex_btrblocks::IntCode;
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::StringCode;
-use vortex_bytebool::ByteBoolVTable;
-use vortex_datetime_parts::DateTimePartsVTable;
-use vortex_decimal_byte_parts::DecimalBytePartsVTable;
-use vortex_fastlanes::BitPackedVTable;
-use vortex_fastlanes::DeltaVTable;
-use vortex_fastlanes::FoRVTable;
-use vortex_fastlanes::RLEVTable;
-use vortex_fsst::FSSTVTable;
+use vortex_bytebool::ByteBool;
+use vortex_datetime_parts::DateTimeParts;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::Delta;
+use vortex_fastlanes::FoR;
+use vortex_fastlanes::RLE;
+use vortex_fsst::FSST;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -56,16 +57,16 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
-use vortex_pco::PcoVTable;
-use vortex_runend::RunEndVTable;
-use vortex_sequence::SequenceVTable;
-use vortex_sparse::SparseVTable;
+use vortex_pco::Pco;
+use vortex_runend::RunEnd;
+use vortex_sequence::Sequence;
+use vortex_sparse::Sparse;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_zigzag::ZigZagVTable;
-#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-use vortex_zstd::ZstdBuffersVTable;
+use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
-use vortex_zstd::ZstdVTable;
+use vortex_zstd::Zstd;
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+use vortex_zstd::ZstdBuffers;
 
 const ONE_MEG: u64 = 1 << 20;
 
@@ -74,48 +75,48 @@ const ONE_MEG: u64 = 1 << 20;
 /// This includes all canonical encodings from vortex-array plus all compressed
 /// encodings from the various encoding crates.
 pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
-    let registry = ArrayRegistry::default();
+    let session = ArraySession::empty();
 
     // Canonical encodings from vortex-array
-    registry.register(NullVTable::ID, NullVTable);
-    registry.register(BoolVTable::ID, BoolVTable);
-    registry.register(PrimitiveVTable::ID, PrimitiveVTable);
-    registry.register(DecimalVTable::ID, DecimalVTable);
-    registry.register(VarBinVTable::ID, VarBinVTable);
-    registry.register(VarBinViewVTable::ID, VarBinViewVTable);
-    registry.register(ListVTable::ID, ListVTable);
-    registry.register(ListViewVTable::ID, ListViewVTable);
-    registry.register(FixedSizeListVTable::ID, FixedSizeListVTable);
-    registry.register(StructVTable::ID, StructVTable);
-    registry.register(ExtensionVTable::ID, ExtensionVTable);
-    registry.register(ChunkedVTable::ID, ChunkedVTable);
-    registry.register(ConstantVTable::ID, ConstantVTable);
-    registry.register(MaskedVTable::ID, MaskedVTable);
-    registry.register(DictVTable::ID, DictVTable);
+    session.register(Null);
+    session.register(Bool);
+    session.register(Primitive);
+    session.register(Decimal);
+    session.register(VarBin);
+    session.register(VarBinView);
+    session.register(List);
+    session.register(ListView);
+    session.register(FixedSizeList);
+    session.register(Struct);
+    session.register(Extension);
+    session.register(Chunked);
+    session.register(Constant);
+    session.register(Masked);
+    session.register(Dict);
 
     // Compressed encodings from encoding crates
-    registry.register(ALPVTable::ID, ALPVTable);
-    registry.register(ALPRDVTable::ID, ALPRDVTable);
-    registry.register(BitPackedVTable::ID, BitPackedVTable);
-    registry.register(ByteBoolVTable::ID, ByteBoolVTable);
-    registry.register(DateTimePartsVTable::ID, DateTimePartsVTable);
-    registry.register(DecimalBytePartsVTable::ID, DecimalBytePartsVTable);
-    registry.register(DeltaVTable::ID, DeltaVTable);
-    registry.register(FoRVTable::ID, FoRVTable);
-    registry.register(FSSTVTable::ID, FSSTVTable);
-    registry.register(PcoVTable::ID, PcoVTable);
-    registry.register(RLEVTable::ID, RLEVTable);
-    registry.register(RunEndVTable::ID, RunEndVTable);
-    registry.register(SequenceVTable::ID, SequenceVTable);
-    registry.register(SparseVTable::ID, SparseVTable);
-    registry.register(ZigZagVTable::ID, ZigZagVTable);
+    session.register(ALP);
+    session.register(ALPRD);
+    session.register(BitPacked);
+    session.register(ByteBool);
+    session.register(DateTimeParts);
+    session.register(DecimalByteParts);
+    session.register(Delta);
+    session.register(FoR);
+    session.register(FSST);
+    session.register(Pco);
+    session.register(RLE);
+    session.register(RunEnd);
+    session.register(Sequence);
+    session.register(Sparse);
+    session.register(ZigZag);
 
     #[cfg(feature = "zstd")]
-    registry.register(ZstdVTable::ID, ZstdVTable);
+    session.register(Zstd);
     #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    registry.register(ZstdBuffersVTable::ID, ZstdBuffersVTable);
+    session.register(ZstdBuffers);
 
-    registry
+    session.registry().clone()
 });
 
 /// Build a new [writer strategy][LayoutStrategy] to compress and reorganize chunks of a Vortex file.

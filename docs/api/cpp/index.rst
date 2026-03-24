@@ -20,7 +20,7 @@ Installation
 The C++ bindings are built using CMake. Requirements:
 
 * CMake 3.22 or higher
-* C++17 compatible compiler
+* C++20 compatible compiler
 * Rust toolchain (for building the underlying Rust library)
 
 .. code-block:: bash

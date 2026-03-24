@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -11,8 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -32,14 +32,18 @@ pub(crate) mod compute;
 
 vtable!(Null);
 
-impl VTable for NullVTable {
+impl VTable for Null {
     type Array = NullArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Null
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -132,8 +136,8 @@ impl VTable for NullVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 }
 
@@ -170,10 +174,10 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
-pub struct NullVTable;
+#[derive(Clone, Debug)]
+pub struct Null;
 
-impl NullVTable {
+impl Null {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
 }
 
@@ -185,13 +189,13 @@ impl NullArray {
         }
     }
 }
-impl OperationsVTable<NullVTable> for NullVTable {
+impl OperationsVTable<Null> for Null {
     fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }
 
-impl ValidityVTable<NullVTable> for NullVTable {
+impl ValidityVTable<Null> for Null {
     fn validity(_array: &NullArray) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)
     }

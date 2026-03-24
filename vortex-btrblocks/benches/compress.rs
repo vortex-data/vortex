@@ -9,7 +9,7 @@ mod benchmarks {
     use divan::Bencher;
     use divan::counter::BytesCount;
     use divan::counter::ItemsCount;
-    use rand::RngCore;
+    use rand::Rng;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
@@ -21,11 +21,11 @@ mod benchmarks {
 
     fn make_clickbench_window_name() -> ArrayRef {
         // A test that's meant to mirror the WindowName column from ClickBench.
-        let mut values = buffer_mut![-1i32; 1_000_000];
+        let mut values = buffer_mut![-1i32; 65_536];
         let mut visited = HashSet::new();
         let mut rng = StdRng::seed_from_u64(1u64);
         while visited.len() < 223 {
-            let random = (rng.next_u32() as usize) % 1_000_000;
+            let random = (rng.next_u32() as usize) % 65_536;
             if visited.contains(&random) {
                 continue;
             }

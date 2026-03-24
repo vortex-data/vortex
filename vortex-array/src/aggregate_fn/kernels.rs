@@ -17,8 +17,8 @@ use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.
 ///
-/// The provided array should be aggregated into a single scalar representing the state of a single
-/// group.
+/// The provided array should be aggregated into a single scalar representing the partial state
+/// of a single group.
 pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
     fn aggregate(
         &self,

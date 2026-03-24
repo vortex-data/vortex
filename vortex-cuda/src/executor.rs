@@ -20,8 +20,8 @@ use vortex::array::Canonical;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructVTable;
 use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
@@ -30,6 +30,7 @@ use vortex::error::vortex_err;
 
 use crate::CudaSession;
 use crate::ExportDeviceArray;
+use crate::hybrid_dispatch;
 use crate::kernel::DefaultLaunchStrategy;
 use crate::kernel::LaunchStrategy;
 use crate::kernel::LaunchStrategyExt;
@@ -265,6 +266,11 @@ impl CudaExecutionCtx {
         self.ctx.session()
     }
 
+    /// Returns a reference to the CUDA session.
+    pub(crate) fn cuda_session(&self) -> &CudaSession {
+        &self.cuda_session
+    }
+
     /// Get a handle to the exporter that can convert arrays into `ArrowDeviceArray`.
     pub fn exporter(&self) -> &Arc<dyn ExportDeviceArray> {
         self.cuda_session.export_device_array()
@@ -337,14 +343,14 @@ pub trait CudaArrayExt: DynArray {
 impl CudaArrayExt for ArrayRef {
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.encoding_id() == StructVTable::ID {
+        if self.encoding_id() == Struct::ID {
             let len = self.len();
             let StructArrayParts {
                 fields,
                 struct_fields,
                 validity,
                 ..
-            } = self.try_into::<StructVTable>().unwrap().into_parts();
+            } = self.try_into::<Struct>().unwrap().into_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {
@@ -364,19 +370,21 @@ impl CudaArrayExt for ArrayRef {
             return self.execute(&mut ctx.ctx);
         }
 
-        let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
-            debug!(
-                encoding = %self.encoding_id(),
-                "No CUDA support registered for encoding, falling back to CPU execution"
-            );
-            return self.execute(&mut ctx.ctx);
-        };
+        // Try all GPU execution strategies: fused dynamic dispatch, partial
+        // fusion with subtree fallbacks, and single-kernel fallback.
+        // If none succeed, fall back to CPU execution.
+        match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
+            Ok(canonical) => return Ok(canonical),
+            Err(e) => {
+                debug!(
+                    encoding = %self.encoding_id(),
+                    error = %e,
+                    "No GPU execution path available, falling back to CPU"
+                );
+            }
+        }
 
-        debug!(
-            encoding = %self.encoding_id(),
-            "Executing array on CUDA device"
-        );
-
-        support.execute(self, ctx).await
+        // TODO(0ax1): Double check whether we need to move buffers back to the host explicitly.
+        self.execute(&mut ctx.ctx)
     }
 }

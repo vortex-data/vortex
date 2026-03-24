@@ -3,8 +3,8 @@
 
 mod cast;
 mod compare;
-mod is_constant;
-mod is_sorted;
+pub(crate) mod is_constant;
+pub(crate) mod is_sorted;
 
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
@@ -15,10 +15,10 @@ use vortex_array::arrays::filter::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::FoR;
 use crate::FoRArray;
-use crate::FoRVTable;
 
-impl TakeExecute for FoRVTable {
+impl TakeExecute for FoR {
     fn take(
         array: &FoRArray,
         indices: &ArrayRef,
@@ -34,7 +34,7 @@ impl TakeExecute for FoRVTable {
     }
 }
 
-impl FilterReduce for FoRVTable {
+impl FilterReduce for FoR {
     fn filter(array: &FoRArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         FoRArray::try_new(
             array.encoded().filter(mask.clone())?,

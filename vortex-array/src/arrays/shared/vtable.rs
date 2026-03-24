@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -12,7 +13,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::SharedArray;
 use crate::buffer::BufferHandle;
@@ -32,19 +33,23 @@ vtable!(Shared);
 
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.
-#[derive(Debug)]
-pub struct SharedVTable;
+#[derive(Clone, Debug)]
+pub struct Shared;
 
-impl SharedVTable {
+impl Shared {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.shared");
 }
 
-impl VTable for SharedVTable {
+impl VTable for Shared {
     type Array = SharedArray;
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Shared
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -145,19 +150,19 @@ impl VTable for SharedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
-impl OperationsVTable<SharedVTable> for SharedVTable {
+impl OperationsVTable<Shared> for Shared {
     fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
         array.current_array_ref().scalar_at(index)
     }
 }
 
-impl ValidityVTable<SharedVTable> for SharedVTable {
+impl ValidityVTable<Shared> for Shared {
     fn validity(array: &SharedArray) -> VortexResult<Validity> {
         array.current_array_ref().validity()
     }

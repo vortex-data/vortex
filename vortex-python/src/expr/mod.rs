@@ -45,7 +45,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// .. seealso::
 ///    :func:`.column`
 ///
-#[pyclass(name = "Expr", module = "vortex", frozen)]
+#[pyclass(name = "Expr", module = "vortex", frozen, from_py_object)]
 #[derive(Clone)]
 pub struct PyExpr {
     inner: Expression,

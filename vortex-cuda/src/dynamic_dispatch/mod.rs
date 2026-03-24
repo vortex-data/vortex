@@ -19,7 +19,27 @@
 #![allow(non_snake_case)]
 #![allow(clippy::cast_possible_truncation)]
 
-mod plan_builder;
+use std::sync::Arc;
+
+use cudarc::driver::DevicePtr;
+use cudarc::driver::LaunchConfig;
+use cudarc::driver::PushKernelArg;
+use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBufferExt;
+use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::array::validity::Validity;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+
+use crate::CudaDeviceBuffer;
+use crate::executor::CudaExecutionCtx;
+
+pub(crate) mod plan_builder;
 pub use plan_builder::build_plan;
 
 include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
@@ -72,6 +92,17 @@ impl SourceOp {
                     num_runs,
                     offset,
                 },
+            },
+        }
+    }
+
+    /// Generate a linear sequence: `value[i] = base + i * multiplier`.
+    /// Used for SequenceArray (e.g. monotonic run-end endpoints).
+    pub fn sequence(base: i64, multiplier: i64) -> Self {
+        Self {
+            op_code: SourceOp_SourceOpCode_SEQUENCE,
+            params: SourceParams {
+                sequence: SourceParams_SequenceParams { base, multiplier },
             },
         }
     }
@@ -189,6 +220,85 @@ impl DynamicDispatchPlan {
             }
         }
         max_end * elem_size
+    }
+
+    /// Allocate output, upload the plan to the device, and launch the
+    /// `dynamic_dispatch` kernel.
+    ///
+    /// The CUDA kernels are instantiated for unsigned types only.
+    /// Encoding transforms (FoR, ZigZag, ALP) are bit-identical
+    /// regardless of signedness.
+    ///
+    /// `CudaSlice::drop` enqueues `free` on the stream after kernel execution.
+    pub fn execute(
+        self,
+        output_ptype: PType,
+        len: usize,
+        device_buffers: Vec<BufferHandle>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        let unsigned_ptype = match output_ptype {
+            PType::U8 | PType::I8 => PType::U8,
+            PType::U16 | PType::I16 => PType::U16,
+            PType::U32 | PType::I32 | PType::F32 => PType::U32,
+            PType::U64 | PType::I64 => PType::U64,
+            other => vortex_bail!("dynamic dispatch does not support PType {:?}", other),
+        };
+        match_each_unsigned_integer_ptype!(unsigned_ptype, |T| {
+            self.execute_typed::<T>(output_ptype, len, device_buffers, ctx)
+        })
+    }
+
+    fn execute_typed<T>(
+        self,
+        output_ptype: PType,
+        len: usize,
+        device_buffers: Vec<BufferHandle>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Canonical>
+    where
+        T: cudarc::driver::DeviceRepr + vortex::dtype::NativePType,
+    {
+        if len == 0 {
+            return Ok(Canonical::Primitive(PrimitiveArray::empty::<T>(
+                Nullability::NonNullable,
+            )));
+        }
+
+        let output_buf = CudaDeviceBuffer::new(ctx.device_alloc::<T>(len.next_multiple_of(1024))?);
+        let device_plan = Arc::new(
+            ctx.stream()
+                .clone_htod(std::slice::from_ref(&self))
+                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
+        );
+
+        let shared_mem_bytes = self.shared_mem_bytes::<T>();
+        let cuda_function = ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
+        let num_blocks = u32::try_from(len.div_ceil(2048))?;
+        let config = LaunchConfig {
+            grid_dim: (num_blocks, 1, 1),
+            block_dim: (64, 1, 1),
+            shared_mem_bytes,
+        };
+
+        let output_ptr = output_buf.offset_ptr();
+        let plan_ptr = device_plan.device_ptr(ctx.stream()).0;
+        let array_len_u64 = len as u64;
+
+        ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+            args.arg(&output_ptr);
+            args.arg(&array_len_u64);
+            args.arg(&plan_ptr);
+        })?;
+
+        drop(device_buffers);
+        drop(device_plan);
+
+        Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_device(output_buf.slice_typed::<T>(0..len)),
+            output_ptype,
+            Validity::NonNullable,
+        )))
     }
 }
 
@@ -1000,6 +1110,62 @@ mod tests {
         let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0u32, 1u32, 100)]
+    #[case(5u32, 3u32, 2048)]
+    #[case(0u32, 1u32, 4096)]
+    #[case(100u32, 7u32, 5000)]
+    #[crate::test]
+    fn test_sequence_unsigned(
+        #[case] base: u32,
+        #[case] multiplier: u32,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::SequenceArray;
+
+        let expected: Vec<u32> = (0..len).map(|i| base + (i as u32) * multiplier).collect();
+
+        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&seq.into_array(), &cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0i32, 1i32, 100)]
+    #[case(-10i32, 3i32, 2048)]
+    #[case(100i32, -1i32, 100)]
+    #[case(-500i32, -7i32, 50)]
+    #[case(0i32, 1i32, 5000)]
+    #[crate::test]
+    fn test_sequence_signed(
+        #[case] base: i32,
+        #[case] multiplier: i32,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::SequenceArray;
+
+        let expected: Vec<i32> = (0..len).map(|i| base + (i as i32) * multiplier).collect();
+
+        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&seq.into_array(), &cuda_ctx)?;
+
+        let actual_u32 = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual: Vec<i32> = actual_u32.into_iter().map(|v| v as i32).collect();
         assert_eq!(actual, expected);
 
         Ok(())

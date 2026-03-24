@@ -7,7 +7,7 @@ This directory contains C++ bindings for Vortex using the [cxx](https://cxx.rs/)
 ### Requirements
 
 - CMake 3.22 or higher
-- C++17 compatible compiler
+- C++20 compatible compiler
 - Rust toolchain (for building the Rust components)
 - (optional) Ninja (`ninja-build`)
 

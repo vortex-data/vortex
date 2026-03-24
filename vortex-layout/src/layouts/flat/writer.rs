@@ -202,10 +202,10 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::PrimitiveVTable;
     use vortex_array::arrays::StructArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -219,6 +219,8 @@ mod tests {
     use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::session::ArrayRegistry;
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::DynVTableRef;
+    use vortex_array::vtable::VTable;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -426,7 +428,7 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let allowed = ArrayRegistry::default();
-                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
+                allowed.register(Primitive::ID, Arc::new(Primitive) as DynVTableRef);
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(
@@ -467,8 +469,8 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let allowed = ArrayRegistry::default();
-                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
-                allowed.register(DictVTable::ID, DictVTable);
+                allowed.register(Primitive.id(), Arc::new(Primitive) as DynVTableRef);
+                allowed.register(Dict.id(), Arc::new(Dict) as DynVTableRef);
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(

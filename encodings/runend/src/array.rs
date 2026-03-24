@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -10,12 +11,12 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -39,10 +40,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
+use crate::decompress_bool::runend_decode_bools;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
@@ -58,14 +59,18 @@ pub struct RunEndMetadata {
     pub offset: u64,
 }
 
-impl VTable for RunEndVTable {
+impl VTable for RunEnd {
     type Array = RunEndArray;
 
     type Metadata = ProstMetadata<RunEndMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &RunEnd
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -203,8 +208,8 @@ impl VTable for RunEndVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        run_end_canonicalize(array, ctx).map(ExecutionStep::Done)
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
     }
 }
 
@@ -222,10 +227,10 @@ pub struct RunEndArrayParts {
     pub values: ArrayRef,
 }
 
-#[derive(Debug)]
-pub struct RunEndVTable;
+#[derive(Clone, Debug)]
+pub struct RunEnd;
 
-impl RunEndVTable {
+impl RunEnd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
 }
 
@@ -407,7 +412,7 @@ impl RunEndArray {
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
+        if let Some(parray) = array.as_opt::<Primitive>() {
             let (ends, values) = runend_encode(parray);
             // SAFETY: runend_encode handles this
             unsafe {
@@ -459,7 +464,7 @@ impl RunEndArray {
     }
 }
 
-impl ValidityVTable<RunEndVTable> for RunEndVTable {
+impl ValidityVTable<RunEnd> for RunEnd {
     fn validity(array: &RunEndArray) -> VortexResult<Validity> {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,
@@ -486,7 +491,7 @@ pub(super) fn run_end_canonicalize(
     Ok(match array.dtype() {
         DType::Bool(_) => {
             let bools = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_bools(pends, bools, array.offset(), array.len())?.into_array()
+            runend_decode_bools(pends, bools, array.offset(), array.len())?
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute_as("values", ctx)?;

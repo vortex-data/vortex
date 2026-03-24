@@ -17,10 +17,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::arrays::List;
 use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
 use crate::arrays::listview::ListViewArrayParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::ArrowArrayExecutor;
@@ -38,12 +38,12 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // If the Vortex array is already in List format, we can directly convert it.
-    if let Some(array) = array.as_opt::<ListVTable>() {
+    if let Some(array) = array.as_opt::<List>() {
         return list_to_list::<O>(array, elements_field, ctx);
     }
 
     // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
-    let array = match array.try_into::<ListViewVTable>() {
+    let array = match array.try_into::<ListView>() {
         Ok(array) => {
             let zctl = if array.is_zero_copy_to_list() {
                 array

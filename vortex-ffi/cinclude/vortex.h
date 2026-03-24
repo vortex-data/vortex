@@ -233,6 +233,8 @@ typedef struct DType DType;
  */
 typedef struct Nullability Nullability;
 
+typedef struct Primitive Primitive;
+
 /**
  * Base type for all Vortex arrays.
  *
@@ -744,6 +746,13 @@ void vx_session_free(vx_session *ptr);
  * The caller is responsible for freeing the session with [`vx_session_free`].
  */
 vx_session *vx_session_new(void);
+
+/**
+ * Clone a Vortex session, returning an owned copy.
+ *
+ * The caller is responsible for freeing the session with [`vx_session_free`].
+ */
+vx_session *vx_session_clone(const vx_session *session);
 
 /**
  * Opens a writable array stream, where sink is used to push values into the stream.

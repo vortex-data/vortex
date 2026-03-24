@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
@@ -11,7 +12,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
@@ -73,14 +74,18 @@ pub struct ProstPatchesMetadata {
     patches: PatchesMetadata,
 }
 
-impl VTable for SparseVTable {
+impl VTable for Sparse {
     type Array = SparseArray;
 
     type Metadata = SparseMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Sparse
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -256,8 +261,8 @@ impl VTable for SparseVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        execute_sparse(array, ctx).map(ExecutionStep::Done)
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        execute_sparse(&array, ctx).map(ExecutionResult::done)
     }
 }
 
@@ -268,10 +273,10 @@ pub struct SparseArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
-pub struct SparseVTable;
+#[derive(Clone, Debug)]
+pub struct Sparse;
 
-impl SparseVTable {
+impl Sparse {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
 }
 
@@ -465,7 +470,7 @@ impl SparseArray {
     }
 }
 
-impl ValidityVTable<SparseVTable> for SparseVTable {
+impl ValidityVTable<Sparse> for Sparse {
     fn validity(array: &SparseArray) -> VortexResult<Validity> {
         let patches = unsafe {
             Patches::new_unchecked(

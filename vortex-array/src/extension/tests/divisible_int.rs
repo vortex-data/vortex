@@ -11,12 +11,13 @@ use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
 
 /// The divisor stored as extension metadata.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Divisor(pub u64);
 
 impl fmt::Display for Divisor {
@@ -51,25 +52,20 @@ impl ExtVTable for DivisibleInt {
         Ok(Divisor(n))
     }
 
-    fn validate_dtype(
-        &self,
-        _metadata: &Self::Metadata,
-        storage_dtype: &DType,
-    ) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(storage_dtype, DType::Primitive(PType::U64, _)),
+            matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
             "divisible int storage dtype must be u64"
         );
         Ok(())
     }
 
-    fn unpack_native(
-        &self,
-        metadata: &Self::Metadata,
-        _storage_dtype: &DType,
-        storage_value: &ScalarValue,
-    ) -> VortexResult<Self::NativeValue<'_>> {
+    fn unpack_native<'a>(
+        ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
         let value = storage_value.as_primitive().cast::<u64>()?;
+        let metadata = ext_dtype.metadata();
         if value % metadata.0 != 0 {
             vortex_bail!("{} is not divisible by {}", value, metadata.0);
         }
@@ -86,6 +82,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtVTable;
 
     #[test]
@@ -109,29 +106,25 @@ mod tests {
 
     #[test]
     fn rejects_wrong_storage_dtype() {
-        let vtable = DivisibleInt;
         let divisor = Divisor(10);
 
         assert!(
-            vtable
-                .validate_dtype(
-                    &divisor,
-                    &DType::Primitive(PType::I32, Nullability::NonNullable)
-                )
+            ExtDType::<DivisibleInt>::try_new(
+                divisor,
+                DType::Primitive(PType::I32, Nullability::NonNullable)
+            )
+            .is_err()
+        );
+        assert!(
+            ExtDType::<DivisibleInt>::try_new(divisor, DType::Utf8(Nullability::NonNullable))
                 .is_err()
         );
         assert!(
-            vtable
-                .validate_dtype(&divisor, &DType::Utf8(Nullability::NonNullable))
-                .is_err()
-        );
-        assert!(
-            vtable
-                .validate_dtype(
-                    &divisor,
-                    &DType::Primitive(PType::U64, Nullability::NonNullable)
-                )
-                .is_ok()
+            ExtDType::<DivisibleInt>::try_new(
+                divisor,
+                DType::Primitive(PType::U64, Nullability::NonNullable)
+            )
+            .is_ok()
         );
     }
 }

@@ -37,112 +37,147 @@ pub fn mask_validity_canonical(
 ) -> VortexResult<Canonical> {
     Ok(match canonical {
         Canonical::Null(a) => Canonical::Null(mask_validity_null(a, validity_mask)),
-        Canonical::Bool(a) => Canonical::Bool(mask_validity_bool(a, validity_mask)),
-        Canonical::Primitive(a) => Canonical::Primitive(mask_validity_primitive(a, validity_mask)),
-        Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity_mask)),
+        Canonical::Bool(a) => Canonical::Bool(mask_validity_bool(a, validity_mask, ctx)?),
+        Canonical::Primitive(a) => {
+            Canonical::Primitive(mask_validity_primitive(a, validity_mask, ctx)?)
+        }
+        Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity_mask, ctx)?),
         Canonical::VarBinView(a) => {
-            Canonical::VarBinView(mask_validity_varbinview(a, validity_mask))
+            Canonical::VarBinView(mask_validity_varbinview(a, validity_mask, ctx)?)
         }
-        Canonical::List(a) => Canonical::List(mask_validity_listview(a, validity_mask)),
+        Canonical::List(a) => Canonical::List(mask_validity_listview(a, validity_mask, ctx)?),
         Canonical::FixedSizeList(a) => {
-            Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity_mask))
+            Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity_mask, ctx)?)
         }
-        Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity_mask)),
+        Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity_mask, ctx)?),
         Canonical::Extension(a) => {
             Canonical::Extension(mask_validity_extension(a, validity_mask, ctx)?)
         }
     })
 }
 
-fn combine_validity(validity: &Validity, mask: &Mask, len: usize) -> Validity {
-    let current_mask = validity.to_mask(len);
+fn combine_validity(
+    validity: &Validity,
+    mask: &Mask,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Validity> {
+    let current_mask = validity.execute_mask(len, ctx)?;
     let combined = current_mask.bitand(mask);
-    Validity::from_mask(combined, Nullability::Nullable)
+    Ok(Validity::from_mask(combined, Nullability::Nullable))
 }
 
 fn mask_validity_null(array: NullArray, _mask: &Mask) -> NullArray {
     array
 }
 
-fn mask_validity_bool(array: BoolArray, mask: &Mask) -> BoolArray {
+fn mask_validity_bool(
+    array: BoolArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BoolArray> {
     let len = array.len();
-    let new_validity = combine_validity(array.validity(), mask, len);
-    BoolArray::new(array.to_bit_buffer(), new_validity)
+    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
+    Ok(BoolArray::new(array.to_bit_buffer(), new_validity))
 }
 
-fn mask_validity_primitive(array: PrimitiveArray, mask: &Mask) -> PrimitiveArray {
+fn mask_validity_primitive(
+    array: PrimitiveArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     let len = array.len();
     let ptype = array.ptype();
-    let new_validity = combine_validity(array.validity(), mask, len);
+    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
     // SAFETY: validity has same length as values
-    unsafe {
+    Ok(unsafe {
         PrimitiveArray::new_unchecked_from_handle(
             array.buffer_handle().clone(),
             ptype,
             new_validity,
         )
-    }
-}
-
-fn mask_validity_decimal(array: DecimalArray, mask: &Mask) -> DecimalArray {
-    let len = array.len();
-    let dec_dtype = array.decimal_dtype();
-    let values_type = array.values_type();
-    let new_validity = combine_validity(array.validity(), mask, len);
-    // SAFETY: We're only changing validity, not the data structure
-    match_each_decimal_value_type!(values_type, |T| {
-        let buffer = array.buffer::<T>();
-        unsafe { DecimalArray::new_unchecked(buffer, dec_dtype, new_validity) }
     })
 }
 
+fn mask_validity_decimal(
+    array: DecimalArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DecimalArray> {
+    let len = array.len();
+    let dec_dtype = array.decimal_dtype();
+    let values_type = array.values_type();
+    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
+    // SAFETY: We're only changing validity, not the data structure
+    Ok(match_each_decimal_value_type!(values_type, |T| {
+        let buffer = array.buffer::<T>();
+        unsafe { DecimalArray::new_unchecked(buffer, dec_dtype, new_validity) }
+    }))
+}
+
 /// Mask validity for VarBinViewArray.
-fn mask_validity_varbinview(array: VarBinViewArray, mask: &Mask) -> VarBinViewArray {
+fn mask_validity_varbinview(
+    array: VarBinViewArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<VarBinViewArray> {
     let len = array.len();
     let dtype = array.dtype().as_nullable();
-    let new_validity = combine_validity(array.validity(), mask, len);
+    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
     // SAFETY: We're only changing validity, not the data structure
-    unsafe {
+    Ok(unsafe {
         VarBinViewArray::new_handle_unchecked(
             array.views_handle().clone(),
             array.buffers().clone(),
             dtype,
             new_validity,
         )
-    }
+    })
 }
 
-fn mask_validity_listview(array: ListViewArray, mask: &Mask) -> ListViewArray {
+fn mask_validity_listview(
+    array: ListViewArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ListViewArray> {
     let len = array.len();
-    let new_validity = combine_validity(array.validity(), mask, len);
+    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
     // SAFETY: We're only changing validity, not the data structure
-    unsafe {
+    Ok(unsafe {
         ListViewArray::new_unchecked(
             array.elements().clone(),
             array.offsets().clone(),
             array.sizes().clone(),
             new_validity,
         )
-    }
+    })
 }
 
-fn mask_validity_fixed_size_list(array: FixedSizeListArray, mask: &Mask) -> FixedSizeListArray {
+fn mask_validity_fixed_size_list(
+    array: FixedSizeListArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FixedSizeListArray> {
     let len = array.len();
     let list_size = array.list_size();
-    let new_validity = combine_validity(array.validity(), mask, len);
+    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
     // SAFETY: We're only changing validity, not the data structure
-    unsafe {
+    Ok(unsafe {
         FixedSizeListArray::new_unchecked(array.elements().clone(), list_size, new_validity, len)
-    }
+    })
 }
 
-fn mask_validity_struct(array: StructArray, mask: &Mask) -> StructArray {
+fn mask_validity_struct(
+    array: StructArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
     let len = array.len();
-    let new_validity = combine_validity(array.validity(), mask, len);
+    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
     let fields = array.unmasked_fields().clone();
     let struct_fields = array.struct_fields().clone();
     // SAFETY: We're only changing validity, not the data structure
-    unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) }
+    Ok(unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) })
 }
 
 fn mask_validity_extension(

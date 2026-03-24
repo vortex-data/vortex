@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -13,7 +14,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -44,21 +45,25 @@ mod validity;
 
 vtable!(Constant);
 
-#[derive(Debug)]
-pub struct ConstantVTable;
+#[derive(Clone, Debug)]
+pub struct Constant;
 
-impl ConstantVTable {
+impl Constant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
 }
 
-impl VTable for ConstantVTable {
+impl VTable for Constant {
     type Array = ConstantArray;
 
     type Metadata = Scalar;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Constant
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -178,9 +183,9 @@ impl VTable for ConstantVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            constant_canonicalize(array)?.into_array(),
+    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            constant_canonicalize(&array)?.into_array(),
         ))
     }
 
