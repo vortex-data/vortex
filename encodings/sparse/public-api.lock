@@ -132,6 +132,8 @@ pub fn vortex_sparse::SparseArray::try_new_from_patches(patches: vortex_array::p
 
 impl vortex_sparse::SparseArray
 
+pub fn vortex_sparse::SparseArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_sparse::SparseArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_sparse::SparseArray

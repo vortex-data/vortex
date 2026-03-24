@@ -100,6 +100,8 @@ pub fn vortex_bytebool::ByteBoolArray::new(buffer: vortex_array::buffer::BufferH
 
 impl vortex_bytebool::ByteBoolArray
 
+pub fn vortex_bytebool::ByteBoolArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_bytebool::ByteBoolArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_bytebool::ByteBoolArray

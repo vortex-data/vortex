@@ -110,6 +110,8 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::try_new(msp: vortex_arr
 
 impl vortex_decimal_byte_parts::DecimalBytePartsArray
 
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_decimal_byte_parts::DecimalBytePartsArray

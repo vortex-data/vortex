@@ -5,7 +5,6 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
-use rand::Rng;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;

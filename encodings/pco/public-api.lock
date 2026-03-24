@@ -90,6 +90,8 @@ pub fn vortex_pco::PcoArray::new(chunk_metas: alloc::vec::Vec<vortex_buffer::Byt
 
 impl vortex_pco::PcoArray
 
+pub fn vortex_pco::PcoArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_pco::PcoArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_pco::PcoArray
