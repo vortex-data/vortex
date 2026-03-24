@@ -278,7 +278,7 @@ impl SplitPlanner for SingleFieldSplitPlanner {
 
         let validity_output = validity_planner.plan_split(row_range.clone(), selection, builder)?;
 
-        builder.create_node(&NodeOpts {
+        builder.create_node(NodeOpts {
             inputs: &[data_output, validity_output],
             segments: &[],
             lifetime: builder.row_range_lifetime(row_range),
@@ -319,7 +319,7 @@ impl SplitPlanner for MultiFieldSplitPlanner {
 
         let root_expr = self.root_expr.clone();
         let has_validity = self.validity_planner.is_some();
-        builder.create_node(&NodeOpts {
+        builder.create_node(NodeOpts {
             inputs: &child_outputs,
             segments: &[],
             lifetime: builder.row_range_lifetime(row_range),

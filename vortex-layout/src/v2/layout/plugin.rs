@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::io::Read;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutChild;

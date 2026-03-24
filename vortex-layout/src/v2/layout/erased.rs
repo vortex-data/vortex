@@ -8,6 +8,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 
+use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::RowSelection;
 use crate::v2::layout::typed::DynLayout;
@@ -42,6 +43,11 @@ impl LayoutRef {
     /// Panics on out-of-bounds error.
     pub fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
         self.0.child(idx)
+    }
+
+    /// Returns the segment source backing this layout.
+    pub fn segment_source(&self) -> &Arc<dyn SegmentSource> {
+        self.0.segment_source()
     }
 
     /// Prepares a split planner for the given expression and row selection.

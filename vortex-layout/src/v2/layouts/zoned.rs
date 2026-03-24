@@ -166,7 +166,7 @@ impl SplitPlanner for ZonedSplitPlanner {
         // 3. Intersects with the data output — returns data if not pruned, empty if pruned.
         let zone_len = self.zone_len;
         let row_count = self.row_count;
-        builder.create_node(&NodeOpts {
+        builder.create_node(NodeOpts {
             inputs: &[zm_output, data_output],
             segments: &[],
             lifetime: builder.row_range_lifetime(row_range),

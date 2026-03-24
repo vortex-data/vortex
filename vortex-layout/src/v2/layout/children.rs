@@ -11,6 +11,7 @@ use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutId;
@@ -28,6 +29,7 @@ enum Inner {
         fb: FlatBuffer,
         loc: usize,
         ids: Arc<[LayoutId]>,
+        context: ReadContext,
         source: Arc<dyn SegmentSource>,
         session: VortexSession,
     },
@@ -51,6 +53,7 @@ impl LayoutChild {
                 fb,
                 loc,
                 ids,
+                context,
                 source,
                 session,
             } => {
@@ -80,6 +83,7 @@ impl LayoutChild {
                                     fb: fb.clone(),
                                     loc: child._tab.loc(),
                                     ids: ids.clone(),
+                                    context: context.clone(),
                                     source: source.clone(),
                                     session: session.clone(),
                                 })))

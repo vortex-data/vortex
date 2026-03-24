@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::RefCell;
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
@@ -13,6 +15,7 @@ use vortex_mask::Mask;
 
 use crate::segments::SegmentId;
 use crate::v2::layout::ChildRelationship;
+use crate::v2::scan::plan::SplitPlan;
 
 pub type SplitPlannerRef = Arc<dyn SplitPlanner>;
 
@@ -28,12 +31,28 @@ pub trait SplitPlanner: Send + Sync {
 #[derive(Clone, Copy, Debug)]
 pub struct NodeId(usize);
 
+impl NodeId {
+    pub(crate) fn new(idx: usize) -> Self {
+        Self(idx)
+    }
+
+    pub(crate) fn sentinel() -> Self {
+        Self(usize::MAX)
+    }
+
+    pub(crate) fn as_usize(self) -> usize {
+        self.0
+    }
+}
+
 /// Builds a DAG of compute nodes for a scan plan.
 ///
 /// The builder tracks positional context as layouts recurse into their children via
 /// [`step_into`](Self::step_into). This context is used to translate local row coordinates
 /// to global coordinates for lifetime assignment.
-#[derive(Default)]
+///
+/// Internally backs onto a shared [`SplitPlan`] so that child builders created via `step_into`
+/// all contribute to the same DAG.
 pub struct PlanBuilder {
     /// Accumulated row offset from the root of the layout tree.
     base_offset: u64,
@@ -43,6 +62,18 @@ pub struct PlanBuilder {
     /// Set to `Some` when stepping into an [`Auxiliary`](ChildRelationship::Auxiliary) child,
     /// where the lifetime is the parent's row range rather than the child's own coordinates.
     lifetime_scope: Option<Range<u64>>,
+    /// The shared backing plan that accumulates nodes from all builders in the tree.
+    plan: Rc<RefCell<SplitPlan>>,
+}
+
+impl Default for PlanBuilder {
+    fn default() -> Self {
+        Self {
+            base_offset: 0,
+            lifetime_scope: None,
+            plan: Rc::new(RefCell::new(SplitPlan::new())),
+        }
+    }
 }
 
 impl PlanBuilder {
@@ -62,16 +93,19 @@ impl PlanBuilder {
             ChildRelationship::RowOffset(offset) => PlanBuilder {
                 base_offset: self.base_offset + offset,
                 lifetime_scope: self.lifetime_scope.clone(),
+                plan: Rc::clone(&self.plan),
             },
             ChildRelationship::FieldName(_) => PlanBuilder {
                 base_offset: self.base_offset,
                 lifetime_scope: self.lifetime_scope.clone(),
+                plan: Rc::clone(&self.plan),
             },
             ChildRelationship::Auxiliary(parent_range) => PlanBuilder {
                 base_offset: 0,
                 lifetime_scope: Some(
                     parent_range.start + self.base_offset..parent_range.end + self.base_offset,
                 ),
+                plan: Rc::clone(&self.plan),
             },
         }
     }
@@ -91,11 +125,32 @@ impl PlanBuilder {
     }
 
     /// Construct a node that runs compute over its inputs.
-    pub fn create_node<F>(&mut self, _options: &NodeOpts<'_, F>) -> VortexResult<NodeId>
+    ///
+    /// Takes `options` by value so that the `FnOnce` compute closure can be moved into the plan.
+    pub fn create_node<F>(&mut self, options: NodeOpts<'_, F>) -> VortexResult<NodeId>
     where
         F: FnOnce(Vec<NodeInput>) -> VortexResult<ArrayRef> + Send + 'static,
     {
-        todo!()
+        let compute: ComputeFn = Box::new(options.compute);
+        let id = self.plan.borrow_mut().add_node(
+            options.inputs,
+            options.segments,
+            compute,
+            options.lifetime,
+        );
+        Ok(id)
+    }
+
+    /// Consumes the builder and returns the built [`SplitPlan`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if any child builders created via [`step_into`](Self::step_into) are still alive.
+    pub fn take_plan(self) -> SplitPlan {
+        match Rc::try_unwrap(self.plan) {
+            Ok(cell) => cell.into_inner(),
+            Err(_) => vortex_panic!("PlanBuilder::take_plan called with outstanding references"),
+        }
     }
 }
 
@@ -103,7 +158,7 @@ pub struct NodeOpts<'a, F> {
     /// Wait for these nodes to complete before running.
     pub inputs: &'a [NodeId],
     /// Fetch these segments before running.
-    pub segments: &'a [SegmentId], // Can we make refine this read somehow?
+    pub segments: &'a [SegmentId],
     pub lifetime: Lifetime,
     pub compute: F,
 }
@@ -140,13 +195,25 @@ impl NodeInput {
 pub struct SplitSelection {}
 
 impl SplitSelection {
+    /// Creates a new stub selection with no filtering.
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// Returns a sentinel node ID for this selection.
     pub fn node_id(&self) -> NodeId {
-        todo!()
+        NodeId::sentinel()
     }
 
     /// Returns the latest selection mask for this split.
     pub fn latest(&self) -> Mask {
-        todo!()
+        Mask::AllTrue(0)
+    }
+}
+
+impl Default for SplitSelection {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

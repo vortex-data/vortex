@@ -155,7 +155,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
             0 => {
                 // No overlapping children — return an empty array.
                 let dtype = self.dtype.clone();
-                builder.create_node(&NodeOpts {
+                builder.create_node(NodeOpts {
                     inputs: &[],
                     segments: &[],
                     lifetime: builder.row_range_lifetime(row_range),
@@ -182,7 +182,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
                     child_outputs.push(child_output);
                 }
                 let dtype = self.dtype.clone();
-                builder.create_node(&NodeOpts {
+                builder.create_node(NodeOpts {
                     inputs: &child_outputs,
                     segments: &[],
                     lifetime: builder.row_range_lifetime(row_range),

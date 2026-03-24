@@ -1256,6 +1256,158 @@ pub fn S::layouts(&self) -> vortex_session::Ref<'_, vortex_layout::session::Layo
 
 pub type vortex_layout::session::LayoutRegistry = vortex_session::registry::Registry<vortex_layout::LayoutEncodingRef>
 
+pub mod vortex_layout::v2
+
+pub mod vortex_layout::v2::layout
+
+pub mod vortex_layout::v2::layout::session
+
+pub struct vortex_layout::v2::layout::session::LayoutSession
+
+impl vortex_layout::v2::layout::session::LayoutSession
+
+pub fn vortex_layout::v2::layout::session::LayoutSession::register<V: vortex_layout::v2::layout::LayoutVTable>(&self, vtable: V)
+
+pub fn vortex_layout::v2::layout::session::LayoutSession::registry(&self) -> &vortex_layout::v2::layout::session::LayoutRegistry
+
+impl core::default::Default for vortex_layout::v2::layout::session::LayoutSession
+
+pub fn vortex_layout::v2::layout::session::LayoutSession::default() -> Self
+
+impl core::fmt::Debug for vortex_layout::v2::layout::session::LayoutSession
+
+pub fn vortex_layout::v2::layout::session::LayoutSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub trait vortex_layout::v2::layout::session::LayoutSessionExt: vortex_session::SessionExt
+
+pub fn vortex_layout::v2::layout::session::LayoutSessionExt::layouts2(&self) -> vortex_session::Ref<'_, vortex_layout::v2::layout::session::LayoutSession>
+
+impl<S: vortex_session::SessionExt> vortex_layout::v2::layout::session::LayoutSessionExt for S
+
+pub fn S::layouts2(&self) -> vortex_session::Ref<'_, vortex_layout::v2::layout::session::LayoutSession>
+
+pub type vortex_layout::v2::layout::session::LayoutRegistry = vortex_session::registry::Registry<vortex_layout::v2::layout::LayoutPluginRef>
+
+pub enum vortex_layout::v2::layout::ChildRelationship
+
+pub vortex_layout::v2::layout::ChildRelationship::Auxiliary(core::ops::range::Range<u64>)
+
+pub vortex_layout::v2::layout::ChildRelationship::FieldName(vortex_array::dtype::field_names::FieldName)
+
+pub vortex_layout::v2::layout::ChildRelationship::RowOffset(u64)
+
+pub enum vortex_layout::v2::layout::RowSelection
+
+pub vortex_layout::v2::layout::RowSelection::All
+
+pub vortex_layout::v2::layout::RowSelection::IncludeRanges(alloc::vec::Vec<core::ops::range::Range<u64>>)
+
+pub struct vortex_layout::v2::layout::Layout<V: vortex_layout::v2::layout::LayoutVTable>
+
+impl vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::zoned::Zoned>
+
+pub fn vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::zoned::Zoned>::data_child(&self) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+pub fn vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::zoned::Zoned>::zone_map_child(&self) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+impl<V: vortex_layout::v2::layout::LayoutVTable> vortex_layout::v2::layout::Layout<V>
+
+pub fn vortex_layout::v2::layout::Layout<V>::child(&self, idx: usize) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+pub fn vortex_layout::v2::layout::Layout<V>::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::layout::Layout<V>::id(&self) -> vortex_layout::v2::layout::LayoutId
+
+pub fn vortex_layout::v2::layout::Layout<V>::metadata(&self) -> &<V as vortex_layout::v2::layout::LayoutVTable>::Metadata
+
+pub fn vortex_layout::v2::layout::Layout<V>::num_children(&self) -> usize
+
+pub fn vortex_layout::v2::layout::Layout<V>::row_count(&self) -> u64
+
+pub fn vortex_layout::v2::layout::Layout<V>::segment_source(&self) -> &alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+
+pub fn vortex_layout::v2::layout::Layout<V>::segments(&self) -> &[vortex_layout::segments::SegmentId]
+
+pub struct vortex_layout::v2::layout::LayoutChild(_)
+
+impl vortex_layout::v2::layout::LayoutChild
+
+pub fn vortex_layout::v2::layout::LayoutChild::resolve(&self, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+pub struct vortex_layout::v2::layout::LayoutRef(_)
+
+impl vortex_layout::v2::layout::LayoutRef
+
+pub fn vortex_layout::v2::layout::LayoutRef::child(&self, idx: usize) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+pub fn vortex_layout::v2::layout::LayoutRef::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::layout::LayoutRef::id(&self) -> vortex_layout::v2::layout::LayoutId
+
+pub fn vortex_layout::v2::layout::LayoutRef::prepare(&self, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::layout::RowSelection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, builder: &mut vortex_layout::v2::planner::PlanBuilder) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_layout::v2::planner::SplitPlanner>>
+
+pub fn vortex_layout::v2::layout::LayoutRef::row_count(&self) -> u64
+
+pub fn vortex_layout::v2::layout::LayoutRef::segment_source(&self) -> &alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+
+impl core::clone::Clone for vortex_layout::v2::layout::LayoutRef
+
+pub fn vortex_layout::v2::layout::LayoutRef::clone(&self) -> vortex_layout::v2::layout::LayoutRef
+
+pub trait vortex_layout::v2::layout::LayoutPlugin: 'static + core::marker::Send + core::marker::Sync
+
+pub fn vortex_layout::v2::layout::LayoutPlugin::deserialize(&self, dtype: &vortex_array::dtype::DType, metadata: &[u8], children: alloc::vec::Vec<vortex_layout::v2::layout::LayoutChild>, segment_source: &alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+pub fn vortex_layout::v2::layout::LayoutPlugin::id(&self) -> vortex_layout::v2::layout::LayoutId
+
+impl<V: vortex_layout::v2::layout::LayoutVTable> vortex_layout::v2::layout::LayoutPlugin for V
+
+pub fn V::deserialize(&self, _dtype: &vortex_array::dtype::DType, _metadata: &[u8], _children: alloc::vec::Vec<vortex_layout::v2::layout::LayoutChild>, _segment_source: &alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+pub fn V::id(&self) -> vortex_layout::v2::layout::LayoutId
+
+pub trait vortex_layout::v2::layout::LayoutVTable: 'static + core::marker::Sized + core::clone::Clone + core::marker::Send + core::marker::Sync
+
+pub type vortex_layout::v2::layout::LayoutVTable::Metadata: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::PartialEq + core::cmp::Eq + core::hash::Hash
+
+pub type vortex_layout::v2::layout::LayoutVTable::Plan: 'static + core::marker::Send
+
+pub fn vortex_layout::v2::layout::LayoutVTable::child_dtype(layout: &vortex_layout::v2::layout::Layout<Self>, child_idx: usize) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::layout::LayoutVTable::child_relationship(layout: &vortex_layout::v2::layout::Layout<Self>, child_idx: usize) -> vortex_layout::v2::layout::ChildRelationship
+
+pub fn vortex_layout::v2::layout::LayoutVTable::id(&self) -> vortex_layout::v2::layout::LayoutId
+
+pub fn vortex_layout::v2::layout::LayoutVTable::prepare(layout: &vortex_layout::v2::layout::Layout<Self>, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::layout::RowSelection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, builder: &mut vortex_layout::v2::planner::PlanBuilder) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_layout::v2::planner::SplitPlanner>>
+
+pub type vortex_layout::v2::layout::LayoutId = arcref::ArcRef<str>
+
+pub type vortex_layout::v2::layout::LayoutPluginRef = alloc::sync::Arc<dyn vortex_layout::v2::layout::LayoutPlugin>
+
+pub mod vortex_layout::v2::scan
+
+pub struct vortex_layout::v2::scan::Scan
+
+impl vortex_layout::v2::scan::Scan
+
+pub fn vortex_layout::v2::scan::Scan::into_stream(self) -> impl futures_core::stream::Stream<Item = vortex_error::VortexResult<vortex_array::array::ArrayRef>>
+
+pub async fn vortex_layout::v2::scan::Scan::next_batch(&mut self) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
+pub fn vortex_layout::v2::scan::Scan::try_new(layout: &vortex_layout::v2::layout::LayoutRef, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::layout::RowSelection, config: vortex_layout::v2::scan::ScanConfig) -> vortex_error::VortexResult<Self>
+
+pub struct vortex_layout::v2::scan::ScanConfig
+
+pub vortex_layout::v2::scan::ScanConfig::max_split_rows: u64
+
+pub vortex_layout::v2::scan::ScanConfig::min_split_rows: u64
+
+pub vortex_layout::v2::scan::ScanConfig::window_size: usize
+
+impl core::default::Default for vortex_layout::v2::scan::ScanConfig
+
+pub fn vortex_layout::v2::scan::ScanConfig::default() -> Self
+
 pub mod vortex_layout::vtable
 
 pub trait vortex_layout::vtable::VTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug

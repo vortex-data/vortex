@@ -29,10 +29,11 @@ pub struct Layout<V: LayoutVTable> {
     segment_source: Arc<dyn SegmentSource>,
 }
 
+#[allow(clippy::same_name_method)]
 impl<V: LayoutVTable> Layout<V> {
     /// Returns the ID of the layout.
     pub fn id(&self) -> LayoutId {
-        DynLayout::id(self)
+        self.vtable.id()
     }
 
     /// Returns the dtype of the layout.
@@ -40,21 +41,29 @@ impl<V: LayoutVTable> Layout<V> {
         &self.dtype
     }
 
+    /// Returns the row count of the layout.
     pub fn row_count(&self) -> u64 {
         self.row_count
     }
 
+    /// Returns the segment IDs referenced by this layout.
     pub fn segments(&self) -> &[SegmentId] {
         &self.segments
     }
 
+    /// Returns the segment source backing this layout.
     pub fn segment_source(&self) -> &Arc<dyn SegmentSource> {
         &self.segment_source
     }
 
     /// Returns the nth child of the layout.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx` is out of bounds.
     pub fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
-        DynLayout::child(self, idx)
+        assert!(idx < self.children.len(), "Child idx out of bounds");
+        self.children[idx].resolve(V::child_dtype(self, idx))
     }
 
     /// Returns the metadata for this layout.
@@ -88,6 +97,11 @@ pub(super) trait DynLayout: 'static + Send + Sync + super::sealed::Sealed {
     ) -> VortexResult<SplitPlannerRef>;
 }
 
+/// Blanket impl: thin forwarder to `Layout<V>` inherent methods.
+///
+/// Every method here delegates to the corresponding inherent method on `Layout<V>`.
+/// Rust's method resolution picks inherent methods over trait methods, so `self.id()` etc.
+/// call the inherent impl, not this trait impl (no infinite recursion).
 impl<V: LayoutVTable> DynLayout for Layout<V> {
     #[inline(always)]
     fn as_any(&self) -> &dyn Any {
@@ -96,7 +110,7 @@ impl<V: LayoutVTable> DynLayout for Layout<V> {
 
     #[inline(always)]
     fn id(&self) -> LayoutId {
-        self.vtable.id()
+        self.id()
     }
 
     #[inline(always)]
@@ -106,27 +120,27 @@ impl<V: LayoutVTable> DynLayout for Layout<V> {
 
     #[inline(always)]
     fn dtype(&self) -> &DType {
-        &self.dtype
+        self.dtype()
     }
 
     #[inline(always)]
     fn segments(&self) -> &[SegmentId] {
-        &self.segments
+        self.segments()
     }
 
     #[inline(always)]
     fn row_count(&self) -> u64 {
-        self.row_count
+        self.row_count()
     }
 
     #[inline(always)]
     fn segment_source(&self) -> &Arc<dyn SegmentSource> {
-        &self.segment_source
+        self.segment_source()
     }
 
+    #[inline(always)]
     fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
-        assert!(idx < self.children.len(), "Child idx out of bounds");
-        self.children[idx].resolve(V::child_dtype(self, idx))
+        self.child(idx)
     }
 
     fn prepare(

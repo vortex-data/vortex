@@ -4,4 +4,4 @@
 pub mod layout;
 mod layouts;
 mod planner;
-mod scan;
+pub mod scan;

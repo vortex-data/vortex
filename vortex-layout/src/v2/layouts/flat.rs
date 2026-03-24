@@ -98,7 +98,7 @@ impl SplitPlanner for FlatLayoutPlanner {
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         let expression = self.expression.clone();
-        builder.create_node(&NodeOpts {
+        builder.create_node(NodeOpts {
             inputs: &[],
             segments: &[self.segment_id],
             lifetime: builder.row_range_lifetime(row_range),
