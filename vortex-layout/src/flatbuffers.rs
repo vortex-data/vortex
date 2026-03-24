@@ -24,7 +24,7 @@ use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;
 
-static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
+pub(crate) static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
     VerifierOptions {
         // Overridden
         max_tables: env::var("VORTEX_MAX_LAYOUT_TABLES")

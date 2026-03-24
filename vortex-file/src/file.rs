@@ -23,6 +23,7 @@ use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
+use vortex_layout::v2;
 use vortex_scan::ScanBuilder;
 use vortex_scan::SplitBy;
 use vortex_scan::api::DataSourceRef;
@@ -88,6 +89,18 @@ impl VortexFile {
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
             .new_reader("".into(), segment_source, &self.session)
+    }
+
+    /// Create a v2 layout for the file.
+    pub fn layout2(&self) -> VortexResult<v2::layout::LayoutRef> {
+        v2::layout::LayoutRef::from_flatbuffer(
+            &self.footer.layout_fb,
+            self.dtype(),
+            self.footer.layout_ids.clone(),
+            self.footer.array_ctx.clone(),
+            &self.segment_source(),
+            &self.session,
+        )
     }
 
     /// Create a [`DataSource`](vortex_scan::api::DataSource) from this file for scanning.

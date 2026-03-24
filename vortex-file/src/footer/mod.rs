@@ -36,6 +36,7 @@ use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer;
 use vortex_layout::session::LayoutSessionExt;
+use vortex_layout::v2::layout::LayoutId;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
@@ -49,6 +50,11 @@ pub struct Footer {
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
     approx_byte_size: Option<usize>,
+
+    /// For migration reasons, we hold the layout flatbuffer, layout IDs, and array context.
+    pub(crate) layout_fb: FlatBuffer,
+    pub(crate) layout_ids: Arc<[LayoutId]>,
+    pub(crate) array_ctx: ReadContext,
 }
 
 impl Footer {

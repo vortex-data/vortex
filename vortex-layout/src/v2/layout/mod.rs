@@ -17,6 +17,7 @@ pub use plugin::*;
 mod typed;
 pub use typed::*;
 
+mod flatbuffers;
 pub mod session;
 mod vtable;
 

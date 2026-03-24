@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use flatbuffers::Follow;
+use flatbuffers::root_with_opts;
 use parking_lot::RwLock;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
@@ -13,6 +14,7 @@ use vortex_flatbuffers::layout as fbl;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::flatbuffers::LAYOUT_VERIFIER;
 use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
@@ -100,5 +102,33 @@ impl LayoutChild {
                 layout
             }
         })
+    }
+
+    pub(crate) fn from_flatbuffer(
+        fb: &FlatBuffer,
+        layout_ids: Arc<[LayoutId]>,
+        array_ctx: ReadContext,
+        segment_source: &Arc<dyn SegmentSource>,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutChild> {
+        let fb_layout = root_with_opts::<fbl::Layout>(&LAYOUT_VERIFIER, &fb)?;
+        let layout_id = layout_ids
+            .get(fb_layout.encoding() as usize)
+            .ok_or_else(|| vortex_err!("Invalid layout ID: {}", fb_layout.encoding()))?;
+
+        let plugin = session
+            .layouts2()
+            .registry()
+            .find(&layout_id)
+            .ok_or_else(|| vortex_err!("Invalid layout ID: {}", fb_layout.encoding()))?;
+
+        Ok(LayoutChild(Arc::new(RwLock::new(Inner::Viewed {
+            fb: fb.clone(),
+            loc: fb_layout._tab.loc(),
+            ids: layout_ids,
+            context: array_ctx,
+            source: segment_source.clone(),
+            session: session.clone(),
+        }))))
     }
 }
