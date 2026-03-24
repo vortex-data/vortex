@@ -126,8 +126,16 @@ impl<'a> PlanBuilder<'a> {
     }
 
     /// Construct a node with a resolved value and no input dependencies.
+    ///
+    /// Internally creates a zero-dep compute node so it flows through the normal
+    /// Ready → Compute → Complete → propagate path.
     pub fn create_node_resolved(&mut self, array: ArrayRef) -> NodeId {
-        self.plan.add_resolved_node(array)
+        self.plan.add_node(
+            &[],
+            Vec::new(),
+            Box::new(move |_, _| Ok(array)),
+            Lifetime::Scan,
+        )
     }
 }
 

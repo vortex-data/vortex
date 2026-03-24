@@ -42,9 +42,21 @@ impl core::clone::Clone for vortex_session::registry::ReadContext
 
 pub fn vortex_session::registry::ReadContext::clone(&self) -> vortex_session::registry::ReadContext
 
+impl core::cmp::Eq for vortex_session::registry::ReadContext
+
+impl core::cmp::PartialEq for vortex_session::registry::ReadContext
+
+pub fn vortex_session::registry::ReadContext::eq(&self, other: &vortex_session::registry::ReadContext) -> bool
+
 impl core::fmt::Debug for vortex_session::registry::ReadContext
 
 pub fn vortex_session::registry::ReadContext::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_session::registry::ReadContext
+
+pub fn vortex_session::registry::ReadContext::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_session::registry::ReadContext
 
 pub struct vortex_session::registry::Registry<T>(_)
 

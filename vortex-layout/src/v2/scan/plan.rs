@@ -128,27 +128,6 @@ impl Plan {
         id
     }
 
-    /// Adds a pre-resolved node with no dependencies.
-    ///
-    /// The node starts in `Complete` state with its output already set.
-    pub(crate) fn add_resolved_node(&mut self, output: ArrayRef) -> NodeId {
-        let id = NodeId::new(self.nodes.len());
-        let node = PlanNode {
-            input_nodes: Vec::new(),
-            segments: Vec::new(),
-            compute: None,
-            lifetime: Lifetime::Scan,
-            state: NodeState::Complete,
-            pending_deps: 0,
-            resolved_segments: Vec::new(),
-            resolved_inputs: Vec::new(),
-            output: Some(output),
-        };
-        self.nodes.push(node);
-        self.dependents.push(Vec::new());
-        id
-    }
-
     /// Returns the number of nodes in the plan.
     pub(crate) fn len(&self) -> usize {
         self.nodes.len()
@@ -237,7 +216,9 @@ impl Plan {
         debug_assert!(node.resolved_inputs[slot].is_none());
         node.resolved_inputs[slot] = Some(input);
         node.pending_deps -= 1;
-        if node.pending_deps == 0 && node.state == NodeState::Waiting {
+        if node.pending_deps == 0
+            && (node.state == NodeState::Waiting || node.state == NodeState::Dispatched)
+        {
             node.state = NodeState::Ready;
         }
     }
@@ -291,17 +272,17 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_resolved_node_is_immediately_complete() {
-        let mut plan = Plan::new();
-        let array = PrimitiveArray::from_iter([42i32]).into_array();
-        let node_id = plan.add_resolved_node(array);
-        assert_eq!(plan.node_state(node_id), NodeState::Complete);
-        assert!(plan.node_output(node_id).is_some());
+    fn add_resolved_node(plan: &mut Plan, array: ArrayRef) -> NodeId {
+        plan.add_node(
+            &[],
+            Vec::new(),
+            Box::new(move |_, _| Ok(array)),
+            Lifetime::Scan,
+        )
     }
 
     #[test]
-    fn test_node_no_deps_is_ready() {
+    fn test_zero_dep_node_is_ready() {
         let mut plan = Plan::new();
         let node_id = plan.add_node(
             &[],
@@ -316,8 +297,8 @@ mod tests {
     fn test_two_node_chain() -> VortexResult<()> {
         let mut plan = Plan::new();
 
-        // Node A: resolved immediately.
-        let a = plan.add_resolved_node(PrimitiveArray::from_iter([10i32]).into_array());
+        // Node A: no deps, immediately Ready.
+        let a = add_resolved_node(&mut plan, PrimitiveArray::from_iter([10i32]).into_array());
 
         // Node B: depends on A.
         let b = plan.add_node(
@@ -330,8 +311,10 @@ mod tests {
         // B starts Waiting since it has 1 input dep.
         assert_eq!(plan.node_state(b), NodeState::Waiting);
 
-        // Propagate A's output to B.
-        let a_output = plan.node_output(a).unwrap().clone();
+        // Execute A and propagate its output to B.
+        let (compute_a, segs_a, inputs_a) = plan.take_compute(a)?;
+        let a_output = compute_a(segs_a, inputs_a)?;
+        plan.complete_node(a, a_output.clone());
         plan.resolve_input(b, 0, a_output);
 
         // B should now be Ready.
@@ -353,7 +336,7 @@ mod tests {
     fn test_dependents_reverse_index() {
         let mut plan = Plan::new();
 
-        let a = plan.add_resolved_node(PrimitiveArray::from_iter([1i32]).into_array());
+        let a = add_resolved_node(&mut plan, PrimitiveArray::from_iter([1i32]).into_array());
 
         let b = plan.add_node(
             &[a],
@@ -372,11 +355,9 @@ mod tests {
     fn test_ready_nodes_in_range() {
         let mut plan = Plan::new();
 
-        // Node 0: resolved (Complete, not Ready).
-        let _resolved = plan.add_resolved_node(PrimitiveArray::from_iter([1i32]).into_array());
-
-        // Node 1: no deps -> Ready.
-        let _ready = plan.add_node(
+        // Both nodes have no deps, so both are Ready.
+        let _a = add_resolved_node(&mut plan, PrimitiveArray::from_iter([1i32]).into_array());
+        let _b = plan.add_node(
             &[],
             Vec::new(),
             Box::new(|_, _| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
@@ -384,7 +365,6 @@ mod tests {
         );
 
         let ready: Vec<_> = plan.ready_nodes_in_range(0..plan.len()).collect();
-        assert_eq!(ready.len(), 1);
-        assert_eq!(ready[0].as_usize(), 1);
+        assert_eq!(ready.len(), 2);
     }
 }

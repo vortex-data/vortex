@@ -1332,6 +1332,8 @@ pub fn vortex_layout::v2::layout::LayoutChild::row_count(&self) -> u64
 
 pub struct vortex_layout::v2::layout::LayoutDeserialize<'a>
 
+pub vortex_layout::v2::layout::LayoutDeserialize::array_ctx: &'a vortex_session::registry::ReadContext
+
 pub vortex_layout::v2::layout::LayoutDeserialize::children: alloc::vec::Vec<vortex_layout::v2::layout::LayoutChild>
 
 pub vortex_layout::v2::layout::LayoutDeserialize::dtype: &'a vortex_array::dtype::DType
@@ -1356,7 +1358,7 @@ pub fn vortex_layout::v2::layout::LayoutRef::dtype(&self) -> &vortex_array::dtyp
 
 pub fn vortex_layout::v2::layout::LayoutRef::id(&self) -> vortex_layout::v2::layout::LayoutId
 
-pub fn vortex_layout::v2::layout::LayoutRef::prepare(&self, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
+pub fn vortex_layout::v2::layout::LayoutRef::prepare(&self, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
 
 pub fn vortex_layout::v2::layout::LayoutRef::row_count(&self) -> u64
 
@@ -1392,11 +1394,11 @@ pub fn vortex_layout::v2::layout::LayoutVTable::child_dtype(layout: &vortex_layo
 
 pub fn vortex_layout::v2::layout::LayoutVTable::child_relationship(layout: &vortex_layout::v2::layout::Layout<Self>, child_idx: usize) -> vortex_layout::v2::layout::ChildRelationship
 
-pub fn vortex_layout::v2::layout::LayoutVTable::deserialize_metadata(metadata: &[u8], dtype: &vortex_array::dtype::DType, row_count: u64, children: &[vortex_layout::v2::layout::LayoutChild]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_layout::v2::layout::LayoutVTable::deserialize_metadata(metadata: &[u8], dtype: &vortex_array::dtype::DType, row_count: u64, children: &[vortex_layout::v2::layout::LayoutChild], array_ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_layout::v2::layout::LayoutVTable::id(&self) -> vortex_layout::v2::layout::LayoutId
 
-pub fn vortex_layout::v2::layout::LayoutVTable::prepare(layout: &vortex_layout::v2::layout::Layout<Self>, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
+pub fn vortex_layout::v2::layout::LayoutVTable::prepare(layout: &vortex_layout::v2::layout::Layout<Self>, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
 
 pub type vortex_layout::v2::layout::LayoutId = arcref::ArcRef<str>
 
@@ -1576,7 +1578,7 @@ pub fn vortex_layout::v2::scan::shim::ScanBuilder::dtype(&self) -> vortex_error:
 
 pub fn vortex_layout::v2::scan::shim::ScanBuilder::into_array_stream(self) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::scan::shim::ScanBuilder::new(layout: vortex_layout::v2::layout::LayoutRef) -> Self
+pub fn vortex_layout::v2::scan::shim::ScanBuilder::new(layout: vortex_layout::v2::layout::LayoutRef, session: vortex_session::VortexSession) -> Self
 
 pub fn vortex_layout::v2::scan::shim::ScanBuilder::with_filter(self, filter: vortex_array::expr::expression::Expression) -> Self
 
@@ -1596,7 +1598,7 @@ pub fn vortex_layout::v2::scan::Scan::actions(&mut self) -> vortex_error::Vortex
 
 pub fn vortex_layout::v2::scan::Scan::event(&mut self, event: vortex_layout::v2::scan::scheduler::ScanEvent) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::scan::Scan::try_new(layout: &vortex_layout::v2::layout::LayoutRef, projection: &vortex_array::expr::expression::Expression, filter: core::option::Option<&vortex_array::expr::expression::Expression>, selection: &vortex_layout::v2::selection::Selection, config: vortex_layout::v2::scan::ScanConfig) -> vortex_error::VortexResult<Self>
+pub fn vortex_layout::v2::scan::Scan::try_new(layout: &vortex_layout::v2::layout::LayoutRef, projection: &vortex_array::expr::expression::Expression, filter: core::option::Option<&vortex_array::expr::expression::Expression>, selection: &vortex_layout::v2::selection::Selection, config: vortex_layout::v2::scan::ScanConfig, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 pub struct vortex_layout::v2::scan::ScanConfig
 
