@@ -212,6 +212,8 @@ impl VTable for Dict {
         let array = require_child!(Self, array, array.codes(), 0 => Primitive);
 
         // TODO(joe): use stat get instead computing.
+        // Also not the check to do here it take value validity using code validity, but this approx
+        // is correct.
         if array.codes().all_invalid()? {
             return Ok(ExecutionResult::done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
