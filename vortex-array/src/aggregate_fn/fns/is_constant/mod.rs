@@ -274,14 +274,14 @@ impl AggregateFnVTable for IsConstant {
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null => None,
+            DType::Null | DType::Variant(..) => None,
             _ => Some(DType::Bool(Nullability::NonNullable)),
         }
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null => None,
+            DType::Null | DType::Variant(..) => None,
             _ => Some(make_is_constant_partial_dtype(input_dtype)),
         }
     }
