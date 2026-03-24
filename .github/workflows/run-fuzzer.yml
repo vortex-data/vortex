@@ -4,9 +4,14 @@ on:
   workflow_call:
     inputs:
       fuzz_target:
-        description: "The cargo fuzz target name (e.g., file_io, array_ops, compress_roundtrip)"
+        description: "The cargo fuzz binary target name (e.g., file_io, array_ops)"
         required: true
         type: string
+      fuzz_name:
+        description: "Display/storage name for this fuzz run. Defaults to fuzz_target if not set."
+        required: false
+        type: string
+        default: ""
       max_time:
         description: "Maximum fuzzing time in seconds"
         required: false
@@ -48,11 +53,13 @@ env:
 
 jobs:
   fuzz:
-    name: "Run ${{ inputs.fuzz_target }}"
+    name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
+    env:
+      FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
     timeout-minutes: 230  # almost 4 hours
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_target)
+          && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
           || 'ubuntu-latest' }}
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
@@ -89,8 +96,8 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
-          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}-${{ inputs.extra_features }}"
 
           # Try to download corpus
           if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
@@ -163,7 +170,7 @@ jobs:
         if: steps.check.outputs.crashes_found == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.fuzz_target }}-crash-artifacts
+          name: ${{ env.FUZZ_NAME }}-crash-artifacts
           path: fuzz/artifacts
           retention-days: 180
 
@@ -171,7 +178,7 @@ jobs:
         if: steps.check.outputs.crashes_found == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.fuzz_target }}-logs
+          name: ${{ env.FUZZ_NAME }}-logs
           path: fuzz_output.log
           retention-days: 90
 
@@ -183,8 +190,8 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
-          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
 
           tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
 

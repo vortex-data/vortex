@@ -106,7 +106,8 @@ jobs:
     name: "Array Operations Fuzz (unstable)"
     uses: ./.github/workflows/run-fuzzer.yml
     with:
-      fuzz_target: array_ops_unstable_encodings
+      fuzz_target: array_ops
+      fuzz_name: array_ops_unstable_encodings
       extra_features: "vortex/unstable_encodings"
       jobs: 16
     secrets:
