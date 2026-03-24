@@ -60,7 +60,7 @@ impl VTable for NormVector {
     }
 
     fn stats(array: &NormVectorArray) -> StatsSetRef<'_> {
-        array.vector_array().statistics()
+        array.stats_set.to_ref(array.as_ref())
     }
 
     fn array_hash<H: Hasher>(array: &NormVectorArray, state: &mut H, precision: Precision) {
@@ -144,7 +144,8 @@ impl VTable for NormVector {
             vortex_err!("NormVectorArray dtype must be an extension type, got {dtype}")
         })?;
         let element_ptype = extension_element_ptype(ext)?;
-        let norms_dtype = DType::Primitive(element_ptype, Nullability::NonNullable);
+        let nullability = Nullability::from(dtype.is_nullable());
+        let norms_dtype = DType::Primitive(element_ptype, nullability);
         let norms = children.get(1, &norms_dtype, len)?;
 
         NormVectorArray::try_new(vector_array, norms)
@@ -161,8 +162,7 @@ impl VTable for NormVector {
             .try_into()
             .map_err(|_| vortex_err!("NormVectorArray requires exactly 2 children"))?;
 
-        array.vector_array = vector_array;
-        array.norms = norms;
+        *array = NormVectorArray::try_new(vector_array, norms)?;
         Ok(())
     }
 

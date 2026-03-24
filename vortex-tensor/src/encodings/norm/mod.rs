@@ -4,7 +4,7 @@
 mod array;
 pub use array::NormVectorArray;
 
-// pub(crate) mod compute;
+// TODO: Compute operations for NormVector.
 
 mod vtable;
 pub use vtable::NormVector;

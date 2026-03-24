@@ -2,4 +2,4 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod norm;
-// mod spherical;
+// TODO: Spherical coordinate encoding.

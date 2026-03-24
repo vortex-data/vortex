@@ -115,7 +115,7 @@ impl ScalarFnVTable for CosineSimilarity {
         &self,
         _options: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let lhs = args.get(0)?;
         let rhs = args.get(1)?;
@@ -135,8 +135,8 @@ impl ScalarFnVTable for CosineSimilarity {
         let lhs_storage = extension_storage(&lhs)?;
         let rhs_storage = extension_storage(&rhs)?;
 
-        let lhs_flat = extract_flat_elements(&lhs_storage, list_size)?;
-        let rhs_flat = extract_flat_elements(&rhs_storage, list_size)?;
+        let lhs_flat = extract_flat_elements(&lhs_storage, list_size, ctx)?;
+        let rhs_flat = extract_flat_elements(&rhs_storage, list_size, ctx)?;
 
         match_each_float_ptype!(lhs_flat.ptype(), |T| {
             let result: PrimitiveArray = (0..row_count)

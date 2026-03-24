@@ -98,7 +98,7 @@ impl ScalarFnVTable for L2Norm {
         &self,
         _options: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         let row_count = args.row_count();
@@ -113,7 +113,7 @@ impl ScalarFnVTable for L2Norm {
         let list_size = extension_list_size(ext)?;
 
         let storage = extension_storage(&input)?;
-        let flat = extract_flat_elements(&storage, list_size)?;
+        let flat = extract_flat_elements(&storage, list_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {
             let result: PrimitiveArray = (0..row_count)
