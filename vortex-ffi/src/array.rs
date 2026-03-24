@@ -1,36 +1,115 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![allow(non_camel_case_types)]
 
 //! FFI interface for working with Vortex Arrays.
+use std::ffi::c_void;
 use std::ptr;
 use std::sync::Arc;
 
+use vortex::array::arrays::NullArray;
+use vortex::buffer::Buffer;
+use vortex::array::IntoArray;
+use paste::paste;
+use vortex::array::validity::Validity;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::dtype::half::f16;
+use vortex::dtype::DType;
+use vortex::error::vortex_ensure;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 
 use crate::arc_dyn_wrapper;
 use crate::binary::vx_binary;
 use crate::dtype::vx_dtype;
+use crate::dtype::vx_dtype_variant;
 use crate::error::try_or_default;
 use crate::error::vx_error;
+use crate::error::write_error;
+use crate::ptype::vx_ptype;
 use crate::string::vx_string;
 
 arc_dyn_wrapper!(
     /// Base type for all Vortex arrays.
-    ///
-    /// All built-in Vortex array types can be safely cast to this type to pass into functions that
-    /// expect a generic array type. e.g.
-    ///
-    /// ```cpp
-    /// auto primitive_array = vx_array_primitive_new(...);
-    /// vx_array_len((*vx_array) primitive_array));
-    /// ```
     dyn DynArray,
     vx_array
 );
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_is_nullable(array: *const vx_array) -> bool {
+    vx_array::as_ref(array).dtype().is_nullable()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_is(array: *const vx_array, variant: vx_dtype_variant) -> bool {
+    let other: vx_dtype_variant = vx_array::as_ref(array).dtype().into();
+    other == variant
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_is_primitive(array: *const vx_array, ptype: vx_ptype) -> bool {
+    let ptype = ptype.into();
+    match vx_array::as_ref(array).dtype() {
+        DType::Primitive(other, _) => other == &ptype,
+        _ => false
+    }
+}
+
+#[repr(C)]
+pub enum vx_validity_type {
+    VX_VALIDITY_NON_NULLABLE = 0,
+    VX_VALIDITY_ALL_VALID = 1,
+    VX_VALIDITY_ALL_INVALID = 2,
+    VX_VALIDITY_ARRAY = 3,
+}
+
+#[repr(C)]
+pub struct vx_validity {
+    r#type: vx_validity_type,
+    /// If type is VX_VALIDITY_ARRAY, this is set, NULL otherwise
+    array: *const vx_array
+}
+
+impl From<&vx_validity> for Validity {
+    fn from(value: &vx_validity) -> Self {
+        match value.r#type {
+            vx_validity_type::VX_VALIDITY_NON_NULLABLE => Validity::NonNullable,
+            vx_validity_type::VX_VALIDITY_ALL_VALID => Validity::AllValid,
+            vx_validity_type::VX_VALIDITY_ALL_INVALID => Validity::AllInvalid,
+            vx_validity_type::VX_VALIDITY_ARRAY => Validity::Array(vx_array::as_ref(value.array).clone()),
+        }
+    }
+}
+
+/// Return array's validity.
+/// If validity.type is VX_VALIDITY_ARRAY, returns an owned vx_array in
+/// validity.array which must be freed by the caller.
+/// If validity.type is not VX_VALIDITY_ARRAY, validity.array is NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_get_validity(
+    array: *const vx_array,
+    validity: *mut vx_validity,
+    error: *mut *mut vx_error
+) {
+    let array = vx_array::as_ref(array);
+    try_or_default(error, || {
+        vortex_ensure!(!validity.is_null());
+        let validity = unsafe { &mut *validity };
+        validity.array = ptr::null();
+        match array.validity()? {
+            Validity::NonNullable => validity.r#type = vx_validity_type::VX_VALIDITY_NON_NULLABLE,
+            Validity::AllValid => validity.r#type = vx_validity_type::VX_VALIDITY_ALL_VALID,
+            Validity::AllInvalid => validity.r#type = vx_validity_type::VX_VALIDITY_ALL_INVALID,
+            Validity::Array(validity_array) => {
+                validity.r#type = vx_validity_type::VX_VALIDITY_ARRAY;
+                validity.array = vx_array::new(validity_array);
+            }
+        };
+        Ok(())
+    });
+}
 
 /// Get the length of the array.
 #[unsafe(no_mangle)]
@@ -81,17 +160,19 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     })
 }
 
+/// Check whether array's element at index is null.
+/// Sets error if index is out of bounds or underlying validity array is 
+/// corrupted.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_is_null(
+pub unsafe extern "C-unwind" fn vx_array_element_is_null(
     array: *const vx_array,
-    index: u32,
-    _error_out: *mut *mut vx_error,
+    index: usize,
+    error: *mut *mut vx_error,
 ) -> bool {
-    let array = vx_array::as_ref(array);
-    // TODO(joe): propagate this error up instead of expecting
-    array
-        .is_invalid(index as usize)
-        .vortex_expect("is_invalid failed")
+    try_or_default(error, || {
+        vortex_ensure!(!array.is_null());
+        vx_array::as_ref(array).is_invalid(index)
+    })
 }
 
 // TODO(robert): Make this return usize and remove error
@@ -104,9 +185,59 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_new_null(len: usize) -> *const vx_array {
+    vx_array::new(NullArray::new(len).into_array())
+}
+
+fn primitive<T: vortex::dtype::NativePType>(
+    ptr: *const T,
+    len: usize,
+    validity: &vx_validity
+) -> * const vx_array {
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let buffer = Buffer::copy_from(slice);
+    let array = PrimitiveArray::new(buffer, validity.into());
+    vx_array::new(array.into_array())
+}
+
+/// Create a new primitive array from an existing buffer.
+/// It is caller's responsibility to ensure ptr points to a buffer of correct type.
+/// Buffer contents are copied.
+/// Takes ownership of validity.array if it is set.
+/// validity can't be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_new_primitive(
+    ptype: vx_ptype,
+    ptr: *const c_void,
+    len: usize,
+    validity: *const vx_validity,
+    error: *mut *mut vx_error
+) -> *const vx_array {
+    if validity.is_null() {
+        write_error(error, "validity is NULL");
+        return ptr::null();
+    }
+    let validity = unsafe { &*validity };
+
+    match ptype {
+        vx_ptype::PTYPE_U8 => primitive(ptr as *const u8, len, validity),
+        vx_ptype::PTYPE_U16 => primitive(ptr as *const u16, len, validity),
+        vx_ptype::PTYPE_U32 => primitive(ptr as *const u32, len, validity),
+        vx_ptype::PTYPE_U64 => primitive(ptr as *const u64, len, validity),
+        vx_ptype::PTYPE_I8 => primitive(ptr as *const i8, len, validity),
+        vx_ptype::PTYPE_I16 => primitive(ptr as *const i16, len, validity),
+        vx_ptype::PTYPE_I32 => primitive(ptr as *const i32, len, validity),
+        vx_ptype::PTYPE_I64 => primitive(ptr as *const i64, len, validity),
+        vx_ptype::PTYPE_F16 => primitive(ptr as *const f16, len, validity),
+        vx_ptype::PTYPE_F32 => primitive(ptr as *const f32, len, validity),
+        vx_ptype::PTYPE_F64 => primitive(ptr as *const f64, len, validity),
+    }
+}
+
 macro_rules! ffiarray_get_ptype {
     ($ptype:ident) => {
-        paste::paste! {
+        paste! {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
@@ -190,12 +321,9 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 mod tests {
     use std::ptr;
 
-    use vortex::array::IntoArray;
-    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::validity::Validity;
-    use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     #[cfg(not(miri))]
     use vortex::dtype::half::f16;
@@ -226,6 +354,18 @@ mod tests {
             assert_eq!(vx_array_get_i32(ffi_array, 2), 3);
 
             vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_simple_is() {
+        unsafe {
+            let primitive =
+                PrimitiveArray::new(buffer![1i32, 2i32, 3i32, 4i32, 5i32], Validity::NonNullable);
+            let array = vx_array::new(primitive.into_array());
+            assert!(!vx_array_is_nullable(array));
+            assert!(vx_array_is_primitive(array, vx_ptype::PTYPE_I32));
+            vx_array_free(array);
         }
     }
 
@@ -261,11 +401,11 @@ mod tests {
             let ffi_array = vx_array::new(primitive.into_array());
 
             let mut error = ptr::null_mut();
-            assert!(!vx_array_is_null(ffi_array, 0, &raw mut error));
+            assert!(!vx_array_element_is_null(ffi_array, 0, &raw mut error));
             assert!(error.is_null());
-            assert!(vx_array_is_null(ffi_array, 1, &raw mut error));
+            assert!(vx_array_element_is_null(ffi_array, 1, &raw mut error));
             assert!(error.is_null());
-            assert!(!vx_array_is_null(ffi_array, 2, &raw mut error));
+            assert!(!vx_array_element_is_null(ffi_array, 2, &raw mut error));
             assert!(error.is_null());
 
             let null_count = vx_array_null_count(ffi_array, &raw mut error);
@@ -326,6 +466,7 @@ mod tests {
             let i32_array =
                 PrimitiveArray::new(buffer![i32::MAX, i32::MIN, 0i32], Validity::NonNullable);
             let ffi_i32 = vx_array::new(i32_array.into_array());
+            assert!(vx_array_is_primitive(ffi_i32, vx_ptype::PTYPE_I32));
             assert_eq!(vx_array_get_i32(ffi_i32, 0), i32::MAX);
             assert_eq!(vx_array_get_i32(ffi_i32, 1), i32::MIN);
             assert_eq!(vx_array_get_i32(ffi_i32, 2), 0);
@@ -335,6 +476,7 @@ mod tests {
             let u64_array =
                 PrimitiveArray::new(buffer![u64::MAX, 0u64, 42u64], Validity::NonNullable);
             let ffi_u64 = vx_array::new(u64_array.into_array());
+            assert!(vx_array_is_primitive(ffi_u64, vx_ptype::PTYPE_U64));
             assert_eq!(vx_array_get_u64(ffi_u64, 0), u64::MAX);
             assert_eq!(vx_array_get_u64(ffi_u64, 1), 0);
             assert_eq!(vx_array_get_u64(ffi_u64, 2), 42);
@@ -346,6 +488,7 @@ mod tests {
                 Validity::NonNullable,
             );
             let ffi_f64 = vx_array::new(f64_array.into_array());
+            assert!(vx_array_is_primitive(ffi_f64, vx_ptype::PTYPE_F64));
             assert_eq!(vx_array_get_f64(ffi_f64, 0), f64::NEG_INFINITY);
             assert_eq!(vx_array_get_f64(ffi_f64, 1), 0.0);
             assert!(vx_array_get_f64(ffi_f64, 2).is_nan());
@@ -371,6 +514,7 @@ mod tests {
         unsafe {
             let utf8_array = VarBinViewArray::from_iter_str(["hello", "world", "test"]);
             let ffi_array = vx_array::new(utf8_array.into_array());
+            assert!(vx_array_is(ffi_array, vx_dtype_variant::DTYPE_UTF8));
 
             let vx_str1 = vx_array_get_utf8(ffi_array, 0);
             assert_eq!(vx_string::as_str(vx_str1), "hello");
@@ -397,6 +541,7 @@ mod tests {
                 vec![0xAA, 0xBB, 0xCC, 0xDD],
             ]);
             let ffi_array = vx_array::new(binary_array.into_array());
+            assert!(vx_array_is(ffi_array, vx_dtype_variant::DTYPE_BINARY));
 
             let vx_bin1 = vx_array_get_binary(ffi_array, 0);
             assert_eq!(vx_binary::as_slice(vx_bin1), &[0x01, 0x02, 0x03]);
@@ -428,6 +573,7 @@ mod tests {
             .into_array()
         };
         let vx_arr = vx_array::new(array);
+        assert!(unsafe { vx_array_is(vx_arr, vx_dtype_variant::DTYPE_STRUCT) });
 
         // Get dtype reference - this is valid as long as array lives
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };

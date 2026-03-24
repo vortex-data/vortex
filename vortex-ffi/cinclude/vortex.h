@@ -18,11 +18,51 @@
  */
 #define BinaryView_MAX_INLINED_SIZE 12
 
+/**
+ * The variant tag for a Vortex data type.
+ */
 typedef enum {
-    VX_CARD_UNKNOWN = 0,
-    VX_CARD_ESTIMATE = 1,
-    VX_CARD_MAXIMUM = 2,
-} vx_cardinality;
+    /**
+     * Null type.
+     */
+    DTYPE_NULL = 0,
+    /**
+     * Boolean type.
+     */
+    DTYPE_BOOL = 1,
+    /**
+     * Primitive types (e.g., u8, i16, f32, etc.).
+     */
+    DTYPE_PRIMITIVE = 2,
+    /**
+     * Variable-length UTF-8 string type.
+     */
+    DTYPE_UTF8 = 3,
+    /**
+     * Variable-length binary data type.
+     */
+    DTYPE_BINARY = 4,
+    /**
+     * Nested struct type.
+     */
+    DTYPE_STRUCT = 5,
+    /**
+     * Nested list type.
+     */
+    DTYPE_LIST = 6,
+    /**
+     * User-defined extension type.
+     */
+    DTYPE_EXTENSION = 7,
+    /**
+     * Decimal type with fixed precision and scale.
+     */
+    DTYPE_DECIMAL = 8,
+    /**
+     * Nested fixed-size list type.
+     */
+    DTYPE_FIXED_SIZE_LIST = 9,
+} vx_dtype_variant;
 
 /**
  * Variant enum for Vortex primitive types.
@@ -74,51 +114,18 @@ typedef enum {
     PTYPE_F64 = 10,
 } vx_ptype;
 
-/**
- * The variant tag for a Vortex data type.
- */
 typedef enum {
-    /**
-     * Null type.
-     */
-    DTYPE_NULL = 0,
-    /**
-     * Boolean type.
-     */
-    DTYPE_BOOL = 1,
-    /**
-     * Primitive types (e.g., u8, i16, f32, etc.).
-     */
-    DTYPE_PRIMITIVE = 2,
-    /**
-     * Variable-length UTF-8 string type.
-     */
-    DTYPE_UTF8 = 3,
-    /**
-     * Variable-length binary data type.
-     */
-    DTYPE_BINARY = 4,
-    /**
-     * Nested struct type.
-     */
-    DTYPE_STRUCT = 5,
-    /**
-     * Nested list type.
-     */
-    DTYPE_LIST = 6,
-    /**
-     * User-defined extension type.
-     */
-    DTYPE_EXTENSION = 7,
-    /**
-     * Decimal type with fixed precision and scale.
-     */
-    DTYPE_DECIMAL = 8,
-    /**
-     * Nested fixed-size list type.
-     */
-    DTYPE_FIXED_SIZE_LIST = 9,
-} vx_dtype_variant;
+    VX_VALIDITY_NON_NULLABLE = 0,
+    VX_VALIDITY_ALL_VALID = 1,
+    VX_VALIDITY_ALL_INVALID = 2,
+    VX_VALIDITY_ARRAY = 3,
+} vx_validity_type;
+
+typedef enum {
+    VX_CARD_UNKNOWN = 0,
+    VX_CARD_ESTIMATE = 1,
+    VX_CARD_MAXIMUM = 2,
+} vx_cardinality;
 
 /**
  * Log levels for the Vortex library.
@@ -257,14 +264,6 @@ typedef struct VxFileHandle VxFileHandle;
 
 /**
  * Base type for all Vortex arrays.
- *
- * All built-in Vortex array types can be safely cast to this type to pass into functions that
- * expect a generic array type. e.g.
- *
- * ```cpp
- * auto primitive_array = vx_array_primitive_new(...);
- * vx_array_len((*vx_array) primitive_array));
- * ```
  */
 typedef struct vx_array vx_array;
 
@@ -361,6 +360,14 @@ typedef struct vx_struct_fields vx_struct_fields;
  * Builder for creating a [`vx_struct_fields`].
  */
 typedef struct vx_struct_fields_builder vx_struct_fields_builder;
+
+typedef struct {
+    vx_validity_type type;
+    /**
+     * If type is VX_VALIDITY_ARRAY, this is set, NULL otherwise
+     */
+    const vx_array *array;
+} vx_validity;
 
 typedef int (*vx_fs_use_vortex)(const char *schema, const char *path);
 
@@ -542,6 +549,20 @@ const vx_array *vx_array_clone(const vx_array *ptr);
  */
 void vx_array_free(const vx_array *ptr);
 
+bool vx_array_is_nullable(const vx_array *array);
+
+bool vx_array_is(const vx_array *array, vx_dtype_variant variant);
+
+bool vx_array_is_primitive(const vx_array *array, vx_ptype ptype);
+
+/**
+ * Return array's validity.
+ * If validity.type is VX_VALIDITY_ARRAY, returns an owned vx_array in
+ * validity.array which must be freed by the caller.
+ * If validity.type is not VX_VALIDITY_ARRAY, validity.array is NULL.
+ */
+void vx_array_get_validity(const vx_array *array, vx_validity *validity, vx_error **error);
+
 /**
  * Get the length of the array.
  */
@@ -559,9 +580,29 @@ const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_err
 
 const vx_array *vx_array_slice(const vx_array *array, uint32_t start, uint32_t stop, vx_error **error_out);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **_error_out);
+/**
+ * Check whether array's element at index is null.
+ * Sets error if index is out of bounds or underlying validity array is
+ * corrupted.
+ */
+bool vx_array_element_is_null(const vx_array *array, size_t index, vx_error **error);
 
 uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
+
+const vx_array *vx_array_new_null(size_t len);
+
+/**
+ * Create a new primitive array from an existing buffer.
+ * It is caller's responsibility to ensure ptr points to a buffer of correct type.
+ * Buffer contents are copied.
+ * Takes ownership of validity.array if it is set.
+ * validity can't be NULL.
+ */
+const vx_array *vx_array_new_primitive(vx_ptype ptype,
+                                       const void *ptr,
+                                       size_t len,
+                                       const vx_validity *validity,
+                                       vx_error **error);
 
 uint8_t vx_array_get_u8(const vx_array *array, uint32_t index);
 
@@ -985,7 +1026,8 @@ vx_array_sink *vx_array_sink_open_file(const vx_session *session,
                                        vx_error **error_out);
 
 /**
- * Pushed a single array chunk into a file sink.
+ * Push an array into a file sink.
+ * Does not take ownership of array
  */
 void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error_out);
 
