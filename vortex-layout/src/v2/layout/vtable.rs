@@ -11,6 +11,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutChild;
@@ -36,6 +38,7 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
         dtype: &DType,
         row_count: u64,
         children: &[LayoutChild],
+        array_ctx: &ReadContext,
     ) -> VortexResult<Self::Metadata>;
 
     /// Returns the DType of the given child.
@@ -57,6 +60,7 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
         expr: &Expression,
         selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef>;
 }
 

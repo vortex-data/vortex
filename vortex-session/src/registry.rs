@@ -68,7 +68,7 @@ impl<T: Clone> Registry<T> {
 
 /// A [`ReadContext`] holds a set of interned IDs for use during deserialization, mapping
 /// u16 indices to IDs.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ReadContext {
     ids: Arc<[Id]>,
 }

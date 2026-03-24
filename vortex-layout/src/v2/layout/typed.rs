@@ -8,6 +8,8 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -19,40 +21,19 @@ use crate::v2::scan::planner::SplitPlannerRef;
 use crate::v2::selection::Selection;
 
 pub struct Layout<V: LayoutVTable> {
-    vtable: V,
-    metadata: V::Metadata,
-    dtype: DType,
-    row_count: u64,
-    children: Vec<LayoutChild>,
-    segments: Vec<SegmentId>,
-    segment_source: Arc<dyn SegmentSource>,
+    pub(super) vtable: V,
+    pub(super) metadata: V::Metadata,
+    pub(super) dtype: DType,
+    pub(super) row_count: u64,
+    pub(super) children: Vec<LayoutChild>,
+    pub(super) segments: Vec<SegmentId>,
+    pub(super) segment_source: Arc<dyn SegmentSource>,
+    pub(super) array_ctx: ReadContext,
+    pub(super) session: VortexSession,
 }
 
 #[allow(clippy::same_name_method)]
 impl<V: LayoutVTable> Layout<V> {
-    /// Construct a new layout.
-    ///
-    /// FIXME(ngates): this should at least be try_new with some validation!
-    pub(crate) fn new(
-        vtable: V,
-        metadata: V::Metadata,
-        dtype: DType,
-        row_count: u64,
-        children: Vec<LayoutChild>,
-        segments: Vec<SegmentId>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> Self {
-        Self {
-            vtable,
-            metadata,
-            dtype,
-            row_count,
-            children,
-            segments,
-            segment_source,
-        }
-    }
-
     /// Returns the ID of the layout.
     pub fn id(&self) -> LayoutId {
         self.vtable.id()
@@ -115,6 +96,7 @@ pub(super) trait DynLayout: 'static + Send + Sync + super::sealed::Sealed {
         expr: &Expression,
         selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef>;
 }
 
@@ -169,7 +151,8 @@ impl<V: LayoutVTable> DynLayout for Layout<V> {
         expr: &Expression,
         selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
-        V::prepare(self, expr, selection, row_splits)
+        V::prepare(self, expr, selection, row_splits, session)
     }
 }

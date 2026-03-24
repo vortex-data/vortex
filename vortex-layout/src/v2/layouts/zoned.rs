@@ -15,6 +15,8 @@ use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
@@ -58,10 +60,11 @@ impl LayoutVTable for Zoned {
 
     fn deserialize_metadata(
         metadata: &[u8],
-        _dtype: &DType,
-        _row_count: u64,
-        _children: &[LayoutChild],
-    ) -> VortexResult<ZonedMetadata> {
+        dtype: &DType,
+        row_count: u64,
+        children: &[LayoutChild],
+        array_ctx: &ReadContext,
+    ) -> VortexResult<Self::Metadata> {
         let zone_len = u32::try_from_le_bytes(&metadata[0..4])? as u64;
         let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();
         Ok(ZonedMetadata {
@@ -96,6 +99,7 @@ impl LayoutVTable for Zoned {
         expr: &Expression,
         selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
         let zone_len = layout.metadata().zone_len;
         let nzones = layout.row_count().div_ceil(zone_len);
@@ -104,7 +108,7 @@ impl LayoutVTable for Zoned {
         // Only the data child contributes row split boundaries.
         let _data_rel = Self::child_relationship(layout, 0);
         let data_child = layout.data_child()?;
-        let data_planner = data_child.prepare(expr, selection, row_splits)?;
+        let data_planner = data_child.prepare(expr, selection, row_splits, session)?;
 
         // TODO(ngates): derive pruning predicate via expr.stat_falsification(...)
         // For now, skip zone map optimization and just delegate to the data child.

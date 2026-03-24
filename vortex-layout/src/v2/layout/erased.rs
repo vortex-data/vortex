@@ -7,6 +7,7 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutId;
@@ -57,7 +58,8 @@ impl LayoutRef {
         expr: &Expression,
         selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
-        self.0.prepare(expr, selection, row_splits)
+        self.0.prepare(expr, selection, row_splits, session)
     }
 }

@@ -14,6 +14,8 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
@@ -57,11 +59,12 @@ impl LayoutVTable for Chunked {
     }
 
     fn deserialize_metadata(
-        _metadata: &[u8],
-        _dtype: &DType,
-        _row_count: u64,
+        metadata: &[u8],
+        dtype: &DType,
+        row_count: u64,
         children: &[LayoutChild],
-    ) -> VortexResult<ChunkedMetadata> {
+        array_ctx: &ReadContext,
+    ) -> VortexResult<Self::Metadata> {
         // Derive cumulative chunk offsets from child row counts.
         let mut chunk_offsets = Vec::with_capacity(children.len() + 1);
         chunk_offsets.push(0);
@@ -87,6 +90,7 @@ impl LayoutVTable for Chunked {
         expr: &Expression,
         selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
         let offsets = &layout.metadata().chunk_offsets;
         let num_chunks = layout.num_children();
@@ -107,7 +111,7 @@ impl LayoutVTable for Chunked {
 
             // Step into the child's coordinate space.
             let child = layout.child(chunk_idx)?;
-            let planner = child.prepare(expr, &local_selection, row_splits)?;
+            let planner = child.prepare(expr, &local_selection, row_splits, session)?;
 
             // Translate any row splits added by the child back to global coordinates.
             // We collect and re-insert since the child adds splits in its local space.

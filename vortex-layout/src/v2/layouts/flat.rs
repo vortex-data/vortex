@@ -7,11 +7,18 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
+use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::serde::ArrayParts;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
+use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -34,7 +41,9 @@ pub struct Flat;
 
 /// Metadata for a flat layout (no additional metadata needed).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FlatMetadata;
+pub struct FlatMetadata {
+    array_ctx: ReadContext,
+}
 
 impl fmt::Display for FlatMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -51,12 +60,15 @@ impl LayoutVTable for Flat {
     }
 
     fn deserialize_metadata(
-        _metadata: &[u8],
-        _dtype: &DType,
-        _row_count: u64,
-        _children: &[LayoutChild],
-    ) -> VortexResult<FlatMetadata> {
-        Ok(FlatMetadata)
+        metadata: &[u8],
+        dtype: &DType,
+        row_count: u64,
+        children: &[LayoutChild],
+        array_ctx: &ReadContext,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(FlatMetadata {
+            array_ctx: array_ctx.clone(),
+        })
     }
 
     fn child_dtype(_layout: &Layout<Self>, _child_idx: usize) -> &DType {
@@ -72,8 +84,9 @@ impl LayoutVTable for Flat {
         expr: &Expression,
         // TODO(ngates): we probably want to pass this down? Although it should be available
         //  through the "latest" view of the SplitSelection.
-        _selection: &Selection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
         // TODO(ngates): surely we only need one of them
         row_splits.insert(0);
@@ -87,39 +100,65 @@ impl LayoutVTable for Flat {
             .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
 
         Ok(Arc::new(FlatLayoutPlanner {
+            dtype: layout.dtype().clone(),
+            len: usize::try_from(layout.row_count())
+                .map_err(|_| vortex_err!("Layout larger than usize"))?,
             segment_source,
             segment_id,
             expression: expr.clone(),
+            array_ctx: layout.metadata().array_ctx.clone(),
+            session: session.clone(),
         }))
     }
 }
 
 struct FlatLayoutPlanner {
+    dtype: DType,
+    len: usize,
+    array_ctx: ReadContext,
+    expression: Expression,
     segment_source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
-    expression: Expression,
+    session: VortexSession,
 }
 
 impl SplitPlanner for FlatLayoutPlanner {
     fn plan_split(
         &self,
         row_range: &Range<u64>,
-        _selection: NodeId,
+        selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
+        let dtype = self.dtype.clone();
+        let array_ctx = self.array_ctx.clone();
         let expression = self.expression.clone();
+        let session = self.session.clone();
+        let len = self.len;
+
         builder.create_node(NodeOpts {
-            inputs: &[],
+            inputs: &[selection],
             segments: vec![SegmentRequest {
                 source: self.segment_source.clone(),
                 segment_id: self.segment_id,
             }],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |mut segments: Vec<ByteBuffer>, _inputs: Vec<ArrayRef>| {
+            compute: move |mut segments: Vec<ByteBuffer>, mut inputs: Vec<ArrayRef>| {
+                let mut ctx = session.create_execution_ctx();
+
                 // The segment is deserialized into an array by the scheduler.
-                let _buffer = segments.remove(0);
-                // TODO: deserialize buffer into array and evaluate expression.
-                todo!("deserialize segment buffer and apply expression")
+                let buffer = segments.remove(0);
+
+                // The selection mask
+                let mask = inputs.remove(0).execute::<Mask>(&mut ctx)?;
+
+                let parts = ArrayParts::from_array_tree(buffer)?;
+                let array = parts.decode(&dtype, len, &array_ctx, &session)?;
+
+                let array = array.filter(mask)?;
+                let array = array.apply(&expression)?;
+                let array = array.optimize_recursive()?;
+
+                Ok(array)
             },
         })
     }

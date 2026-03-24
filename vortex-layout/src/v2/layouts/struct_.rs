@@ -21,6 +21,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
@@ -90,11 +92,12 @@ impl LayoutVTable for Struct {
     }
 
     fn deserialize_metadata(
-        _metadata: &[u8],
+        metadata: &[u8],
         dtype: &DType,
-        _row_count: u64,
-        _children: &[LayoutChild],
-    ) -> VortexResult<StructMetadata> {
+        row_count: u64,
+        children: &[LayoutChild],
+        array_ctx: &ReadContext,
+    ) -> VortexResult<Self::Metadata> {
         let struct_fields = dtype.as_struct_fields();
         let mut child_dtypes = Vec::new();
         if dtype.is_nullable() {
@@ -148,6 +151,7 @@ impl LayoutVTable for Struct {
         expr: &Expression,
         selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
+        session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
         let struct_fields = layout.dtype().as_struct_fields();
 
@@ -161,11 +165,11 @@ impl LayoutVTable for Struct {
                     vortex_bail!("Partitioned field {field_name} not found in struct fields")
                 };
                 let child = layout.field_child(field_idx)?;
-                let planner = child.prepare(&field_expr, selection, row_splits)?;
+                let planner = child.prepare(&field_expr, selection, row_splits, session)?;
 
                 // If nullable, also prepare validity.
                 let validity_planner = if let Some(validity_child) = layout.validity_child()? {
-                    Some(validity_child.prepare(&root(), selection, row_splits)?)
+                    Some(validity_child.prepare(&root(), selection, row_splits, session)?)
                 } else {
                     None
                 };
@@ -187,13 +191,13 @@ impl LayoutVTable for Struct {
                         vortex_bail!("Partitioned field {annotation} not found in struct fields")
                     };
                     let child = layout.field_child(field_idx)?;
-                    let planner = child.prepare(partition_expr, selection, row_splits)?;
+                    let planner = child.prepare(partition_expr, selection, row_splits, session)?;
                     field_planners.push(planner);
                 }
 
                 // If nullable, also prepare validity.
                 let validity_planner = if let Some(validity_child) = layout.validity_child()? {
-                    Some(validity_child.prepare(&root(), selection, row_splits)?)
+                    Some(validity_child.prepare(&root(), selection, row_splits, session)?)
                 } else {
                     None
                 };

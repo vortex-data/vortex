@@ -18,6 +18,7 @@ use planner::SplitPlannerRef;
 use vortex_array::IntoArray;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use self::output::OutputQueue;
 use self::plan::Plan;
@@ -102,6 +103,7 @@ impl Scan {
         filter: Option<&Expression>,
         selection: &Selection,
         config: ScanConfig,
+        session: &VortexSession,
     ) -> VortexResult<Self> {
         // Create the row splits set, this is populated in the `prepare` call to give us hints
         // on how to partition the scan.
@@ -110,9 +112,9 @@ impl Scan {
         row_splits.insert(layout.row_count());
 
         // Create split planners for the project / filter expressions.
-        let project_planner = layout.prepare(projection, selection, &mut row_splits)?;
+        let project_planner = layout.prepare(projection, selection, &mut row_splits, session)?;
         let filter_planner = filter
-            .map(|f| layout.prepare(f, selection, &mut row_splits))
+            .map(|f| layout.prepare(f, selection, &mut row_splits, session))
             .transpose()?;
 
         // We now figure out the row splits for executing the scan. This allows us to have some

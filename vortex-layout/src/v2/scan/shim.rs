@@ -15,6 +15,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::v2::layout::LayoutRef;
 use crate::v2::scan::Scan;
@@ -32,17 +33,19 @@ pub struct ScanBuilder {
     filter: Option<Expression>,
     selection: Selection,
     config: ScanConfig,
+    session: VortexSession,
 }
 
 impl ScanBuilder {
     /// Create a new scan builder for the given v2 layout.
-    pub fn new(layout: LayoutRef) -> Self {
+    pub fn new(layout: LayoutRef, session: VortexSession) -> Self {
         Self {
             layout,
             projection: root(),
             filter: None,
             selection: Selection::All,
             config: ScanConfig::default(),
+            session,
         }
     }
 
@@ -93,6 +96,7 @@ impl ScanBuilder {
             self.filter.as_ref(),
             &self.selection,
             self.config,
+            &self.session,
         )?;
         let stream = unfold(ScanStreamState::new(scan), |state| async move {
             state.next_item().await

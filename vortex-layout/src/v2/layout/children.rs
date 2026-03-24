@@ -119,6 +119,7 @@ impl LayoutChild {
                     children,
                     segments,
                     segment_source: source,
+                    array_ctx: context,
                     session,
                 })?;
 

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -26,6 +27,7 @@ pub struct LayoutDeserialize<'a> {
     pub children: Vec<LayoutChild>,
     pub segments: Vec<SegmentId>,
     pub segment_source: &'a Arc<dyn SegmentSource>,
+    pub array_ctx: &'a ReadContext,
     pub session: &'a VortexSession,
 }
 
@@ -47,16 +49,23 @@ impl<V: LayoutVTable> LayoutPlugin for V {
     }
 
     fn deserialize(&self, args: LayoutDeserialize<'_>) -> VortexResult<LayoutRef> {
-        let metadata =
-            V::deserialize_metadata(args.metadata, args.dtype, args.row_count, &args.children)?;
-        Ok(LayoutRef(Arc::new(Layout::new(
-            self.clone(),
-            metadata,
-            args.dtype.clone(),
+        let metadata = V::deserialize_metadata(
+            args.metadata,
+            args.dtype,
             args.row_count,
-            args.children,
-            args.segments,
-            args.segment_source.clone(),
-        ))))
+            &args.children,
+            &args.array_ctx,
+        )?;
+        Ok(LayoutRef(Arc::new(Layout {
+            vtable: self.clone(),
+            metadata,
+            dtype: args.dtype.clone(),
+            row_count: args.row_count,
+            children: args.children,
+            segments: args.segments,
+            segment_source: args.segment_source.clone(),
+            array_ctx: args.array_ctx.clone(),
+            session: args.session.clone(),
+        })))
     }
 }
