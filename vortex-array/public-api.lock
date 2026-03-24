@@ -10222,17 +10222,29 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::try_new(metadata: <V as vort
 
 impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::ExtDType<V>
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::can_coerce_from(&self, other: &vortex_array::dtype::DType) -> bool
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::can_coerce_to(&self, other: &vortex_array::dtype::DType) -> bool
+
 pub fn vortex_array::dtype::extension::ExtDType<V>::erased(self) -> vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::id(&self) -> vortex_array::dtype::extension::ExtId
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::least_supertype(&self, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
 pub fn vortex_array::dtype::extension::ExtDType<V>::metadata(&self) -> &<V as vortex_array::dtype::extension::ExtVTable>::Metadata
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::serialize_metadata(&self) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::storage_dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::validate_scalar_value(&self, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+
 pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::with_nullability(&self, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDTypeRef
 
 impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V> where <V as vortex_array::dtype::extension::ExtVTable>::Metadata: core::clone::Clone
 
