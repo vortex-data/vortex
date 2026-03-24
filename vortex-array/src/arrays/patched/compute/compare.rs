@@ -167,8 +167,7 @@ impl CompareKernel for Patched {
             }
         });
 
-        // SAFETY: thing
-        let result = unsafe { BoolArray::new_unchecked(bits.freeze(), validity) };
+        let result = BoolArray::new(bits.freeze(), validity);
         Ok(Some(result.into_array()))
     }
 }
