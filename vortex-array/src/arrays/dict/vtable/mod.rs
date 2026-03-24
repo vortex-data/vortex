@@ -5,7 +5,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -25,7 +25,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
@@ -228,7 +227,7 @@ impl VTable for Dict {
         let codes = codes
             .try_into::<Primitive>()
             .ok()
-            .expect("must be primitive");
+            .vortex_expect("must be primitive");
         debug_assert!(values.is_canonical());
         // TODO: add canonical owned cast.
         let values = values.to_canonical()?;
