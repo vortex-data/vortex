@@ -6,13 +6,11 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -177,7 +175,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
                     inputs: &[],
                     segments: vec![],
                     lifetime: builder.row_range_lifetime(row_range.clone()),
-                    compute: move |args: ComputeArgs| Ok(Canonical::empty(&dtype).into_array()),
+                    compute: move |_args: ComputeArgs| Ok(Canonical::empty(&dtype).into_array()),
                 })
             }
             1 => {

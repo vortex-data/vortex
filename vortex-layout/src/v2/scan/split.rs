@@ -10,7 +10,7 @@ use crate::v2::selection::Selection;
 
 /// Identifies a split within a scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SplitId(u32);
+pub(super) struct SplitId(u32);
 
 impl SplitId {
     pub(crate) fn new(value: u32) -> Self {
@@ -24,7 +24,7 @@ impl SplitId {
 
 /// A split with its associated row range.
 #[derive(Debug, Clone)]
-pub struct SplitRange {
+pub(super) struct SplitRange {
     pub id: SplitId,
     pub row_range: Range<u64>,
     pub mask: Mask,
@@ -40,7 +40,7 @@ pub struct SplitRange {
 ///
 // FIXME(ngates): add Selection to slice out the empty ends of splits and skip large empty
 //  sections.
-pub fn form_splits(
+pub(super) fn form_splits(
     boundaries: &BTreeSet<u64>,
     selection: &Selection,
     total_row_count: u64,

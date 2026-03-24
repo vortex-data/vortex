@@ -266,17 +266,20 @@ impl Plan {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::test::SESSION;
+    use crate::v2::scan::planner::ComputeArgs;
 
     fn add_resolved_node(plan: &mut Plan, array: ArrayRef) -> NodeId {
         plan.add_node(
             &[],
             Vec::new(),
-            Box::new(move |_, _| Ok(array)),
+            Box::new(move |_args| Ok(array)),
             Lifetime::Scan,
         )
     }
@@ -287,7 +290,7 @@ mod tests {
         let node_id = plan.add_node(
             &[],
             Vec::new(),
-            Box::new(|_, _| Ok(PrimitiveArray::from_iter([1i32]).into_array())),
+            Box::new(|_args| Ok(PrimitiveArray::from_iter([1i32]).into_array())),
             Lifetime::Scan,
         );
         assert_eq!(plan.node_state(node_id), NodeState::Ready);
@@ -304,7 +307,7 @@ mod tests {
         let b = plan.add_node(
             &[a],
             Vec::new(),
-            Box::new(|_, _| Ok(PrimitiveArray::from_iter([20i32]).into_array())),
+            Box::new(|_args| Ok(PrimitiveArray::from_iter([20i32]).into_array())),
             Lifetime::Scan,
         );
 
@@ -313,7 +316,11 @@ mod tests {
 
         // Execute A and propagate its output to B.
         let (compute_a, segs_a, inputs_a) = plan.take_compute(a)?;
-        let a_output = compute_a(segs_a, inputs_a)?;
+        let a_output = compute_a(ComputeArgs {
+            segments: segs_a,
+            inputs: inputs_a,
+            ctx: ExecutionCtx::new(SESSION.clone()),
+        })?;
         plan.complete_node(a, a_output.clone());
         plan.resolve_input(b, 0, a_output);
 
@@ -325,7 +332,11 @@ mod tests {
         assert_eq!(plan.node_state(b), NodeState::Dispatched);
 
         // Execute and complete.
-        let result = compute(segments, inputs)?;
+        let result = compute(ComputeArgs {
+            segments,
+            inputs,
+            ctx: ExecutionCtx::new(SESSION.clone()),
+        })?;
         plan.complete_node(b, result);
         assert_eq!(plan.node_state(b), NodeState::Complete);
 
@@ -341,7 +352,7 @@ mod tests {
         let b = plan.add_node(
             &[a],
             Vec::new(),
-            Box::new(|_, _| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
+            Box::new(|_args| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
             Lifetime::Scan,
         );
 
@@ -360,7 +371,7 @@ mod tests {
         let _b = plan.add_node(
             &[],
             Vec::new(),
-            Box::new(|_, _| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
+            Box::new(|_args| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
             Lifetime::Scan,
         );
 

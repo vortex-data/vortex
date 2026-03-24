@@ -6,14 +6,11 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::ArrayRef;
 use vortex_array::DynArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::ArrayParts;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -87,7 +84,7 @@ impl LayoutVTable for Flat {
         //  through the "latest" view of the SplitSelection.
         _selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
         // TODO(ngates): surely we only need one of them
         row_splits.insert(0);
@@ -108,7 +105,6 @@ impl LayoutVTable for Flat {
             segment_id,
             expression: expr.clone(),
             array_ctx: layout.metadata().array_ctx.clone(),
-            session: session.clone(),
         }))
     }
 }
@@ -120,7 +116,6 @@ struct FlatLayoutPlanner {
     expression: Expression,
     segment_source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
-    session: VortexSession,
 }
 
 impl SplitPlanner for FlatLayoutPlanner {
@@ -133,7 +128,6 @@ impl SplitPlanner for FlatLayoutPlanner {
         let dtype = self.dtype.clone();
         let array_ctx = self.array_ctx.clone();
         let expression = self.expression.clone();
-        let session = self.session.clone();
         let len = self.len;
 
         builder.create_node(NodeOpts {
@@ -144,16 +138,14 @@ impl SplitPlanner for FlatLayoutPlanner {
             }],
             lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |mut args: ComputeArgs| {
-                let mut ctx = session.create_execution_ctx();
-
                 // The segment is deserialized into an array by the scheduler.
                 let buffer = args.segments.remove(0);
 
                 // The selection mask
-                let mask = args.inputs.remove(0).execute::<Mask>(&mut ctx)?;
+                let mask = args.inputs.remove(0).execute::<Mask>(&mut args.ctx)?;
 
                 let parts = ArrayParts::try_from(buffer)?;
-                let array = parts.decode(&dtype, len, &array_ctx, &session)?;
+                let array = parts.decode(&dtype, len, &array_ctx, args.ctx.session())?;
 
                 let array = array.filter(mask)?;
                 let array = array.apply(&expression)?;

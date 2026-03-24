@@ -25,7 +25,6 @@ use vortex_array::expr::transform::replace_root_fields;
 use vortex_array::scalar_fn::fns::merge::Merge;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::validity::Validity;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;

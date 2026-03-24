@@ -156,7 +156,7 @@ pub type ComputeFn = Box<dyn FnOnce(ComputeArgs) -> VortexResult<ArrayRef> + Sen
 pub struct ComputeArgs {
     pub segments: Vec<ByteBuffer>,
     pub inputs: Vec<ArrayRef>,
-    // ctx: &'a mut ExecutionCtx,
+    pub ctx: ExecutionCtx,
 }
 
 /// Describes the lifetime of a plan node.

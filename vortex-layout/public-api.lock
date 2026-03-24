@@ -1422,6 +1422,14 @@ impl vortex_layout::v2::scan::planner::Lifetime
 
 pub fn vortex_layout::v2::scan::planner::Lifetime::covers(&self, _row_range: &core::ops::range::Range<u64>) -> bool
 
+pub struct vortex_layout::v2::scan::planner::ComputeArgs
+
+pub vortex_layout::v2::scan::planner::ComputeArgs::ctx: vortex_array::executor::ExecutionCtx
+
+pub vortex_layout::v2::scan::planner::ComputeArgs::inputs: alloc::vec::Vec<vortex_array::array::ArrayRef>
+
+pub vortex_layout::v2::scan::planner::ComputeArgs::segments: alloc::vec::Vec<vortex_buffer::ByteBuffer>
+
 pub struct vortex_layout::v2::scan::planner::NodeId(_)
 
 impl core::clone::Clone for vortex_layout::v2::scan::planner::NodeId
@@ -1448,7 +1456,7 @@ pub struct vortex_layout::v2::scan::planner::PlanBuilder<'a>
 
 impl<'a> vortex_layout::v2::scan::planner::PlanBuilder<'a>
 
-pub fn vortex_layout::v2::scan::planner::PlanBuilder<'a>::create_node<F>(&mut self, options: vortex_layout::v2::scan::planner::NodeOpts<'_, F>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::NodeId> where F: core::ops::function::FnOnce(alloc::vec::Vec<vortex_buffer::ByteBuffer>, alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static
+pub fn vortex_layout::v2::scan::planner::PlanBuilder<'a>::create_node<F>(&mut self, options: vortex_layout::v2::scan::planner::NodeOpts<'_, F>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::NodeId> where F: core::ops::function::FnOnce(vortex_layout::v2::scan::planner::ComputeArgs) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static
 
 pub fn vortex_layout::v2::scan::planner::PlanBuilder<'a>::create_node_resolved(&mut self, array: vortex_array::array::ArrayRef) -> vortex_layout::v2::scan::planner::NodeId
 
@@ -1460,113 +1468,9 @@ pub trait vortex_layout::v2::scan::planner::SplitPlanner: core::marker::Send + c
 
 pub fn vortex_layout::v2::scan::planner::SplitPlanner::plan_split(&self, row_range: &core::ops::range::Range<u64>, selection: vortex_layout::v2::scan::planner::NodeId, builder: &mut vortex_layout::v2::scan::planner::PlanBuilder<'_>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::NodeId>
 
-pub type vortex_layout::v2::scan::planner::ComputeFn = alloc::boxed::Box<(dyn core::ops::function::FnOnce(alloc::vec::Vec<vortex_buffer::ByteBuffer>, alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static)>
+pub type vortex_layout::v2::scan::planner::ComputeFn = alloc::boxed::Box<(dyn core::ops::function::FnOnce(vortex_layout::v2::scan::planner::ComputeArgs) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static)>
 
 pub type vortex_layout::v2::scan::planner::SplitPlannerRef = alloc::sync::Arc<dyn vortex_layout::v2::scan::planner::SplitPlanner>
-
-pub mod vortex_layout::v2::scan::scheduler
-
-pub enum vortex_layout::v2::scan::scheduler::ScanAction
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Compute
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::compute: vortex_layout::v2::scan::planner::ComputeFn
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::compute_id: vortex_layout::v2::scan::scheduler::ComputeId
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::inputs: alloc::vec::Vec<vortex_array::array::ArrayRef>
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::segments: alloc::vec::Vec<vortex_buffer::ByteBuffer>
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Done
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Emit
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Emit::result: core::option::Option<vortex_array::array::ArrayRef>
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::Emit::split_id: vortex_layout::v2::scan::SplitId
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::ReadSegment
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::ReadSegment::read_id: vortex_layout::v2::scan::scheduler::ReadId
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::ReadSegment::segment_id: vortex_layout::segments::SegmentId
-
-pub vortex_layout::v2::scan::scheduler::ScanAction::ReadSegment::source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
-
-pub enum vortex_layout::v2::scan::scheduler::ScanEvent
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::ComputeFailed
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::ComputeFailed::compute_id: vortex_layout::v2::scan::scheduler::ComputeId
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::ComputeFailed::error: vortex_error::VortexError
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::ComputeReady
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::ComputeReady::compute_id: vortex_layout::v2::scan::scheduler::ComputeId
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::ComputeReady::result: vortex_array::array::ArrayRef
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::SegmentFailed
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::SegmentFailed::error: vortex_error::VortexError
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::SegmentFailed::read_id: vortex_layout::v2::scan::scheduler::ReadId
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::SegmentReady
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::SegmentReady::buffer: vortex_buffer::ByteBuffer
-
-pub vortex_layout::v2::scan::scheduler::ScanEvent::SegmentReady::read_id: vortex_layout::v2::scan::scheduler::ReadId
-
-pub struct vortex_layout::v2::scan::scheduler::ComputeId(_)
-
-impl core::clone::Clone for vortex_layout::v2::scan::scheduler::ComputeId
-
-pub fn vortex_layout::v2::scan::scheduler::ComputeId::clone(&self) -> vortex_layout::v2::scan::scheduler::ComputeId
-
-impl core::cmp::Eq for vortex_layout::v2::scan::scheduler::ComputeId
-
-impl core::cmp::PartialEq for vortex_layout::v2::scan::scheduler::ComputeId
-
-pub fn vortex_layout::v2::scan::scheduler::ComputeId::eq(&self, other: &vortex_layout::v2::scan::scheduler::ComputeId) -> bool
-
-impl core::fmt::Debug for vortex_layout::v2::scan::scheduler::ComputeId
-
-pub fn vortex_layout::v2::scan::scheduler::ComputeId::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_layout::v2::scan::scheduler::ComputeId
-
-pub fn vortex_layout::v2::scan::scheduler::ComputeId::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_layout::v2::scan::scheduler::ComputeId
-
-impl core::marker::StructuralPartialEq for vortex_layout::v2::scan::scheduler::ComputeId
-
-pub struct vortex_layout::v2::scan::scheduler::ReadId(_)
-
-impl core::clone::Clone for vortex_layout::v2::scan::scheduler::ReadId
-
-pub fn vortex_layout::v2::scan::scheduler::ReadId::clone(&self) -> vortex_layout::v2::scan::scheduler::ReadId
-
-impl core::cmp::Eq for vortex_layout::v2::scan::scheduler::ReadId
-
-impl core::cmp::PartialEq for vortex_layout::v2::scan::scheduler::ReadId
-
-pub fn vortex_layout::v2::scan::scheduler::ReadId::eq(&self, other: &vortex_layout::v2::scan::scheduler::ReadId) -> bool
-
-impl core::fmt::Debug for vortex_layout::v2::scan::scheduler::ReadId
-
-pub fn vortex_layout::v2::scan::scheduler::ReadId::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_layout::v2::scan::scheduler::ReadId
-
-pub fn vortex_layout::v2::scan::scheduler::ReadId::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_layout::v2::scan::scheduler::ReadId
-
-impl core::marker::StructuralPartialEq for vortex_layout::v2::scan::scheduler::ReadId
 
 pub mod vortex_layout::v2::scan::shim
 
@@ -1590,13 +1494,117 @@ pub fn vortex_layout::v2::scan::shim::ScanBuilder::with_selection(self, selectio
 
 pub fn vortex_layout::v2::scan::shim::ScanBuilder::with_some_filter(self, filter: core::option::Option<vortex_array::expr::expression::Expression>) -> Self
 
+pub enum vortex_layout::v2::scan::ScanAction
+
+pub vortex_layout::v2::scan::ScanAction::Compute
+
+pub vortex_layout::v2::scan::ScanAction::Compute::compute: vortex_layout::v2::scan::planner::ComputeFn
+
+pub vortex_layout::v2::scan::ScanAction::Compute::compute_id: vortex_layout::v2::scan::ComputeId
+
+pub vortex_layout::v2::scan::ScanAction::Compute::inputs: alloc::vec::Vec<vortex_array::array::ArrayRef>
+
+pub vortex_layout::v2::scan::ScanAction::Compute::segments: alloc::vec::Vec<vortex_buffer::ByteBuffer>
+
+pub vortex_layout::v2::scan::ScanAction::Compute::session: vortex_session::VortexSession
+
+pub vortex_layout::v2::scan::ScanAction::Done
+
+pub vortex_layout::v2::scan::ScanAction::Emit
+
+pub vortex_layout::v2::scan::ScanAction::Emit::result: core::option::Option<vortex_array::array::ArrayRef>
+
+pub vortex_layout::v2::scan::ScanAction::Emit::split_id: crate::v2::scan::split::SplitId
+
+pub vortex_layout::v2::scan::ScanAction::ReadSegment
+
+pub vortex_layout::v2::scan::ScanAction::ReadSegment::read_id: vortex_layout::v2::scan::ReadId
+
+pub vortex_layout::v2::scan::ScanAction::ReadSegment::segment_id: vortex_layout::segments::SegmentId
+
+pub vortex_layout::v2::scan::ScanAction::ReadSegment::source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+
+pub enum vortex_layout::v2::scan::ScanEvent
+
+pub vortex_layout::v2::scan::ScanEvent::ComputeFailed
+
+pub vortex_layout::v2::scan::ScanEvent::ComputeFailed::compute_id: vortex_layout::v2::scan::ComputeId
+
+pub vortex_layout::v2::scan::ScanEvent::ComputeFailed::error: vortex_error::VortexError
+
+pub vortex_layout::v2::scan::ScanEvent::ComputeReady
+
+pub vortex_layout::v2::scan::ScanEvent::ComputeReady::compute_id: vortex_layout::v2::scan::ComputeId
+
+pub vortex_layout::v2::scan::ScanEvent::ComputeReady::result: vortex_array::array::ArrayRef
+
+pub vortex_layout::v2::scan::ScanEvent::SegmentFailed
+
+pub vortex_layout::v2::scan::ScanEvent::SegmentFailed::error: vortex_error::VortexError
+
+pub vortex_layout::v2::scan::ScanEvent::SegmentFailed::read_id: vortex_layout::v2::scan::ReadId
+
+pub vortex_layout::v2::scan::ScanEvent::SegmentReady
+
+pub vortex_layout::v2::scan::ScanEvent::SegmentReady::buffer: vortex_buffer::ByteBuffer
+
+pub vortex_layout::v2::scan::ScanEvent::SegmentReady::read_id: vortex_layout::v2::scan::ReadId
+
+pub struct vortex_layout::v2::scan::ComputeId(_)
+
+impl core::clone::Clone for vortex_layout::v2::scan::ComputeId
+
+pub fn vortex_layout::v2::scan::ComputeId::clone(&self) -> vortex_layout::v2::scan::ComputeId
+
+impl core::cmp::Eq for vortex_layout::v2::scan::ComputeId
+
+impl core::cmp::PartialEq for vortex_layout::v2::scan::ComputeId
+
+pub fn vortex_layout::v2::scan::ComputeId::eq(&self, other: &vortex_layout::v2::scan::ComputeId) -> bool
+
+impl core::fmt::Debug for vortex_layout::v2::scan::ComputeId
+
+pub fn vortex_layout::v2::scan::ComputeId::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_layout::v2::scan::ComputeId
+
+pub fn vortex_layout::v2::scan::ComputeId::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_layout::v2::scan::ComputeId
+
+impl core::marker::StructuralPartialEq for vortex_layout::v2::scan::ComputeId
+
+pub struct vortex_layout::v2::scan::ReadId(_)
+
+impl core::clone::Clone for vortex_layout::v2::scan::ReadId
+
+pub fn vortex_layout::v2::scan::ReadId::clone(&self) -> vortex_layout::v2::scan::ReadId
+
+impl core::cmp::Eq for vortex_layout::v2::scan::ReadId
+
+impl core::cmp::PartialEq for vortex_layout::v2::scan::ReadId
+
+pub fn vortex_layout::v2::scan::ReadId::eq(&self, other: &vortex_layout::v2::scan::ReadId) -> bool
+
+impl core::fmt::Debug for vortex_layout::v2::scan::ReadId
+
+pub fn vortex_layout::v2::scan::ReadId::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_layout::v2::scan::ReadId
+
+pub fn vortex_layout::v2::scan::ReadId::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_layout::v2::scan::ReadId
+
+impl core::marker::StructuralPartialEq for vortex_layout::v2::scan::ReadId
+
 pub struct vortex_layout::v2::scan::Scan
 
 impl vortex_layout::v2::scan::Scan
 
-pub fn vortex_layout::v2::scan::Scan::actions(&mut self) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_layout::v2::scan::scheduler::ScanAction>>
+pub fn vortex_layout::v2::scan::Scan::actions(&mut self) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_layout::v2::scan::ScanAction>>
 
-pub fn vortex_layout::v2::scan::Scan::event(&mut self, event: vortex_layout::v2::scan::scheduler::ScanEvent) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::v2::scan::Scan::post_event(&mut self, event: vortex_layout::v2::scan::ScanEvent) -> vortex_error::VortexResult<()>
 
 pub fn vortex_layout::v2::scan::Scan::try_new(layout: &vortex_layout::v2::layout::LayoutRef, projection: &vortex_array::expr::expression::Expression, filter: core::option::Option<&vortex_array::expr::expression::Expression>, selection: &vortex_layout::v2::selection::Selection, config: vortex_layout::v2::scan::ScanConfig, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
@@ -1605,38 +1613,6 @@ pub struct vortex_layout::v2::scan::ScanConfig
 impl core::default::Default for vortex_layout::v2::scan::ScanConfig
 
 pub fn vortex_layout::v2::scan::ScanConfig::default() -> Self
-
-pub struct vortex_layout::v2::scan::SplitId(_)
-
-impl core::clone::Clone for vortex_layout::v2::scan::SplitId
-
-pub fn vortex_layout::v2::scan::SplitId::clone(&self) -> vortex_layout::v2::scan::SplitId
-
-impl core::cmp::Eq for vortex_layout::v2::scan::SplitId
-
-impl core::cmp::Ord for vortex_layout::v2::scan::SplitId
-
-pub fn vortex_layout::v2::scan::SplitId::cmp(&self, other: &vortex_layout::v2::scan::SplitId) -> core::cmp::Ordering
-
-impl core::cmp::PartialEq for vortex_layout::v2::scan::SplitId
-
-pub fn vortex_layout::v2::scan::SplitId::eq(&self, other: &vortex_layout::v2::scan::SplitId) -> bool
-
-impl core::cmp::PartialOrd for vortex_layout::v2::scan::SplitId
-
-pub fn vortex_layout::v2::scan::SplitId::partial_cmp(&self, other: &vortex_layout::v2::scan::SplitId) -> core::option::Option<core::cmp::Ordering>
-
-impl core::fmt::Debug for vortex_layout::v2::scan::SplitId
-
-pub fn vortex_layout::v2::scan::SplitId::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_layout::v2::scan::SplitId
-
-pub fn vortex_layout::v2::scan::SplitId::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_layout::v2::scan::SplitId
-
-impl core::marker::StructuralPartialEq for vortex_layout::v2::scan::SplitId
 
 pub mod vortex_layout::v2::selection
 

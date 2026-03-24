@@ -6,13 +6,11 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::stats_from_bitset_bytes;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;

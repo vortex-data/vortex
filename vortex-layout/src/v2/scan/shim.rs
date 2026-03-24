@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 
 use futures::stream::unfold;
 use vortex_array::ArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
@@ -19,10 +20,10 @@ use vortex_session::VortexSession;
 
 use crate::v2::layout::LayoutRef;
 use crate::v2::scan::Scan;
+use crate::v2::scan::ScanAction;
 use crate::v2::scan::ScanConfig;
+use crate::v2::scan::ScanEvent;
 use crate::v2::scan::planner::ComputeArgs;
-use crate::v2::scan::scheduler::ScanAction;
-use crate::v2::scan::scheduler::ScanEvent;
 use crate::v2::selection::Selection;
 
 /// A builder for configuring and executing a v2 layout scan.
@@ -183,7 +184,12 @@ impl ScanStreamState {
                         compute,
                         segments,
                         inputs,
-                    } => match compute(ComputeArgs { segments, inputs }) {
+                        session,
+                    } => match compute(ComputeArgs {
+                        segments,
+                        inputs,
+                        ctx: session.create_execution_ctx(),
+                    }) {
                         Ok(result) => {
                             if let Err(e) = self
                                 .scan

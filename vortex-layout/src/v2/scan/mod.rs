@@ -5,19 +5,21 @@ pub(crate) mod plan;
 
 mod output;
 pub mod planner;
-pub mod scheduler;
 pub mod shim;
 mod split;
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use planner::PlanBuilder;
 use planner::SplitPlannerRef;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::expr::Expression;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -25,17 +27,16 @@ use vortex_session::VortexSession;
 
 use self::output::OutputQueue;
 use self::plan::Plan;
-use self::scheduler::ComputeId;
-use self::scheduler::ReadId;
-use self::scheduler::ScanAction;
-use self::scheduler::ScanEvent;
-pub use self::split::SplitId;
 use self::split::SplitRange;
 use self::split::form_splits;
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutRef;
 use crate::v2::scan::planner::ComputeArgs;
+use crate::v2::scan::planner::ComputeFn;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeOpts;
+use crate::v2::scan::split::SplitId;
 use crate::v2::selection::Selection;
 
 /// Configuration for a scan.
@@ -192,6 +193,7 @@ impl Scan {
                     compute,
                     segments,
                     inputs,
+                    session: self.session.clone(),
                 });
             }
         }
@@ -311,19 +313,18 @@ impl Scan {
 
                     // FIXME(ngates): per the comment above, we currently need to perform a rank
                     //  intersection after the fact on the filter result.
-                    let session = self.session.clone();
                     selection = plan_builder.create_node(NodeOpts {
                         inputs: &[selection, filter_result],
                         segments: vec![],
                         lifetime: plan_builder.row_range_lifetime(split_range.row_range.clone()),
-                        compute: move |args: ComputeArgs| {
+                        compute: move |mut args: ComputeArgs| {
                             let mut arrays = args.inputs.into_iter();
                             let initial_selection = arrays.next().vortex_expect("missing");
                             let filter_result = arrays.next().vortex_expect("missing");
 
-                            let mut ctx = session.create_execution_ctx();
-                            let initial_selection = initial_selection.execute::<Mask>(&mut ctx)?;
-                            let filter_result = filter_result.execute::<Mask>(&mut ctx)?;
+                            let initial_selection =
+                                initial_selection.execute::<Mask>(&mut args.ctx)?;
+                            let filter_result = filter_result.execute::<Mask>(&mut args.ctx)?;
 
                             let refined_selection =
                                 initial_selection.intersect_by_rank(&filter_result);
@@ -365,4 +366,55 @@ impl Scan {
             }
         }
     }
+}
+
+/// Identifies a segment read dispatched to the driver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ReadId(pub(crate) u32);
+
+/// Identifies a compute task dispatched to the driver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ComputeId(pub(crate) u32);
+
+/// An action the driver must perform on behalf of the scan.
+pub enum ScanAction {
+    /// Read the segment identified by `segment_id` from `source`, then report back with `read_id`.
+    ReadSegment {
+        read_id: ReadId,
+        source: Arc<dyn SegmentSource>,
+        segment_id: SegmentId,
+    },
+    /// Execute the compute function with the given inputs, then report back with `compute_id`.
+    Compute {
+        compute_id: ComputeId,
+        compute: ComputeFn,
+        segments: Vec<ByteBuffer>,
+        inputs: Vec<ArrayRef>,
+        session: VortexSession,
+    },
+    /// A split result is ready for the consumer.
+    Emit {
+        split_id: SplitId,
+        result: Option<ArrayRef>,
+    },
+    /// The scan is complete—all splits have been emitted.
+    Done,
+}
+
+/// An event the driver reports back to the scan after completing an action.
+pub enum ScanEvent {
+    /// A segment read completed successfully.
+    SegmentReady { read_id: ReadId, buffer: ByteBuffer },
+    /// A compute task completed successfully.
+    ComputeReady {
+        compute_id: ComputeId,
+        result: ArrayRef,
+    },
+    /// A segment read failed.
+    SegmentFailed { read_id: ReadId, error: VortexError },
+    /// A compute task failed.
+    ComputeFailed {
+        compute_id: ComputeId,
+        error: VortexError,
+    },
 }
