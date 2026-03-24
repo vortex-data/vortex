@@ -75,6 +75,10 @@ struct State {
     plan: Plan,
     plan_ahead_kb: u64,
     active_splits: BTreeMap<SplitId, NodeId>,
+    // Can we keep track of all nodes in a priority queue.
+    // The priority should be computed as a function of the row offset, and the probability that
+    // a given DAG edge will not be SKIPPED. We should have nodes tag edges with some stable
+    // identifier such that the inter-split probabilities are related.
 }
 
 impl Scan {
