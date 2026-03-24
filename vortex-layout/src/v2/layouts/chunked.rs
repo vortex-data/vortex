@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
+use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::NodeId;
@@ -53,6 +54,23 @@ impl LayoutVTable for Chunked {
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.chunked")
+    }
+
+    fn deserialize_metadata(
+        _metadata: &[u8],
+        _dtype: &DType,
+        _row_count: u64,
+        children: &[LayoutChild],
+    ) -> VortexResult<ChunkedMetadata> {
+        // Derive cumulative chunk offsets from child row counts.
+        let mut chunk_offsets = Vec::with_capacity(children.len() + 1);
+        chunk_offsets.push(0);
+        let mut offset = 0u64;
+        for child in children {
+            offset += child.row_count();
+            chunk_offsets.push(offset);
+        }
+        Ok(ChunkedMetadata { chunk_offsets })
     }
 
     fn child_dtype(layout: &Layout<Self>, _child_idx: usize) -> &DType {

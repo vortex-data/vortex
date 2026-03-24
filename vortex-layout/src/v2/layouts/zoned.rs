@@ -7,12 +7,16 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::TryFromBytes;
 use vortex_array::expr::Expression;
+use vortex_array::expr::stats::Stat;
+use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
+use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
@@ -33,6 +37,8 @@ pub struct Zoned;
 pub struct ZonedMetadata {
     /// The number of data rows per zone.
     pub zone_len: u64,
+    /// Present statistics
+    pub present_stats: Arc<[Stat]>,
 }
 
 impl fmt::Display for ZonedMetadata {
@@ -47,6 +53,20 @@ impl LayoutVTable for Zoned {
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.stats")
+    }
+
+    fn deserialize_metadata(
+        metadata: &[u8],
+        _dtype: &DType,
+        _row_count: u64,
+        _children: &[LayoutChild],
+    ) -> VortexResult<ZonedMetadata> {
+        let zone_len = u32::try_from_le_bytes(&metadata[0..4])? as u64;
+        let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();
+        Ok(ZonedMetadata {
+            zone_len,
+            present_stats,
+        })
     }
 
     fn child_dtype(layout: &Layout<Self>, child_idx: usize) -> &DType {

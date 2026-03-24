@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use flatbuffers::Follow;
+use flatbuffers::root_unchecked;
 use flatbuffers::root_with_opts;
 use parking_lot::RwLock;
 use vortex_array::dtype::DType;
@@ -15,7 +16,9 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::flatbuffers::LAYOUT_VERIFIER;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::layout::LayoutDeserialize;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::session::LayoutSessionExt;
@@ -38,6 +41,17 @@ enum Inner {
 }
 
 impl LayoutChild {
+    /// Return the row count of this child.
+    pub fn row_count(&self) -> u64 {
+        match &*self.0.read() {
+            Inner::Owned(owned) => owned.row_count(),
+            Inner::Viewed { fb, loc, .. } => {
+                let fb_layout = unsafe { fbl::Layout::follow(fb, *loc) };
+                fb_layout.row_count()
+            }
+        }
+    }
+
     /// Resolve the layout child by passing the child's expected DType.
     pub fn resolve(&self, dtype: &DType) -> VortexResult<LayoutRef> {
         if let Inner::Owned(owned) = &*self.0.read() {
@@ -75,8 +89,8 @@ impl LayoutChild {
                     .map(|bytes| bytes.bytes())
                     .unwrap_or(&[]);
 
-                let children = fb_layout
-                    .children()
+                let fb_children = fb_layout.children();
+                let children = fb_children
                     .map(|children| {
                         children
                             .iter()
@@ -94,7 +108,20 @@ impl LayoutChild {
                     })
                     .unwrap_or_default();
 
-                let layout = plugin.deserialize(dtype, metadata, children, source, session)?;
+                let segments: Vec<SegmentId> = fb_layout
+                    .segments()
+                    .map(|s| s.iter().map(SegmentId::from).collect())
+                    .unwrap_or_default();
+
+                let layout = plugin.deserialize(LayoutDeserialize {
+                    dtype,
+                    row_count: fb_layout.row_count(),
+                    metadata,
+                    children,
+                    segments,
+                    segment_source: source,
+                    session,
+                })?;
 
                 // Update the layout child to cache the owned layout
                 *guard = Inner::Owned(layout.clone());

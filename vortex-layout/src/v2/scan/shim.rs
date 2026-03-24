@@ -11,8 +11,8 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
-use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
+use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
@@ -85,7 +85,7 @@ impl ScanBuilder {
     ///
     /// Segment reads are performed sequentially. For parallel I/O, use the [`Scan`] state
     /// machine directly.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + Send + 'static> {
+    pub fn into_array_stream(self) -> VortexResult<SendableArrayStream> {
         let dtype = self.dtype()?;
         let scan = Scan::try_new(
             &self.layout,
@@ -97,7 +97,7 @@ impl ScanBuilder {
         let stream = unfold(ScanStreamState::new(scan), |state| async move {
             state.next_item().await
         });
-        Ok(ArrayStreamAdapter::new(dtype, stream))
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }
 }
 

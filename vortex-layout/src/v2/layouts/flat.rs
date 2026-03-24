@@ -15,6 +15,7 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
+use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::plan::SegmentRequest;
@@ -48,12 +49,21 @@ impl LayoutVTable for Flat {
         LayoutId::new_ref("vortex.flat")
     }
 
+    fn deserialize_metadata(
+        _metadata: &[u8],
+        _dtype: &DType,
+        _row_count: u64,
+        _children: &[LayoutChild],
+    ) -> VortexResult<FlatMetadata> {
+        Ok(FlatMetadata)
+    }
+
     fn child_dtype(_layout: &Layout<Self>, _child_idx: usize) -> &DType {
-        todo!()
+        unreachable!("Flat layout has no children")
     }
 
     fn child_relationship(_layout: &Layout<Self>, _child_idx: usize) -> ChildRelationship {
-        todo!()
+        unreachable!("Flat layout has no children")
     }
 
     fn prepare(

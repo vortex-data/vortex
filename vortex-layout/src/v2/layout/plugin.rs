@@ -8,7 +8,9 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
@@ -16,17 +18,21 @@ use crate::v2::layout::LayoutVTable;
 
 pub type LayoutPluginRef = Arc<dyn LayoutPlugin>;
 
+/// Arguments for deserializing a layout from a flatbuffer.
+pub struct LayoutDeserialize<'a> {
+    pub dtype: &'a DType,
+    pub row_count: u64,
+    pub metadata: &'a [u8],
+    pub children: Vec<LayoutChild>,
+    pub segments: Vec<SegmentId>,
+    pub segment_source: &'a Arc<dyn SegmentSource>,
+    pub session: &'a VortexSession,
+}
+
 pub trait LayoutPlugin: 'static + Send + Sync {
     fn id(&self) -> LayoutId;
 
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        metadata: &[u8],
-        children: Vec<LayoutChild>,
-        segment_source: &Arc<dyn SegmentSource>,
-        session: &VortexSession,
-    ) -> VortexResult<LayoutRef>;
+    fn deserialize(&self, args: LayoutDeserialize<'_>) -> VortexResult<LayoutRef>;
 }
 
 impl Debug for dyn LayoutPlugin {
@@ -40,14 +46,17 @@ impl<V: LayoutVTable> LayoutPlugin for V {
         V::id(self)
     }
 
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _metadata: &[u8],
-        _children: Vec<LayoutChild>,
-        _segment_source: &Arc<dyn SegmentSource>,
-        _session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        todo!()
+    fn deserialize(&self, args: LayoutDeserialize<'_>) -> VortexResult<LayoutRef> {
+        let metadata =
+            V::deserialize_metadata(args.metadata, args.dtype, args.row_count, &args.children)?;
+        Ok(LayoutRef(Arc::new(Layout::new(
+            self.clone(),
+            metadata,
+            args.dtype.clone(),
+            args.row_count,
+            args.children,
+            args.segments,
+            args.segment_source.clone(),
+        ))))
     }
 }

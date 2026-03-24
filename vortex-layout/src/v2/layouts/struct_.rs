@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
 use vortex_array::expr::col;
 use vortex_array::expr::make_free_field_annotator;
@@ -22,6 +23,7 @@ use vortex_error::vortex_bail;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
+use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::NodeId;
@@ -85,6 +87,30 @@ impl LayoutVTable for Struct {
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.struct")
+    }
+
+    fn deserialize_metadata(
+        _metadata: &[u8],
+        dtype: &DType,
+        _row_count: u64,
+        _children: &[LayoutChild],
+    ) -> VortexResult<StructMetadata> {
+        let struct_fields = dtype.as_struct_fields();
+        let mut child_dtypes = Vec::new();
+        if dtype.is_nullable() {
+            // Child 0 is the validity layout (boolean non-nullable).
+            child_dtypes.push(DType::Bool(Nullability::NonNullable));
+        }
+        for i in 0..struct_fields.nfields() {
+            let name = struct_fields
+                .field_name(i)
+                .vortex_expect("Struct field index out of bounds");
+            let field_dtype = struct_fields
+                .field(name)
+                .vortex_expect("Struct field not found");
+            child_dtypes.push(field_dtype);
+        }
+        Ok(StructMetadata { child_dtypes })
     }
 
     fn child_dtype(layout: &Layout<Self>, child_idx: usize) -> &DType {

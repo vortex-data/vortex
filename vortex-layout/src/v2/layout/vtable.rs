@@ -13,6 +13,7 @@ use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 
 use crate::v2::layout::Layout;
+use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::scan::planner::SplitPlannerRef;
 use crate::v2::selection::Selection;
@@ -25,6 +26,17 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Returns the ID of the layout.
     fn id(&self) -> LayoutId;
+
+    /// Deserialize the layout metadata from raw bytes.
+    ///
+    /// Additional context (dtype, row_count, child row counts) is provided for layouts that
+    /// derive metadata from the layout tree structure rather than storing it explicitly.
+    fn deserialize_metadata(
+        metadata: &[u8],
+        dtype: &DType,
+        row_count: u64,
+        children: &[LayoutChild],
+    ) -> VortexResult<Self::Metadata>;
 
     /// Returns the DType of the given child.
     fn child_dtype(layout: &Layout<Self>, child_idx: usize) -> &DType;

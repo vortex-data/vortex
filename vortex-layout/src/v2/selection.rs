@@ -167,7 +167,7 @@ mod tests {
         let range = 1..8;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+        assert_eq!(row_mask.values().unwrap().indices(), &[0, 2, 4, 6]);
     }
 
     #[test]
@@ -176,7 +176,7 @@ mod tests {
         let range = 3..6;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
+        assert_eq!(row_mask.values().unwrap().indices(), &[0, 2]);
     }
 
     #[test]
@@ -185,7 +185,7 @@ mod tests {
         let range = 3..5;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+        assert_eq!(row_mask.values().unwrap().indices(), &[0]);
     }
 
     #[test]
@@ -194,7 +194,7 @@ mod tests {
         let range = 8..10;
         let row_mask = selection.row_mask(&range);
 
-        assert!(row_mask.mask().all_false());
+        assert!(row_mask.all_false());
     }
 
     #[test]
@@ -203,7 +203,7 @@ mod tests {
         let range = 3..7;
         let row_mask = selection.row_mask(&range);
 
-        assert!(row_mask.mask().all_true());
+        assert!(row_mask.all_true());
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
         let range = 0..5;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+        assert_eq!(row_mask.values().unwrap().indices(), &[0]);
     }
 
     mod roaring_tests {
@@ -232,7 +232,7 @@ mod tests {
             let range = 1..8;
             let row_mask = selection.row_mask(&range);
 
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+            assert_eq!(row_mask.values().unwrap().indices(), &[0, 2, 4, 6]);
         }
 
         #[test]
@@ -247,7 +247,7 @@ mod tests {
             let range = 3..6;
             let row_mask = selection.row_mask(&range);
 
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
+            assert_eq!(row_mask.values().unwrap().indices(), &[0, 2]);
         }
 
         #[test]
@@ -262,7 +262,7 @@ mod tests {
             let range = 8..10;
             let row_mask = selection.row_mask(&range);
 
-            assert!(row_mask.mask().all_false());
+            assert!(row_mask.all_false());
         }
 
         #[test]
@@ -278,7 +278,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Should have 500 selected indices (every even number)
-            assert_eq!(row_mask.mask().true_count(), 500);
+            assert_eq!(row_mask.true_count(), 500);
         }
 
         #[test]
@@ -293,7 +293,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Should exclude indices 1, 3, 5, so we get 0, 2, 4, 6
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+            assert_eq!(row_mask.values().unwrap().indices(), &[0, 2, 4, 6]);
         }
 
         #[test]
@@ -308,7 +308,7 @@ mod tests {
             let range = 10..20;
             let row_mask = selection.row_mask(&range);
 
-            assert!(row_mask.mask().all_false());
+            assert!(row_mask.all_false());
         }
 
         #[test]
@@ -322,7 +322,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Nothing to exclude in this range
-            assert!(row_mask.mask().all_true());
+            assert!(row_mask.all_true());
         }
 
         #[test]
@@ -338,7 +338,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Should exclude 5, 6, 7 (mapped to 0, 1, 2), keep 8, 9 (mapped to 3, 4)
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[3, 4]);
+            assert_eq!(row_mask.values().unwrap().indices(), &[3, 4]);
         }
 
         #[test]
@@ -348,7 +348,7 @@ mod tests {
             let range = 0..100;
             let row_mask = selection.row_mask(&range);
 
-            assert!(row_mask.mask().all_false());
+            assert!(row_mask.all_false());
         }
 
         #[test]
@@ -358,7 +358,7 @@ mod tests {
             let range = 0..100;
             let row_mask = selection.row_mask(&range);
 
-            assert!(row_mask.mask().all_true());
+            assert!(row_mask.all_true());
         }
 
         #[test]
@@ -371,7 +371,7 @@ mod tests {
             let range = 0..100;
             let row_mask = selection.row_mask(&range);
 
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 99]);
+            assert_eq!(row_mask.values().unwrap().indices(), &[0, 99]);
         }
 
         #[test]
@@ -387,7 +387,7 @@ mod tests {
 
             // Should include 15-19 (mapped to 0-4) and 30-34 (mapped to 15-19)
             let expected: Vec<usize> = (0..5).chain(15..20).collect();
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &expected);
+            assert_eq!(row_mask.values().unwrap().indices(), &expected);
         }
 
         #[test]
@@ -402,7 +402,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Should handle overflow gracefully
-            assert_eq!(row_mask.mask().true_count(), 1); // Only u64::MAX - 1 is in range
+            assert_eq!(row_mask.true_count(), 1); // Only u64::MAX - 1 is in range
         }
 
         #[test]
@@ -415,7 +415,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Should handle overflow gracefully, excluding index u64::MAX - 1
-            assert_eq!(row_mask.mask().true_count(), 9); // All except one
+            assert_eq!(row_mask.true_count(), 9); // All except one
         }
 
         #[test]
@@ -437,8 +437,8 @@ mod tests {
             let roaring_mask = roaring_selection.row_mask(&range);
 
             assert_eq!(
-                buffer_mask.mask().values().unwrap().indices(),
-                roaring_mask.mask().values().unwrap().indices()
+                buffer_mask.values().unwrap().indices(),
+                roaring_mask.values().unwrap().indices()
             );
         }
 
@@ -461,8 +461,8 @@ mod tests {
             let roaring_mask = roaring_selection.row_mask(&range);
 
             assert_eq!(
-                buffer_mask.mask().values().unwrap().indices(),
-                roaring_mask.mask().values().unwrap().indices()
+                buffer_mask.values().unwrap().indices(),
+                roaring_mask.values().unwrap().indices()
             );
         }
     }

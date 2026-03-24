@@ -30,6 +30,29 @@ pub struct Layout<V: LayoutVTable> {
 
 #[allow(clippy::same_name_method)]
 impl<V: LayoutVTable> Layout<V> {
+    /// Construct a new layout.
+    ///
+    /// FIXME(ngates): this should at least be try_new with some validation!
+    pub(crate) fn new(
+        vtable: V,
+        metadata: V::Metadata,
+        dtype: DType,
+        row_count: u64,
+        children: Vec<LayoutChild>,
+        segments: Vec<SegmentId>,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> Self {
+        Self {
+            vtable,
+            metadata,
+            dtype,
+            row_count,
+            children,
+            segments,
+            segment_source,
+        }
+    }
+
     /// Returns the ID of the layout.
     pub fn id(&self) -> LayoutId {
         self.vtable.id()

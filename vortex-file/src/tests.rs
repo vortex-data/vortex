@@ -63,7 +63,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
-use vortex_scan::ScanBuilder;
+use vortex_layout::v2::scan::shim::ScanBuilder;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -119,7 +119,7 @@ async fn test_read_simple() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .into_array_stream()
         .unwrap();
@@ -199,7 +199,7 @@ async fn test_round_trip_many_types() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .into_array_stream()
         .unwrap()
@@ -285,7 +285,7 @@ async fn test_read_projection() {
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
     let array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_projection(select(["strings"], root()))
         .into_array_stream()
@@ -307,7 +307,7 @@ async fn test_read_projection() {
     assert_arrays_eq!(actual.as_ref(), expected.as_ref());
 
     let array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_projection(select(["numbers"], root()))
         .into_array_stream()
@@ -356,7 +356,7 @@ async fn unequal_batches() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .into_array_stream()
         .unwrap();
@@ -416,7 +416,7 @@ async fn write_chunked() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .into_array_stream()
         .unwrap();
@@ -446,7 +446,7 @@ async fn test_empty_varbin_array_roundtrip() {
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let result = file
-        .scan()
+        .scan2()
         .unwrap()
         .into_array_stream()
         .unwrap()
@@ -476,7 +476,7 @@ async fn issue_5385_filter_casted_column() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(eq(
             cast(
@@ -526,7 +526,7 @@ async fn filter_string() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(eq(get_item("name", root()), lit("Joseph")))
         .into_array_stream()
@@ -575,7 +575,7 @@ async fn filter_or() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(or(
             eq(get_item("name", root()), lit("Angela")),
@@ -632,7 +632,7 @@ async fn filter_and() {
         .open_options()
         .open_buffer(buf)
         .unwrap()
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(and(
             gt(get_item("age", root()), lit(21)),
@@ -686,7 +686,7 @@ async fn test_with_indices_simple() {
 
     // test no indices
     let actual_kept_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_row_indices(Buffer::<u64>::empty())
         .into_array_stream()
@@ -702,7 +702,7 @@ async fn test_with_indices_simple() {
     let kept_indices = [0_u64, 3, 99, 100, 101, 399, 400, 401, 499];
 
     let actual_kept_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_row_indices(Buffer::from_iter(kept_indices))
         .into_array_stream()
@@ -722,7 +722,7 @@ async fn test_with_indices_simple() {
 
     // test all indices
     let actual_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_row_indices((0u64..500).collect::<Buffer<_>>())
         .into_array_stream()
@@ -765,7 +765,7 @@ async fn test_with_indices_on_two_columns() {
 
     let kept_indices = [0_u64, 3, 7];
     let array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_row_indices(Buffer::from_iter(kept_indices))
         .into_array_stream()
@@ -820,7 +820,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual_kept_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices(Buffer::empty())
@@ -837,7 +837,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let kept_indices = [0u64, 3, 99, 100, 101, 399, 400, 401, 499];
 
     let actual_kept_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices(Buffer::from_iter(kept_indices))
@@ -860,7 +860,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     // test all indices
     let actual_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices((0..500).collect::<Buffer<_>>())
@@ -923,7 +923,7 @@ async fn filter_string_chunked() {
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(eq(get_item("name", root()), lit("Joseph")))
         .into_array_stream()
@@ -1011,7 +1011,7 @@ async fn test_pruning_with_or() {
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual_array = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_filter(or(
             lt_eq(get_item("letter", root()), lit("J")),
@@ -1084,7 +1084,7 @@ async fn test_repeated_projection() {
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual = file
-        .scan()
+        .scan2()
         .unwrap()
         .with_projection(select(["strings", "strings"], root()))
         .into_array_stream()
@@ -1117,7 +1117,7 @@ async fn chunked_file() -> VortexResult<VortexFile> {
 #[tokio::test]
 async fn basic_file_roundtrip() -> VortexResult<()> {
     let vxf = chunked_file().await?;
-    let result = vxf.scan()?.into_array_stream()?.read_all().await?;
+    let result = vxf.scan2()?.into_array_stream()?.read_all().await?;
 
     let expected = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
     assert_arrays_eq!(result.as_ref(), expected.as_ref());
@@ -1161,7 +1161,7 @@ async fn file_excluding_dtype() -> VortexResult<()> {
 async fn file_take() -> VortexResult<()> {
     let vxf = chunked_file().await?;
     let result = vxf
-        .scan()?
+        .scan2()?
         .with_row_indices(buffer![0, 1, 8])
         .into_array_stream()?
         .read_all()
@@ -1199,7 +1199,7 @@ async fn write_nullable_top_level_struct() {
 
 async fn round_trip(
     array: &ArrayRef,
-    f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
+    f: impl Fn(ScanBuilder) -> VortexResult<ScanBuilder>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
     SESSION
@@ -1216,7 +1216,7 @@ async fn round_trip(
     assert_eq!(vxf.dtype(), array.dtype());
     assert_eq!(vxf.row_count(), array.len() as u64);
 
-    f(vxf.scan()?)?.into_array_stream()?.read_all().await
+    f(vxf.scan2()?)?.into_array_stream()?.read_all().await
 }
 
 #[tokio::test]
@@ -1295,7 +1295,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
         .await?;
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let stream = file.scan().unwrap().into_array_stream()?;
+    let stream = file.scan2().unwrap().into_array_stream()?;
     let array = stream.read_all().await?;
 
     assert_eq!(array.len(), 8);
@@ -1317,7 +1317,7 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
         .write(&mut buf, array.to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
-    let read_array = file.scan()?.into_array_stream()?.read_all().await?;
+    let read_array = file.scan2()?.into_array_stream()?.read_all().await?;
 
     let dict = read_array
         .as_opt::<Dict>()
@@ -1345,7 +1345,7 @@ async fn test_writer_basic_push() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 4);
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    let result = file.scan2()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 4);
     assert_eq!(result.dtype(), &dtype);
@@ -1375,7 +1375,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 9);
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    let result = file.scan2()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 9);
     let numbers = result
@@ -1409,7 +1409,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 6);
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    let result = file.scan2()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
     let numbers = result
@@ -1473,7 +1473,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 2);
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    let result = file.scan2()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 2);
     let numbers = result
@@ -1511,7 +1511,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 6);
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    let result = file.scan2()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
     let numbers = result
@@ -1551,7 +1551,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     assert_eq!(footer.row_count(), 3);
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    let result = file.scan2()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.dtype(), &dtype);
@@ -1624,7 +1624,7 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = SESSION
         .open_options()
         .open_buffer(buf)?
-        .scan()?
+        .scan2()?
         .with_filter(filter_expr)
         .into_array_stream()?;
 
@@ -1680,7 +1680,7 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
     let stream = SESSION
         .open_options()
         .open_buffer(buf)?
-        .scan()?
+        .scan2()?
         .with_filter(filter_expr)
         .into_array_stream()?;
 
