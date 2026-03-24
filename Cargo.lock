@@ -10361,6 +10361,7 @@ dependencies = [
  "paste",
  "pin-project-lite",
  "prost 0.14.3",
+ "roaring 0.11.3",
  "rstest",
  "rustc-hash",
  "termtree",

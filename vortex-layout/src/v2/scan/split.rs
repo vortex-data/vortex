@@ -4,15 +4,26 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
+use vortex_mask::Mask;
+
+use crate::v2::selection::Selection;
+
 /// Identifies a split within a scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SplitId(pub(crate) u32);
+pub struct SplitId(u32);
+
+impl From<u32> for SplitId {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
 
 /// A split with its associated row range.
 #[derive(Debug, Clone)]
 pub struct SplitRange {
     pub id: SplitId,
     pub row_range: Range<u64>,
+    pub mask: Mask,
 }
 
 /// Forms splits from boundary points, coalescing small adjacent intervals and subdividing
@@ -27,6 +38,7 @@ pub struct SplitRange {
 //  sections.
 pub fn form_splits(
     boundaries: &BTreeSet<u64>,
+    selection: &Selection,
     total_row_count: u64,
     min_split_rows: u64,
     max_split_rows: u64,
@@ -76,7 +88,8 @@ pub fn form_splits(
         if len <= max_split_rows {
             splits.push(SplitRange {
                 id: SplitId(split_id),
-                row_range: interval,
+                row_range: interval.clone(),
+                mask: selection.row_mask(&interval),
             });
             split_id += 1;
         } else {
@@ -86,6 +99,7 @@ pub fn form_splits(
                 splits.push(SplitRange {
                     id: SplitId(split_id),
                     row_range: start..end,
+                    mask: selection.row_mask(&*start..end),
                 });
                 split_id += 1;
                 start = end;
@@ -107,7 +121,7 @@ mod tests {
             boundaries.insert(b);
         }
 
-        let splits = form_splits(&boundaries, 1000, 250, 1000);
+        let splits = form_splits(&boundaries, &Selection::All, 1000, 250, 1000);
 
         // [0..100, 100..200, 200..300] coalesce to [0..300], then [300..1000] stays.
         assert_eq!(splits.len(), 2);
@@ -123,7 +137,7 @@ mod tests {
         boundaries.insert(0);
         boundaries.insert(2000);
 
-        let splits = form_splits(&boundaries, 2000, 100, 500);
+        let splits = form_splits(&boundaries, &Selection::All, 2000, 100, 500);
 
         // [0..2000] subdivides into [0..500, 500..1000, 1000..1500, 1500..2000].
         assert_eq!(splits.len(), 4);
@@ -136,14 +150,14 @@ mod tests {
     #[test]
     fn test_form_splits_empty() {
         let boundaries = BTreeSet::new();
-        assert!(form_splits(&boundaries, 1000, 100, 500).is_empty());
-        assert!(form_splits(&BTreeSet::from([0, 100]), 0, 100, 500).is_empty());
+        assert!(form_splits(&boundaries, &Selection::All, 1000, 100, 500).is_empty());
+        assert!(form_splits(&BTreeSet::from([0, 100]), &Selection::All, 0, 100, 500).is_empty());
     }
 
     #[test]
     fn test_form_splits_single_interval() {
         let boundaries = BTreeSet::from([0, 500]);
-        let splits = form_splits(&boundaries, 500, 100, 1000);
+        let splits = form_splits(&boundaries, &Selection::All, 500, 100, 1000);
         assert_eq!(splits.len(), 1);
         assert_eq!(splits[0].row_range, 0..500);
     }

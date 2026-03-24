@@ -16,6 +16,7 @@ use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::planner::PlanBuilder;
 use crate::v2::planner::SplitPlannerRef;
+use crate::v2::selection::Selection;
 
 /// The vtable for a pluggable layout.
 pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
@@ -43,7 +44,7 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
     fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
-        selection: &RowSelection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef>;
 }
@@ -58,10 +59,4 @@ pub enum ChildRelationship {
     /// The row range specifies the parent's row range that this auxiliary data covers,
     /// used to determine the lifetime scope for nodes in this subtree.
     Auxiliary(Range<u64>),
-}
-
-/// A set of rows to include in the scan.
-pub enum RowSelection {
-    All,
-    IncludeRanges(Vec<Range<u64>>),
 }

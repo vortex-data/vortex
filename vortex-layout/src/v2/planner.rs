@@ -22,8 +22,8 @@ pub type SplitPlannerRef = Arc<dyn SplitPlanner>;
 pub trait SplitPlanner: Send + Sync {
     fn plan_split(
         &self,
-        row_range: Range<u64>,
-        selection: &SplitSelection,
+        row_range: &Range<u64>,
+        selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId>;
 }
@@ -34,10 +34,6 @@ pub struct NodeId(usize);
 impl NodeId {
     pub(crate) fn new(idx: usize) -> Self {
         Self(idx)
-    }
-
-    pub(crate) fn sentinel() -> Self {
-        Self(usize::MAX)
     }
 
     pub(crate) fn as_usize(self) -> usize {
@@ -141,6 +137,13 @@ impl PlanBuilder {
         Ok(id)
     }
 
+    /// Construct a node with a resolved value and no input dependencies.
+    pub fn create_node_resolved(&mut self, array: ArrayRef) -> NodeId {
+        self.plan
+            .borrow_mut()
+            .add_node(&[], &[], Box::new(move |_| Ok(array)), Lifetime::Scan)
+    }
+
     /// Consumes the builder and returns the built [`SplitPlan`].
     ///
     /// # Panics
@@ -202,7 +205,7 @@ impl SplitSelection {
 
     /// Returns a sentinel node ID for this selection.
     pub fn node_id(&self) -> NodeId {
-        NodeId::sentinel()
+        todo!()
     }
 
     /// Returns the latest selection mask for this split.
