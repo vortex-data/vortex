@@ -95,5 +95,6 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                 scalar_at_canonical_array(array.storage_array().to_canonical()?, index)?;
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
+        Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

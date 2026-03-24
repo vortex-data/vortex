@@ -5,26 +5,24 @@ mod vtable;
 
 pub use self::vtable::Variant;
 use crate::ArrayRef;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
 
 /// The canonical in-memory representation of variant (semi-structured) data.
 ///
 /// Wraps a single child array that contains the actual variant-encoded data
 /// (e.g. a `ParquetVariantArray` or any other variant encoding).
+///
+/// Nullability is delegated to the child array: `VariantArray`'s dtype is
+/// always the child's dtype. The child's validity determines which rows are
+/// null.
 #[derive(Clone, Debug)]
 pub struct VariantArray {
-    dtype: DType,
     child: ArrayRef,
 }
 
 impl VariantArray {
-    /// Creates a new VariantArray with the given nullability.
-    pub fn new(child: ArrayRef, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Variant(nullability),
-            child,
-        }
+    /// Creates a new VariantArray. Nullability comes from the child's dtype.
+    pub fn new(child: ArrayRef) -> Self {
+        Self { child }
     }
 
     /// Returns a reference to the underlying child array.

@@ -18,7 +18,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::VariantArray;
 use crate::buffer::BufferHandle;
@@ -60,7 +59,7 @@ impl VTable for Variant {
     }
 
     fn dtype(array: &Self::Array) -> &DType {
-        &array.dtype
+        array.child.dtype()
     }
 
     fn stats(array: &Self::Array) -> StatsSetRef<'_> {
@@ -136,13 +135,9 @@ impl VTable for Variant {
             "Expected 1 child, got {}",
             children.len()
         );
-        // The child can be any variant encoding, so we use DType::Variant.
-        let child = children.get(
-            0,
-            &DType::Variant(crate::dtype::Nullability::NonNullable),
-            len,
-        )?;
-        Ok(VariantArray::new(child, dtype.nullability()))
+        // The child carries the nullability for the whole VariantArray.
+        let child = children.get(0, dtype, len)?;
+        Ok(VariantArray::new(child))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -151,12 +146,14 @@ impl VTable for Variant {
             "VariantArray expects exactly 1 child, got {}",
             children.len()
         );
-        array.child = children.into_iter().next().vortex_expect("must exist");
+        array.child = children
+            .into_iter()
+            .next()
+            .vortex_expect("VariantArray must have 1 child");
         Ok(())
     }
 
     fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // VariantArray is the canonical variant representation.
-        Ok(ExecutionResult::done(array.as_ref().clone().into_array()))
+        Ok(ExecutionResult::done_upcast::<Self>(array))
     }
 }
