@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex::array::ArrayEq;
 use vortex::array::ArrayHash;
 use vortex::array::ArrayRef;
 use vortex::array::EmptyMetadata;
 use vortex::array::ExecutionCtx;
-use vortex::array::ExecutionStep;
+use vortex::array::ExecutionResult;
 use vortex::array::Precision;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::serde::ArrayChildren;
@@ -33,7 +34,7 @@ mod validity;
 
 vtable!(NormVector);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NormVector;
 
 impl VTable for NormVector {
@@ -165,7 +166,10 @@ impl VTable for NormVector {
         Ok(())
     }
 
-    fn execute(array: &NormVectorArray, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.decompress(ctx)?))
+    fn execute(
+        array: Arc<NormVectorArray>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array.decompress(ctx)?))
     }
 }

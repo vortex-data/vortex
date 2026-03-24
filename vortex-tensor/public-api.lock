@@ -1,5 +1,119 @@
 pub mod vortex_tensor
 
+pub mod vortex_tensor::encodings
+
+pub mod vortex_tensor::encodings::norm
+
+pub struct vortex_tensor::encodings::norm::NormVector
+
+impl core::clone::Clone for vortex_tensor::encodings::norm::NormVector
+
+pub fn vortex_tensor::encodings::norm::NormVector::clone(&self) -> vortex_tensor::encodings::norm::NormVector
+
+impl core::fmt::Debug for vortex_tensor::encodings::norm::NormVector
+
+pub fn vortex_tensor::encodings::norm::NormVector::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::vtable::VTable for vortex_tensor::encodings::norm::NormVector
+
+pub type vortex_tensor::encodings::norm::NormVector::Array = vortex_tensor::encodings::norm::NormVectorArray
+
+pub type vortex_tensor::encodings::norm::NormVector::Metadata = vortex_array::metadata::EmptyMetadata
+
+pub type vortex_tensor::encodings::norm::NormVector::OperationsVTable = vortex_tensor::encodings::norm::NormVector
+
+pub type vortex_tensor::encodings::norm::NormVector::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_tensor::encodings::norm::NormVector::array_eq(array: &vortex_tensor::encodings::norm::NormVectorArray, other: &vortex_tensor::encodings::norm::NormVectorArray, precision: vortex_array::hash::Precision) -> bool
+
+pub fn vortex_tensor::encodings::norm::NormVector::array_hash<H: core::hash::Hasher>(array: &vortex_tensor::encodings::norm::NormVectorArray, state: &mut H, precision: vortex_array::hash::Precision)
+
+pub fn vortex_tensor::encodings::norm::NormVector::buffer(_array: &vortex_tensor::encodings::norm::NormVectorArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_tensor::encodings::norm::NormVector::buffer_name(_array: &vortex_tensor::encodings::norm::NormVectorArray, idx: usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_tensor::encodings::norm::NormVector::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_tensor::encodings::norm::NormVectorArray>
+
+pub fn vortex_tensor::encodings::norm::NormVector::child(array: &vortex_tensor::encodings::norm::NormVectorArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_tensor::encodings::norm::NormVector::child_name(_array: &vortex_tensor::encodings::norm::NormVectorArray, idx: usize) -> alloc::string::String
+
+pub fn vortex_tensor::encodings::norm::NormVector::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_tensor::encodings::norm::NormVector::dtype(array: &vortex_tensor::encodings::norm::NormVectorArray) -> &vortex_array::dtype::DType
+
+pub fn vortex_tensor::encodings::norm::NormVector::execute(array: alloc::sync::Arc<vortex_tensor::encodings::norm::NormVectorArray>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_tensor::encodings::norm::NormVector::id(&self) -> vortex_array::vtable::dyn_::ArrayId
+
+pub fn vortex_tensor::encodings::norm::NormVector::len(array: &vortex_tensor::encodings::norm::NormVectorArray) -> usize
+
+pub fn vortex_tensor::encodings::norm::NormVector::metadata(_array: &vortex_tensor::encodings::norm::NormVectorArray) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_tensor::encodings::norm::NormVector::nbuffers(_array: &vortex_tensor::encodings::norm::NormVectorArray) -> usize
+
+pub fn vortex_tensor::encodings::norm::NormVector::nchildren(_array: &vortex_tensor::encodings::norm::NormVectorArray) -> usize
+
+pub fn vortex_tensor::encodings::norm::NormVector::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_tensor::encodings::norm::NormVector::stats(array: &vortex_tensor::encodings::norm::NormVectorArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_tensor::encodings::norm::NormVector::vtable(_array: &Self::Array) -> &Self
+
+pub fn vortex_tensor::encodings::norm::NormVector::with_children(array: &mut vortex_tensor::encodings::norm::NormVectorArray, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
+impl vortex_array::vtable::operations::OperationsVTable<vortex_tensor::encodings::norm::NormVector> for vortex_tensor::encodings::norm::NormVector
+
+pub fn vortex_tensor::encodings::norm::NormVector::scalar_at(array: &vortex_tensor::encodings::norm::NormVectorArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::vtable::validity::ValidityChild<vortex_tensor::encodings::norm::NormVector> for vortex_tensor::encodings::norm::NormVector
+
+pub fn vortex_tensor::encodings::norm::NormVector::validity_child(array: &vortex_tensor::encodings::norm::NormVectorArray) -> &vortex_array::array::ArrayRef
+
+pub struct vortex_tensor::encodings::norm::NormVectorArray
+
+impl vortex_tensor::encodings::norm::NormVectorArray
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::compress(vector_array: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::decompress(&self, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::norms(&self) -> &vortex_array::array::ArrayRef
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::try_new(vector_array: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::vector_array(&self) -> &vortex_array::array::ArrayRef
+
+impl vortex_tensor::encodings::norm::NormVectorArray
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::to_array(&self) -> vortex_array::array::ArrayRef
+
+impl core::clone::Clone for vortex_tensor::encodings::norm::NormVectorArray
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::clone(&self) -> vortex_tensor::encodings::norm::NormVectorArray
+
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_tensor::encodings::norm::NormVectorArray
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
+
+impl core::convert::From<vortex_tensor::encodings::norm::NormVectorArray> for vortex_array::array::ArrayRef
+
+pub fn vortex_array::array::ArrayRef::from(value: vortex_tensor::encodings::norm::NormVectorArray) -> vortex_array::array::ArrayRef
+
+impl core::fmt::Debug for vortex_tensor::encodings::norm::NormVectorArray
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::ops::deref::Deref for vortex_tensor::encodings::norm::NormVectorArray
+
+pub type vortex_tensor::encodings::norm::NormVectorArray::Target = dyn vortex_array::array::DynArray
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::deref(&self) -> &Self::Target
+
+impl vortex_array::array::IntoArray for vortex_tensor::encodings::norm::NormVectorArray
+
+pub fn vortex_tensor::encodings::norm::NormVectorArray::into_array(self) -> vortex_array::array::ArrayRef
+
 pub mod vortex_tensor::fixed_shape
 
 pub struct vortex_tensor::fixed_shape::FixedShapeTensor
