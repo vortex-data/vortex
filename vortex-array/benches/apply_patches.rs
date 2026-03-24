@@ -6,6 +6,7 @@
 
 use divan::Bencher;
 use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
@@ -15,7 +16,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use rand::RngExt;
 
 fn main() {
     divan::main();
