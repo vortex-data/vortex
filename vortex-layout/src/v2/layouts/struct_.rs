@@ -7,8 +7,13 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
 use vortex_array::expr::col;
@@ -17,6 +22,9 @@ use vortex_array::expr::root;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
+use vortex_array::scalar_fn::fns::merge::Merge;
+use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::validity::Validity;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -202,8 +210,13 @@ impl LayoutVTable for Struct {
                     None
                 };
 
+                let is_pack_merge =
+                    partitioned_expr.root.is::<Pack>() || partitioned_expr.root.is::<Merge>();
+
                 Ok(Arc::new(MultiFieldSplitPlanner {
                     root_expr: partitioned_expr.root.clone(),
+                    partition_names: partitioned_expr.partition_names.clone(),
+                    is_pack_merge,
                     field_planners,
                     validity_planner,
                 }))
@@ -289,9 +302,9 @@ impl SplitPlanner for SingleFieldSplitPlanner {
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |_segments: Vec<ByteBuffer>, inputs: Vec<ArrayRef>| {
-                let _data = &inputs[0];
-                let _validity = &inputs[1];
-                todo!("apply validity mask to single-field data output")
+                let data = inputs[0].clone();
+                let validity = inputs[1].clone();
+                data.mask(validity)
             },
         })
     }
@@ -300,6 +313,8 @@ impl SplitPlanner for SingleFieldSplitPlanner {
 /// Split planner for a multi-field struct expression.
 struct MultiFieldSplitPlanner {
     root_expr: Expression,
+    partition_names: FieldNames,
+    is_pack_merge: bool,
     field_planners: Vec<SplitPlannerRef>,
     validity_planner: Option<SplitPlannerRef>,
 }
@@ -323,6 +338,8 @@ impl SplitPlanner for MultiFieldSplitPlanner {
         }
 
         let root_expr = self.root_expr.clone();
+        let partition_names = self.partition_names.clone();
+        let is_pack_merge = self.is_pack_merge;
         let has_validity = self.validity_planner.is_some();
         builder.create_node(NodeOpts {
             inputs: &child_outputs,
@@ -330,12 +347,39 @@ impl SplitPlanner for MultiFieldSplitPlanner {
             lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |_segments: Vec<ByteBuffer>, mut inputs: Vec<ArrayRef>| {
                 let validity = if has_validity { inputs.pop() } else { None };
-                // TODO: pack inputs into a StructArray, apply validity,
-                // then evaluate root_expr on the result.
-                let _root_expr = root_expr;
-                let _validity = validity;
-                let _field_arrays = inputs;
-                todo!("assemble struct from field arrays and evaluate root expression")
+                let len = inputs.first().map_or(0, |a| a.len());
+
+                // Assemble a StructArray from the field arrays.
+                let root_scope =
+                    StructArray::try_new(partition_names, inputs, len, Validity::NonNullable)?
+                        .into_array();
+
+                // Evaluate the root expression on the assembled struct.
+                let result = root_scope.apply(&root_expr)?;
+
+                // Apply validity if the struct is nullable.
+                if let Some(validity) = validity {
+                    if is_pack_merge {
+                        // For pack/merge, apply validity per-field.
+                        let struct_array = result.to_struct();
+                        let masked_fields: Vec<ArrayRef> = struct_array
+                            .unmasked_fields()
+                            .iter()
+                            .map(|a| a.clone().mask(validity.clone()))
+                            .collect::<VortexResult<_>>()?;
+                        Ok(StructArray::try_new(
+                            struct_array.names().clone(),
+                            masked_fields,
+                            struct_array.len(),
+                            struct_array.validity()?,
+                        )?
+                        .into_array())
+                    } else {
+                        result.mask(validity)
+                    }
+                } else {
+                    Ok(result)
+                }
             },
         })
     }
