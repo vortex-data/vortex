@@ -60,10 +60,10 @@ impl LayoutVTable for Flat {
     }
 
     fn deserialize_metadata(
-        metadata: &[u8],
-        dtype: &DType,
-        row_count: u64,
-        children: &[LayoutChild],
+        _metadata: &[u8],
+        _dtype: &DType,
+        _row_count: u64,
+        _children: &[LayoutChild],
         array_ctx: &ReadContext,
     ) -> VortexResult<Self::Metadata> {
         Ok(FlatMetadata {
@@ -84,7 +84,7 @@ impl LayoutVTable for Flat {
         expr: &Expression,
         // TODO(ngates): we probably want to pass this down? Although it should be available
         //  through the "latest" view of the SplitSelection.
-        selection: &Selection,
+        _selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
