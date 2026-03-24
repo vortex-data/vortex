@@ -3,6 +3,5 @@
 
 pub mod layout;
 mod layouts;
-mod planner;
 pub mod scan;
 mod selection;

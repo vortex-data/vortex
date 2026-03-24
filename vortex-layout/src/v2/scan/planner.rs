@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cell::RefCell;
 use std::ops::Range;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
@@ -11,11 +9,10 @@ use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::segments::SegmentId;
 use crate::v2::layout::ChildRelationship;
-use crate::v2::scan::plan::SplitPlan;
+use crate::v2::scan::plan::Plan;
 
 pub type SplitPlannerRef = Arc<dyn SplitPlanner>;
 
@@ -47,9 +44,9 @@ impl NodeId {
 /// [`step_into`](Self::step_into). This context is used to translate local row coordinates
 /// to global coordinates for lifetime assignment.
 ///
-/// Internally backs onto a shared [`SplitPlan`] so that child builders created via `step_into`
+/// Internally backs onto a shared [`Plan`] so that child builders created via `step_into`
 /// all contribute to the same DAG.
-pub struct PlanBuilder {
+pub struct PlanBuilder<'a> {
     /// Accumulated row offset from the root of the layout tree.
     base_offset: u64,
     /// The lifetime scope for nodes in the current subtree. `None` means use the split's
@@ -59,23 +56,17 @@ pub struct PlanBuilder {
     /// where the lifetime is the parent's row range rather than the child's own coordinates.
     lifetime_scope: Option<Range<u64>>,
     /// The shared backing plan that accumulates nodes from all builders in the tree.
-    plan: Rc<RefCell<SplitPlan>>,
+    plan: &'a mut Plan,
 }
 
-impl Default for PlanBuilder {
-    fn default() -> Self {
+impl<'a> PlanBuilder<'a> {
+    /// Creates a new root-level plan builder.
+    pub(crate) fn new(plan: &'a mut Plan) -> Self {
         Self {
             base_offset: 0,
             lifetime_scope: None,
-            plan: Rc::new(RefCell::new(SplitPlan::new())),
+            plan,
         }
-    }
-}
-
-impl PlanBuilder {
-    /// Creates a new root-level plan builder.
-    pub fn new() -> Self {
-        Self::default()
     }
 
     /// Creates a child builder by stepping into a child layout with the given relationship.
@@ -84,24 +75,24 @@ impl PlanBuilder {
     /// - [`FieldName(_)`](ChildRelationship::FieldName): same row space, no change.
     /// - [`Auxiliary(range)`](ChildRelationship::Auxiliary): enters a separate row space where
     ///   the node lifetime is fixed to the parent's row range.
-    pub fn step_into(&self, relationship: &ChildRelationship) -> PlanBuilder {
+    pub fn step_into(&mut self, relationship: &ChildRelationship) -> PlanBuilder<'a> {
         match relationship {
             ChildRelationship::RowOffset(offset) => PlanBuilder {
                 base_offset: self.base_offset + offset,
                 lifetime_scope: self.lifetime_scope.clone(),
-                plan: Rc::clone(&self.plan),
+                plan: self.plan,
             },
             ChildRelationship::FieldName(_) => PlanBuilder {
                 base_offset: self.base_offset,
                 lifetime_scope: self.lifetime_scope.clone(),
-                plan: Rc::clone(&self.plan),
+                plan: self.plan,
             },
             ChildRelationship::Auxiliary(parent_range) => PlanBuilder {
                 base_offset: 0,
                 lifetime_scope: Some(
                     parent_range.start + self.base_offset..parent_range.end + self.base_offset,
                 ),
-                plan: Rc::clone(&self.plan),
+                plan: self.plan,
             },
         }
     }
@@ -143,18 +134,6 @@ impl PlanBuilder {
             .borrow_mut()
             .add_node(&[], &[], Box::new(move |_| Ok(array)), Lifetime::Scan)
     }
-
-    /// Consumes the builder and returns the built [`SplitPlan`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if any child builders created via [`step_into`](Self::step_into) are still alive.
-    pub fn take_plan(self) -> SplitPlan {
-        match Rc::try_unwrap(self.plan) {
-            Ok(cell) => cell.into_inner(),
-            Err(_) => vortex_panic!("PlanBuilder::take_plan called with outstanding references"),
-        }
-    }
 }
 
 pub struct NodeOpts<'a, F> {
@@ -188,35 +167,6 @@ impl NodeInput {
             NodeInput::Buffer(_) => vortex_panic!("Input is not a buffer"),
             NodeInput::Array(array) => array,
         }
-    }
-}
-
-/// A handle to the filter mask of the current split.
-///
-/// This handle provides a view over the "latest" filter mask, useful for pruning during planning,
-/// as well as a NodeId that can be referenced to create a hard dependency in the DAG.
-pub struct SplitSelection {}
-
-impl SplitSelection {
-    /// Creates a new stub selection with no filtering.
-    pub fn new() -> Self {
-        Self {}
-    }
-
-    /// Returns a sentinel node ID for this selection.
-    pub fn node_id(&self) -> NodeId {
-        todo!()
-    }
-
-    /// Returns the latest selection mask for this split.
-    pub fn latest(&self) -> Mask {
-        Mask::AllTrue(0)
-    }
-}
-
-impl Default for SplitSelection {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

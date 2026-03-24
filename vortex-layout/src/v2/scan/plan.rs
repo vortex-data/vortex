@@ -11,10 +11,10 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::segments::SegmentId;
-use crate::v2::planner::ComputeFn;
-use crate::v2::planner::Lifetime;
-use crate::v2::planner::NodeId;
-use crate::v2::planner::NodeInput;
+use crate::v2::scan::planner::ComputeFn;
+use crate::v2::scan::planner::Lifetime;
+use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NodeState {
@@ -36,12 +36,8 @@ struct PlanNode {
     output: Option<ArrayRef>,
 }
 
-/// The concrete execution plan for a single split.
-///
-/// Built by [`PlanBuilder`](crate::v2::planner::PlanBuilder) during
-/// [`SplitPlanner::plan_split()`](crate::v2::planner::SplitPlanner::plan_split), then executed
-/// by the scan scheduler to fetch segments, run compute nodes, and produce an output array.
-pub struct SplitPlan {
+/// The layout scan plan DAG.
+pub struct Plan {
     nodes: Vec<PlanNode>,
     root_node: Option<NodeId>,
     /// Reverse index: for each node, the `(dependent_node, slot)` pairs that depend on it.
@@ -51,7 +47,7 @@ pub struct SplitPlan {
 }
 
 // Debug is required by `Rc::try_unwrap().expect()` in `PlanBuilder::take_plan`.
-impl std::fmt::Debug for SplitPlan {
+impl std::fmt::Debug for Plan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SplitPlan")
             .field("num_nodes", &self.nodes.len())
@@ -60,7 +56,7 @@ impl std::fmt::Debug for SplitPlan {
     }
 }
 
-impl SplitPlan {
+impl Plan {
     pub(crate) fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -254,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_split_plan_execution() -> VortexResult<()> {
-        let mut plan = SplitPlan::new();
+        let mut plan = Plan::new();
 
         // Node 0: no deps, produces [1, 2, 3]
         let n0 = plan.add_node(
@@ -310,7 +306,7 @@ mod tests {
         let seg0 = SegmentId::from(0u32);
         let seg1 = SegmentId::from(1u32);
 
-        let mut plan = SplitPlan::new();
+        let mut plan = Plan::new();
 
         let n0 = plan.add_node(
             &[],

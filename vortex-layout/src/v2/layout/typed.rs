@@ -16,8 +16,8 @@ use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::RowSelection;
 use crate::v2::layout::vtable::LayoutVTable;
-use crate::v2::planner::PlanBuilder;
-use crate::v2::planner::SplitPlannerRef;
+use crate::v2::scan::planner::PlanBuilder;
+use crate::v2::scan::planner::SplitPlannerRef;
 
 pub struct Layout<V: LayoutVTable> {
     vtable: V,

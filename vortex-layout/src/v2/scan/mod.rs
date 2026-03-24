@@ -4,6 +4,7 @@
 pub(crate) mod plan;
 
 mod output;
+pub mod planner;
 mod split;
 
 use std::collections::BTreeMap;
@@ -12,20 +13,19 @@ use std::collections::BTreeSet;
 use futures::FutureExt;
 use futures::Stream;
 use futures::stream::StreamExt;
+use planner::PlanBuilder;
+use planner::SplitPlannerRef;
 use vortex_array::IntoArray;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 
-use self::plan::SplitPlan;
+use self::plan::Plan;
 use self::split::SplitId;
 use self::split::SplitRange;
 use self::split::form_splits;
 use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutRef;
-use crate::v2::layout::RowSelection;
-use crate::v2::planner::PlanBuilder;
-use crate::v2::planner::SplitPlannerRef;
-use crate::v2::planner::SplitSelection;
+use crate::v2::scan::planner::NodeId;
 use crate::v2::selection::Selection;
 
 /// Configuration for a scan.
@@ -72,9 +72,9 @@ pub struct Scan {
 
 struct State {
     next_split_to_plan: usize,
-    plan_builder: PlanBuilder,
-    active_splits: BTreeMap<SplitId, SplitPlan>,
+    plan: Plan,
     plan_ahead_kb: u64,
+    active_splits: BTreeMap<SplitId, NodeId>,
 }
 
 impl Scan {
@@ -115,9 +115,9 @@ impl Scan {
             config,
             state: State {
                 next_split_to_plan: 0,
-                plan_builder: PlanBuilder::default(),
-                active_splits: BTreeMap::new(),
+                plan: Plan::new(),
                 plan_ahead_kb: 0,
+                active_splits: BTreeMap::new(),
             },
         })
     }
@@ -127,6 +127,9 @@ impl Scan {
         // 1. Fill windows - ensure as many I/O requests have been launched as possible.
         //    In order to get sufficient visibility into upcoming I/O, but without having to do
         //    all planning up-front, we make sure to fill our "plan-ahead" window.
+        self.fill_plan_ahead()?;
+
+        Ok(())
     }
 
     /// Plan splits until the plan-ahead window is full.
@@ -148,29 +151,26 @@ impl Scan {
             // Start with the initial row selection.
             // TODO(ngates): note that we convert this to an array. Perhaps this is ok? Or perhaps
             //  it should remain as a mask? Perhaps Selection::row_mask should return an array?
-            let mut selection = self
-                .state
-                .plan_builder
-                .create_node_resolved(split_range.mask.into_array());
+            let mut plan_builder = PlanBuilder::new(&mut self.state.plan);
+
+            let mut selection = plan_builder.create_node_resolved(split_range.mask.into_array());
 
             if let Some(filter_planner) = &self.filter_planner {
                 selection = filter_planner.plan_split(
                     &split_range.row_range,
                     selection,
-                    &mut self.state.plan_builder,
+                    &mut plan_builder,
                 )?;
             }
 
-            let result = self.project_planner.plan_split(
+            let result_node = self.project_planner.plan_split(
                 &split_range.row_range,
                 selection,
-                &mut self.state.plan_builder,
+                &mut plan_builder,
             )?;
 
             self.state.next_split_to_plan += 1;
-
-            // FIXME(ngates): now we do something using the global PlanBuilder DAG and the split's
-            //  result node. For now, let's just set the split state to Planned(NodeId).
+            self.state.active_splits.insert(split_range.id, result_node);
         }
     }
 

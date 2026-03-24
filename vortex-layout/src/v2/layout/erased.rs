@@ -12,8 +12,8 @@ use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::RowSelection;
 use crate::v2::layout::typed::DynLayout;
-use crate::v2::planner::PlanBuilder;
-use crate::v2::planner::SplitPlannerRef;
+use crate::v2::scan::planner::PlanBuilder;
+use crate::v2::scan::planner::SplitPlannerRef;
 
 #[derive(Clone)]
 pub struct LayoutRef(pub(super) Arc<dyn DynLayout>);

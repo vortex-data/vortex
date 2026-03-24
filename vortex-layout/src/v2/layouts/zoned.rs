@@ -17,13 +17,13 @@ use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::layout::RowSelection;
-use crate::v2::planner::NodeId;
-use crate::v2::planner::NodeInput;
-use crate::v2::planner::NodeOpts;
-use crate::v2::planner::PlanBuilder;
-use crate::v2::planner::SplitPlanner;
-use crate::v2::planner::SplitPlannerRef;
-use crate::v2::planner::SplitSelection;
+use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeInput;
+use crate::v2::scan::planner::NodeOpts;
+use crate::v2::scan::planner::PlanBuilder;
+use crate::v2::scan::planner::SplitPlanner;
+use crate::v2::scan::planner::SplitPlannerRef;
+use crate::v2::scan::planner::SplitSelection;
 
 /// The zoned layout vtable.
 #[derive(Clone)]
