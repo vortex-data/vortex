@@ -76,7 +76,6 @@ impl LayoutVTable for Zoned {
         expr: &Expression,
         selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef> {
         let zone_len = layout.metadata().zone_len;
         let nzones = layout.row_count().div_ceil(zone_len);
@@ -84,9 +83,8 @@ impl LayoutVTable for Zoned {
         // Prepare the data child with the original expression and selection.
         // Only the data child contributes row split boundaries.
         let data_rel = Self::child_relationship(layout, 0);
-        let mut data_builder = builder.step_into(&data_rel);
         let data_child = layout.data_child()?;
-        let data_planner = data_child.prepare(expr, selection, row_splits, &mut data_builder)?;
+        let data_planner = data_child.prepare(expr, selection, row_splits)?;
 
         // TODO(ngates): derive pruning predicate via expr.stat_falsification(...)
         // For now, skip zone map optimization and just delegate to the data child.

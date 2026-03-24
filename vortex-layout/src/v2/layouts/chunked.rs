@@ -70,7 +70,6 @@ impl LayoutVTable for Chunked {
         expr: &Expression,
         selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef> {
         let offsets = &layout.metadata().chunk_offsets;
         let num_chunks = layout.num_children();
@@ -90,11 +89,8 @@ impl LayoutVTable for Chunked {
             let local_selection = translate_selection(selection, chunk_start, chunk_end);
 
             // Step into the child's coordinate space.
-            let child_rel = Self::child_relationship(layout, chunk_idx);
-            let mut child_builder = builder.step_into(&child_rel);
-
             let child = layout.child(chunk_idx)?;
-            let planner = child.prepare(expr, &local_selection, row_splits, &mut child_builder)?;
+            let planner = child.prepare(expr, &local_selection, row_splits)?;
 
             // Translate any row splits added by the child back to global coordinates.
             // We collect and re-insert since the child adds splits in its local space.

@@ -123,7 +123,6 @@ impl LayoutVTable for Struct {
         expr: &Expression,
         selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef> {
         let struct_fields = layout.dtype().as_struct_fields();
 
@@ -136,22 +135,12 @@ impl LayoutVTable for Struct {
                 let Some(field_idx) = struct_fields.find(&field_name) else {
                     vortex_bail!("Partitioned field {field_name} not found in struct fields")
                 };
-                let field_rel = layout.field_child_relationship(field_idx);
-                let mut field_builder = builder.step_into(&field_rel);
                 let child = layout.field_child(field_idx)?;
-                let planner =
-                    child.prepare(&field_expr, selection, row_splits, &mut field_builder)?;
+                let planner = child.prepare(&field_expr, selection, row_splits)?;
 
                 // If nullable, also prepare validity.
                 let validity_planner = if let Some(validity_child) = layout.validity_child()? {
-                    let validity_rel = Self::child_relationship(layout, 0);
-                    let mut validity_builder = builder.step_into(&validity_rel);
-                    Some(validity_child.prepare(
-                        &root(),
-                        selection,
-                        row_splits,
-                        &mut validity_builder,
-                    )?)
+                    Some(validity_child.prepare(&root(), selection, row_splits)?)
                 } else {
                     None
                 };
@@ -172,24 +161,14 @@ impl LayoutVTable for Struct {
                     let Some(field_idx) = struct_fields.find(annotation) else {
                         vortex_bail!("Partitioned field {annotation} not found in struct fields")
                     };
-                    let field_rel = layout.field_child_relationship(field_idx);
-                    let mut field_builder = builder.step_into(&field_rel);
                     let child = layout.field_child(field_idx)?;
-                    let planner =
-                        child.prepare(partition_expr, selection, row_splits, &mut field_builder)?;
+                    let planner = child.prepare(partition_expr, selection, row_splits)?;
                     field_planners.push(planner);
                 }
 
                 // If nullable, also prepare validity.
                 let validity_planner = if let Some(validity_child) = layout.validity_child()? {
-                    let validity_rel = Self::child_relationship(layout, 0);
-                    let mut validity_builder = builder.step_into(&validity_rel);
-                    Some(validity_child.prepare(
-                        &root(),
-                        selection,
-                        row_splits,
-                        &mut validity_builder,
-                    )?)
+                    Some(validity_child.prepare(&root(), selection, row_splits)?)
                 } else {
                     None
                 };

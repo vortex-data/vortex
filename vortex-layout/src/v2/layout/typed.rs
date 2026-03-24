@@ -93,7 +93,6 @@ pub(super) trait DynLayout: 'static + Send + Sync + super::sealed::Sealed {
         expr: &Expression,
         selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef>;
 }
 
@@ -148,8 +147,7 @@ impl<V: LayoutVTable> DynLayout for Layout<V> {
         expr: &Expression,
         selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef> {
-        V::prepare(self, expr, selection, row_splits, builder)
+        V::prepare(self, expr, selection, row_splits)
     }
 }

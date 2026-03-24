@@ -63,7 +63,6 @@ impl LayoutVTable for Flat {
         //  through the "latest" view of the SplitSelection.
         _selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        _builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef> {
         // TODO(ngates): surely we only need one of them
         row_splits.insert(0);

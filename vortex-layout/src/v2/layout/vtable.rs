@@ -45,7 +45,6 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
         expr: &Expression,
         selection: &RowSelection,
         row_splits: &mut BTreeSet<u64>,
-        builder: &mut PlanBuilder,
     ) -> VortexResult<SplitPlannerRef>;
 }
 
