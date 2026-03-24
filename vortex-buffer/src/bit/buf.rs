@@ -26,7 +26,6 @@ use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
-use crate::trusted_len::TrustedLenExt;
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
