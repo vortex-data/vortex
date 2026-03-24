@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -12,7 +13,6 @@ use crate::segments::SegmentSource;
 use crate::v2::scan::planner::ComputeFn;
 use crate::v2::scan::planner::Lifetime;
 use crate::v2::scan::planner::NodeId;
-use crate::v2::scan::planner::NodeInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NodeState {
@@ -49,8 +49,10 @@ pub(crate) struct PlanNode {
     lifetime: Lifetime,
     state: NodeState,
     pending_deps: usize,
-    /// Resolved inputs laid out as `[segments..., input_nodes...]`.
-    resolved_inputs: Vec<Option<NodeInput>>,
+    /// Resolved segment buffers, one per segment request.
+    resolved_segments: Vec<Option<ByteBuffer>>,
+    /// Resolved upstream node outputs, one per input node.
+    resolved_inputs: Vec<Option<ArrayRef>>,
     output: Option<ArrayRef>,
 }
 
@@ -91,8 +93,8 @@ impl Plan {
         compute: ComputeFn,
         lifetime: Lifetime,
     ) -> NodeId {
-        let total_slots = segments.len() + inputs.len();
-        let state = if total_slots == 0 {
+        let total_deps = segments.len() + inputs.len();
+        let state = if total_deps == 0 {
             NodeState::Ready
         } else {
             NodeState::Waiting
@@ -101,24 +103,23 @@ impl Plan {
         let id = NodeId::new(self.nodes.len());
 
         // Build reverse dependency edges for input_nodes.
-        // Input nodes occupy slots [segments.len()..total_slots].
         for (i, &input_id) in inputs.iter().enumerate() {
-            let slot = segments.len() + i;
-            // Grow dependents vec if needed (handles out-of-order node creation, though
-            // typically nodes are added in topological order).
             if input_id.as_usize() < self.dependents.len() {
-                self.dependents[input_id.as_usize()].push((id, slot));
+                self.dependents[input_id.as_usize()].push((id, i));
             }
         }
 
+        let num_segments = segments.len();
+        let num_inputs = inputs.len();
         let node = PlanNode {
             input_nodes: inputs.to_vec(),
             segments,
             compute: Some(compute),
             lifetime,
             state,
-            pending_deps: total_slots,
-            resolved_inputs: (0..total_slots).map(|_| None).collect(),
+            pending_deps: total_deps,
+            resolved_segments: (0..num_segments).map(|_| None).collect(),
+            resolved_inputs: (0..num_inputs).map(|_| None).collect(),
             output: None,
         };
 
@@ -139,6 +140,7 @@ impl Plan {
             lifetime: Lifetime::Scan,
             state: NodeState::Complete,
             pending_deps: 0,
+            resolved_segments: Vec::new(),
             resolved_inputs: Vec::new(),
             output: Some(output),
         };
@@ -216,15 +218,10 @@ impl Plan {
     /// Resolves a segment slot for a node by providing the read buffer.
     ///
     /// Decrements `pending_deps` and transitions to `Ready` if all deps are resolved.
-    pub(crate) fn resolve_segment(
-        &mut self,
-        node_id: NodeId,
-        slot: usize,
-        buffer: vortex_buffer::ByteBuffer,
-    ) {
+    pub(crate) fn resolve_segment(&mut self, node_id: NodeId, slot: usize, buffer: ByteBuffer) {
         let node = &mut self.nodes[node_id.as_usize()];
-        debug_assert!(node.resolved_inputs[slot].is_none());
-        node.resolved_inputs[slot] = Some(NodeInput::Buffer(buffer));
+        debug_assert!(node.resolved_segments[slot].is_none());
+        node.resolved_segments[slot] = Some(buffer);
         node.pending_deps -= 1;
         if node.pending_deps == 0 && node.state == NodeState::Dispatched {
             // All segment reads are done; the node can now be computed.
@@ -235,7 +232,7 @@ impl Plan {
     /// Resolves an input-node slot for a node.
     ///
     /// Decrements `pending_deps` and transitions to `Ready` if all deps are resolved.
-    pub(crate) fn resolve_input(&mut self, node_id: NodeId, slot: usize, input: NodeInput) {
+    pub(crate) fn resolve_input(&mut self, node_id: NodeId, slot: usize, input: ArrayRef) {
         let node = &mut self.nodes[node_id.as_usize()];
         debug_assert!(node.resolved_inputs[slot].is_none());
         node.resolved_inputs[slot] = Some(input);
@@ -250,7 +247,7 @@ impl Plan {
     pub(crate) fn take_compute(
         &mut self,
         node_id: NodeId,
-    ) -> VortexResult<(ComputeFn, Vec<NodeInput>)> {
+    ) -> VortexResult<(ComputeFn, Vec<ByteBuffer>, Vec<ArrayRef>)> {
         let node = &mut self.nodes[node_id.as_usize()];
         if node.state != NodeState::Ready {
             vortex_bail!(
@@ -263,13 +260,18 @@ impl Plan {
             .compute
             .take()
             .expect("Ready node must have a compute function");
-        let inputs: Vec<NodeInput> = node
+        let segments: Vec<ByteBuffer> = node
+            .resolved_segments
+            .iter_mut()
+            .map(|slot| slot.take().expect("All segments must be resolved"))
+            .collect();
+        let inputs: Vec<ArrayRef> = node
             .resolved_inputs
             .iter_mut()
             .map(|slot| slot.take().expect("All inputs must be resolved"))
             .collect();
         node.state = NodeState::Dispatched;
-        Ok((compute, inputs))
+        Ok((compute, segments, inputs))
     }
 
     /// Marks a node as `Complete` with the given output.
@@ -304,7 +306,7 @@ mod tests {
         let node_id = plan.add_node(
             &[],
             Vec::new(),
-            Box::new(|_| Ok(PrimitiveArray::from_iter([1i32]).into_array())),
+            Box::new(|_, _| Ok(PrimitiveArray::from_iter([1i32]).into_array())),
             Lifetime::Scan,
         );
         assert_eq!(plan.node_state(node_id), NodeState::Ready);
@@ -321,7 +323,7 @@ mod tests {
         let b = plan.add_node(
             &[a],
             Vec::new(),
-            Box::new(|_| Ok(PrimitiveArray::from_iter([20i32]).into_array())),
+            Box::new(|_, _| Ok(PrimitiveArray::from_iter([20i32]).into_array())),
             Lifetime::Scan,
         );
 
@@ -330,18 +332,17 @@ mod tests {
 
         // Propagate A's output to B.
         let a_output = plan.node_output(a).unwrap().clone();
-        // Slot for input_nodes[0] is at index 0 (no segments).
-        plan.resolve_input(b, 0, NodeInput::Array(a_output));
+        plan.resolve_input(b, 0, a_output);
 
         // B should now be Ready.
         assert_eq!(plan.node_state(b), NodeState::Ready);
 
         // Take compute.
-        let (compute, inputs) = plan.take_compute(b)?;
+        let (compute, segments, inputs) = plan.take_compute(b)?;
         assert_eq!(plan.node_state(b), NodeState::Dispatched);
 
         // Execute and complete.
-        let result = compute(inputs)?;
+        let result = compute(segments, inputs)?;
         plan.complete_node(b, result);
         assert_eq!(plan.node_state(b), NodeState::Complete);
 
@@ -357,14 +358,14 @@ mod tests {
         let b = plan.add_node(
             &[a],
             Vec::new(),
-            Box::new(|_| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
+            Box::new(|_, _| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
             Lifetime::Scan,
         );
 
         let deps = plan.dependents_of(a);
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].0.as_usize(), b.as_usize());
-        assert_eq!(deps[0].1, 0); // slot 0
+        assert_eq!(deps[0].1, 0); // input slot 0
     }
 
     #[test]
@@ -378,7 +379,7 @@ mod tests {
         let _ready = plan.add_node(
             &[],
             Vec::new(),
-            Box::new(|_| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
+            Box::new(|_, _| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
             Lifetime::Scan,
         );
 

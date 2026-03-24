@@ -10,7 +10,6 @@ use vortex_error::VortexError;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::scan::planner::ComputeFn;
-use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::split::SplitId;
 
 /// Identifies a segment read dispatched to the driver.
@@ -33,7 +32,8 @@ pub enum ScanAction {
     Compute {
         compute_id: ComputeId,
         compute: ComputeFn,
-        inputs: Vec<NodeInput>,
+        segments: Vec<ByteBuffer>,
+        inputs: Vec<ArrayRef>,
     },
     /// A split result is ready for the consumer.
     Emit {

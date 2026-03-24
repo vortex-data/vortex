@@ -1328,6 +1328,24 @@ impl vortex_layout::v2::layout::LayoutChild
 
 pub fn vortex_layout::v2::layout::LayoutChild::resolve(&self, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
 
+pub fn vortex_layout::v2::layout::LayoutChild::row_count(&self) -> u64
+
+pub struct vortex_layout::v2::layout::LayoutDeserialize<'a>
+
+pub vortex_layout::v2::layout::LayoutDeserialize::children: alloc::vec::Vec<vortex_layout::v2::layout::LayoutChild>
+
+pub vortex_layout::v2::layout::LayoutDeserialize::dtype: &'a vortex_array::dtype::DType
+
+pub vortex_layout::v2::layout::LayoutDeserialize::metadata: &'a [u8]
+
+pub vortex_layout::v2::layout::LayoutDeserialize::row_count: u64
+
+pub vortex_layout::v2::layout::LayoutDeserialize::segment_source: &'a alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+
+pub vortex_layout::v2::layout::LayoutDeserialize::segments: alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub vortex_layout::v2::layout::LayoutDeserialize::session: &'a vortex_session::VortexSession
+
 pub struct vortex_layout::v2::layout::LayoutRef(_)
 
 impl vortex_layout::v2::layout::LayoutRef
@@ -1354,13 +1372,13 @@ pub fn vortex_layout::v2::layout::LayoutRef::clone(&self) -> vortex_layout::v2::
 
 pub trait vortex_layout::v2::layout::LayoutPlugin: 'static + core::marker::Send + core::marker::Sync
 
-pub fn vortex_layout::v2::layout::LayoutPlugin::deserialize(&self, dtype: &vortex_array::dtype::DType, metadata: &[u8], children: alloc::vec::Vec<vortex_layout::v2::layout::LayoutChild>, segment_source: &alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+pub fn vortex_layout::v2::layout::LayoutPlugin::deserialize(&self, args: vortex_layout::v2::layout::LayoutDeserialize<'_>) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
 
 pub fn vortex_layout::v2::layout::LayoutPlugin::id(&self) -> vortex_layout::v2::layout::LayoutId
 
 impl<V: vortex_layout::v2::layout::LayoutVTable> vortex_layout::v2::layout::LayoutPlugin for V
 
-pub fn V::deserialize(&self, _dtype: &vortex_array::dtype::DType, _metadata: &[u8], _children: alloc::vec::Vec<vortex_layout::v2::layout::LayoutChild>, _segment_source: &alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+pub fn V::deserialize(&self, args: vortex_layout::v2::layout::LayoutDeserialize<'_>) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
 
 pub fn V::id(&self) -> vortex_layout::v2::layout::LayoutId
 
@@ -1373,6 +1391,8 @@ pub type vortex_layout::v2::layout::LayoutVTable::Plan: 'static + core::marker::
 pub fn vortex_layout::v2::layout::LayoutVTable::child_dtype(layout: &vortex_layout::v2::layout::Layout<Self>, child_idx: usize) -> &vortex_array::dtype::DType
 
 pub fn vortex_layout::v2::layout::LayoutVTable::child_relationship(layout: &vortex_layout::v2::layout::Layout<Self>, child_idx: usize) -> vortex_layout::v2::layout::ChildRelationship
+
+pub fn vortex_layout::v2::layout::LayoutVTable::deserialize_metadata(metadata: &[u8], dtype: &vortex_array::dtype::DType, row_count: u64, children: &[vortex_layout::v2::layout::LayoutChild]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_layout::v2::layout::LayoutVTable::id(&self) -> vortex_layout::v2::layout::LayoutId
 
@@ -1400,18 +1420,6 @@ impl vortex_layout::v2::scan::planner::Lifetime
 
 pub fn vortex_layout::v2::scan::planner::Lifetime::covers(&self, _row_range: &core::ops::range::Range<u64>) -> bool
 
-pub enum vortex_layout::v2::scan::planner::NodeInput
-
-pub vortex_layout::v2::scan::planner::NodeInput::Array(vortex_array::array::ArrayRef)
-
-pub vortex_layout::v2::scan::planner::NodeInput::Buffer(vortex_buffer::ByteBuffer)
-
-impl vortex_layout::v2::scan::planner::NodeInput
-
-pub fn vortex_layout::v2::scan::planner::NodeInput::into_array(self) -> vortex_array::array::ArrayRef
-
-pub fn vortex_layout::v2::scan::planner::NodeInput::into_buffer(self) -> vortex_buffer::ByteBuffer
-
 pub struct vortex_layout::v2::scan::planner::NodeId(_)
 
 impl core::clone::Clone for vortex_layout::v2::scan::planner::NodeId
@@ -1438,7 +1446,7 @@ pub struct vortex_layout::v2::scan::planner::PlanBuilder<'a>
 
 impl<'a> vortex_layout::v2::scan::planner::PlanBuilder<'a>
 
-pub fn vortex_layout::v2::scan::planner::PlanBuilder<'a>::create_node<F>(&mut self, options: vortex_layout::v2::scan::planner::NodeOpts<'_, F>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::NodeId> where F: core::ops::function::FnOnce(alloc::vec::Vec<vortex_layout::v2::scan::planner::NodeInput>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static
+pub fn vortex_layout::v2::scan::planner::PlanBuilder<'a>::create_node<F>(&mut self, options: vortex_layout::v2::scan::planner::NodeOpts<'_, F>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::NodeId> where F: core::ops::function::FnOnce(alloc::vec::Vec<vortex_buffer::ByteBuffer>, alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static
 
 pub fn vortex_layout::v2::scan::planner::PlanBuilder<'a>::create_node_resolved(&mut self, array: vortex_array::array::ArrayRef) -> vortex_layout::v2::scan::planner::NodeId
 
@@ -1450,7 +1458,7 @@ pub trait vortex_layout::v2::scan::planner::SplitPlanner: core::marker::Send + c
 
 pub fn vortex_layout::v2::scan::planner::SplitPlanner::plan_split(&self, row_range: &core::ops::range::Range<u64>, selection: vortex_layout::v2::scan::planner::NodeId, builder: &mut vortex_layout::v2::scan::planner::PlanBuilder<'_>) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::NodeId>
 
-pub type vortex_layout::v2::scan::planner::ComputeFn = alloc::boxed::Box<(dyn core::ops::function::FnOnce(alloc::vec::Vec<vortex_layout::v2::scan::planner::NodeInput>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static)>
+pub type vortex_layout::v2::scan::planner::ComputeFn = alloc::boxed::Box<(dyn core::ops::function::FnOnce(alloc::vec::Vec<vortex_buffer::ByteBuffer>, alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + 'static)>
 
 pub type vortex_layout::v2::scan::planner::SplitPlannerRef = alloc::sync::Arc<dyn vortex_layout::v2::scan::planner::SplitPlanner>
 
@@ -1464,7 +1472,9 @@ pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::compute: vortex_lay
 
 pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::compute_id: vortex_layout::v2::scan::scheduler::ComputeId
 
-pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::inputs: alloc::vec::Vec<vortex_layout::v2::scan::planner::NodeInput>
+pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::inputs: alloc::vec::Vec<vortex_array::array::ArrayRef>
+
+pub vortex_layout::v2::scan::scheduler::ScanAction::Compute::segments: alloc::vec::Vec<vortex_buffer::ByteBuffer>
 
 pub vortex_layout::v2::scan::scheduler::ScanAction::Done
 
@@ -1564,7 +1574,7 @@ impl vortex_layout::v2::scan::shim::ScanBuilder
 
 pub fn vortex_layout::v2::scan::shim::ScanBuilder::dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_layout::v2::scan::shim::ScanBuilder::into_array_stream(self) -> vortex_error::VortexResult<impl vortex_array::stream::ArrayStream + core::marker::Send + 'static>
+pub fn vortex_layout::v2::scan::shim::ScanBuilder::into_array_stream(self) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::scan::shim::ScanBuilder::new(layout: vortex_layout::v2::layout::LayoutRef) -> Self
 

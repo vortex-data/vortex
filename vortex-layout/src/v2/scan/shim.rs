@@ -176,8 +176,9 @@ impl ScanStreamState {
                     ScanAction::Compute {
                         compute_id,
                         compute,
+                        segments,
                         inputs,
-                    } => match compute(inputs) {
+                    } => match compute(segments, inputs) {
                         Ok(result) => {
                             if let Err(e) = self
                                 .scan

@@ -6,8 +6,10 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -20,7 +22,6 @@ use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::plan::SegmentRequest;
 use crate::v2::scan::planner::NodeId;
-use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
@@ -114,11 +115,11 @@ impl SplitPlanner for FlatLayoutPlanner {
                 segment_id: self.segment_id,
             }],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |mut inputs: Vec<NodeInput>| {
+            compute: move |mut segments: Vec<ByteBuffer>, _inputs: Vec<ArrayRef>| {
                 // The segment is deserialized into an array by the scheduler.
-                let array = inputs.remove(0).into_array();
-                // Evaluate the expression on the array.
-                array.apply(&expression)
+                let _buffer = segments.remove(0);
+                // TODO: deserialize buffer into array and evaluate expression.
+                todo!("deserialize segment buffer and apply expression")
             },
         })
     }

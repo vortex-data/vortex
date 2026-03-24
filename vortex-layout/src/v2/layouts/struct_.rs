@@ -17,6 +17,7 @@ use vortex_array::expr::root;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,7 +28,6 @@ use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::NodeId;
-use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
@@ -284,9 +284,9 @@ impl SplitPlanner for SingleFieldSplitPlanner {
             inputs: &[data_output, validity_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |mut inputs: Vec<NodeInput>| {
-                let _data = inputs.remove(0).into_array();
-                let _validity = inputs.remove(0).into_array();
+            compute: move |_segments: Vec<ByteBuffer>, inputs: Vec<ArrayRef>| {
+                let _data = &inputs[0];
+                let _validity = &inputs[1];
                 todo!("apply validity mask to single-field data output")
             },
         })
@@ -324,19 +324,13 @@ impl SplitPlanner for MultiFieldSplitPlanner {
             inputs: &child_outputs,
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |mut inputs: Vec<NodeInput>| {
-                let validity = if has_validity {
-                    inputs.pop().map(NodeInput::into_array)
-                } else {
-                    None
-                };
-                let field_arrays: Vec<ArrayRef> =
-                    inputs.into_iter().map(|i| i.into_array()).collect();
-                // TODO: pack field_arrays into a StructArray, apply validity,
+            compute: move |_segments: Vec<ByteBuffer>, mut inputs: Vec<ArrayRef>| {
+                let validity = if has_validity { inputs.pop() } else { None };
+                // TODO: pack inputs into a StructArray, apply validity,
                 // then evaluate root_expr on the result.
                 let _root_expr = root_expr;
                 let _validity = validity;
-                let _field_arrays = field_arrays;
+                let _field_arrays = inputs;
                 todo!("assemble struct from field arrays and evaluate root expression")
             },
         })

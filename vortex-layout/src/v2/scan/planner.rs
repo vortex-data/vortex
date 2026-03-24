@@ -8,7 +8,6 @@ use std::sync::atomic::AtomicUsize;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::scan::plan::Plan;
@@ -117,7 +116,7 @@ impl<'a> PlanBuilder<'a> {
     /// Takes `options` by value so that the `FnOnce` compute closure can be moved into the plan.
     pub fn create_node<F>(&mut self, options: NodeOpts<'_, F>) -> VortexResult<NodeId>
     where
-        F: FnOnce(Vec<NodeInput>) -> VortexResult<ArrayRef> + Send + 'static,
+        F: FnOnce(Vec<ByteBuffer>, Vec<ArrayRef>) -> VortexResult<ArrayRef> + Send + 'static,
     {
         let compute: ComputeFn = Box::new(options.compute);
         let id = self
@@ -141,30 +140,9 @@ pub struct NodeOpts<'a, F> {
     pub compute: F,
 }
 
-/// A function to produce an array from node inputs.
-pub type ComputeFn = Box<dyn FnOnce(Vec<NodeInput>) -> VortexResult<ArrayRef> + Send + 'static>;
-
-pub enum NodeInput {
-    Buffer(ByteBuffer),
-    Array(ArrayRef),
-    // Mask(Mask),
-}
-
-impl NodeInput {
-    pub fn into_buffer(self) -> ByteBuffer {
-        match self {
-            NodeInput::Buffer(buffer) => buffer,
-            NodeInput::Array(_) => vortex_panic!("Input is not a buffer"),
-        }
-    }
-
-    pub fn into_array(self) -> ArrayRef {
-        match self {
-            NodeInput::Buffer(_) => vortex_panic!("Input is not a buffer"),
-            NodeInput::Array(array) => array,
-        }
-    }
-}
+/// A function to produce an array from resolved segment buffers and upstream node outputs.
+pub type ComputeFn =
+    Box<dyn FnOnce(Vec<ByteBuffer>, Vec<ArrayRef>) -> VortexResult<ArrayRef> + Send + 'static>;
 
 /// Describes the lifetime of a plan node.
 pub enum Lifetime {

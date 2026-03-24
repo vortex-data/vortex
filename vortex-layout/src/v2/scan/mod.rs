@@ -30,7 +30,6 @@ use self::split::SplitRange;
 use self::split::form_splits;
 use crate::v2::layout::LayoutRef;
 use crate::v2::scan::planner::NodeId;
-use crate::v2::scan::planner::NodeInput;
 use crate::v2::selection::Selection;
 
 /// Configuration for a scan.
@@ -175,13 +174,14 @@ impl Scan {
 
         for node_id in ready {
             if self.state.plan.node_has_compute(node_id) {
-                let (compute, inputs) = self.state.plan.take_compute(node_id)?;
+                let (compute, segments, inputs) = self.state.plan.take_compute(node_id)?;
                 let compute_id = ComputeId(self.state.next_compute_id);
                 self.state.next_compute_id += 1;
                 self.state.compute_dispatch.insert(compute_id, node_id);
                 actions.push(ScanAction::Compute {
                     compute_id,
                     compute,
+                    segments,
                     inputs,
                 });
             }
@@ -249,11 +249,9 @@ impl Scan {
                 let dependents: Vec<(NodeId, usize)> =
                     self.state.plan.dependents_of(node_id).to_vec();
                 for (downstream_id, slot) in dependents {
-                    self.state.plan.resolve_input(
-                        downstream_id,
-                        slot,
-                        NodeInput::Array(result.clone()),
-                    );
+                    self.state
+                        .plan
+                        .resolve_input(downstream_id, slot, result.clone());
                 }
             }
             ScanEvent::SegmentFailed { error, .. } => {

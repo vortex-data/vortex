@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use flatbuffers::Follow;
-use flatbuffers::root_unchecked;
 use flatbuffers::root_with_opts;
 use parking_lot::RwLock;
 use vortex_array::dtype::DType;

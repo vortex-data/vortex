@@ -6,11 +6,13 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::stats_from_bitset_bytes;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -21,7 +23,6 @@ use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::NodeId;
-use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
@@ -187,9 +188,9 @@ impl SplitPlanner for ZonedSplitPlanner {
             inputs: &[zm_output, data_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |mut inputs: Vec<NodeInput>| {
-                let _zm_array = inputs.remove(0).into_array();
-                let data_array = inputs.remove(0).into_array();
+            compute: move |_segments: Vec<ByteBuffer>, inputs: Vec<ArrayRef>| {
+                let _zm_array = &inputs[0];
+                let data_array = inputs[1].clone();
                 // TODO: evaluate pruning predicate on zone map result,
                 // expand zone-level bits to row-level mask (each zone covers zone_len rows),
                 // intersect with data — filter or return empty if pruned.
