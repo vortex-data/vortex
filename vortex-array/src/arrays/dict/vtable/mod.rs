@@ -221,7 +221,9 @@ impl VTable for Dict {
         let array = require_child!(Self, array, array.values(), 1 => AnyCanonical);
 
         let DictArrayParts { codes, values, .. } = Arc::unwrap_or_clone(array).into_parts();
-        let codes = codes.to_primitive();
+
+        let codes = codes.try_into::<Primitive>().ok().expect("must be primitive");
+        debug_assert!(values.is_canonical());
         let values = values.to_canonical()?;
 
         Ok(ExecutionResult::done(
