@@ -224,6 +224,7 @@ impl VTable for Dict {
 
         let codes = codes.try_into::<Primitive>().ok().expect("must be primitive");
         debug_assert!(values.is_canonical());
+        // TODO: add canonical owned cast.
         let values = values.to_canonical()?;
 
         Ok(ExecutionResult::done(
