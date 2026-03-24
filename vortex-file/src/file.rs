@@ -140,7 +140,10 @@ impl VortexFile {
 
     /// Initiate a v2 scan of the file, returning a builder for configuring the scan.
     pub fn scan2(&self) -> VortexResult<v2::scan::shim::ScanBuilder> {
-        Ok(v2::scan::shim::ScanBuilder::new(self.layout2()?))
+        Ok(v2::scan::shim::ScanBuilder::new(
+            self.layout2()?,
+            self.session.clone(),
+        ))
     }
 
     /// Returns true if the expression will never match any rows in the file.

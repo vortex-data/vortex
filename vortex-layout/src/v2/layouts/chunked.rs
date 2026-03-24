@@ -59,11 +59,11 @@ impl LayoutVTable for Chunked {
     }
 
     fn deserialize_metadata(
-        metadata: &[u8],
-        dtype: &DType,
-        row_count: u64,
+        _metadata: &[u8],
+        _dtype: &DType,
+        _row_count: u64,
         children: &[LayoutChild],
-        array_ctx: &ReadContext,
+        _array_ctx: &ReadContext,
     ) -> VortexResult<Self::Metadata> {
         // Derive cumulative chunk offsets from child row counts.
         let mut chunk_offsets = Vec::with_capacity(children.len() + 1);
