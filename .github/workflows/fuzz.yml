@@ -125,7 +125,8 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/report-fuzz-crash.yml
     with:
-      fuzz_target: array_ops_unstable_encodings
+      fuzz_target: array_ops
+      fuzz_name: array_ops_unstable_encodings
       crash_file: ${{ needs.ops_fuzz_unstable.outputs.first_crash_name }}
       artifact_url: ${{ needs.ops_fuzz_unstable.outputs.artifact_url }}
       artifact_name: array_ops_unstable_encodings-crash-artifacts
