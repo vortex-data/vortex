@@ -34,6 +34,7 @@ impl LayoutSession {
 impl Default for LayoutSession {
     fn default() -> Self {
         use crate::v2::layouts::chunked::Chunked;
+        use crate::v2::layouts::dict::Dict;
         use crate::v2::layouts::flat::Flat;
         use crate::v2::layouts::struct_::Struct;
         use crate::v2::layouts::zoned::Zoned;
@@ -43,6 +44,7 @@ impl Default for LayoutSession {
         };
 
         session.register(Chunked);
+        session.register(Dict);
         session.register(Flat);
         session.register(Struct);
         session.register(Zoned);

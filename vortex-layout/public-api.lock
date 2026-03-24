@@ -1298,6 +1298,12 @@ pub vortex_layout::v2::layout::ChildRelationship::RowOffset(u64)
 
 pub struct vortex_layout::v2::layout::Layout<V: vortex_layout::v2::layout::LayoutVTable>
 
+impl vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::dict::Dict>
+
+pub fn vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::dict::Dict>::codes_child(&self) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
+pub fn vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::dict::Dict>::values_child(&self) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
+
 impl vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::zoned::Zoned>
 
 pub fn vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::zoned::Zoned>::data_child(&self) -> vortex_error::VortexResult<vortex_layout::v2::layout::LayoutRef>
