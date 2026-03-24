@@ -36,9 +36,9 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::proto::expr::Expr;
-use vortex::scan::ScanBuilder;
-use vortex::scan::SplitBy;
 use vortex::session::VortexSession;
 
 use crate::RUNTIME;

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Defines a selection mask over a scan.
+
 use std::ops::Not;
 use std::ops::Range;
 
@@ -40,7 +42,7 @@ impl Selection {
     }
 
     /// Extract the [`RowMask`] for the given range from this selection.
-    pub(crate) fn row_mask(&self, range: &Range<u64>) -> RowMask {
+    pub fn row_mask(&self, range: &Range<u64>) -> RowMask {
         // Saturating subtraction to prevent underflow, though range should be valid
         let range_diff = range.end.saturating_sub(range.start);
         let range_len = usize::try_from(range_diff).unwrap_or_else(|_| {

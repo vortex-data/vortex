@@ -10326,8 +10326,11 @@ name = "vortex-layout"
 version = "0.1.0"
 dependencies = [
  "arcref",
+ "arrow-array",
+ "arrow-schema",
  "async-stream",
  "async-trait",
+ "bit-vec",
  "flatbuffers",
  "futures",
  "itertools 0.14.0",
@@ -10341,10 +10344,10 @@ dependencies = [
  "prost 0.14.3",
  "rstest",
  "rustc-hash",
+ "sketches-ddsketch 0.4.0",
  "termtree",
  "tokio",
  "tracing",
- "uuid",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
@@ -10353,6 +10356,7 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-scan",
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
@@ -10461,23 +10465,14 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
- "arrow-array",
- "arrow-schema",
  "async-trait",
- "bit-vec",
  "futures",
- "itertools 0.14.0",
- "parking_lot",
  "roaring 0.11.3",
- "sketches-ddsketch 0.4.0",
  "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
- "vortex-io",
- "vortex-layout",
  "vortex-mask",
- "vortex-metrics",
  "vortex-session",
 ]
 

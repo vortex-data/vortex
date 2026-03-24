@@ -27,20 +27,20 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_layout::LayoutReaderRef;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
+use vortex_scan::DataSource;
+use vortex_scan::DataSourceScan;
+use vortex_scan::DataSourceScanRef;
+use vortex_scan::Partition;
+use vortex_scan::PartitionRef;
+use vortex_scan::PartitionStream;
+use vortex_scan::ScanRequest;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
-use crate::ScanBuilder;
-use crate::Selection;
-use crate::api::DataSource;
-use crate::api::DataSourceScan;
-use crate::api::DataSourceScanRef;
-use crate::api::Partition;
-use crate::api::PartitionRef;
-use crate::api::PartitionStream;
-use crate::api::ScanRequest;
+use crate::LayoutReaderRef;
+use crate::scan::scan_builder::ScanBuilder;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {

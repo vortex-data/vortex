@@ -26,7 +26,7 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
-use vortex::scan::api::DataSourceRef;
+use vortex::scan::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
@@ -291,7 +291,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     use vortex::file::multi::MultiFileDataSource;
     use vortex::io::object_store::ObjectStoreFileSystem;
     use vortex::io::session::RuntimeSessionExt;
-    use vortex::scan::api::DataSource as _;
+    use vortex::scan::DataSource as _;
     use vortex_datafusion::v2::VortexTable;
 
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
