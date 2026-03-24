@@ -12,10 +12,11 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use super::{DictArray, DictArrayParts};
+use super::DictArray;
+use super::DictArrayParts;
 use super::DictMetadata;
 use super::take_canonical;
-use crate::{AnyCanonical, ToCanonical};
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
@@ -24,6 +25,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
+use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
@@ -218,7 +220,7 @@ impl VTable for Dict {
 
         let array = require_child!(Self, array, array.values(), 1 => AnyCanonical);
 
-        let DictArrayParts{codes, values, ..} = Arc::unwrap_or_clone(array).into_parts();
+        let DictArrayParts { codes, values, .. } = Arc::unwrap_or_clone(array).into_parts();
         let codes = codes.to_primitive();
         let values = values.to_canonical()?;
 

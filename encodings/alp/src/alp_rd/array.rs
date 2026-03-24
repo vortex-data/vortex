@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::{ArrayEq, ToCanonical};
+use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
@@ -17,6 +17,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -39,7 +40,8 @@ use vortex_array::vtable::patches_child;
 use vortex_array::vtable::patches_child_name;
 use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -304,21 +306,33 @@ impl VTable for ALPRD {
 
     fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(Self, array, array.left_parts(), 0 => Primitive);
-        let array =
-            require_child!(Self, array, array.right_parts(), 1 => Primitive);
+        let array = require_child!(Self, array, array.right_parts(), 1 => Primitive);
 
         let right_bit_width = array.right_bit_width();
-        let ALPRDArrayParts{left_parts, right_parts, left_parts_dictionary, left_parts_patches, dtype, .. } = Arc::unwrap_or_clone(array).into_parts();
+        let ALPRDArrayParts {
+            left_parts,
+            right_parts,
+            left_parts_dictionary,
+            left_parts_patches,
+            dtype,
+            ..
+        } = Arc::unwrap_or_clone(array).into_parts();
         let ptype = dtype.as_ptype();
 
-        let left_parts = left_parts.try_into::<Primitive>().ok().vortex_expect("ALPRD execute: left_parts is primitive");
-        let right_parts = right_parts.try_into::<Primitive>().ok().vortex_expect("ALPRD execute: right_parts is primitive");
+        let left_parts = left_parts
+            .try_into::<Primitive>()
+            .ok()
+            .vortex_expect("ALPRD execute: left_parts is primitive");
+        let right_parts = right_parts
+            .try_into::<Primitive>()
+            .ok()
+            .vortex_expect("ALPRD execute: right_parts is primitive");
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = left_parts_dictionary;
         let validity = left_parts.validity_mask()?;
 
-        let decoded_array = if ptype == PType::F32{
+        let decoded_array = if ptype == PType::F32 {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
