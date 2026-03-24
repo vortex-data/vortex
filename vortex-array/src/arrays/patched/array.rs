@@ -216,7 +216,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
         lane_offsets[index] += lane_offsets[index - 1];
     }
 
-    // Loop over patches, writing thme to final positions
+    // Loop over patches, writing them to final positions
     let indices_out = indices_buffer.spare_capacity_mut();
     let values_out = values_buffer.spare_capacity_mut();
     for (index, &value) in std::iter::zip(indices_in, values_in) {
