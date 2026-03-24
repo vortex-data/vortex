@@ -33,8 +33,6 @@ pub enum BenchmarkMode {
     },
     /// Prepend `EXPLAIN` to each query, print the result, skip timing.
     Explain,
-    /// Run each query once and compare results against reference files.
-    Validate,
 }
 
 /// Trait implemented by engine-specific query results so the runner can
@@ -409,29 +407,6 @@ impl SqlBenchmarkRunner {
                     }
                 }
             }
-            BenchmarkMode::Validate => {
-                let mut all_passed = true;
-                // Validate using only the first format (results should be format-independent)
-                let format = *self.formats.first().ok_or_else(|| {
-                    anyhow::anyhow!("At least one format is required for validation")
-                })?;
-                let mut ctx = setup(format)?;
-
-                for (query_idx, query) in queries.iter() {
-                    let (_, result) = execute(&mut ctx, *query_idx, format, query.as_str())?;
-                    let (_cols, mut rows) = result.normalized_result();
-                    if !self.validate_query_result(*query_idx, &mut rows) {
-                        all_passed = false;
-                    }
-                }
-
-                if !all_passed {
-                    anyhow::bail!(
-                        "Result validation failed for one or more queries ({engine})",
-                        engine = self.engine,
-                    );
-                }
-            }
         }
 
         Ok(())
@@ -549,28 +524,6 @@ impl SqlBenchmarkRunner {
                         println!("{}", result.display());
                         println!();
                     }
-                }
-            }
-            BenchmarkMode::Validate => {
-                let mut all_passed = true;
-                let format = *self.formats.first().ok_or_else(|| {
-                    anyhow::anyhow!("At least one format is required for validation")
-                })?;
-                let ctx = setup(format).await?;
-
-                for (query_idx, query) in queries.iter() {
-                    let (_, result) = execute(*query_idx, &ctx, query.as_str()).await?;
-                    let (_cols, mut rows) = result.normalized_result();
-                    if !self.validate_query_result(*query_idx, &mut rows) {
-                        all_passed = false;
-                    }
-                }
-
-                if !all_passed {
-                    anyhow::bail!(
-                        "Result validation failed for one or more queries ({engine})",
-                        engine = self.engine,
-                    );
                 }
             }
         }

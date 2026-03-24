@@ -160,7 +160,11 @@ fn main() -> anyhow::Result<()> {
     let mode = if args.explain {
         BenchmarkMode::Explain
     } else if args.validate {
-        BenchmarkMode::Validate
+        BenchmarkMode::Run {
+            iterations: 1,
+            validate: true,
+            print_results: false,
+        }
     } else {
         BenchmarkMode::Run {
             iterations: args.iterations,
