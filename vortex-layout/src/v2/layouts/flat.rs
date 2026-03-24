@@ -151,7 +151,7 @@ impl SplitPlanner for FlatLayoutPlanner {
                 // The selection mask
                 let mask = inputs.remove(0).execute::<Mask>(&mut ctx)?;
 
-                let parts = ArrayParts::from_array_tree(buffer)?;
+                let parts = ArrayParts::try_from(buffer)?;
                 let array = parts.decode(&dtype, len, &array_ctx, &session)?;
 
                 let array = array.filter(mask)?;
