@@ -38,7 +38,6 @@ jobs:
     uses: ./.github/workflows/report-fuzz-crash.yml
     with:
       fuzz_target: file_io
-      fuzz_name: file_io
       crash_file: ${{ needs.io_fuzz.outputs.first_crash_name }}
       artifact_url: ${{ needs.io_fuzz.outputs.artifact_url }}
       artifact_name: file_io-crash-artifacts
@@ -89,7 +88,6 @@ jobs:
     uses: ./.github/workflows/report-fuzz-crash.yml
     with:
       fuzz_target: array_ops
-      fuzz_name: array_ops
       crash_file: ${{ needs.ops_fuzz.outputs.first_crash_name }}
       artifact_url: ${{ needs.ops_fuzz.outputs.artifact_url }}
       artifact_name: array_ops-crash-artifacts
@@ -165,7 +163,6 @@ jobs:
     uses: ./.github/workflows/report-fuzz-crash.yml
     with:
       fuzz_target: fsst_like
-      fuzz_name: fsst_like
       crash_file: ${{ needs.fsst_like_fuzz.outputs.first_crash_name }}
       artifact_url: ${{ needs.fsst_like_fuzz.outputs.artifact_url }}
       artifact_name: fsst_like-crash-artifacts

@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       fuzz_name:
-        required: true
+        required: false
         type: string
       crash_file:
         required: true
@@ -151,7 +151,7 @@ jobs:
             --dedup-result dedup_result.json \
             --claude-analysis claude_analysis.txt \
             -v "FUZZ_TARGET=${{ inputs.fuzz_target }}" \
-            -v "FUZZ_NAME=${{ inputs.fuzz_name }}" \
+            -v "FUZZ_NAME=${{ inputs.fuzz_name || inputs.fuzz_target }}" \
             -v "CRASH_FILE=${{ inputs.crash_file }}" \
             -v "BRANCH=${{ inputs.branch }}" \
             -v "COMMIT=${{ inputs.commit }}" \
