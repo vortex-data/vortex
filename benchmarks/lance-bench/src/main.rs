@@ -168,7 +168,7 @@ impl BenchmarkQueryResult for LanceQueryResult {
             .unwrap_or_else(|e| format!("<error: {e}>"))
     }
 
-    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
+    fn result_rows(&self) -> (Vec<String>, Vec<Vec<String>>) {
         unimplemented!("Lance benchmarks do not support result validation")
     }
 }

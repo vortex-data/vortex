@@ -16,13 +16,10 @@ use vortex_bench::Format;
 use vortex_bench::IdempotentPath;
 use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::runner::BenchmarkQueryResult;
-use vortex_bench::validation;
 use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
-use vortex_duckdb::duckdb::ExtractedValue;
 use vortex_duckdb::duckdb::QueryResult;
-use vortex_duckdb::duckdb::Value;
 
 /// DuckDB context for benchmarks.
 pub struct DuckClient {
@@ -209,7 +206,7 @@ impl DuckClient {
 /// Eagerly materialized wrapper around DuckDB query results.
 ///
 /// Materializes the result on construction so that both `row_count()`,
-/// `display()`, and `normalized_result()` can be called via shared reference.
+/// `display()`, and `result_rows()` can be called via shared reference.
 pub struct DuckQueryResult {
     row_count: usize,
     display_string: String,
@@ -246,7 +243,7 @@ impl DuckQueryResult {
                 for col_idx in 0..chunk.column_count() {
                     let vector = chunk.get_vector(col_idx);
                     let cell = match vector.get_value(row_idx, chunk.len()) {
-                        Some(value) => normalize_duckdb_value(&value),
+                        Some(value) => value.to_string(),
                         None => "NULL".to_string(),
                     };
                     row.push(cell);
@@ -273,43 +270,7 @@ impl BenchmarkQueryResult for DuckQueryResult {
         self.display_string
     }
 
-    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
+    fn result_rows(&self) -> (Vec<String>, Vec<Vec<String>>) {
         (self.column_names.clone(), self.normalized_rows.clone())
-    }
-}
-
-/// Normalize a DuckDB value to a canonical string representation.
-///
-/// Uses the same normalization as `vortex-sqllogictest`'s `ValueDisplayAdapter`
-/// and the shared [`vortex_bench::validation`] helpers so that results are
-/// comparable with DataFusion output.
-fn normalize_duckdb_value(value: &Value) -> String {
-    match value.extract() {
-        ExtractedValue::Null => "NULL".to_string(),
-        ExtractedValue::TinyInt(v) => v.to_string(),
-        ExtractedValue::SmallInt(v) => v.to_string(),
-        ExtractedValue::Integer(v) => v.to_string(),
-        ExtractedValue::BigInt(v) => v.to_string(),
-        ExtractedValue::HugeInt(v) => v.to_string(),
-        ExtractedValue::UTinyInt(v) => v.to_string(),
-        ExtractedValue::USmallInt(v) => v.to_string(),
-        ExtractedValue::UInteger(v) => v.to_string(),
-        ExtractedValue::UBigInt(v) => v.to_string(),
-        ExtractedValue::UHugeInt(v) => v.to_string(),
-        ExtractedValue::Float(v) => validation::normalize_f32(v),
-        ExtractedValue::Double(v) => validation::normalize_f64(v),
-        ExtractedValue::Boolean(v) => v.to_string(),
-        ExtractedValue::Varchar(s) => validation::normalize_string(s.as_str()),
-        ExtractedValue::Decimal(_, scale, v) => validation::normalize_decimal(v, scale),
-        // Normalize timestamps to a canonical format for cross-engine comparison.
-        ExtractedValue::Date(_)
-        | ExtractedValue::TimestampNs(_)
-        | ExtractedValue::Timestamp(_)
-        | ExtractedValue::TimestampMs(_)
-        | ExtractedValue::TimestampS(_) => validation::normalize_timestamp(&value.to_string()),
-        // Delegate to DuckDB's native string representation for other types.
-        ExtractedValue::Blob(_) | ExtractedValue::Time(_) | ExtractedValue::List(_) => {
-            value.to_string()
-        }
     }
 }

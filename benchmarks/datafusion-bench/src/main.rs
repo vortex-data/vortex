@@ -8,7 +8,6 @@ use std::time::Instant;
 use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
-use datafusion::arrow::array::Array;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::util::display::ArrayFormatter;
 use datafusion::arrow::util::display::FormatOptions;
@@ -420,23 +419,19 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
             .unwrap_or_else(|e| format!("<error: {e}>"))
     }
 
-    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>) {
-        normalize_record_batches(&self.0)
+    fn result_rows(&self) -> (Vec<String>, Vec<Vec<String>>) {
+        extract_record_batch_rows(&self.0)
     }
 }
 
-/// Convert Arrow `RecordBatch`es into normalized column names and row values.
+/// Extract raw string values from Arrow `RecordBatch`es.
 ///
-/// Uses [`vortex_bench::validation`] normalization for floats and strings to
-/// match the sqllogictest conventions used by DuckDB's result normalization.
-fn normalize_record_batches(batches: &[RecordBatch]) -> (Vec<String>, Vec<Vec<String>>) {
-    use datafusion::arrow::datatypes::DataType;
+/// Uses `ArrayFormatter` to produce `to_string()` values for every cell.
+/// NULL cells are represented as `"NULL"`. No type-specific normalization is
+/// applied — each engine's per-engine `.slt.no` reference files contain the
+/// exact expected output.
+fn extract_record_batch_rows(batches: &[RecordBatch]) -> (Vec<String>, Vec<Vec<String>>) {
     use vortex::error::VortexExpect;
-    use vortex_bench::validation::normalize_decimal;
-    use vortex_bench::validation::normalize_f32;
-    use vortex_bench::validation::normalize_f64;
-    use vortex_bench::validation::normalize_string;
-    use vortex_bench::validation::normalize_timestamp;
 
     let column_names = batches
         .first()
@@ -462,48 +457,8 @@ fn normalize_record_batches(batches: &[RecordBatch]) -> (Vec<String>, Vec<Vec<St
 
         for row_idx in 0..batch.num_rows() {
             let mut row = Vec::with_capacity(batch.num_columns());
-            for (col_idx, formatter) in formatters.iter().enumerate() {
-                let col = batch.column(col_idx);
-                if col.is_null(row_idx) {
-                    row.push("NULL".to_string());
-                } else {
-                    let dt = col.data_type();
-                    let cell = match dt {
-                        DataType::Float32 => {
-                            let arr = col
-                                .as_any()
-                                .downcast_ref::<datafusion::arrow::array::Float32Array>()
-                                .vortex_expect("Float32 downcast");
-                            normalize_f32(arr.value(row_idx))
-                        }
-                        DataType::Float64 => {
-                            let arr = col
-                                .as_any()
-                                .downcast_ref::<datafusion::arrow::array::Float64Array>()
-                                .vortex_expect("Float64 downcast");
-                            normalize_f64(arr.value(row_idx))
-                        }
-                        DataType::Decimal128(_, scale) => {
-                            let arr = col
-                                .as_any()
-                                .downcast_ref::<datafusion::arrow::array::Decimal128Array>()
-                                .vortex_expect("Decimal128 downcast");
-                            normalize_decimal(arr.value(row_idx), *scale)
-                        }
-                        DataType::Utf8
-                        | DataType::LargeUtf8
-                        | DataType::Utf8View
-                        | DataType::Dictionary(..) => {
-                            let s = formatter.value(row_idx).to_string();
-                            normalize_string(&s)
-                        }
-                        DataType::Timestamp(..) | DataType::Date32 | DataType::Date64 => {
-                            normalize_timestamp(&formatter.value(row_idx).to_string())
-                        }
-                        _ => formatter.value(row_idx).to_string(),
-                    };
-                    row.push(cell);
-                }
+            for formatter in &formatters {
+                row.push(formatter.value(row_idx).to_string());
             }
             rows.push(row);
         }

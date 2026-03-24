@@ -43,13 +43,11 @@ pub trait BenchmarkQueryResult {
     fn row_count(&self) -> usize;
     /// Human-readable representation of the result (used by Explain mode).
     fn display(self) -> String;
-    /// Normalized result for cross-engine validation.
+    /// Raw result rows for validation.
     ///
-    /// Returns column names and rows of normalized string values suitable for
-    /// comparison across different query engines. Values are normalized using
-    /// sqllogictest conventions (floats rounded to 12 decimal places, etc.)
-    /// via [`crate::validation`].
-    fn normalized_result(&self) -> (Vec<String>, Vec<Vec<String>>);
+    /// Returns column names and rows of string values extracted from the
+    /// query result. No cross-engine normalization is applied.
+    fn result_rows(&self) -> (Vec<String>, Vec<Vec<String>>);
 }
 use crate::display::DisplayFormat;
 use crate::display::print_measurements_json;
@@ -362,7 +360,7 @@ impl SqlBenchmarkRunner {
 
                         // Validate the last iteration's result against the reference file.
                         if validate && self.expected_results_dir.is_some() {
-                            let (_cols, mut rows) = result.normalized_result();
+                            let (_cols, mut rows) = result.result_rows();
                             if !self.validate_query_result(query_idx, &mut rows) {
                                 validation_failures.push((query_idx, format));
                             }
@@ -481,7 +479,7 @@ impl SqlBenchmarkRunner {
 
                         // Validate the last iteration's result against the reference file.
                         if validate && self.expected_results_dir.is_some() {
-                            let (_cols, mut rows) = result.normalized_result();
+                            let (_cols, mut rows) = result.result_rows();
                             if !self.validate_query_result(query_idx, &mut rows) {
                                 validation_failures.push((query_idx, format));
                             }
