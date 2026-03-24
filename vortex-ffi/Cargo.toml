@@ -36,7 +36,6 @@ vortex = { workspace = true, features = ["object_store"] }
 tempfile = { workspace = true }
 
 [build-dependencies]
-cbindgen = { workspace = true }
 
 [features]
 default = ["mimalloc"]
