@@ -120,20 +120,15 @@ impl<'a> PlanBuilder<'a> {
         F: FnOnce(Vec<NodeInput>) -> VortexResult<ArrayRef> + Send + 'static,
     {
         let compute: ComputeFn = Box::new(options.compute);
-        let id = self.plan.borrow_mut().add_node(
-            options.inputs,
-            options.segments,
-            compute,
-            options.lifetime,
-        );
+        let id = self
+            .plan
+            .add_node(options.inputs, options.segments, compute, options.lifetime);
         Ok(id)
     }
 
     /// Construct a node with a resolved value and no input dependencies.
     pub fn create_node_resolved(&mut self, array: ArrayRef) -> NodeId {
-        self.plan
-            .borrow_mut()
-            .add_node(&[], &[], Box::new(move |_| Ok(array)), Lifetime::Scan)
+        self.plan.add_resolved_node(array)
     }
 }
 
