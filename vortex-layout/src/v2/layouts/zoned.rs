@@ -16,7 +16,7 @@ use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::RowSelection;
+use crate::v2::layout::Selection;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
@@ -24,6 +24,7 @@ use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
 use crate::v2::scan::planner::SplitSelection;
+use crate::v2::selection::Selection;
 
 /// The zoned layout vtable.
 #[derive(Clone)]
@@ -74,7 +75,7 @@ impl LayoutVTable for Zoned {
     fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
-        selection: &RowSelection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef> {
         let zone_len = layout.metadata().zone_len;
@@ -94,7 +95,7 @@ impl LayoutVTable for Zoned {
         let zone_map_planner = None;
         let _zm_child = layout.zone_map_child()?;
         let _zm_rel = Self::child_relationship(layout, 1);
-        let _zm_selection = RowSelection::All;
+        let _zm_selection = Selection::All;
         // let mut zm_builder = builder.step_into(&zm_rel);
         // let zm_planner = zm_child.prepare(&pruning_expr, &zm_selection, ..., &mut zm_builder)?;
 
@@ -141,7 +142,7 @@ impl SplitPlanner for ZonedSplitPlanner {
     fn plan_split(
         &self,
         row_range: Range<u64>,
-        selection: &SplitSelection,
+        selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         // Always plan the data child split.

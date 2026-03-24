@@ -18,7 +18,7 @@ use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::RowSelection;
+use crate::v2::layout::Selection;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
@@ -26,6 +26,7 @@ use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
 use crate::v2::scan::planner::SplitSelection;
+use crate::v2::selection::Selection;
 
 /// The chunked layout vtable.
 #[derive(Clone)]
@@ -68,7 +69,7 @@ impl LayoutVTable for Chunked {
     fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
-        selection: &RowSelection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef> {
         let offsets = &layout.metadata().chunk_offsets;
@@ -194,10 +195,10 @@ impl SplitPlanner for ChunkedSplitPlanner {
 }
 
 /// Check if a selection overlaps with a given range.
-fn selection_overlaps(selection: &RowSelection, range: &Range<u64>) -> bool {
+fn selection_overlaps(selection: &Selection, range: &Range<u64>) -> bool {
     match selection {
-        RowSelection::All => true,
-        RowSelection::IncludeRanges(ranges) => ranges.iter().any(|r| ranges_overlap(r, range)),
+        Selection::All => true,
+        Selection::IncludeRanges(ranges) => ranges.iter().any(|r| ranges_overlap(r, range)),
     }
 }
 
@@ -207,10 +208,10 @@ fn ranges_overlap(a: &Range<u64>, b: &Range<u64>) -> bool {
 }
 
 /// Translate a selection to chunk-local coordinates.
-fn translate_selection(selection: &RowSelection, chunk_start: u64, chunk_end: u64) -> RowSelection {
+fn translate_selection(selection: &Selection, chunk_start: u64, chunk_end: u64) -> Selection {
     match selection {
-        RowSelection::All => RowSelection::All,
-        RowSelection::IncludeRanges(ranges) => {
+        Selection::All => Selection::All,
+        Selection::IncludeRanges(ranges) => {
             let local_ranges: Vec<Range<u64>> = ranges
                 .iter()
                 .filter_map(|r| {
@@ -220,9 +221,9 @@ fn translate_selection(selection: &RowSelection, chunk_start: u64, chunk_end: u6
                 })
                 .collect();
             if local_ranges.is_empty() {
-                RowSelection::IncludeRanges(vec![])
+                Selection::IncludeRanges(vec![])
             } else {
-                RowSelection::IncludeRanges(local_ranges)
+                Selection::IncludeRanges(local_ranges)
             }
         }
     }

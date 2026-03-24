@@ -10,10 +10,11 @@ use vortex_error::VortexResult;
 
 use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutId;
-use crate::v2::layout::RowSelection;
+use crate::v2::layout::Selection;
 use crate::v2::layout::typed::DynLayout;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlannerRef;
+use crate::v2::selection::Selection;
 
 #[derive(Clone)]
 pub struct LayoutRef(pub(super) Arc<dyn DynLayout>);
@@ -56,7 +57,7 @@ impl LayoutRef {
     pub fn prepare(
         &self,
         expr: &Expression,
-        selection: &RowSelection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef> {
         self.0.prepare(expr, selection, row_splits)

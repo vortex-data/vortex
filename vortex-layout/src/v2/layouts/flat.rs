@@ -17,7 +17,7 @@ use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::RowSelection;
+use crate::v2::layout::Selection;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
@@ -25,6 +25,7 @@ use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
 use crate::v2::scan::planner::SplitSelection;
+use crate::v2::selection::Selection;
 
 /// The flat layout vtable.
 #[derive(Clone)]
@@ -61,7 +62,7 @@ impl LayoutVTable for Flat {
         expr: &Expression,
         // TODO(ngates): we probably want to pass this down? Although it should be available
         //  through the "latest" view of the SplitSelection.
-        _selection: &RowSelection,
+        _selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef> {
         // TODO(ngates): surely we only need one of them
@@ -93,7 +94,7 @@ impl SplitPlanner for FlatLayoutPlanner {
     fn plan_split(
         &self,
         row_range: Range<u64>,
-        _selection: &SplitSelection,
+        _selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         let expression = self.expression.clone();

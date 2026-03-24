@@ -24,7 +24,7 @@ use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::RowSelection;
+use crate::v2::layout::Selection;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
@@ -32,6 +32,7 @@ use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
 use crate::v2::scan::planner::SplitSelection;
+use crate::v2::selection::Selection;
 
 /// The struct layout vtable.
 #[derive(Clone)]
@@ -121,7 +122,7 @@ impl LayoutVTable for Struct {
     fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
-        selection: &RowSelection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef> {
         let struct_fields = layout.dtype().as_struct_fields();
@@ -244,7 +245,7 @@ impl SplitPlanner for SingleFieldSplitPlanner {
     fn plan_split(
         &self,
         row_range: Range<u64>,
-        selection: &SplitSelection,
+        selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         let data_output = self
@@ -281,7 +282,7 @@ impl SplitPlanner for MultiFieldSplitPlanner {
     fn plan_split(
         &self,
         row_range: Range<u64>,
-        selection: &SplitSelection,
+        selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         let mut child_outputs = Vec::with_capacity(self.field_planners.len());

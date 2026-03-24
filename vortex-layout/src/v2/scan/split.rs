@@ -34,7 +34,7 @@ pub struct SplitRange {
 /// 3. Subdivides intervals exceeding `max_split_rows`.
 /// 4. Assigns monotonic [`SplitId`]s.
 ///
-// FIXME(ngates): add RowSelection to slice out the empty ends of splits and skip large empty
+// FIXME(ngates): add Selection to slice out the empty ends of splits and skip large empty
 //  sections.
 pub fn form_splits(
     boundaries: &BTreeSet<u64>,

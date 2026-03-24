@@ -14,7 +14,7 @@ use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
-use crate::v2::layout::RowSelection;
+use crate::v2::layout::Selection;
 use crate::v2::layout::vtable::LayoutVTable;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlannerRef;
@@ -91,7 +91,7 @@ pub(super) trait DynLayout: 'static + Send + Sync + super::sealed::Sealed {
     fn prepare(
         &self,
         expr: &Expression,
-        selection: &RowSelection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef>;
 }
@@ -145,7 +145,7 @@ impl<V: LayoutVTable> DynLayout for Layout<V> {
     fn prepare(
         &self,
         expr: &Expression,
-        selection: &RowSelection,
+        selection: &Selection,
         row_splits: &mut BTreeSet<u64>,
     ) -> VortexResult<SplitPlannerRef> {
         V::prepare(self, expr, selection, row_splits)
