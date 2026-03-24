@@ -5020,7 +5020,7 @@ impl vortex_array::arrays::variant::VariantArray
 
 pub fn vortex_array::arrays::variant::VariantArray::child(&self) -> &vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef, nullability: vortex_array::dtype::Nullability) -> Self
+pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef) -> Self
 
 impl vortex_array::arrays::variant::VariantArray
 
@@ -8272,7 +8272,7 @@ impl vortex_array::arrays::variant::VariantArray
 
 pub fn vortex_array::arrays::variant::VariantArray::child(&self) -> &vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef, nullability: vortex_array::dtype::Nullability) -> Self
+pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef) -> Self
 
 impl vortex_array::arrays::variant::VariantArray
 
@@ -22096,6 +22096,8 @@ pub vortex_array::Canonical::Struct(vortex_array::arrays::StructArray)
 
 pub vortex_array::Canonical::VarBinView(vortex_array::arrays::VarBinViewArray)
 
+pub vortex_array::Canonical::Variant(vortex_array::arrays::variant::VariantArray)
+
 impl vortex_array::Canonical
 
 pub fn vortex_array::Canonical::as_bool(&self) -> &vortex_array::arrays::BoolArray
@@ -22195,6 +22197,8 @@ pub vortex_array::CanonicalView::Primitive(&'a vortex_array::arrays::PrimitiveAr
 pub vortex_array::CanonicalView::Struct(&'a vortex_array::arrays::StructArray)
 
 pub vortex_array::CanonicalView::VarBinView(&'a vortex_array::arrays::VarBinViewArray)
+
+pub vortex_array::CanonicalView::Variant(&'a vortex_array::arrays::variant::VariantArray)
 
 impl core::convert::AsRef<dyn vortex_array::DynArray> for vortex_array::CanonicalView<'_>
 

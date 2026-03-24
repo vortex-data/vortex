@@ -44,6 +44,7 @@ pub fn fill_null_canonical_array(
         | Canonical::List(_)
         | Canonical::FixedSizeList(_)
         | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
+        Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }
 

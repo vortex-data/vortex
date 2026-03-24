@@ -12,6 +12,7 @@ mod varbin;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use self::bool::check_bool_constant;
@@ -408,6 +409,9 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::List(l) => check_listview_constant(l, ctx)?,
                     Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
                     Canonical::Null(_) => true,
+                    Canonical::Variant(_) => {
+                        vortex_bail!("Variant arrays don't support IsConstant")
+                    }
                 };
 
                 if !batch_is_constant {
