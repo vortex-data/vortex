@@ -69,7 +69,7 @@ required-features = ["native"]
 bench = false
 doc = false
 name = "array_ops_unstable_encodings"
-path = "fuzz_targets/array_ops_unstable_encodings.rs"
+path = "fuzz_targets/array_ops.rs"
 test = false
 required-features = ["native"]
 
