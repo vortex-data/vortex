@@ -129,7 +129,16 @@ impl Scan {
         //    all planning up-front, we make sure to fill our "plan-ahead" window.
         self.fill_plan_ahead()?;
 
+        // 2. Collect together any outstanding I/O request
+
+        // 2. Re-prioritize
+
         Ok(())
+    }
+
+    /// Make progress on a single split.
+    fn make_progress_on_split(&mut self, split_id: SplitId) -> VortexResult<()> {
+        todo!()
     }
 
     /// Plan splits until the plan-ahead window is full.
@@ -148,29 +157,37 @@ impl Scan {
 
             let split_range = self.splits[self.state.next_split_to_plan];
 
-            // Start with the initial row selection.
-            // TODO(ngates): note that we convert this to an array. Perhaps this is ok? Or perhaps
-            //  it should remain as a mask? Perhaps Selection::row_mask should return an array?
-            let mut plan_builder = PlanBuilder::new(&mut self.state.plan);
+            let result_node = {
+                let mut plan_builder = PlanBuilder::new(&mut self.state.plan);
 
-            let mut selection = plan_builder.create_node_resolved(split_range.mask.into_array());
+                // Start with the initial row selection.
+                let mut selection =
+                    plan_builder.create_node_resolved(split_range.mask.into_array());
 
-            if let Some(filter_planner) = &self.filter_planner {
-                selection = filter_planner.plan_split(
+                // Map through the filter planner
+                if let Some(filter_planner) = &self.filter_planner {
+                    selection = filter_planner.plan_split(
+                        &split_range.row_range,
+                        selection,
+                        &mut plan_builder,
+                    )?;
+                }
+
+                // And plan the projection
+                self.project_planner.plan_split(
                     &split_range.row_range,
                     selection,
                     &mut plan_builder,
-                )?;
-            }
-
-            let result_node = self.project_planner.plan_split(
-                &split_range.row_range,
-                selection,
-                &mut plan_builder,
-            )?;
+                )?
+            };
 
             self.state.next_split_to_plan += 1;
             self.state.active_splits.insert(split_range.id, result_node);
+
+            // We initialize state for the split's nodes.
+            loop {
+                // self.state.plan.node_inputs();
+            }
         }
     }
 

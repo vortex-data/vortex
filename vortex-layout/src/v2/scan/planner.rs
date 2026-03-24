@@ -47,6 +47,9 @@ impl NodeId {
 /// Internally backs onto a shared [`Plan`] so that child builders created via `step_into`
 /// all contribute to the same DAG.
 pub struct PlanBuilder<'a> {
+    /// The shared backing plan that accumulates nodes from all builders in the tree.
+    plan: &'a mut Plan,
+
     /// Accumulated row offset from the root of the layout tree.
     base_offset: u64,
     /// The lifetime scope for nodes in the current subtree. `None` means use the split's
@@ -55,17 +58,15 @@ pub struct PlanBuilder<'a> {
     /// Set to `Some` when stepping into an [`Auxiliary`](ChildRelationship::Auxiliary) child,
     /// where the lifetime is the parent's row range rather than the child's own coordinates.
     lifetime_scope: Option<Range<u64>>,
-    /// The shared backing plan that accumulates nodes from all builders in the tree.
-    plan: &'a mut Plan,
 }
 
 impl<'a> PlanBuilder<'a> {
     /// Creates a new root-level plan builder.
     pub(crate) fn new(plan: &'a mut Plan) -> Self {
         Self {
+            plan,
             base_offset: 0,
             lifetime_scope: None,
-            plan,
         }
     }
 
@@ -78,21 +79,21 @@ impl<'a> PlanBuilder<'a> {
     pub fn step_into(&mut self, relationship: &ChildRelationship) -> PlanBuilder<'a> {
         match relationship {
             ChildRelationship::RowOffset(offset) => PlanBuilder {
+                plan: self.plan,
                 base_offset: self.base_offset + offset,
                 lifetime_scope: self.lifetime_scope.clone(),
-                plan: self.plan,
             },
             ChildRelationship::FieldName(_) => PlanBuilder {
+                plan: self.plan,
                 base_offset: self.base_offset,
                 lifetime_scope: self.lifetime_scope.clone(),
-                plan: self.plan,
             },
             ChildRelationship::Auxiliary(parent_range) => PlanBuilder {
+                plan: self.plan,
                 base_offset: 0,
                 lifetime_scope: Some(
                     parent_range.start + self.base_offset..parent_range.end + self.base_offset,
                 ),
-                plan: self.plan,
             },
         }
     }
