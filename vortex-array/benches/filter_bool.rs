@@ -14,12 +14,12 @@
 use divan::Bencher;
 use rand::prelude::*;
 use rand_distr::Zipf;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitBufferMut;
-use vortex_buffer::get_bit;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 
 fn main() {
     divan::main();
@@ -138,40 +138,95 @@ fn mask_rng() -> StdRng {
 fn filter_random_by_mostly_true(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_mostly_true(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_mostly_true(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_mostly_false(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_mostly_false(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_mostly_false(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_random(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_random(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_random(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_correlated_runs(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_correlated_runs(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_correlated_runs(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_random_by_power_law(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_power_law(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_power_law(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 // --- Benchmarks: Power-law source array ---
@@ -180,40 +235,95 @@ fn filter_random_by_power_law(bencher: Bencher, n: usize) {
 fn filter_powerlaw_by_mostly_true(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_mostly_true(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_mostly_true(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_mostly_false(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_mostly_false(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_random(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_random(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_correlated_runs(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_correlated_runs(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_power_law(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_power_law(n, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_power_law(n, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 // --- Density sweep ---
@@ -226,8 +336,19 @@ const DENSITIES: &[f64] = &[
 fn density_sweep_random(bencher: Bencher, density: f64) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = DENSITIES)]
@@ -235,16 +356,38 @@ fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     let false_rate = (1.0 - density).max(0.0001);
     bencher
-        .with_inputs(|| make_dense_runs(DENSITY_SWEEP_SIZE, false_rate, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_dense_runs(DENSITY_SWEEP_SIZE, false_rate, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = DENSITIES)]
 fn density_sweep_single_slice(bencher: Bencher, density: f64) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_single_slice(DENSITY_SWEEP_SIZE, density))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_single_slice(DENSITY_SWEEP_SIZE, density),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 // --- Extreme cases ---
@@ -255,8 +398,19 @@ const LARGE_SIZES: &[usize] = &[10_000, 100_000, 250_000];
 fn filter_all_true(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| Mask::new_true(n))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                Mask::new_true(n),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = LARGE_SIZES)]
@@ -266,60 +420,35 @@ fn filter_one_false(bencher: Bencher, n: usize) {
         .with_inputs(|| {
             let mut bits: Vec<bool> = vec![true; n];
             bits[n / 2] = false;
-            Mask::from_buffer(BitBuffer::from_iter(bits))
+            (
+                array.clone(),
+                Mask::from_buffer(BitBuffer::from_iter(bits)),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
         })
-        .bench_values(|m| array.filter(m).unwrap());
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = LARGE_SIZES)]
 fn filter_ultra_sparse(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
-        .with_inputs(|| make_density_mask(n, 0.0001, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
-}
-
-// --- Head-to-head: old slice/index path vs current implementation ---
-// These replicate the old approach inline, for comparison against
-// the current FilterReduce implementation.
-
-const DENSITY_THRESHOLD: f64 = 0.8;
-
-/// Old approach: index-based or slice-based depending on density threshold.
-fn old_filter(src: &BitBuffer, mask: &Mask, true_count: usize) -> BitBuffer {
-    let mask_values = mask.values().unwrap();
-    match mask_values.threshold_iter(DENSITY_THRESHOLD) {
-        MaskIter::Indices(indices) => {
-            let buffer = src.inner().as_ref();
-            BitBuffer::collect_bool(true_count, |_idx| {
-                let idx = indices[_idx];
-                get_bit(buffer, src.offset() + idx)
-            })
-        }
-        MaskIter::Slices(slices) => {
-            let mut builder = BitBufferMut::with_capacity(true_count);
-            for &(start, end) in slices {
-                builder.append_buffer(&src.slice(start..end));
-            }
-            builder.freeze()
-        }
-    }
-}
-
-#[divan::bench(args = DENSITIES)]
-fn head_to_head_old(bencher: Bencher, density: f64) {
-    let mut rng = StdRng::seed_from_u64(ARRAY_SEED);
-    let src = BitBuffer::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(0.5)));
-    let true_count = make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()).true_count();
-    bencher
-        .with_inputs(|| make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()))
-        .bench_values(|m| old_filter(&src, &m, true_count));
-}
-
-#[divan::bench(args = DENSITIES)]
-fn head_to_head_new(bencher: Bencher, density: f64) {
-    let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
-    bencher
-        .with_inputs(|| make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()))
-        .bench_values(|m| array.filter(m).unwrap());
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_density_mask(n, 0.0001, &mut mask_rng()),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, m, ctx)| {
+            array
+                .filter(m.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
