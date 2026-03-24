@@ -8,6 +8,10 @@ impl vortex_alp::ALP
 
 pub const vortex_alp::ALP::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_alp::ALP
+
+pub fn vortex_alp::ALP::clone(&self) -> vortex_alp::ALP
+
 impl core::fmt::Debug for vortex_alp::ALP
 
 pub fn vortex_alp::ALP::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -72,7 +76,7 @@ pub fn vortex_alp::ALP::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::
 
 pub fn vortex_alp::ALP::dtype(array: &vortex_alp::ALPArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_alp::ALP::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_alp::ALP::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_alp::ALP::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -178,6 +182,10 @@ impl vortex_alp::ALPRD
 
 pub const vortex_alp::ALPRD::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_alp::ALPRD
+
+pub fn vortex_alp::ALPRD::clone(&self) -> vortex_alp::ALPRD
+
 impl core::fmt::Debug for vortex_alp::ALPRD
 
 pub fn vortex_alp::ALPRD::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -230,7 +238,7 @@ pub fn vortex_alp::ALPRD::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype
 
 pub fn vortex_alp::ALPRD::dtype(array: &vortex_alp::ALPRDArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_alp::ALPRD::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_alp::ALPRD::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_alp::ALPRD::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

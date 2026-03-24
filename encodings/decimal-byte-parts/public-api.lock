@@ -6,6 +6,10 @@ impl vortex_decimal_byte_parts::DecimalByteParts
 
 pub const vortex_decimal_byte_parts::DecimalByteParts::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_decimal_byte_parts::DecimalByteParts
+
+pub fn vortex_decimal_byte_parts::DecimalByteParts::clone(&self) -> vortex_decimal_byte_parts::DecimalByteParts
+
 impl core::fmt::Debug for vortex_decimal_byte_parts::DecimalByteParts
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -62,7 +66,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::deserialize(bytes: &[u8], _d
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::dtype(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

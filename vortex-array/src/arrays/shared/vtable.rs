@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -12,7 +13,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::SharedArray;
 use crate::buffer::BufferHandle;
@@ -32,7 +33,7 @@ vtable!(Shared);
 
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Shared;
 
 impl Shared {
@@ -149,10 +150,10 @@ impl VTable for Shared {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
 impl OperationsVTable<Shared> for Shared {

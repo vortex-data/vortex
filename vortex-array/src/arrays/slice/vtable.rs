@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -26,7 +27,7 @@ use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
@@ -39,7 +40,7 @@ use crate::vtable::ValidityVTable;
 
 vtable!(Slice);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Slice;
 
 impl Slice {
@@ -159,7 +160,7 @@ impl VTable for Slice {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it
         let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
             // If the child is not canonical, recurse.
@@ -168,14 +169,14 @@ impl VTable for Slice {
                 .clone()
                 .execute::<ArrayRef>(ctx)?
                 .slice(array.slice_range().clone())
-                .map(ExecutionStep::Done);
+                .map(ExecutionResult::done);
         };
 
         // TODO(ngates): we should inline canonical slice logic here.
         Canonical::from(canonical)
             .as_ref()
             .slice(array.range.clone())
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 
     fn reduce_parent(

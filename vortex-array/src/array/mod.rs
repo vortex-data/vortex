@@ -401,6 +401,11 @@ impl<V: VTable> ArrayAdapter<V> {
     pub fn as_inner(&self) -> &V::Array {
         &self.0
     }
+
+    /// Consume the adapter and return the underlying array.
+    pub fn into_inner(self) -> V::Array {
+        self.0
+    }
 }
 
 impl<V: VTable> Debug for ArrayAdapter<V> {
@@ -454,7 +459,7 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
     }
 
     fn vtable(&self) -> &dyn DynVTable {
-        V::vtable(&self.0)
+        V::vtable(self.as_inner())
     }
 
     fn encoding_id(&self) -> ArrayId {
