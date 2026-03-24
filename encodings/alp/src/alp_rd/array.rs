@@ -332,6 +332,7 @@ impl VTable for ALPRD {
         let validity = left_parts.validity_mask()?;
 
         let decoded_array = if ptype == PType::F32 {
+            // TODO(joe): use iterative execution for the patches.
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
