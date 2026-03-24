@@ -550,6 +550,10 @@ pub fn vortex_buffer::Buffer<u8>::from_arrow_buffer(arrow: arrow_buffer::buffer:
 
 pub fn vortex_buffer::Buffer<u8>::into_arrow_buffer(self) -> arrow_buffer::buffer::immutable::Buffer
 
+impl vortex_buffer::Buffer<u8>
+
+pub fn vortex_buffer::Buffer<u8>::reinterpret<V: core::marker::Sized>(&self) -> &[V]
+
 impl<T: arrow_buffer::native::ArrowNativeType> vortex_buffer::Buffer<T>
 
 pub fn vortex_buffer::Buffer<T>::from_arrow_scalar_buffer(arrow: arrow_buffer::buffer::scalar::ScalarBuffer<T>) -> Self

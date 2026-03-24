@@ -7,6 +7,7 @@ mod slice;
 
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -22,7 +23,7 @@ use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::DynArray;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
@@ -47,7 +48,7 @@ use crate::vtable::ValidityVTableFromChild;
 
 vtable!(Patched);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Patched;
 
 impl ValidityChild<Patched> for Patched {
@@ -68,7 +69,11 @@ impl VTable for Patched {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Patched
+    }
+
+    fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.patched")
     }
 
@@ -210,7 +215,7 @@ impl VTable for Patched {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let inner = array
             .inner
             .clone()
@@ -253,7 +258,7 @@ impl VTable for Patched {
             PrimitiveArray::from_byte_buffer(output.into_byte_buffer(), ptype, validity)
         });
 
-        Ok(ExecutionStep::done(patched_values.into_array()))
+        Ok(ExecutionResult::done(patched_values.into_array()))
     }
 
     fn execute_parent(
