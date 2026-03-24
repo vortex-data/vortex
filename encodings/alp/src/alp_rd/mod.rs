@@ -295,7 +295,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts_dict: &[u16],
     right_bit_width: u8,
     right_parts: Buffer<T::UINT>,
-    left_parts_patches: Option<&Patches>,
+    left_parts_patches: Option<Patches>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {

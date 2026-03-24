@@ -423,6 +423,18 @@ impl ExecutionResult {
         }
     }
 
+    /// Like [`execute_child`](Self::execute_child), but accepts an `Arc<V::Array>` directly,
+    /// upcasting it to an [`ArrayRef`].
+    pub fn execute_child_upcast<V: VTable, M: Matcher>(
+        array: Arc<V::Array>,
+        child_idx: usize,
+    ) -> Self {
+        Self {
+            array: upcast_array::<V>(array),
+            step: ExecutionStep::ExecuteChild(child_idx, M::matches),
+        }
+    }
+
     /// Returns a reference to the array.
     pub fn array(&self) -> &ArrayRef {
         &self.array
@@ -448,21 +460,25 @@ impl fmt::Debug for ExecutionResult {
     }
 }
 
-/// Require that a child array matches `$M`. If it does, evaluates to the matched value.
-/// Otherwise, early-returns `Ok(ExecutionStep::execute_child::<$M>($idx))`.
+/// Require that a child array matches `$M`. If the child already matches, returns the same
+/// array unchanged. Otherwise, early-returns an [`ExecutionResult`] requesting execution of
+/// child `$idx` until it matches `$M`.
 ///
 /// ```ignore
-/// let codes = require_child!(array.codes(), 0 => PrimitiveVTable);
-/// let values = require_child!(array.values(), 1 => AnyCanonical);
+/// let codes = require_child!(Self, array, array.codes(), 0 => Primitive);
+/// let values = require_child!(Self, array, array.values(), 1 => AnyCanonical);
 /// ```
 #[macro_export]
 macro_rules! require_child {
-    ($child:expr, $idx:expr => $M:ty) => {
-        match $child.as_opt::<$M>() {
-            Some(c) => c,
-            None => return Ok($crate::ExecutionStep::execute_child::<$M>($idx)),
+    ($V:ty, $parent:expr, $child:expr, $idx:expr => $M:ty) => {{
+        if !$child.is::<$M>() {
+            return Ok($crate::ExecutionResult::execute_child_upcast::<$V, $M>(
+                std::sync::Arc::clone(&$parent),
+                $idx,
+            ));
         }
-    };
+        $parent
+    }};
 }
 
 /// Extension trait for creating an execution context from a session.

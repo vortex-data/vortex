@@ -12,10 +12,10 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use super::DictArray;
+use super::{DictArray, DictArrayParts};
 use super::DictMetadata;
 use super::take_canonical;
-use crate::AnyCanonical;
+use crate::{AnyCanonical, ToCanonical};
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
@@ -25,7 +25,7 @@ use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::Primitive;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -200,24 +200,27 @@ impl VTable for Dict {
     }
 
     fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-       if array.is_empty() {
+        if array.is_empty() {
             let result_dtype = array
                 .dtype()
                 .union_nullability(array.codes().dtype().nullability());
-           return Ok(ExecutionResult::done(canonical));
+            return Ok(ExecutionResult::done(Canonical::empty(&result_dtype)));
         }
 
-        let codes = require_child!(array.codes(), 0 => PrimitiveVTable);
+        let array = require_child!(Self, array, array.codes(), 0 => Primitive);
 
-        if codes.all_invalid()? {
-            return Ok(ExecutionStep::Done(
+        if array.codes().all_invalid()? {
+            return Ok(ExecutionResult::done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
                     .into_array(),
             ));
         }
 
-        let values = require_child!(array.values(), 1 => AnyCanonical);
-        let values = Canonical::from(values);
+        let array = require_child!(Self, array, array.values(), 1 => AnyCanonical);
+
+        let DictArrayParts{codes, values, ..} = Arc::unwrap_or_clone(array).into_parts();
+        let codes = codes.to_primitive();
+        let values = values.to_canonical()?;
 
         Ok(ExecutionResult::done(
             take_canonical(values, &codes, ctx)?.into_array(),

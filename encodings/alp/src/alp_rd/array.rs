@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::ArrayEq;
+use vortex_array::{ArrayEq, ToCanonical};
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
@@ -17,8 +17,8 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -39,7 +39,7 @@ use vortex_array::vtable::patches_child;
 use vortex_array::vtable::patches_child_name;
 use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -303,36 +303,44 @@ impl VTable for ALPRD {
     }
 
     fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let left_parts = require_child!(array.left_parts(), 0 => PrimitiveVTable).clone();
-        let right_parts = require_child!(array.right_parts(), 1 => PrimitiveVTable).clone();
+        let array = require_child!(Self, array, array.left_parts(), 0 => Primitive);
+        let array =
+            require_child!(Self, array, array.right_parts(), 1 => Primitive);
+
+        let right_bit_width = array.right_bit_width();
+        let ALPRDArrayParts{left_parts, right_parts, left_parts_dictionary, left_parts_patches, dtype, .. } = Arc::unwrap_or_clone(array).into_parts();
+        let ptype = dtype.as_ptype();
+
+        let left_parts = left_parts.try_into::<Primitive>().ok().vortex_expect("ALPRD execute: left_parts is primitive");
+        let right_parts = right_parts.try_into::<Primitive>().ok().vortex_expect("ALPRD execute: right_parts is primitive");
 
         // Decode the left_parts using our builtin dictionary.
-        let left_parts_dict = array.left_parts_dictionary();
+        let left_parts_dict = left_parts_dictionary;
         let validity = left_parts.validity_mask()?;
 
-        let decoded_array = if array.is_f32() {
+        let decoded_array = if ptype == PType::F32{
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
-                    left_parts_dict,
-                    array.right_bit_width,
+                    &left_parts_dict,
+                    right_bit_width,
                     right_parts.into_buffer::<u32>(),
-                    array.left_parts_patches(),
+                    left_parts_patches,
                     ctx,
                 )?,
-                Validity::from_mask(validity, array.dtype().nullability()),
+                Validity::from_mask(validity, dtype.nullability()),
             )
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
                     left_parts.into_buffer::<u16>(),
-                    left_parts_dict,
-                    array.right_bit_width,
+                    &left_parts_dict,
+                    right_bit_width,
                     right_parts.into_buffer::<u64>(),
-                    array.left_parts_patches(),
+                    left_parts_patches,
                     ctx,
                 )?,
-                Validity::from_mask(validity, array.dtype().nullability()),
+                Validity::from_mask(validity, dtype.nullability()),
             )
         };
 
@@ -366,6 +374,15 @@ pub struct ALPRDArray {
     right_parts: ArrayRef,
     right_bit_width: u8,
     stats_set: ArrayStats,
+}
+
+#[derive(Clone, Debug)]
+pub struct ALPRDArrayParts {
+    pub dtype: DType,
+    pub left_parts: ArrayRef,
+    pub left_parts_patches: Option<Patches>,
+    pub left_parts_dictionary: Buffer<u16>,
+    pub right_parts: ArrayRef,
 }
 
 #[derive(Clone, Debug)]
@@ -459,6 +476,17 @@ impl ALPRDArray {
             right_parts,
             right_bit_width,
             stats_set: Default::default(),
+        }
+    }
+
+    /// Return all the owned parts of the array
+    pub fn into_parts(self) -> ALPRDArrayParts {
+        ALPRDArrayParts {
+            dtype: self.dtype,
+            left_parts: self.left_parts,
+            left_parts_patches: self.left_parts_patches,
+            left_parts_dictionary: self.left_parts_dictionary,
+            right_parts: self.right_parts,
         }
     }
 
