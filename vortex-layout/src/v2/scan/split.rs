@@ -12,9 +12,13 @@ use crate::v2::selection::Selection;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SplitId(u32);
 
-impl From<u32> for SplitId {
-    fn from(value: u32) -> Self {
+impl SplitId {
+    pub(crate) fn new(value: u32) -> Self {
         Self(value)
+    }
+
+    pub(crate) fn as_u32(self) -> u32 {
+        self.0
     }
 }
 
@@ -87,7 +91,7 @@ pub fn form_splits(
         let len = interval.end - interval.start;
         if len <= max_split_rows {
             splits.push(SplitRange {
-                id: SplitId(split_id),
+                id: SplitId::new(split_id),
                 row_range: interval.clone(),
                 mask: selection.row_mask(&interval),
             });
@@ -97,9 +101,9 @@ pub fn form_splits(
             while start < interval.end {
                 let end = (start + max_split_rows).min(interval.end);
                 splits.push(SplitRange {
-                    id: SplitId(split_id),
+                    id: SplitId::new(split_id),
                     row_range: start..end,
-                    mask: selection.row_mask(&*start..end),
+                    mask: selection.row_mask(&(start..end)),
                 });
                 split_id += 1;
                 start = end;
@@ -127,8 +131,8 @@ mod tests {
         assert_eq!(splits.len(), 2);
         assert_eq!(splits[0].row_range, 0..300);
         assert_eq!(splits[1].row_range, 300..1000);
-        assert_eq!(splits[0].id, SplitId(0));
-        assert_eq!(splits[1].id, SplitId(1));
+        assert_eq!(splits[0].id, SplitId::new(0));
+        assert_eq!(splits[1].id, SplitId::new(1));
     }
 
     #[test]

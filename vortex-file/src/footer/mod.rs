@@ -47,14 +47,13 @@ pub struct Footer {
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
-    array_read_ctx: ReadContext,
+    pub(crate) array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
     approx_byte_size: Option<usize>,
 
     /// For migration reasons, we hold the layout flatbuffer, layout IDs, and array context.
-    pub(crate) layout_fb: FlatBuffer,
-    pub(crate) layout_ids: Arc<[LayoutId]>,
-    pub(crate) array_ctx: ReadContext,
+    pub(crate) layout_fb: Option<FlatBuffer>,
+    pub(crate) layout_ids: Option<Arc<[LayoutId]>>,
 }
 
 impl Footer {
@@ -70,6 +69,8 @@ impl Footer {
             statistics,
             array_read_ctx,
             approx_byte_size: None,
+            layout_fb: None,
+            layout_ids: None,
         }
     }
 
@@ -98,6 +99,14 @@ impl Footer {
             .collect();
         let layout_read_ctx = ReadContext::new(layout_ids);
 
+        // Also parse layout IDs for v2 layouts (same string data, different type).
+        let v2_layout_ids: Arc<[LayoutId]> = fb_footer
+            .layout_specs()
+            .iter()
+            .flat_map(|e| e.iter())
+            .map(|encoding| LayoutId::new_arc(Arc::from(encoding.id())))
+            .collect();
+
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
         let array_ids: Arc<[_]> = array_specs
@@ -105,10 +114,10 @@ impl Footer {
             .flat_map(|e| e.iter())
             .map(|encoding| ArrayId::new_arc(Arc::from(encoding.id())))
             .collect();
-        let array_read_ctx = ReadContext::new(array_ids);
+        let array_read_ctx = ReadContext::new(array_ids.clone());
 
         let root_layout = layout_from_flatbuffer(
-            layout_bytes,
+            layout_bytes.clone(),
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
@@ -133,6 +142,8 @@ impl Footer {
             statistics,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
+            layout_fb: Some(layout_bytes),
+            layout_ids: Some(v2_layout_ids),
         })
     }
 

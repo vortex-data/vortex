@@ -20,7 +20,7 @@ pub(crate) struct OutputQueue {
 impl OutputQueue {
     pub(crate) fn new(total_splits: u32) -> Self {
         Self {
-            next_emit: SplitId(0),
+            next_emit: SplitId::new(0),
             total_splits,
             buffer: BTreeMap::new(),
         }
@@ -36,14 +36,14 @@ impl OutputQueue {
         let mut results = Vec::new();
         while let Some(result) = self.buffer.remove(&self.next_emit) {
             results.push((self.next_emit, result));
-            self.next_emit = SplitId(self.next_emit.0 + 1);
+            self.next_emit = SplitId::new(self.next_emit.as_u32() + 1);
         }
         results
     }
 
     /// Returns true if all splits have been emitted.
     pub(crate) fn is_complete(&self) -> bool {
-        self.next_emit.0 >= self.total_splits
+        self.next_emit.as_u32() >= self.total_splits
     }
 }
 
@@ -63,21 +63,21 @@ mod tests {
         let array_c = PrimitiveArray::from_iter([3i32]).into_array();
 
         // Push out of order: split 2 first
-        queue.push(SplitId(2), Some(array_c));
+        queue.push(SplitId::new(2), Some(array_c));
         assert!(queue.drain_ready().is_empty());
 
         // Push split 0
-        queue.push(SplitId(0), Some(array_a));
+        queue.push(SplitId::new(0), Some(array_a));
         let drained = queue.drain_ready();
         assert_eq!(drained.len(), 1);
-        assert_eq!(drained[0].0, SplitId(0));
+        assert_eq!(drained[0].0, SplitId::new(0));
 
         // Push split 1 — should drain both 1 and 2
-        queue.push(SplitId(1), Some(array_b));
+        queue.push(SplitId::new(1), Some(array_b));
         let drained = queue.drain_ready();
         assert_eq!(drained.len(), 2);
-        assert_eq!(drained[0].0, SplitId(1));
-        assert_eq!(drained[1].0, SplitId(2));
+        assert_eq!(drained[0].0, SplitId::new(1));
+        assert_eq!(drained[1].0, SplitId::new(2));
 
         assert!(queue.is_complete());
     }
@@ -86,9 +86,9 @@ mod tests {
     fn test_output_queue_with_none() {
         let mut queue = OutputQueue::new(2);
 
-        queue.push(SplitId(0), None);
+        queue.push(SplitId::new(0), None);
         queue.push(
-            SplitId(1),
+            SplitId::new(1),
             Some(PrimitiveArray::from_iter([1i32]).into_array()),
         );
 

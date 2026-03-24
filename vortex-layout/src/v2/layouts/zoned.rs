@@ -16,14 +16,12 @@ use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::Selection;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
-use crate::v2::scan::planner::SplitSelection;
 use crate::v2::selection::Selection;
 
 /// The zoned layout vtable.
@@ -48,7 +46,7 @@ impl LayoutVTable for Zoned {
     type Plan = ();
 
     fn id(&self) -> LayoutId {
-        todo!()
+        LayoutId::new_ref("vortex.stats")
     }
 
     fn child_dtype(layout: &Layout<Self>, child_idx: usize) -> &DType {
@@ -83,7 +81,7 @@ impl LayoutVTable for Zoned {
 
         // Prepare the data child with the original expression and selection.
         // Only the data child contributes row split boundaries.
-        let data_rel = Self::child_relationship(layout, 0);
+        let _data_rel = Self::child_relationship(layout, 0);
         let data_child = layout.data_child()?;
         let data_planner = data_child.prepare(expr, selection, row_splits)?;
 
@@ -141,14 +139,12 @@ impl ZonedSplitPlanner {
 impl SplitPlanner for ZonedSplitPlanner {
     fn plan_split(
         &self,
-        row_range: Range<u64>,
+        row_range: &Range<u64>,
         selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         // Always plan the data child split.
-        let data_output = self
-            .data_planner
-            .plan_split(row_range.clone(), selection, builder)?;
+        let data_output = self.data_planner.plan_split(row_range, selection, builder)?;
 
         let Some(zone_map_planner) = &self.zone_map_planner else {
             // No pruning predicate, just return the data output directly.
@@ -156,8 +152,8 @@ impl SplitPlanner for ZonedSplitPlanner {
         };
 
         // Map the data row range to zone indices and plan the zone map read.
-        let zone_range = self.zone_range(&row_range);
-        let zm_output = zone_map_planner.plan_split(zone_range, selection, builder)?;
+        let zone_range = self.zone_range(row_range);
+        let zm_output = zone_map_planner.plan_split(&zone_range, selection, builder)?;
 
         // Create a compute node that:
         // 1. Evaluates the pruning predicate on the zone map rows.
@@ -167,8 +163,8 @@ impl SplitPlanner for ZonedSplitPlanner {
         let row_count = self.row_count;
         builder.create_node(NodeOpts {
             inputs: &[zm_output, data_output],
-            segments: &[],
-            lifetime: builder.row_range_lifetime(row_range),
+            segments: vec![],
+            lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |mut inputs: Vec<NodeInput>| {
                 let _zm_array = inputs.remove(0).into_array();
                 let data_array = inputs.remove(0).into_array();

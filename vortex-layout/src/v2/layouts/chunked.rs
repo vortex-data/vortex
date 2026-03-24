@@ -18,14 +18,12 @@ use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::Selection;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
-use crate::v2::scan::planner::SplitSelection;
 use crate::v2::selection::Selection;
 
 /// The chunked layout vtable.
@@ -54,7 +52,7 @@ impl LayoutVTable for Chunked {
     type Plan = ();
 
     fn id(&self) -> LayoutId {
-        todo!()
+        LayoutId::new_ref("vortex.chunked")
     }
 
     fn child_dtype(layout: &Layout<Self>, _child_idx: usize) -> &DType {
@@ -137,15 +135,15 @@ struct ChunkedSplitPlanner {
 impl SplitPlanner for ChunkedSplitPlanner {
     fn plan_split(
         &self,
-        row_range: Range<u64>,
-        selection: &SplitSelection,
+        row_range: &Range<u64>,
+        selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         // Find children that overlap with this row range.
         let overlapping: Vec<_> = self
             .children
             .iter()
-            .filter(|(chunk_range, _)| ranges_overlap(&row_range, chunk_range))
+            .filter(|(chunk_range, _)| ranges_overlap(row_range, chunk_range))
             .collect();
 
         match overlapping.len() {
@@ -154,8 +152,8 @@ impl SplitPlanner for ChunkedSplitPlanner {
                 let dtype = self.dtype.clone();
                 builder.create_node(NodeOpts {
                     inputs: &[],
-                    segments: &[],
-                    lifetime: builder.row_range_lifetime(row_range),
+                    segments: vec![],
+                    lifetime: builder.row_range_lifetime(row_range.clone()),
                     compute: move |_inputs: Vec<NodeInput>| {
                         Ok(Canonical::empty(&dtype).into_array())
                     },
@@ -166,7 +164,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
                 let (chunk_range, planner) = overlapping[0];
                 let local_start = row_range.start.saturating_sub(chunk_range.start);
                 let local_end = row_range.end.min(chunk_range.end) - chunk_range.start;
-                planner.plan_split(local_start..local_end, selection, builder)
+                planner.plan_split(&(local_start..local_end), selection, builder)
             }
             _ => {
                 // Multiple children — plan each and concatenate.
@@ -175,14 +173,14 @@ impl SplitPlanner for ChunkedSplitPlanner {
                     let local_start = row_range.start.max(chunk_range.start) - chunk_range.start;
                     let local_end = row_range.end.min(chunk_range.end) - chunk_range.start;
                     let child_output =
-                        planner.plan_split(local_start..local_end, selection, builder)?;
+                        planner.plan_split(&(local_start..local_end), selection, builder)?;
                     child_outputs.push(child_output);
                 }
                 let dtype = self.dtype.clone();
                 builder.create_node(NodeOpts {
                     inputs: &child_outputs,
-                    segments: &[],
-                    lifetime: builder.row_range_lifetime(row_range),
+                    segments: vec![],
+                    lifetime: builder.row_range_lifetime(row_range.clone()),
                     compute: move |inputs: Vec<NodeInput>| {
                         let chunks: Vec<ArrayRef> =
                             inputs.into_iter().map(|i| i.into_array()).collect();
@@ -195,11 +193,12 @@ impl SplitPlanner for ChunkedSplitPlanner {
 }
 
 /// Check if a selection overlaps with a given range.
-fn selection_overlaps(selection: &Selection, range: &Range<u64>) -> bool {
-    match selection {
-        Selection::All => true,
-        Selection::IncludeRanges(ranges) => ranges.iter().any(|r| ranges_overlap(r, range)),
-    }
+///
+/// TODO: implement precise overlap checking for non-All selection variants.
+fn selection_overlaps(_selection: &Selection, _range: &Range<u64>) -> bool {
+    // Conservative: assume all chunks may overlap. Precise checks for IncludeByIndex,
+    // ExcludeByIndex, and Roaring variants can be added later.
+    true
 }
 
 /// Check if two ranges overlap.
@@ -208,23 +207,12 @@ fn ranges_overlap(a: &Range<u64>, b: &Range<u64>) -> bool {
 }
 
 /// Translate a selection to chunk-local coordinates.
-fn translate_selection(selection: &Selection, chunk_start: u64, chunk_end: u64) -> Selection {
+///
+/// TODO: implement precise translation for non-All selection variants.
+fn translate_selection(selection: &Selection, _chunk_start: u64, _chunk_end: u64) -> Selection {
     match selection {
         Selection::All => Selection::All,
-        Selection::IncludeRanges(ranges) => {
-            let local_ranges: Vec<Range<u64>> = ranges
-                .iter()
-                .filter_map(|r| {
-                    let start = r.start.max(chunk_start);
-                    let end = r.end.min(chunk_end);
-                    (start < end).then(|| (start - chunk_start)..(end - chunk_start))
-                })
-                .collect();
-            if local_ranges.is_empty() {
-                Selection::IncludeRanges(vec![])
-            } else {
-                Selection::IncludeRanges(local_ranges)
-            }
-        }
+        // Conservative: pass through to all chunks. Precise index translation can be added later.
+        _ => selection.clone(),
     }
 }

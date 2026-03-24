@@ -116,7 +116,8 @@ impl LayoutChild {
             .get(fb_layout.encoding() as usize)
             .ok_or_else(|| vortex_err!("Invalid layout ID: {}", fb_layout.encoding()))?;
 
-        let plugin = session
+        // Validate that the layout plugin is registered in the session.
+        let _plugin = session
             .layouts2()
             .registry()
             .find(&layout_id)

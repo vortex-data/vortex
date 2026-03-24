@@ -17,14 +17,13 @@ use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::Selection;
+use crate::v2::scan::plan::SegmentRequest;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
-use crate::v2::scan::planner::SplitSelection;
 use crate::v2::selection::Selection;
 
 /// The flat layout vtable.
@@ -46,7 +45,7 @@ impl LayoutVTable for Flat {
     type Plan = ();
 
     fn id(&self) -> LayoutId {
-        todo!()
+        LayoutId::new_ref("vortex.flat")
     }
 
     fn child_dtype(_layout: &Layout<Self>, _child_idx: usize) -> &DType {
@@ -93,15 +92,18 @@ struct FlatLayoutPlanner {
 impl SplitPlanner for FlatLayoutPlanner {
     fn plan_split(
         &self,
-        row_range: Range<u64>,
+        row_range: &Range<u64>,
         _selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         let expression = self.expression.clone();
         builder.create_node(NodeOpts {
             inputs: &[],
-            segments: &[self.segment_id],
-            lifetime: builder.row_range_lifetime(row_range),
+            segments: vec![SegmentRequest {
+                source: self.segment_source.clone(),
+                segment_id: self.segment_id,
+            }],
+            lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |mut inputs: Vec<NodeInput>| {
                 // The segment is deserialized into an array by the scheduler.
                 let array = inputs.remove(0).into_array();

@@ -24,14 +24,12 @@ use crate::v2::layout::ChildRelationship;
 use crate::v2::layout::Layout;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
-use crate::v2::layout::Selection;
 use crate::v2::scan::planner::NodeId;
 use crate::v2::scan::planner::NodeInput;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
-use crate::v2::scan::planner::SplitSelection;
 use crate::v2::selection::Selection;
 
 /// The struct layout vtable.
@@ -244,24 +242,22 @@ struct SingleFieldSplitPlanner {
 impl SplitPlanner for SingleFieldSplitPlanner {
     fn plan_split(
         &self,
-        row_range: Range<u64>,
+        row_range: &Range<u64>,
         selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
-        let data_output = self
-            .planner
-            .plan_split(row_range.clone(), selection, builder)?;
+        let data_output = self.planner.plan_split(row_range, selection, builder)?;
 
         let Some(validity_planner) = &self.validity_planner else {
             return Ok(data_output);
         };
 
-        let validity_output = validity_planner.plan_split(row_range.clone(), selection, builder)?;
+        let validity_output = validity_planner.plan_split(row_range, selection, builder)?;
 
         builder.create_node(NodeOpts {
             inputs: &[data_output, validity_output],
-            segments: &[],
-            lifetime: builder.row_range_lifetime(row_range),
+            segments: vec![],
+            lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |mut inputs: Vec<NodeInput>| {
                 let _data = inputs.remove(0).into_array();
                 let _validity = inputs.remove(0).into_array();
@@ -281,19 +277,18 @@ struct MultiFieldSplitPlanner {
 impl SplitPlanner for MultiFieldSplitPlanner {
     fn plan_split(
         &self,
-        row_range: Range<u64>,
+        row_range: &Range<u64>,
         selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         let mut child_outputs = Vec::with_capacity(self.field_planners.len());
         for planner in &self.field_planners {
-            let output = planner.plan_split(row_range.clone(), selection, builder)?;
+            let output = planner.plan_split(row_range, selection, builder)?;
             child_outputs.push(output);
         }
 
         if let Some(validity_planner) = &self.validity_planner {
-            let validity_output =
-                validity_planner.plan_split(row_range.clone(), selection, builder)?;
+            let validity_output = validity_planner.plan_split(row_range, selection, builder)?;
             child_outputs.push(validity_output);
         }
 
@@ -301,8 +296,8 @@ impl SplitPlanner for MultiFieldSplitPlanner {
         let has_validity = self.validity_planner.is_some();
         builder.create_node(NodeOpts {
             inputs: &child_outputs,
-            segments: &[],
-            lifetime: builder.row_range_lifetime(row_range),
+            segments: vec![],
+            lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |mut inputs: Vec<NodeInput>| {
                 let validity = if has_validity {
                     inputs.pop().map(NodeInput::into_array)

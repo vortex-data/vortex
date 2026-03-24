@@ -21,6 +21,7 @@ use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::v2;
@@ -94,10 +95,17 @@ impl VortexFile {
     /// Create a v2 layout for the file.
     pub fn layout2(&self) -> VortexResult<v2::layout::LayoutRef> {
         v2::layout::LayoutRef::from_flatbuffer(
-            &self.footer.layout_fb,
+            self.footer
+                .layout_fb
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Missing layout fb"))?,
             self.dtype(),
-            self.footer.layout_ids.clone(),
-            self.footer.array_ctx.clone(),
+            self.footer
+                .layout_ids
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Missing layout IDs"))?
+                .clone(),
+            self.footer.array_read_ctx.clone(),
             &self.segment_source(),
             &self.session,
         )

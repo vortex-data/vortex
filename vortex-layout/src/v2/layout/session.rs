@@ -33,16 +33,21 @@ impl LayoutSession {
 
 impl Default for LayoutSession {
     fn default() -> Self {
-        let layouts = LayoutRegistry::default();
-        //
-        // // Register the built-in layout encodings.
-        // layouts.register(ChunkedLayoutEncoding.id(), ChunkedLayoutEncoding.as_ref());
-        // layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
-        // layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
-        // layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
-        // layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
+        use crate::v2::layouts::chunked::Chunked;
+        use crate::v2::layouts::flat::Flat;
+        use crate::v2::layouts::struct_::Struct;
+        use crate::v2::layouts::zoned::Zoned;
 
-        Self { registry: layouts }
+        let session = Self {
+            registry: LayoutRegistry::default(),
+        };
+
+        session.register(Chunked);
+        session.register(Flat);
+        session.register(Struct);
+        session.register(Zoned);
+
+        session
     }
 }
 

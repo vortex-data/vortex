@@ -14,10 +14,9 @@ use crate::segments::SegmentSource;
 use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutRef;
-use crate::v2::layout::Selection;
 use crate::v2::layout::vtable::LayoutVTable;
-use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlannerRef;
+use crate::v2::selection::Selection;
 
 pub struct Layout<V: LayoutVTable> {
     vtable: V,

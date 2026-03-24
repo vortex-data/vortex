@@ -10,9 +10,9 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::segments::SegmentId;
 use crate::v2::layout::ChildRelationship;
 use crate::v2::scan::plan::Plan;
+use crate::v2::scan::plan::SegmentRequest;
 
 pub type SplitPlannerRef = Arc<dyn SplitPlanner>;
 
@@ -76,7 +76,7 @@ impl<'a> PlanBuilder<'a> {
     /// - [`FieldName(_)`](ChildRelationship::FieldName): same row space, no change.
     /// - [`Auxiliary(range)`](ChildRelationship::Auxiliary): enters a separate row space where
     ///   the node lifetime is fixed to the parent's row range.
-    pub fn step_into(&mut self, relationship: &ChildRelationship) -> PlanBuilder<'a> {
+    pub fn step_into(&mut self, relationship: &ChildRelationship) -> PlanBuilder<'_> {
         match relationship {
             ChildRelationship::RowOffset(offset) => PlanBuilder {
                 plan: self.plan,
@@ -136,7 +136,7 @@ pub struct NodeOpts<'a, F> {
     /// Wait for these nodes to complete before running.
     pub inputs: &'a [NodeId],
     /// Fetch these segments before running.
-    pub segments: &'a [SegmentId],
+    pub segments: Vec<SegmentRequest>,
     pub lifetime: Lifetime,
     pub compute: F,
 }
