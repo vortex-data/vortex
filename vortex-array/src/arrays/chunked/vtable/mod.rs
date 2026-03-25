@@ -39,7 +39,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 mod canonical;
-mod operations;
 mod validity;
 vtable!(Chunked);
 
@@ -54,7 +53,6 @@ impl VTable for Chunked {
     type Array = ChunkedArray;
 
     type Metadata = EmptyMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &Chunked

@@ -35,7 +35,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
-mod operations;
 mod validity;
 vtable!(ListView);
 
@@ -60,7 +59,6 @@ impl VTable for ListView {
     type Array = ListViewArray;
 
     type Metadata = ProstMetadata<ListViewMetadata>;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     fn vtable(_array: &Self::Array) -> &Self {
         &ListView

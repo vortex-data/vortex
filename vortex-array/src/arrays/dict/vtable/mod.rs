@@ -45,7 +45,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 mod kernel;
-mod operations;
 mod validity;
 
 vtable!(Dict);
@@ -61,7 +60,6 @@ impl VTable for Dict {
     type Array = DictArray;
 
     type Metadata = ProstMetadata<DictMetadata>;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {

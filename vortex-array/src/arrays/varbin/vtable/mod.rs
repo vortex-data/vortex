@@ -29,7 +29,6 @@ use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod canonical;
 mod kernel;
-mod operations;
 mod validity;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -56,7 +55,6 @@ impl VTable for VarBin {
     type Array = VarBinArray;
 
     type Metadata = ProstMetadata<VarBinMetadata>;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     fn vtable(_array: &Self::Array) -> &Self {
         &VarBin

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod operations;
 mod validity;
 
 use std::hash::Hasher;
@@ -41,8 +40,6 @@ impl VTable for Variant {
     type Array = VariantArray;
 
     type Metadata = EmptyMetadata;
-
-    type OperationsVTable = Self;
 
     type ValidityVTable = Self;
 

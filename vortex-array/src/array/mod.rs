@@ -60,7 +60,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::ArrayId;
 use crate::vtable::DynVTable;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
@@ -110,11 +109,6 @@ pub trait DynArray:
 
     /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef>;
-
-    /// Fetch the scalar at the given index.
-    ///
-    /// This method panics if the index is out of bounds for the array.
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
 
     /// Returns whether the item at `index` is valid.
     fn is_valid(&self, index: usize) -> VortexResult<bool>;
@@ -211,11 +205,6 @@ impl DynArray for Arc<dyn DynArray> {
 
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
         self.as_ref().take(indices)
-    }
-
-    #[inline]
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.as_ref().scalar_at(index)
     }
 
     #[inline]
@@ -528,28 +517,12 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
             .optimize()
     }
 
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.is_invalid(index)? {
-            return Ok(Scalar::null(self.dtype().clone()));
-        }
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let scalar =
-            <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index, &mut ctx)?;
-        vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
-        Ok(scalar)
-    }
-
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => a
-                .scalar_at(index)?
-                .as_bool()
-                .value()
-                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
+            Validity::Array(a) => Ok(a.to_bool().to_mask().value(index)),
         }
     }
 

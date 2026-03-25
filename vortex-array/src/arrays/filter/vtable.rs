@@ -29,13 +29,11 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
@@ -51,7 +49,6 @@ impl Filter {
 impl VTable for Filter {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &Filter
@@ -187,17 +184,6 @@ impl VTable for Filter {
         RULES.evaluate(array)
     }
 }
-impl OperationsVTable<Filter> for Filter {
-    fn scalar_at(
-        array: &FilterArray,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        let rank_idx = array.mask.rank(index);
-        array.child.scalar_at(rank_idx)
-    }
-}
-
 impl ValidityVTable<Filter> for Filter {
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)

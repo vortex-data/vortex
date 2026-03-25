@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-mod operations;
 mod validity;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -57,7 +56,6 @@ pub struct ScalarFnVTable {
 impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
     type Metadata = ScalarFnMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn vtable(array: &Self::Array) -> &Self {

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 mod canonical;
 mod kernel;
-mod operations;
 mod validity;
 
 use std::hash::Hash;
@@ -40,7 +39,6 @@ impl VTable for Extension {
     type Array = ExtensionArray;
 
     type Metadata = EmptyMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
     fn vtable(_array: &Self::Array) -> &Self {

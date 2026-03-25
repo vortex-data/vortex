@@ -17,14 +17,12 @@ use crate::Precision;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
@@ -36,7 +34,6 @@ impl VTable for Null {
     type Array = NullArray;
 
     type Metadata = EmptyMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
@@ -189,16 +186,6 @@ impl NullArray {
         }
     }
 }
-impl OperationsVTable<Null> for Null {
-    fn scalar_at(
-        _array: &NullArray,
-        _index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Null))
-    }
-}
-
 impl ValidityVTable<Null> for Null {
     fn validity(_array: &NullArray) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)

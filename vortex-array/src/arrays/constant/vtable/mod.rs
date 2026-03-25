@@ -40,7 +40,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
-mod operations;
 mod validity;
 
 vtable!(Constant);
@@ -56,7 +55,6 @@ impl VTable for Constant {
     type Array = ConstantArray;
 
     type Metadata = Scalar;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {

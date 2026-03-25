@@ -27,7 +27,6 @@ use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod canonical;
 mod kernel;
-mod operations;
 mod validity;
 
 use std::hash::Hash;
@@ -53,7 +52,6 @@ impl VTable for Bool {
     type Array = BoolArray;
 
     type Metadata = ProstMetadata<BoolMetadata>;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
     fn vtable(_array: &Self::Array) -> &Self {

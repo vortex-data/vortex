@@ -4,7 +4,6 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod dyn_;
-mod operations;
 mod validity;
 
 use std::fmt::Debug;
@@ -13,7 +12,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 pub use dyn_::*;
-pub use operations::*;
 pub use validity::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -53,7 +51,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn DynArray> + IntoArray;
     type Metadata: Debug;
 
-    type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
 
     /// Returns the VTable from the array instance.

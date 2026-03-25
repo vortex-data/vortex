@@ -20,12 +20,10 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
@@ -43,7 +41,6 @@ impl Shared {
 impl VTable for Shared {
     type Array = SharedArray;
     type Metadata = EmptyMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &Shared
@@ -156,16 +153,6 @@ impl VTable for Shared {
             .map(ExecutionResult::done)
     }
 }
-impl OperationsVTable<Shared> for Shared {
-    fn scalar_at(
-        array: &SharedArray,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        array.current_array_ref().scalar_at(index)
-    }
-}
-
 impl ValidityVTable<Shared> for Shared {
     fn validity(array: &SharedArray) -> VortexResult<Validity> {
         array.current_array_ref().validity()

@@ -32,7 +32,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod kernel;
-mod operations;
 mod validity;
 
 vtable!(FixedSizeList);
@@ -48,7 +47,6 @@ impl VTable for FixedSizeList {
     type Array = FixedSizeListArray;
 
     type Metadata = EmptyMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     fn vtable(_array: &Self::Array) -> &Self {
         &FixedSizeList

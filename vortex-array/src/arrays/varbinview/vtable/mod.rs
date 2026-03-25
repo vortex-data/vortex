@@ -36,7 +36,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod kernel;
-mod operations;
 mod validity;
 vtable!(VarBinView);
 
@@ -51,7 +50,6 @@ impl VTable for VarBinView {
     type Array = VarBinViewArray;
 
     type Metadata = EmptyMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     fn vtable(_array: &Self::Array) -> &Self {
         &VarBinView

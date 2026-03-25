@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 mod canonical;
-mod operations;
 mod validity;
 
 use std::hash::Hash;
@@ -52,7 +51,6 @@ impl VTable for Masked {
     type Array = MaskedArray;
 
     type Metadata = EmptyMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
     fn vtable(_array: &Self::Array) -> &Self {

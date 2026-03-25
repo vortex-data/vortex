@@ -30,7 +30,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod kernel;
-mod operations;
 mod validity;
 
 use std::hash::Hash;
@@ -55,7 +54,6 @@ impl VTable for Decimal {
     type Array = DecimalArray;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
     fn vtable(_array: &Self::Array) -> &Self {

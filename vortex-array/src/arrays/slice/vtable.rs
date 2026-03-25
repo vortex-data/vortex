@@ -28,13 +28,11 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
@@ -50,7 +48,6 @@ impl Slice {
 impl VTable for Slice {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &Slice
@@ -187,16 +184,6 @@ impl VTable for Slice {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
-impl OperationsVTable<Slice> for Slice {
-    fn scalar_at(
-        array: &SliceArray,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        array.child.scalar_at(array.range.start + index)
-    }
-}
-
 impl ValidityVTable<Slice> for Slice {
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
         array.child.validity()?.slice(array.range.clone())
