@@ -51,6 +51,7 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     "encodings/parquet-variant",
+    "encodings/turboquant",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
@@ -173,6 +174,7 @@ memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 multiversion = "0.8.0"
+nalgebra = "0.33"
 noodles-bgzf = "0.46.0"
 noodles-vcf = { version = "0.86.0", features = ["async"] }
 num-traits = "0.2.19"
@@ -285,6 +287,7 @@ vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-feat
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
+vortex-turboquant = { version = "0.1.0", path = "./encodings/turboquant", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }

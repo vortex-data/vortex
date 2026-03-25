@@ -143,6 +143,10 @@ pub mod encodings {
         pub use vortex_sparse::*;
     }
 
+    pub mod turboquant {
+        pub use vortex_turboquant::*;
+    }
+
     pub mod zigzag {
         pub use vortex_zigzag::*;
     }

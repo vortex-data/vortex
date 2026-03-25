@@ -178,4 +178,5 @@ pub fn register_default_encodings(session: &mut VortexSession) {
     vortex_fastlanes::initialize(session);
     vortex_runend::initialize(session);
     vortex_sequence::initialize(session);
+    vortex_turboquant::initialize(session);
 }
