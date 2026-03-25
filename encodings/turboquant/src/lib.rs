@@ -11,9 +11,12 @@
 //!
 //! # Variants
 //!
-//! - **MSE** (`TurboQuantVariant::Mse`): Minimizes mean-squared reconstruction error.
+//! - **MSE** (`TurboQuantVariant::Mse`): Minimizes mean-squared reconstruction error
+//!   (1-8 bits per coordinate).
 //! - **Prod** (`TurboQuantVariant::Prod`): Preserves inner products with an unbiased
-//!   estimator (uses `b-1` bits for MSE + 1-bit QJL residual correction).
+//!   estimator (uses `b-1` bits for MSE + 1-bit QJL residual correction, 2-9 bits).
+//!   At `b=9`, the MSE codes are raw int8 values suitable for direct use with
+//!   tensor core int8 GEMM kernels.
 //!
 //! # Theoretical error bounds
 //!
@@ -325,6 +328,7 @@ mod tests {
     #[case(128, 4)]
     #[case(128, 6)]
     #[case(128, 8)]
+    #[case(128, 9)]
     fn roundtrip_prod(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let num_rows = 10;
         let fsl = make_fsl(num_rows, dim, 42);
@@ -351,6 +355,7 @@ mod tests {
     #[case(128, 4)]
     #[case(128, 6)]
     #[case(128, 8)]
+    #[case(128, 9)]
     fn prod_inner_product_bias(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let num_rows = 100;
         let fsl = make_fsl(num_rows, dim, 42);
@@ -417,13 +422,13 @@ mod tests {
         let num_rows = 50;
         let fsl = make_fsl(num_rows, dim, 99);
 
-        let min_bits = match variant {
-            TurboQuantVariant::Mse => 1,
-            TurboQuantVariant::Prod => 2,
+        let (min_bits, max_bits) = match variant {
+            TurboQuantVariant::Mse => (1, 8),
+            TurboQuantVariant::Prod => (2, 9),
         };
 
         let mut prev_mse = f32::MAX;
-        for bit_width in min_bits..=8u8 {
+        for bit_width in min_bits..=max_bits {
             let config = TurboQuantConfig {
                 bit_width,
                 variant,

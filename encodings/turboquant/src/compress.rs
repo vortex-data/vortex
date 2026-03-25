@@ -39,17 +39,17 @@ pub fn turboquant_encode(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
 ) -> VortexResult<TurboQuantArray> {
-    vortex_ensure!(
-        config.bit_width >= 1 && config.bit_width <= 8,
-        "bit_width must be 1-8, got {}",
-        config.bit_width
-    );
-    if config.variant == TurboQuantVariant::Prod {
-        vortex_ensure!(
-            config.bit_width >= 2,
-            "Prod variant requires bit_width >= 2, got {}",
+    match config.variant {
+        TurboQuantVariant::Mse => vortex_ensure!(
+            config.bit_width >= 1 && config.bit_width <= 8,
+            "MSE variant bit_width must be 1-8, got {}",
             config.bit_width
-        );
+        ),
+        TurboQuantVariant::Prod => vortex_ensure!(
+            config.bit_width >= 2 && config.bit_width <= 9,
+            "Prod variant bit_width must be 2-9, got {}",
+            config.bit_width
+        ),
     }
 
     let dimension = fsl.list_size();
