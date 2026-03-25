@@ -63,6 +63,84 @@ jobs:
           path: vortex-web/dist
           retention-days: 7
 
+  storybook:
+    name: Build Storybook
+    needs: [changes]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: vortex-web/package-lock.json
+      - run: npm ci
+      - run: npm run build-storybook
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vortex-storybook-dist
+          path: vortex-web/storybook-static
+          retention-days: 7
+
+  storybook-preview:
+    name: Deploy Storybook Preview
+    needs: [storybook]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      deployments: write
+    environment:
+      name: storybook-preview
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vortex-storybook-dist
+          path: storybook-static
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy storybook-static/
+            --project-name=vortex-storybook
+            --branch=${{ github.head_ref || github.ref_name }}
+      - name: Comment Storybook preview URL on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `**Vortex Storybook Preview:** ${{ steps.deploy.outputs.deployment-url }}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.body?.startsWith('**Vortex Storybook Preview:**')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
   preview:
     name: Deploy Preview
     needs: [build, changes]
