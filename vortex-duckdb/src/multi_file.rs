@@ -3,7 +3,6 @@
 
 use std::path::Path;
 use std::path::absolute;
-use std::sync::Arc;
 
 use url::Url;
 use vortex::error::VortexResult;
@@ -80,12 +79,17 @@ impl DataSourceTableFunction for VortexMultiFileScan {
 
         let fs = resolve_filesystem(&base_url, ctx)?;
 
+        let use_v2 = std::env::var("VORTEX_SCAN_V2")
+            .ok()
+            .is_some_and(|v| v == "1" || v == "true");
+
         RUNTIME.block_on(async {
-            let builder = MultiFileDataSource::new(SESSION.clone())
+            MultiFileDataSource::new(SESSION.clone())
                 .with_filesystem(fs)
-                .with_glob(glob_url.path());
-            let ds = builder.build().await?;
-            VortexResult::Ok(Arc::new(ds) as DataSourceRef)
+                .with_glob(glob_url.path())
+                .with_v2(use_v2)
+                .build()
+                .await
         })
     }
 }

@@ -12,6 +12,7 @@ mod splits;
 mod tasks;
 #[cfg(test)]
 mod test;
+pub mod v2_layout;
 
 /// A heuristic for an ideal split size.
 ///

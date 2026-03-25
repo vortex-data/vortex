@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Builder for constructing a [`MultiLayoutDataSource`] from multiple Vortex files.
+//! Builder for constructing a multi-file [`DataSource`] from multiple Vortex files.
 
 mod session;
 
@@ -9,8 +9,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::TryStreamExt;
+use futures::stream;
+use futures::stream::StreamExt;
 use session::MultiFileSessionExt;
 use tracing::debug;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
+use vortex_array::expr::stats::Precision;
+use vortex_array::stats::StatsSet;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -20,6 +26,13 @@ use vortex_layout::LayoutReaderRef;
 use vortex_layout::scan::multi::LayoutReaderFactory;
 use vortex_layout::scan::multi::MultiLayoutDataSource;
 use vortex_scan::DataSource;
+use vortex_scan::DataSourceRef;
+use vortex_scan::DataSourceScan;
+use vortex_scan::DataSourceScanRef;
+use vortex_scan::Partition;
+use vortex_scan::PartitionRef;
+use vortex_scan::PartitionStream;
+use vortex_scan::ScanRequest;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -27,7 +40,7 @@ use crate::VortexOpenOptions;
 use crate::v2::FileStatsLayoutReader;
 
 /// A builder that discovers multiple Vortex files from a glob pattern and constructs a
-/// [`MultiLayoutDataSource`] to scan them as a single data source.
+/// multi-file [`DataSource`] to scan them.
 ///
 /// The primary interface is [`Self::with_glob`], which accepts a glob
 /// pattern (optionally prefixed with `file://`). For non-local filesystems (S3, GCS, etc.),
@@ -54,6 +67,7 @@ pub struct MultiFileDataSource {
     fs: Option<FileSystemRef>,
     glob: Option<String>,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+    v2: bool,
 }
 
 impl MultiFileDataSource {
@@ -64,6 +78,7 @@ impl MultiFileDataSource {
             fs: None,
             glob: None,
             open_options_fn: Arc::new(|opts| opts),
+            v2: false,
         }
     }
 
@@ -84,6 +99,15 @@ impl MultiFileDataSource {
         self
     }
 
+    /// Enable the v2 layout scan state machine instead of the legacy layout reader.
+    ///
+    /// When enabled, each file is scanned using the v2 layout scan state machine instead
+    /// of the V1 layout reader pipeline.
+    pub fn with_v2(mut self, v2: bool) -> Self {
+        self.v2 = v2;
+        self
+    }
+
     /// Customize [`VortexOpenOptions`] applied to each file.
     ///
     /// Use this to configure segment caches, metrics registries, or other per-file options.
@@ -99,13 +123,13 @@ impl MultiFileDataSource {
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    pub async fn build(mut self) -> VortexResult<impl DataSource> {
+    pub async fn build(mut self) -> VortexResult<DataSourceRef> {
         let glob = self
             .glob
             .take()
             .ok_or_else(|| vortex_err!("MultiFileDataSource requires a glob URL"))?;
 
-        let fs = match self.fs {
+        let fs = match self.fs.take() {
             Some(fs) => fs,
             None => create_local_filesystem(&self.session)?,
         };
@@ -118,9 +142,20 @@ impl MultiFileDataSource {
         let file_count = files.len();
         debug!(file_count, glob = %glob, "discovered files");
 
-        // Open first file eagerly for dtype.
+        if self.v2 {
+            self.build_v2(&fs, &files).await
+        } else {
+            self.build_v1(&fs, &files).await
+        }
+    }
+
+    async fn build_v1(
+        &self,
+        fs: &FileSystemRef,
+        files: &[FileListing],
+    ) -> VortexResult<DataSourceRef> {
         let first_file =
-            open_file(&fs, &files[0], &self.session, self.open_options_fn.as_ref()).await?;
+            open_file(fs, &files[0], &self.session, self.open_options_fn.as_ref()).await?;
         let first_reader = layout_reader_with_stats(&first_file)?;
 
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = files[1..]
@@ -137,9 +172,33 @@ impl MultiFileDataSource {
 
         let inner = MultiLayoutDataSource::new_with_first(first_reader, factories, &self.session);
 
-        debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
+        debug!(file_count = files.len(), dtype = %inner.dtype(), "built MultiFileDataSource (v1)");
 
-        Ok(inner)
+        Ok(Arc::new(inner))
+    }
+
+    async fn build_v2(
+        &self,
+        fs: &FileSystemRef,
+        files: &[FileListing],
+    ) -> VortexResult<DataSourceRef> {
+        let mut children = Vec::with_capacity(files.len());
+        for file_listing in files {
+            let file = open_file(
+                fs,
+                file_listing,
+                &self.session,
+                self.open_options_fn.as_ref(),
+            )
+            .await?;
+            children.push(file.data_source2()?);
+        }
+
+        let dtype = children[0].dtype().clone();
+
+        debug!(file_count = files.len(), dtype = %dtype, "built MultiFileDataSource (v2)");
+
+        Ok(Arc::new(MultiV2DataSource { dtype, children }))
     }
 }
 
@@ -238,5 +297,81 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
         )
         .await?;
         Ok(Some(layout_reader_with_stats(&file)?))
+    }
+}
+
+/// A [`DataSource`] that combines multiple v2 [`DataSourceRef`]s (one per file) into a single
+/// scannable source.
+struct MultiV2DataSource {
+    dtype: DType,
+    children: Vec<DataSourceRef>,
+}
+
+#[async_trait]
+impl DataSource for MultiV2DataSource {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> Option<Precision<u64>> {
+        let mut sum: u64 = 0;
+        for child in &self.children {
+            sum = sum.saturating_add(child.row_count()?.into_inner());
+        }
+        Some(Precision::exact(sum))
+    }
+
+    fn byte_size(&self) -> Option<Precision<u64>> {
+        None
+    }
+
+    fn deserialize_partition(
+        &self,
+        _data: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<PartitionRef> {
+        vortex_bail!("MultiV2DataSource partitions are not yet serializable");
+    }
+
+    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        let dtype = scan_request.projection.return_dtype(&self.dtype)?;
+
+        // Collect partitions from all child data sources.
+        // Each V2LayoutDataSource produces exactly one partition, so we flatten them all
+        // into a single partition list.
+        let mut partitions = Vec::with_capacity(self.children.len());
+        for child in &self.children {
+            let child_scan = child.scan(scan_request.clone()).await?;
+            let mut partition_stream = Box::new(child_scan).partitions();
+            while let Some(p) = partition_stream.next().await {
+                partitions.push(p?);
+            }
+        }
+
+        Ok(Box::new(MultiV2Scan { dtype, partitions }))
+    }
+
+    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+        Ok(StatsSet::default())
+    }
+}
+
+/// A scan over multiple v2 files, yielding pre-collected partitions.
+struct MultiV2Scan {
+    dtype: DType,
+    partitions: Vec<PartitionRef>,
+}
+
+impl DataSourceScan for MultiV2Scan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn partition_count(&self) -> Option<Precision<usize>> {
+        Some(Precision::exact(self.partitions.len()))
+    }
+
+    fn partitions(self: Box<Self>) -> PartitionStream {
+        stream::iter(self.partitions.into_iter().map(Ok)).boxed()
     }
 }
