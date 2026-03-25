@@ -174,7 +174,6 @@ memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 multiversion = "0.8.0"
-nalgebra = "0.33"
 noodles-bgzf = "0.46.0"
 noodles-vcf = { version = "0.86.0", features = ["async"] }
 num-traits = "0.2.19"

@@ -190,19 +190,20 @@ impl VTable for TurboQuant {
     ) -> VortexResult<TurboQuantArray> {
         let variant = TurboQuantVariant::from_u32(metadata.variant)?;
         let bit_width = u8::try_from(metadata.bit_width)?;
-        let d = metadata.dimension as usize;
+        // Codes use padded_dim (next power of 2) coordinates per row.
+        let padded_dim = (metadata.dimension as usize).next_power_of_two();
 
-        // Codes child: flat u8 array of quantized indices (num_rows * d elements), bitpacked.
+        // Codes child: flat u8 array of quantized indices (num_rows * padded_dim), bitpacked.
         let codes_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
-        let codes = children.get(0, &codes_dtype, len * d)?;
+        let codes = children.get(0, &codes_dtype, len * padded_dim)?;
 
         // Norms child: f32 array, one per row.
         let norms_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let norms = children.get(1, &norms_dtype, len)?;
 
         let (qjl_signs, residual_norms) = if variant == TurboQuantVariant::Prod {
-            // QJL signs: packed u8 bytes.
-            let sign_bytes_count = (len * d).div_ceil(8);
+            // QJL signs: packed u8 bytes (padded_dim bits per row).
+            let sign_bytes_count = (len * padded_dim).div_ceil(8);
             let signs = children.get(
                 2,
                 &DType::Primitive(PType::U8, Nullability::NonNullable),

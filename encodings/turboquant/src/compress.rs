@@ -145,33 +145,36 @@ fn encode_mse(
     seed: u64,
     fsl: &FixedSizeListArray,
 ) -> VortexResult<TurboQuantArray> {
-    let d = dimension as usize;
-    let rotation = RotationMatrix::try_new(seed, d)?;
-    let centroids = get_centroids(dimension, bit_width)?;
+    let dim = dimension as usize;
+    let rotation = RotationMatrix::try_new(seed, dim)?;
+    let pd = rotation.padded_dim();
+    #[allow(clippy::cast_possible_truncation)]
+    let centroids = get_centroids(pd as u32, bit_width)?;
 
-    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * d);
+    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * pd);
     let mut norms_buf = BufferMut::<f32>::with_capacity(num_rows);
 
-    let mut rotated = vec![0.0f32; d];
+    let mut padded = vec![0.0f32; pd];
+    let mut rotated = vec![0.0f32; pd];
 
     for row in 0..num_rows {
-        let x = &elements[row * d..(row + 1) * d];
+        let x = &elements[row * dim..(row + 1) * dim];
 
-        // Compute L2 norm.
         let norm = l2_norm(x);
         norms_buf.push(norm);
 
-        // Normalize and rotate.
+        // Normalize, zero-pad to padded_dim, and rotate.
+        padded.fill(0.0);
         if norm > 0.0 {
             let inv_norm = 1.0 / norm;
-            let normalized: Vec<f32> = x.iter().map(|&v| v * inv_norm).collect();
-            rotation.rotate(&normalized, &mut rotated);
-        } else {
-            rotated.fill(0.0);
+            for (dst, &src) in padded[..dim].iter_mut().zip(x.iter()) {
+                *dst = src * inv_norm;
+            }
         }
+        rotation.rotate(&padded, &mut rotated);
 
-        // Quantize each coordinate to nearest centroid.
-        for j in 0..d {
+        // Quantize all padded_dim coordinates.
+        for j in 0..pd {
             all_indices.push(find_nearest_centroid(rotated[j], &centroids));
         }
     }
@@ -200,78 +203,79 @@ fn encode_prod(
     seed: u64,
     fsl: &FixedSizeListArray,
 ) -> VortexResult<TurboQuantArray> {
-    let d = dimension as usize;
+    let dim = dimension as usize;
     let mse_bit_width = bit_width - 1;
 
-    let rotation = RotationMatrix::try_new(seed, d)?;
-    let centroids = get_centroids(dimension, mse_bit_width)?;
+    let rotation = RotationMatrix::try_new(seed, dim)?;
+    let pd = rotation.padded_dim();
+    #[allow(clippy::cast_possible_truncation)]
+    let centroids = get_centroids(pd as u32, mse_bit_width)?;
 
-    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * d);
+    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * pd);
     let mut norms_buf = BufferMut::<f32>::with_capacity(num_rows);
     let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);
 
-    // QJL sign bits: num_rows * d bits, packed into bytes.
-    let total_sign_bits = num_rows * d;
+    // QJL sign bits: num_rows * pd bits, packed into bytes.
+    let total_sign_bits = num_rows * pd;
     let sign_bytes = total_sign_bits.div_ceil(8);
     let mut sign_buf = vec![0u8; sign_bytes];
 
-    let mut rotated = vec![0.0f32; d];
-    let mut dequantized_rotated = vec![0.0f32; d];
-    let mut dequantized = vec![0.0f32; d];
+    let mut padded = vec![0.0f32; pd];
+    let mut rotated = vec![0.0f32; pd];
+    let mut dequantized_rotated = vec![0.0f32; pd];
+    let mut dequantized = vec![0.0f32; pd];
 
     // QJL random sign matrix generator (using seed + 1).
-    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), d)?;
+    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), dim)?;
 
     for row in 0..num_rows {
-        let x = &elements[row * d..(row + 1) * d];
+        let x = &elements[row * dim..(row + 1) * dim];
 
-        // Compute L2 norm.
         let norm = l2_norm(x);
         norms_buf.push(norm);
 
-        // Normalize and rotate.
+        // Normalize, zero-pad, and rotate.
+        padded.fill(0.0);
         if norm > 0.0 {
             let inv_norm = 1.0 / norm;
-            let normalized: Vec<f32> = x.iter().map(|&v| v * inv_norm).collect();
-            rotation.rotate(&normalized, &mut rotated);
-        } else {
-            rotated.fill(0.0);
+            for (dst, &src) in padded[..dim].iter_mut().zip(x.iter()) {
+                *dst = src * inv_norm;
+            }
         }
+        rotation.rotate(&padded, &mut rotated);
 
-        // MSE quantize at (bit_width - 1) bits.
-        for j in 0..d {
+        // MSE quantize at (bit_width - 1) bits over padded_dim coordinates.
+        for j in 0..pd {
             let idx = find_nearest_centroid(rotated[j], &centroids);
             all_indices.push(idx);
             dequantized_rotated[j] = centroids[idx as usize];
         }
 
-        // Dequantize MSE result.
+        // Dequantize MSE result (inverse rotate to full padded space, take first dim).
         rotation.inverse_rotate(&dequantized_rotated, &mut dequantized);
         if norm > 0.0 {
-            for j in 0..d {
-                dequantized[j] *= norm;
+            for val in &mut dequantized {
+                *val *= norm;
             }
         }
 
-        // Compute residual r = x - x_hat_mse.
-        let residual: Vec<f32> = x
-            .iter()
-            .zip(dequantized.iter())
-            .map(|(&a, &b)| a - b)
-            .collect();
-        let residual_norm = l2_norm(&residual);
+        // Compute residual r = x - x_hat_mse (only first dim elements matter).
+        let mut residual = vec![0.0f32; pd];
+        for j in 0..dim {
+            residual[j] = x[j] - dequantized[j];
+        }
+        let residual_norm = l2_norm(&residual[..dim]);
         residual_norms_buf.push(residual_norm);
 
-        // QJL: sign(S * r) where S is another orthogonal matrix.
-        // We use the QJL rotation to project the residual, then take signs.
-        let mut projected = vec![0.0f32; d];
+        // QJL: sign(S * r).
+        let mut projected = vec![0.0f32; pd];
         if residual_norm > 0.0 {
             qjl_rotation.rotate(&residual, &mut projected);
         }
 
-        // Store sign bits.
-        let bit_offset = row * d;
-        for j in 0..d {
+        // Store sign bits for padded_dim positions.
+        let bit_offset = row * pd;
+        for j in 0..pd {
             if projected[j] >= 0.0 {
                 let bit_idx = bit_offset + j;
                 sign_buf[bit_idx / 8] |= 1 << (bit_idx % 8);

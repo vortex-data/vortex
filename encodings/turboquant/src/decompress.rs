@@ -47,35 +47,39 @@ fn decode_mse(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<Ar
         .into_array());
     }
 
-    // Execute codes child all the way down to PrimitiveArray (unpacks BitPackedArray).
+    let rotation = RotationMatrix::try_new(seed, dim)?;
+    let pd = rotation.padded_dim();
+
+    // Unpack codes — these are padded_dim indices per row.
     let codes_prim = array.codes.clone().execute::<PrimitiveArray>(ctx)?;
     let indices = codes_prim.as_slice::<u8>();
 
     let norms_prim = array.norms.clone().execute::<PrimitiveArray>(ctx)?;
     let norms = norms_prim.as_slice::<f32>();
 
-    let rotation = RotationMatrix::try_new(seed, dim)?;
-    let centroids = get_centroids(dimension, bit_width)?;
+    #[allow(clippy::cast_possible_truncation)]
+    let centroids = get_centroids(pd as u32, bit_width)?;
 
     let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
-    let mut dequantized = vec![0.0f32; dim];
-    let mut unrotated = vec![0.0f32; dim];
+    let mut dequantized = vec![0.0f32; pd];
+    let mut unrotated = vec![0.0f32; pd];
 
     for row in 0..num_rows {
-        let row_indices = &indices[row * dim..(row + 1) * dim];
+        let row_indices = &indices[row * pd..(row + 1) * pd];
         let norm = norms[row];
 
-        for idx in 0..dim {
+        for idx in 0..pd {
             dequantized[idx] = centroids[row_indices[idx] as usize];
         }
 
         rotation.inverse_rotate(&dequantized, &mut unrotated);
 
-        for val in &mut unrotated {
-            *val *= norm;
+        // Scale by norm and take only the first dim elements.
+        for idx in 0..dim {
+            unrotated[idx] *= norm;
         }
 
-        output.extend_from_slice(&unrotated);
+        output.extend_from_slice(&unrotated[..dim]);
     }
 
     let elements = PrimitiveArray::new::<f32>(output.freeze(), Validity::NonNullable);
@@ -106,6 +110,9 @@ fn decode_prod(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<A
         .into_array());
     }
 
+    let rotation = RotationMatrix::try_new(seed, dim)?;
+    let pd = rotation.padded_dim();
+
     let codes_prim = array.codes.clone().execute::<PrimitiveArray>(ctx)?;
     let indices = codes_prim.as_slice::<u8>();
 
@@ -128,35 +135,35 @@ fn decode_prod(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<A
         .execute::<PrimitiveArray>(ctx)?;
     let sign_bytes = qjl_prim.as_slice::<u8>();
 
-    let rotation = RotationMatrix::try_new(seed, dim)?;
-    let centroids = get_centroids(dimension, mse_bit_width)?;
+    #[allow(clippy::cast_possible_truncation)]
+    let centroids = get_centroids(pd as u32, mse_bit_width)?;
     let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), dim)?;
 
-    let qjl_scale = (std::f32::consts::FRAC_PI_2).sqrt() / (dim as f32);
+    let qjl_scale = (std::f32::consts::FRAC_PI_2).sqrt() / (pd as f32);
 
     let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
-    let mut dequantized = vec![0.0f32; dim];
-    let mut unrotated = vec![0.0f32; dim];
-    let mut qjl_signs_vec = vec![0.0f32; dim];
-    let mut qjl_projected = vec![0.0f32; dim];
+    let mut dequantized = vec![0.0f32; pd];
+    let mut unrotated = vec![0.0f32; pd];
+    let mut qjl_signs_vec = vec![0.0f32; pd];
+    let mut qjl_projected = vec![0.0f32; pd];
 
     for row in 0..num_rows {
-        let row_indices = &indices[row * dim..(row + 1) * dim];
+        let row_indices = &indices[row * pd..(row + 1) * pd];
         let norm = norms[row];
         let residual_norm = residual_norms[row];
 
-        for idx in 0..dim {
+        for idx in 0..pd {
             dequantized[idx] = centroids[row_indices[idx] as usize];
         }
         rotation.inverse_rotate(&dequantized, &mut unrotated);
 
-        for val in &mut unrotated {
+        for val in unrotated[..dim].iter_mut() {
             *val *= norm;
         }
 
         // QJL decode.
-        let bit_offset = row * dim;
-        for idx in 0..dim {
+        let bit_offset = row * pd;
+        for idx in 0..pd {
             let bit_idx = bit_offset + idx;
             let sign_bit = (sign_bytes[bit_idx / 8] >> (bit_idx % 8)) & 1;
             qjl_signs_vec[idx] = if sign_bit == 1 { 1.0 } else { -1.0 };
@@ -169,7 +176,7 @@ fn decode_prod(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<A
             unrotated[idx] += scale * qjl_projected[idx];
         }
 
-        output.extend_from_slice(&unrotated);
+        output.extend_from_slice(&unrotated[..dim]);
     }
 
     let elements = PrimitiveArray::new::<f32>(output.freeze(), Validity::NonNullable);
