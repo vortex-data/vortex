@@ -7,7 +7,7 @@ import java.util.Map;
 import org.apache.hadoop.conf.Configuration;
 
 public final class HadoopUtils {
-    HadoopUtils() {}
+    private HadoopUtils() {}
 
     static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
     static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";

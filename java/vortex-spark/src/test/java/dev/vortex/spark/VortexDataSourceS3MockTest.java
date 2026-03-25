@@ -52,7 +52,6 @@ public final class VortexDataSourceS3MockTest {
                 .config("spark.hadoop.fs.s3a.access.key", "foo")
                 .config("spark.hadoop.fs.s3a.secret.key", "bar")
                 .config("spark.hadoop.fs.s3a.path.style.access", "true")
-                .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
                 // Disable features that S3Mock may not support
                 .config("spark.hadoop.fs.s3a.change.detection.version.required", "false")
                 .config("spark.hadoop.fs.s3a.change.detection.mode", "none")
@@ -110,16 +109,12 @@ public final class VortexDataSourceS3MockTest {
                 .write()
                 .format("vortex")
                 .option("path", s3Path)
-                .option("row_group_size", "1024") // Custom format option
                 .mode(SaveMode.Overwrite)
                 .save();
 
         // Then: Read back from S3Mock with format options
-        Dataset<Row> readDf = spark.read()
-                .format("vortex")
-                .option("path", s3Path)
-                .option("projection_pushdown", "true") // Custom read option
-                .load();
+        Dataset<Row> readDf =
+                spark.read().format("vortex").option("path", s3Path).load();
 
         // Verify row count
         assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");

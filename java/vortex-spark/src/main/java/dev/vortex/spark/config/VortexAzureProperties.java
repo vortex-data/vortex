@@ -23,8 +23,8 @@ public final class VortexAzureProperties {
         return Optional.ofNullable(properties.get(SAS_KEY));
     }
 
-    public Optional<String> skipSignature() {
-        return Optional.ofNullable(properties.get(SKIP_SIGNATURE));
+    public boolean skipSignature() {
+        return Boolean.parseBoolean(properties.getOrDefault(SKIP_SIGNATURE, "false"));
     }
 
     public VortexAzureProperties setAccessKey(String accountKey) {

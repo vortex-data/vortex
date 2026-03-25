@@ -72,12 +72,13 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
             return new StructType();
         }
 
+        var formatOptions = buildDataSourceOptions(options.asCaseSensitiveMap());
+
         var pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
         // If the path is a directory, scan the directory for a file and use that file
         if (!pathToInfer.endsWith(".vortex")) {
-            Optional<String> firstFile =
-                    NativeFileMethods.listVortexFiles(pathToInfer, options.asCaseSensitiveMap()).stream()
-                            .findFirst();
+            Optional<String> firstFile = NativeFileMethods.listVortexFiles(pathToInfer, formatOptions).stream()
+                    .findFirst();
 
             if (firstFile.isEmpty()) {
                 // Return empty struct if no files found
@@ -88,7 +89,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
             }
         }
 
-        try (File file = Files.open(pathToInfer)) {
+        try (File file = Files.open(pathToInfer, formatOptions)) {
             var columns = SparkTypes.toColumns(file.getDType());
             return CatalogV2Util.v2ColumnsToStructType(columns);
         }
@@ -110,18 +111,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
         ImmutableList<String> paths = getPaths(uncased);
-
-        var hadoopConf = sparkSession.get().sessionState().newHadoopConf();
-
-        var options = ImmutableMap.<String, String>builder();
-        options.putAll(uncased.asCaseSensitiveMap());
-
-        // Forward any S3-relevant properties from hadoopConf to the reader config.
-        options.putAll(HadoopUtils.s3PropertiesFromHadoopConf(hadoopConf));
-        // Forward any Azure-relevant properties from hadoopConf to the reader config.
-        options.putAll(HadoopUtils.azurePropertiesFromHadoopConf(hadoopConf));
-
-        return new VortexTable(paths, schema, options.build());
+        return new VortexTable(paths, schema, buildDataSourceOptions(properties));
     }
 
     /**
@@ -148,6 +138,20 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     @Override
     public String shortName() {
         return "vortex";
+    }
+
+    private Map<String, String> buildDataSourceOptions(Map<String, String> properties) {
+        var hadoopConf = sparkSession.get().sessionState().newHadoopConf();
+
+        var options = ImmutableMap.<String, String>builder();
+        options.putAll(properties);
+
+        // Forward any S3-relevant properties from hadoopConf to the reader config.
+        options.putAll(HadoopUtils.s3PropertiesFromHadoopConf(hadoopConf));
+        // Forward any Azure-relevant properties from hadoopConf to the reader config.
+        options.putAll(HadoopUtils.azurePropertiesFromHadoopConf(hadoopConf));
+
+        return options.build();
     }
 
     private static ImmutableList<String> getPaths(CaseInsensitiveStringMap uncased) {
