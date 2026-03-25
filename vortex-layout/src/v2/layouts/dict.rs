@@ -74,7 +74,6 @@ struct DictLayoutMetadataProto {
 
 impl LayoutVTable for Dict {
     type Metadata = DictV2Metadata;
-    type Plan = ();
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.dict")

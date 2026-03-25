@@ -37,6 +37,100 @@ impl Selection {
         }
     }
 
+    /// Returns true if this selection has any rows in the given range.
+    pub fn overlaps(&self, range: &Range<u64>) -> bool {
+        match self {
+            Selection::All => range.start < range.end,
+            Selection::IncludeByIndex(include) => indices_range(range, include).is_some(),
+            #[allow(clippy::cast_possible_truncation)]
+            Selection::ExcludeByIndex(exclude) => {
+                // If fewer excluded indices fall in the range than its length, some rows remain.
+                let range_len = range.end.saturating_sub(range.start);
+                match indices_range(range, exclude) {
+                    Some(idx_range) => (idx_range.end - idx_range.start) < range_len as usize,
+                    None => range.start < range.end,
+                }
+            }
+            Selection::IncludeRoaring(roaring) => {
+                let mut range_treemap = roaring::RoaringTreemap::new();
+                range_treemap.insert_range(range.clone());
+                !roaring.is_disjoint(&range_treemap)
+            }
+            Selection::ExcludeRoaring(roaring) => {
+                let range_len = range.end.saturating_sub(range.start);
+                let mut range_treemap = roaring::RoaringTreemap::new();
+                range_treemap.insert_range(range.clone());
+                roaring.intersection_len(&range_treemap) < range_len
+            }
+        }
+    }
+
+    /// Restrict this selection to the given range, returning a new selection in
+    /// range-local coordinates (i.e., shifted so the range starts at 0).
+    pub fn slice(&self, range: &Range<u64>) -> Selection {
+        match self {
+            Selection::All => Selection::All,
+            Selection::IncludeByIndex(include) => {
+                match indices_range(range, include) {
+                    Some(idx_range) => {
+                        let local: Vec<u64> = include
+                            .slice(idx_range)
+                            .iter()
+                            .map(|idx| idx - range.start)
+                            .collect();
+                        if local.is_empty() {
+                            // Empty include = nothing selected, but we express it as an empty buffer.
+                            Selection::IncludeByIndex(Buffer::from_iter(local))
+                        } else {
+                            Selection::IncludeByIndex(Buffer::from_iter(local))
+                        }
+                    }
+                    None => Selection::IncludeByIndex(Buffer::from_iter(Vec::<u64>::new())),
+                }
+            }
+            Selection::ExcludeByIndex(exclude) => {
+                match indices_range(range, exclude) {
+                    Some(idx_range) => {
+                        let local: Vec<u64> = exclude
+                            .slice(idx_range)
+                            .iter()
+                            .map(|idx| idx - range.start)
+                            .collect();
+                        Selection::ExcludeByIndex(Buffer::from_iter(local))
+                    }
+                    // No excluded indices in this range means all rows are included.
+                    None => Selection::All,
+                }
+            }
+            Selection::IncludeRoaring(roaring) => {
+                use std::ops::BitAnd;
+                let mut range_treemap = roaring::RoaringTreemap::new();
+                range_treemap.insert_range(range.clone());
+                let intersected = roaring.bitand(&range_treemap);
+                // Shift to local coordinates.
+                let mut local = roaring::RoaringTreemap::new();
+                for idx in intersected {
+                    local.insert(idx - range.start);
+                }
+                Selection::IncludeRoaring(local)
+            }
+            Selection::ExcludeRoaring(roaring) => {
+                use std::ops::BitAnd;
+                let mut range_treemap = roaring::RoaringTreemap::new();
+                range_treemap.insert_range(range.clone());
+                let intersected = roaring.bitand(&range_treemap);
+                if intersected.is_empty() {
+                    return Selection::All;
+                }
+                let mut local = roaring::RoaringTreemap::new();
+                for idx in intersected {
+                    local.insert(idx - range.start);
+                }
+                Selection::ExcludeRoaring(local)
+            }
+        }
+    }
+
     /// Extract the [`Mask`] for the given range from this selection.
     pub(crate) fn row_mask(&self, range: &Range<u64>) -> Mask {
         // Saturating subtraction to prevent underflow, though range should be valid

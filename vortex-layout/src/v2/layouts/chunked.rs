@@ -51,7 +51,6 @@ impl fmt::Display for ChunkedMetadata {
 
 impl LayoutVTable for Chunked {
     type Metadata = ChunkedMetadata;
-    type Plan = ();
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.chunked")
@@ -102,12 +101,12 @@ impl LayoutVTable for Chunked {
             let chunk_range = chunk_start..chunk_end;
 
             // Skip chunks that don't overlap with the selection.
-            if !selection_overlaps(selection, &chunk_range) {
+            if !selection.overlaps(&chunk_range) {
                 continue;
             }
 
             // Translate the selection to chunk-local coordinates.
-            let local_selection = translate_selection(selection, chunk_start, chunk_end);
+            let local_selection = selection.slice(&chunk_range);
 
             // Derive the child's global row offset from ours.
             let relationship = Self::child_relationship(layout, chunk_idx);
@@ -196,27 +195,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
     }
 }
 
-/// Check if a selection overlaps with a given range.
-///
-/// TODO: implement precise overlap checking for non-All selection variants.
-fn selection_overlaps(_selection: &Selection, _range: &Range<u64>) -> bool {
-    // Conservative: assume all chunks may overlap. Precise checks for IncludeByIndex,
-    // ExcludeByIndex, and Roaring variants can be added later.
-    true
-}
-
 /// Check if two ranges overlap.
 fn ranges_overlap(a: &Range<u64>, b: &Range<u64>) -> bool {
     a.start < b.end && b.start < a.end
-}
-
-/// Translate a selection to chunk-local coordinates.
-///
-/// TODO: implement precise translation for non-All selection variants.
-fn translate_selection(selection: &Selection, _chunk_start: u64, _chunk_end: u64) -> Selection {
-    match selection {
-        Selection::All => Selection::All,
-        // Conservative: pass through to all chunks. Precise index translation can be added later.
-        _ => selection.clone(),
-    }
 }

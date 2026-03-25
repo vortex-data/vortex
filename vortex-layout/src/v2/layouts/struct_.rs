@@ -93,7 +93,6 @@ impl Layout<Struct> {
 
 impl LayoutVTable for Struct {
     type Metadata = StructMetadata;
-    type Plan = ();
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.struct")
@@ -187,21 +186,20 @@ impl LayoutVTable for Struct {
                     child.prepare(&field_expr, selection, child_offset, row_splits, session)?;
 
                 // If nullable, also prepare validity.
-                let validity_planner =
-                    if let (Some(validity_child), Some(validity_rel)) =
-                        (layout.validity_child()?, &validity_relationship)
-                    {
-                        let val_offset = validity_rel.child_row_offset(row_offset);
-                        Some(validity_child.prepare(
-                            &root(),
-                            selection,
-                            val_offset,
-                            row_splits,
-                            session,
-                        )?)
-                    } else {
-                        None
-                    };
+                let validity_planner = if let (Some(validity_child), Some(validity_rel)) =
+                    (layout.validity_child()?, &validity_relationship)
+                {
+                    let val_offset = validity_rel.child_row_offset(row_offset);
+                    Some(validity_child.prepare(
+                        &root(),
+                        selection,
+                        val_offset,
+                        row_splits,
+                        session,
+                    )?)
+                } else {
+                    None
+                };
 
                 let is_pack_merge = field_expr.is::<Pack>() || field_expr.is::<Merge>();
 
@@ -238,21 +236,20 @@ impl LayoutVTable for Struct {
                 }
 
                 // If nullable, also prepare validity.
-                let validity_planner =
-                    if let (Some(validity_child), Some(validity_rel)) =
-                        (layout.validity_child()?, &validity_relationship)
-                    {
-                        let val_offset = validity_rel.child_row_offset(row_offset);
-                        Some(validity_child.prepare(
-                            &root(),
-                            selection,
-                            val_offset,
-                            row_splits,
-                            session,
-                        )?)
-                    } else {
-                        None
-                    };
+                let validity_planner = if let (Some(validity_child), Some(validity_rel)) =
+                    (layout.validity_child()?, &validity_relationship)
+                {
+                    let val_offset = validity_rel.child_row_offset(row_offset);
+                    Some(validity_child.prepare(
+                        &root(),
+                        selection,
+                        val_offset,
+                        row_splits,
+                        session,
+                    )?)
+                } else {
+                    None
+                };
 
                 let is_pack_merge =
                     partitioned_expr.root.is::<Pack>() || partitioned_expr.root.is::<Merge>();

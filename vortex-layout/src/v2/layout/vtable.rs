@@ -24,8 +24,6 @@ use crate::v2::selection::Selection;
 pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
     /// Any metadata that configures this instance of the layout.
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
-    type Plan: 'static + Send;
-
     /// Returns the ID of the layout.
     fn id(&self) -> LayoutId;
 

@@ -51,7 +51,6 @@ impl fmt::Display for FlatMetadata {
 
 impl LayoutVTable for Flat {
     type Metadata = FlatMetadata;
-    type Plan = ();
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.flat")

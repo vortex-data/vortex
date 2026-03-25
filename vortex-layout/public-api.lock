@@ -1296,6 +1296,10 @@ pub vortex_layout::v2::layout::ChildRelationship::FieldName(vortex_array::dtype:
 
 pub vortex_layout::v2::layout::ChildRelationship::RowOffset(u64)
 
+impl vortex_layout::v2::layout::ChildRelationship
+
+pub fn vortex_layout::v2::layout::ChildRelationship::child_row_offset(&self, parent_offset: core::option::Option<u64>) -> core::option::Option<u64>
+
 pub struct vortex_layout::v2::layout::Layout<V: vortex_layout::v2::layout::LayoutVTable>
 
 impl vortex_layout::v2::layout::Layout<vortex_layout::v2::layouts::dict::Dict>
@@ -1364,7 +1368,7 @@ pub fn vortex_layout::v2::layout::LayoutRef::dtype(&self) -> &vortex_array::dtyp
 
 pub fn vortex_layout::v2::layout::LayoutRef::id(&self) -> vortex_layout::v2::layout::LayoutId
 
-pub fn vortex_layout::v2::layout::LayoutRef::prepare(&self, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
+pub fn vortex_layout::v2::layout::LayoutRef::prepare(&self, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_offset: core::option::Option<u64>, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
 
 pub fn vortex_layout::v2::layout::LayoutRef::row_count(&self) -> u64
 
@@ -1394,8 +1398,6 @@ pub trait vortex_layout::v2::layout::LayoutVTable: 'static + core::marker::Sized
 
 pub type vortex_layout::v2::layout::LayoutVTable::Metadata: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::PartialEq + core::cmp::Eq + core::hash::Hash
 
-pub type vortex_layout::v2::layout::LayoutVTable::Plan: 'static + core::marker::Send
-
 pub fn vortex_layout::v2::layout::LayoutVTable::child_dtype(layout: &vortex_layout::v2::layout::Layout<Self>, child_idx: usize) -> &vortex_array::dtype::DType
 
 pub fn vortex_layout::v2::layout::LayoutVTable::child_relationship(layout: &vortex_layout::v2::layout::Layout<Self>, child_idx: usize) -> vortex_layout::v2::layout::ChildRelationship
@@ -1404,7 +1406,7 @@ pub fn vortex_layout::v2::layout::LayoutVTable::deserialize_metadata(metadata: &
 
 pub fn vortex_layout::v2::layout::LayoutVTable::id(&self) -> vortex_layout::v2::layout::LayoutId
 
-pub fn vortex_layout::v2::layout::LayoutVTable::prepare(layout: &vortex_layout::v2::layout::Layout<Self>, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
+pub fn vortex_layout::v2::layout::LayoutVTable::prepare(layout: &vortex_layout::v2::layout::Layout<Self>, expr: &vortex_array::expr::expression::Expression, selection: &vortex_layout::v2::selection::Selection, row_offset: core::option::Option<u64>, row_splits: &mut alloc::collections::btree::set::BTreeSet<u64>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::v2::scan::planner::SplitPlannerRef>
 
 pub type vortex_layout::v2::layout::LayoutId = arcref::ArcRef<str>
 
@@ -1636,6 +1638,8 @@ pub fn vortex_layout::v2::scan::Scan::plan(&self) -> &vortex_layout::v2::scan::p
 
 pub fn vortex_layout::v2::scan::Scan::post_event(&mut self, event: vortex_layout::v2::scan::ScanEvent) -> vortex_error::VortexResult<()>
 
+pub fn vortex_layout::v2::scan::Scan::split_row_ranges(&self) -> alloc::vec::Vec<core::ops::range::Range<u64>>
+
 pub fn vortex_layout::v2::scan::Scan::try_new(layout: &vortex_layout::v2::layout::LayoutRef, projection: &vortex_array::expr::expression::Expression, filter: core::option::Option<&vortex_array::expr::expression::Expression>, selection: &vortex_layout::v2::selection::Selection, config: vortex_layout::v2::scan::ScanConfig, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 pub struct vortex_layout::v2::scan::ScanConfig
@@ -1668,7 +1672,11 @@ pub vortex_layout::v2::selection::Selection::IncludeRoaring(roaring::treemap::Ro
 
 impl vortex_layout::v2::selection::Selection
 
+pub fn vortex_layout::v2::selection::Selection::overlaps(&self, range: &core::ops::range::Range<u64>) -> bool
+
 pub fn vortex_layout::v2::selection::Selection::row_count(&self, total_rows: u64) -> u64
+
+pub fn vortex_layout::v2::selection::Selection::slice(&self, range: &core::ops::range::Range<u64>) -> vortex_layout::v2::selection::Selection
 
 impl core::clone::Clone for vortex_layout::v2::selection::Selection
 

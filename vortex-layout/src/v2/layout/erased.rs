@@ -62,6 +62,7 @@ impl LayoutRef {
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
-        self.0.prepare(expr, selection, row_offset, row_splits, session)
+        self.0
+            .prepare(expr, selection, row_offset, row_splits, session)
     }
 }

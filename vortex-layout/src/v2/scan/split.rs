@@ -34,12 +34,10 @@ pub(super) struct SplitRange {
 /// large ones.
 ///
 /// 1. Converts consecutive boundary pairs into intervals.
-/// 2. Greedily coalesces adjacent small intervals up to `min_split_rows`.
-/// 3. Subdivides intervals exceeding `max_split_rows`.
-/// 4. Assigns monotonic [`SplitId`]s.
-///
-// FIXME(ngates): add Selection to slice out the empty ends of splits and skip large empty
-//  sections.
+/// 2. Drops intervals that are entirely empty according to the selection.
+/// 3. Greedily coalesces adjacent small intervals up to `min_split_rows`.
+/// 4. Subdivides intervals exceeding `max_split_rows`.
+/// 5. Assigns monotonic [`SplitId`]s.
 pub(super) fn form_splits(
     boundaries: &BTreeSet<u64>,
     selection: &Selection,
@@ -61,6 +59,9 @@ pub(super) fn form_splits(
             intervals.push(start..end.min(total_row_count));
         }
     }
+
+    // Drop intervals that have no selected rows.
+    intervals.retain(|interval| selection.overlaps(interval));
 
     if intervals.is_empty() {
         return Vec::new();

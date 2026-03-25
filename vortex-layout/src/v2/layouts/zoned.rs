@@ -51,7 +51,6 @@ impl fmt::Display for ZonedMetadata {
 
 impl LayoutVTable for Zoned {
     type Metadata = ZonedMetadata;
-    type Plan = ();
 
     fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.stats")
@@ -108,8 +107,7 @@ impl LayoutVTable for Zoned {
         let data_relationship = Self::child_relationship(layout, 0);
         let data_offset = data_relationship.child_row_offset(row_offset);
         let data_child = layout.data_child()?;
-        let data_planner =
-            data_child.prepare(expr, selection, data_offset, row_splits, session)?;
+        let data_planner = data_child.prepare(expr, selection, data_offset, row_splits, session)?;
 
         // TODO(ngates): derive pruning predicate via expr.stat_falsification(...)
         // For now, skip zone map optimization and just delegate to the data child.
