@@ -104,7 +104,7 @@ pub fn vortex_runend::RunEnd::with_children(array: &mut Self::Array, children: a
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::scalar_at(array: &vortex_runend::RunEndArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_runend::RunEnd::scalar_at(array: &vortex_runend::RunEndArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
@@ -10,7 +11,11 @@ use super::Delta;
 use crate::DeltaArray;
 
 impl OperationsVTable<Delta> for Delta {
-    fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &DeltaArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let decompressed = array.slice(index..index + 1)?.to_primitive();
         decompressed.scalar_at(0)
     }

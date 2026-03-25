@@ -962,7 +962,7 @@ impl ValiditySliceHelper for ZstdArray {
 }
 
 impl OperationsVTable<Zstd> for Zstd {
-    fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ZstdArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array
             ._slice(index, index + 1)

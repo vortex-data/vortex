@@ -92,7 +92,7 @@ pub fn vortex_sequence::Sequence::with_children(_array: &mut Self::Array, childr
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::scalar_at(array: &vortex_sequence::SequenceArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_sequence::Sequence::scalar_at(array: &vortex_sequence::SequenceArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 

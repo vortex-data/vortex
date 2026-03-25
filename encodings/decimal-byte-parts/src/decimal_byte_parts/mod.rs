@@ -307,7 +307,11 @@ fn to_canonical_decimal(
 }
 
 impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
-    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &DecimalBytePartsArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index)?;
 

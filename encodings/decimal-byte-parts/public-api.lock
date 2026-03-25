@@ -92,7 +92,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::with_children(array: &mut Se
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_decimal_byte_parts::DecimalByteParts> for vortex_decimal_byte_parts::DecimalByteParts
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::scalar_at(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::scalar_at(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_decimal_byte_parts::DecimalByteParts> for vortex_decimal_byte_parts::DecimalByteParts
 

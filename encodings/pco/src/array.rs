@@ -573,7 +573,7 @@ impl ValiditySliceHelper for PcoArray {
 }
 
 impl OperationsVTable<Pco> for Pco {
-    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &PcoArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array
             ._slice(index, index + 1)

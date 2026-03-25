@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -10,7 +11,11 @@ use crate::BitPackedArray;
 use crate::bitpack_decompress;
 
 impl OperationsVTable<BitPacked> for BitPacked {
-    fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &BitPackedArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
                 && let Some(patch) = patches.get_patched(index)?
