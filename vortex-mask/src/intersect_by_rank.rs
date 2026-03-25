@@ -7,76 +7,219 @@ use vortex_buffer::BufferMut;
 use crate::AllOr;
 use crate::Mask;
 
-/// Extract up to 64 bits starting at bit position `start` from pre-computed chunks.
-#[inline]
-fn extract_bits_from_chunks(chunks: &[u64], remainder: u64, start: usize) -> u64 {
-    let chunk_idx = start / 64;
-    let bit_offset = start % 64;
-    let num_full_chunks = chunks.len();
-
-    let first_chunk = if chunk_idx < num_full_chunks {
-        unsafe { *chunks.get_unchecked(chunk_idx) }
-    } else {
-        remainder
-    };
-
-    if bit_offset == 0 {
-        first_chunk
-    } else {
-        let bits_from_first = first_chunk >> bit_offset;
-        let second_chunk = if chunk_idx + 1 < num_full_chunks {
-            unsafe { *chunks.get_unchecked(chunk_idx + 1) }
-        } else if chunk_idx + 1 == num_full_chunks {
-            remainder
-        } else {
-            0
-        };
-        bits_from_first | (second_chunk << (64 - bit_offset))
-    }
-}
-
-/// Portable implementation of PDEP (parallel bit deposit).
+/// Portable implementation of PDEP (parallel bit deposit) using a 64K LUT.
 ///
-/// This is the fallback when hardware BMI2 is not available.
+/// Processes the mask one byte at a time: for each mask byte, looks up the
+/// deposited bits in a precomputed table. 8 iterations per u64 chunk,
+/// ~2x faster than the bit-serial fallback and portable across all architectures
+/// (including Apple M-series which lacks BMI2).
 #[inline]
-fn pdep_portable(mut source: u64, mut mask: u64) -> u64 {
+fn pdep_lut(mut source: u64, mask: u64) -> u64 {
     let mut result = 0u64;
-    while mask != 0 {
-        let lowest_bit = mask & mask.wrapping_neg();
-        if source & 1 != 0 {
-            result |= lowest_bit;
+    for byte_idx in 0..8u32 {
+        let mask_byte = ((mask >> (byte_idx * 8)) & 0xFF) as usize;
+        if mask_byte == 0 {
+            continue;
         }
-        source >>= 1;
-        mask &= mask - 1;
+        let count = PDEP_LUT.counts[mask_byte];
+        let src_byte = (source & 0xFF) as usize;
+        result |= (PDEP_LUT.table[mask_byte][src_byte] as u64) << (byte_idx * 8);
+        source >>= count;
     }
     result
 }
 
-/// Hardware PDEP using BMI2 instruction.
-#[inline]
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "bmi2")]
-unsafe fn pdep_bmi2(source: u64, mask: u64) -> u64 {
-    core::arch::x86_64::_pdep_u64(source, mask)
+/// Precomputed LUT for byte-level PDEP: `table[mask_byte][source_byte]` gives the
+/// deposited result, `counts[mask_byte]` gives the popcount of that mask byte.
+struct PdepLut {
+    table: [[u8; 256]; 256],
+    counts: [u8; 256],
 }
 
-/// PDEP with runtime BMI2 detection on x86_64, falls back to portable.
-#[inline]
-#[cfg(target_arch = "x86_64")]
-fn pdep(source: u64, mask: u64) -> u64 {
-    if std::arch::is_x86_feature_detected!("bmi2") {
-        // SAFETY: We just verified BMI2 is available
-        unsafe { pdep_bmi2(source, mask) }
-    } else {
-        pdep_portable(source, mask)
+impl PdepLut {
+    #[allow(clippy::cast_possible_truncation)] // values are bounded to 0..256
+    const fn new() -> Self {
+        let mut table = [[0u8; 256]; 256];
+        let mut counts = [0u8; 256];
+        let mut mask_byte = 0usize;
+        while mask_byte < 256 {
+            let mut m = mask_byte as u8;
+            let mut c = 0u8;
+            while m != 0 {
+                c += 1;
+                m &= m.wrapping_sub(1);
+            }
+            counts[mask_byte] = c;
+            let mut source_val = 0usize;
+            while source_val < 256 {
+                let mut src = source_val as u8;
+                let mut m = mask_byte as u8;
+                let mut res = 0u8;
+                while m != 0 {
+                    let lowest = m & m.wrapping_neg();
+                    if src & 1 != 0 {
+                        res |= lowest;
+                    }
+                    src >>= 1;
+                    m &= m.wrapping_sub(1);
+                }
+                table[mask_byte][source_val] = res;
+                source_val += 1;
+            }
+            mask_byte += 1;
+        }
+        PdepLut { table, counts }
     }
 }
 
-/// PDEP fallback for non-x86_64 platforms.
+static PDEP_LUT: PdepLut = PdepLut::new();
+
+/// Extract 64 bits starting at bit position `bit_pos` from a flat mask array.
+///
+/// The flat array must contain full chunks + remainder + sentinel (at least one
+/// element past the last valid chunk), so `mask_flat[bit_pos >> 6 + 1]` is always valid.
 #[inline]
-#[cfg(not(target_arch = "x86_64"))]
-fn pdep(source: u64, mask: u64) -> u64 {
-    pdep_portable(source, mask)
+#[allow(clippy::cast_possible_truncation)] // bit_pos & 63 always fits in u32
+fn extract_bits_portable(mask_flat: &[u64], bit_pos: usize) -> u64 {
+    let chunk_idx = bit_pos >> 6;
+    let shift = (bit_pos & 63) as u32;
+    let lo = unsafe { *mask_flat.get_unchecked(chunk_idx) };
+    let hi = unsafe { *mask_flat.get_unchecked(chunk_idx + 1) };
+    // Branchless: when shift == 0, mask is 0 so hi contribution is zeroed out.
+    // (64 - shift) & 63 maps shift=0 → 0, but `& mask` kills the unwanted hi << 0.
+    let mask = (shift != 0) as u64 * u64::MAX;
+    (lo >> shift) | ((hi << ((64u32.wrapping_sub(shift)) & 63)) & mask)
+}
+
+/// Extract 64 bits from two adjacent u64s using x86 SHRD instruction.
+///
+/// `SHRD(lo, hi, count)` computes `(hi:lo >> count)[0:63]`.
+/// When `count == 0`, SHRD is a no-op and returns `lo` — eliminating
+/// the branch that a shift-based approach would need.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn extract_shrd(lo: u64, hi: u64, count: u8) -> u64 {
+    let result: u64;
+    unsafe {
+        core::arch::asm!(
+            "shrd {lo}, {hi}, cl",
+            lo = inout(reg) lo => result,
+            hi = in(reg) hi,
+            in("cl") count,
+            options(pure, nomem, nostack),
+        );
+    }
+    result
+}
+
+/// Get the full u64 chunks of a `BitBuffer` as a zero-copy `&[u64]` slice,
+/// plus the remainder bits, when the buffer has offset 0 and is u64-aligned.
+///
+/// Returns `None` if the buffer has a non-zero bit offset or is not u64-aligned,
+/// in which case the caller must fall back to the `BitChunks` iterator.
+fn bit_buffer_raw_u64s(buf: &BitBuffer) -> Option<(&[u64], u64)> {
+    if buf.offset() != 0 {
+        return None;
+    }
+    let bytes = buf.inner().as_slice();
+    if bytes.as_ptr().align_offset(align_of::<u64>()) != 0 {
+        return None;
+    }
+    let num_full = buf.len() / 64;
+    let full_chunks = unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<u64>(), num_full) };
+    // Read remainder bytes into a u64
+    let remainder = if !buf.len().is_multiple_of(64) {
+        let rem_bytes = &bytes[num_full * 8..];
+        let mut val = 0u64;
+        for (i, &b) in rem_bytes.iter().enumerate() {
+            val |= (b as u64) << (i * 8);
+        }
+        // Mask to only the valid bits
+        val & ((1u64 << (buf.len() % 64)) - 1)
+    } else {
+        0
+    };
+    Some((full_chunks, remainder))
+}
+
+/// Build a flat mask array: full chunks + remainder + sentinel.
+///
+/// Uses `extend_from_slice` (memcpy) when possible instead of per-element iteration.
+/// The sentinel element ensures `mask_flat[chunk_idx + 1]` is always valid for
+/// SHRD / shift-based bit extraction.
+fn build_mask_flat(buf: &BitBuffer) -> Vec<u64> {
+    let chunks = buf.chunks();
+    let total = chunks.chunk_len() + 2; // full chunks + remainder + sentinel
+
+    let mut flat = Vec::with_capacity(total);
+    if let Some((raw_chunks, remainder)) = bit_buffer_raw_u64s(buf) {
+        flat.extend_from_slice(raw_chunks);
+        flat.push(remainder);
+    } else {
+        flat.extend(chunks.iter());
+        flat.push(chunks.remainder_bits());
+    }
+    flat.push(0); // sentinel for SHRD reading chunk_idx+1
+    flat
+}
+
+/// The entire dense chunk loop with BMI2 PDEP + hardware POPCNT enabled.
+///
+/// Uses a sliding-window cursor with SHRD for fully branchless bit extraction.
+/// SHRD handles the `bit_offset == 0` case natively (no-op), so there are
+/// no branches in the hot loop beyond the loop counter itself.
+///
+/// Accepts full u64 chunks + separate remainder to allow zero-copy passthrough
+/// of the underlying `BitBuffer` data without collecting into a Vec.
+///
+/// By putting `target_feature` on the whole loop, the compiler can:
+/// 1. Inline PDEP (no function call overhead)
+/// 2. Use hardware POPCNT for count_ones() (1 instruction vs 15)
+/// 3. Better register allocation across the loop body
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2,popcnt")]
+#[allow(clippy::cast_possible_truncation)] // bit_offset is masked to 0..63, always fits in u8
+unsafe fn dense_loop_bmi2(
+    self_full_chunks: &[u64],
+    self_remainder: u64,
+    mask_flat: &[u64],
+    len: usize,
+) -> Mask {
+    let has_remainder = !len.is_multiple_of(64);
+    let num_out = self_full_chunks.len() + has_remainder as usize;
+    let mask_ptr = mask_flat.as_ptr();
+
+    let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_out);
+    let mut bit_pos: usize = 0;
+
+    // Main loop over full u64 chunks — operates on zero-copy &[u64] from BitBuffer.
+    // Branchless: PDEP(anything, 0) == 0, SHRD handles bit_offset == 0 as no-op.
+    // Uses a single `bit_pos` cursor instead of separate chunk_idx + bit_offset:
+    //   chunk_idx = bit_pos >> 6, bit_offset = bit_pos & 63 (implicit via SHRD mod 64).
+    for &self_chunk in self_full_chunks {
+        let chunk_idx = bit_pos >> 6;
+        let lo = unsafe { *mask_ptr.add(chunk_idx) };
+        let hi = unsafe { *mask_ptr.add(chunk_idx + 1) };
+        let rank_bits = unsafe { extract_shrd(lo, hi, bit_pos as u8) };
+
+        let result_chunk = core::arch::x86_64::_pdep_u64(rank_bits, self_chunk);
+        unsafe { buffer.push_unchecked(result_chunk) };
+
+        bit_pos += self_chunk.count_ones() as usize;
+    }
+
+    // Handle remainder (partial chunk at the end)
+    if has_remainder {
+        let chunk_idx = bit_pos >> 6;
+        let lo = unsafe { *mask_ptr.add(chunk_idx) };
+        let hi = unsafe { *mask_ptr.add(chunk_idx + 1) };
+        let rank_bits = unsafe { extract_shrd(lo, hi, bit_pos as u8) };
+        let result_chunk = core::arch::x86_64::_pdep_u64(rank_bits, self_remainder);
+        unsafe { buffer.push_unchecked(result_chunk) };
+    }
+
+    buffer.truncate(len.div_ceil(8));
+    Mask::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
 }
 
 impl Mask {
@@ -152,47 +295,59 @@ impl Mask {
 
             (AllOr::Some(self_buffer), AllOr::Some(mask_buffer)) => {
                 let len = self.len();
-                let num_chunks = len.div_ceil(64);
-                let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_chunks);
-                let mut rank = 0usize;
+
+                // On x86_64 with BMI2+POPCNT, use the optimized dense loop
+                // where PDEP is inlined and count_ones() uses hardware POPCNT.
+                #[cfg(target_arch = "x86_64")]
+                if std::arch::is_x86_feature_detected!("bmi2") {
+                    // Build flat mask: full chunks + remainder + sentinel (for SHRD lookahead).
+                    // Uses memcpy (extend_from_slice) when the buffer is u64-aligned.
+                    let mask_flat = build_mask_flat(mask_buffer);
+
+                    // For self: zero-copy &[u64] when aligned, otherwise collect.
+                    // This avoids a full Vec allocation+copy in the common case.
+                    let self_chunks = self_buffer.chunks();
+                    return if let Some((raw_chunks, remainder)) = bit_buffer_raw_u64s(self_buffer) {
+                        // SAFETY: We just verified BMI2 is available.
+                        unsafe { dense_loop_bmi2(raw_chunks, remainder, &mask_flat, len) }
+                    } else {
+                        // Fallback: collect through iterator (handles non-zero offset)
+                        let full: Vec<u64> = self_chunks.iter().collect();
+                        let remainder = self_chunks.remainder_bits();
+                        unsafe { dense_loop_bmi2(&full, remainder, &mask_flat, len) }
+                    };
+                }
+
+                // Portable fallback: LUT PDEP + flat mask with sliding window.
+                // Same structure as BMI2 path but with software PDEP.
+                let mask_flat = build_mask_flat(mask_buffer);
 
                 let self_chunks = self_buffer.chunks();
-                let mask_chunks = mask_buffer.chunks();
-                let mask_chunk_vec: Vec<u64> = mask_chunks.iter().collect();
-                let mask_remainder = mask_chunks.remainder_bits();
+                let has_remainder = !len.is_multiple_of(64);
+                let num_out = self_chunks.chunk_len() + has_remainder as usize;
+                let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_out);
+                let mut bit_pos = 0usize;
 
                 for self_chunk in self_chunks.iter() {
                     let popcount = self_chunk.count_ones() as usize;
-
                     let result_chunk = if self_chunk == 0 {
                         0u64
-                    } else if self_chunk == u64::MAX {
-                        extract_bits_from_chunks(&mask_chunk_vec, mask_remainder, rank)
                     } else {
-                        let rank_bits =
-                            extract_bits_from_chunks(&mask_chunk_vec, mask_remainder, rank);
-                        pdep(rank_bits, self_chunk)
+                        let rank_bits = extract_bits_portable(&mask_flat, bit_pos);
+                        pdep_lut(rank_bits, self_chunk)
                     };
-
-                    rank += popcount;
-                    // SAFETY: we allocated enough capacity
                     unsafe { buffer.push_unchecked(result_chunk) };
+                    bit_pos += popcount;
                 }
 
-                // Handle remainder bits
-                let remainder = len % 64;
-                if remainder != 0 {
+                if has_remainder {
                     let self_chunk = self_chunks.remainder_bits();
-
                     let result_chunk = if self_chunk == 0 {
                         0u64
                     } else {
-                        let rank_bits =
-                            extract_bits_from_chunks(&mask_chunk_vec, mask_remainder, rank);
-                        pdep(rank_bits, self_chunk)
+                        let rank_bits = extract_bits_portable(&mask_flat, bit_pos);
+                        pdep_lut(rank_bits, self_chunk)
                     };
-
-                    // SAFETY: we allocated enough capacity
                     unsafe { buffer.push_unchecked(result_chunk) };
                 }
 
@@ -397,28 +552,28 @@ mod tests {
     }
 
     #[test]
-    fn test_pdep_portable() {
-        use super::pdep_portable;
+    fn test_pdep_lut() {
+        use super::pdep_lut;
 
-        assert_eq!(pdep_portable(0b11, 0b01010100), 0b00010100);
-        assert_eq!(pdep_portable(u64::MAX, 0b10101010), 0b10101010);
-        assert_eq!(pdep_portable(0, 0b11111111), 0);
-        assert_eq!(pdep_portable(1, 0b00001000), 0b00001000);
-        assert_eq!(pdep_portable(0, 0b00001000), 0);
+        assert_eq!(pdep_lut(0b11, 0b01010100), 0b00010100);
+        assert_eq!(pdep_lut(u64::MAX, 0b10101010), 0b10101010);
+        assert_eq!(pdep_lut(0, 0b11111111), 0);
+        assert_eq!(pdep_lut(1, 0b00001000), 0b00001000);
+        assert_eq!(pdep_lut(0, 0b00001000), 0);
     }
 
     #[test]
-    fn test_extract_bits_from_chunks() {
-        use super::extract_bits_from_chunks;
+    fn test_extract_bits_portable() {
+        use super::extract_bits_portable;
 
-        let chunks = &[0xAAAAAAAAAAAAAAAAu64, 0x5555555555555555u64];
-        let remainder = 0u64;
+        // flat array: [chunk0, chunk1, sentinel]
+        let flat = &[0xAAAAAAAAAAAAAAAAu64, 0x5555555555555555u64, 0u64];
 
-        assert_eq!(extract_bits_from_chunks(chunks, remainder, 0), chunks[0]);
-        assert_eq!(extract_bits_from_chunks(chunks, remainder, 64), chunks[1]);
+        assert_eq!(extract_bits_portable(flat, 0), flat[0]);
+        assert_eq!(extract_bits_portable(flat, 64), flat[1]);
 
-        let result = extract_bits_from_chunks(chunks, remainder, 32);
-        let expected = (chunks[0] >> 32) | (chunks[1] << 32);
+        let result = extract_bits_portable(flat, 32);
+        let expected = (flat[0] >> 32) | (flat[1] << 32);
         assert_eq!(result, expected);
     }
 }
