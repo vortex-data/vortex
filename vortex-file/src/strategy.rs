@@ -231,6 +231,32 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Configure lossy vector quantization for tensor columns using TurboQuant.
+    ///
+    /// Columns with `Vector` or `FixedShapeTensor` extension types will be quantized at the
+    /// specified bit-width. All other columns use the previously configured compressor (default
+    /// BtrBlocks if none was set). The TurboQuant array's children (norms, codes) are
+    /// recursively compressed by the inner compressor.
+    ///
+    /// This can be composed with other encoding configurations:
+    ///
+    /// ```ignore
+    /// WriteStrategyBuilder::default()
+    ///     .with_compact_encodings()
+    ///     .with_vector_quantization(TurboQuantConfig { bit_width: 3, .. })
+    ///     .build()
+    /// ```
+    pub fn with_vector_quantization(mut self, config: vortex_turboquant::TurboQuantConfig) -> Self {
+        let inner = self
+            .compressor
+            .take()
+            .unwrap_or_else(|| Arc::new(vortex_btrblocks::BtrBlocksCompressor::default()));
+        self.compressor = Some(Arc::new(vortex_turboquant::TurboQuantCompressor::new(
+            config, inner,
+        )));
+        self
+    }
+
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {

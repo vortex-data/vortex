@@ -16,10 +16,12 @@ pub use array::TurboQuantArray;
 pub use array::TurboQuantVariant;
 pub use compress::TurboQuantConfig;
 pub use compress::turboquant_encode;
+pub use compressor::TurboQuantCompressor;
 
 mod array;
 pub mod centroids;
 mod compress;
+mod compressor;
 mod decompress;
 pub mod rotation;
 mod rules;
