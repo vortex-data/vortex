@@ -182,9 +182,12 @@ impl LayoutVTable for Struct {
                     None
                 };
 
+                let is_pack_merge = field_expr.is::<Pack>() || field_expr.is::<Merge>();
+
                 Ok(Arc::new(SingleFieldSplitPlanner {
                     planner,
                     validity_planner,
+                    is_pack_merge,
                 }))
             }
             Partitioned::Multi(partitioned_expr) => {
@@ -280,6 +283,10 @@ fn compute_partitioned_expr(
 struct SingleFieldSplitPlanner {
     planner: SplitPlannerRef,
     validity_planner: Option<SplitPlannerRef>,
+    /// Whether the field expression produces a struct (Pack/Merge at top level).
+    /// When true, validity is applied per-field to avoid changing the outermost struct's
+    /// nullability (which may belong to a parent layout's wrapping expression).
+    is_pack_merge: bool,
 }
 
 impl SplitPlanner for SingleFieldSplitPlanner {
@@ -297,6 +304,7 @@ impl SplitPlanner for SingleFieldSplitPlanner {
 
         let validity_output = validity_planner.plan_split(row_range, selection, builder)?;
 
+        let is_pack_merge = self.is_pack_merge;
         builder.create_node(NodeOpts {
             inputs: &[data_output, validity_output],
             segments: vec![],
@@ -305,7 +313,24 @@ impl SplitPlanner for SingleFieldSplitPlanner {
                 let mut inputs = args.inputs.into_iter();
                 let data = inputs.next().vortex_expect("missing");
                 let validity = inputs.next().vortex_expect("missing");
-                data.mask(validity)
+                if is_pack_merge {
+                    // Apply validity per-field to preserve the outer struct's nullability.
+                    let struct_array = data.to_struct();
+                    let masked_fields: Vec<ArrayRef> = struct_array
+                        .unmasked_fields()
+                        .iter()
+                        .map(|a| a.clone().mask(validity.clone()))
+                        .collect::<VortexResult<_>>()?;
+                    Ok(StructArray::try_new(
+                        struct_array.names().clone(),
+                        masked_fields,
+                        struct_array.len(),
+                        struct_array.validity()?,
+                    )?
+                    .into_array())
+                } else {
+                    data.mask(validity)
+                }
             },
         })
     }

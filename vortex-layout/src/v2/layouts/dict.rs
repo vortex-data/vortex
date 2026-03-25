@@ -6,7 +6,6 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use prost::Message;
 use vortex_array::DeserializeMetadata;
 use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
@@ -17,8 +16,8 @@ use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
@@ -90,8 +89,7 @@ impl LayoutVTable for Dict {
     ) -> VortexResult<Self::Metadata> {
         let proto = ProstMetadata::<DictLayoutMetadata>::deserialize(metadata)?;
 
-        let codes_ptype = PType::try_from(proto.codes_ptype())
-            .map_err(|_| vortex_err!("Invalid codes PType: {}", proto.codes_ptype()))?;
+        let codes_ptype = proto.codes_ptype();
         let codes_nullable = Nullability::from(proto.is_nullable_codes());
         let all_values_referenced = proto.all_values_referenced();
 
@@ -189,6 +187,7 @@ impl SplitPlanner for DictSplitPlanner {
             let mut values_builder = builder.step_into(&self.values_relationship);
             // Values are read unconditionally with an all-true selection mask.
             let values_selection = values_builder.create_node_resolved(
+                #[allow(clippy::cast_possible_truncation)]
                 vortex_mask::Mask::AllTrue(values_row_count as usize).into_array(),
             );
             self.values_planner.plan_split(
@@ -207,8 +206,8 @@ impl SplitPlanner for DictSplitPlanner {
             lifetime: builder.row_range_lifetime(row_range.clone()),
             compute: move |args: ComputeArgs| {
                 let mut inputs = args.inputs.into_iter();
-                let codes = inputs.next().expect("missing codes");
-                let values = inputs.next().expect("missing values");
+                let codes = inputs.next().vortex_expect("missing codes");
+                let values = inputs.next().vortex_expect("missing values");
 
                 // SAFETY: Layout was validated at write time.
                 let array = unsafe {
