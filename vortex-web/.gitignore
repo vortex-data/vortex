@@ -1,6 +1,5 @@
 node_modules
 dist
 storybook-static
-src/wasm/pkg/*.js
-src/wasm/pkg/*.wasm
+src/wasm/pkg
 *.local
