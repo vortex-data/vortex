@@ -33,6 +33,9 @@ testing {
                 implementation("org.apache.spark:spark-core_2.13")
                 implementation("org.apache.spark:spark-sql_2.13")
                 runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
+                // S3Mock Testcontainers for testing S3 integration (avoids classpath conflicts)
+                implementation("com.adobe.testing:s3mock-testcontainers")
+                implementation("org.testcontainers:junit-jupiter")
             }
         }
     }

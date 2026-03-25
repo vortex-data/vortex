@@ -13,3 +13,5 @@ org.apache.arrow:* = 18.3.0
 
 # Test dependencies
 org.junit.jupiter:* = 6.0.3
+com.adobe.testing:s3mock-testcontainers = 4.11.0
+org.testcontainers:junit-jupiter = 1.20.4

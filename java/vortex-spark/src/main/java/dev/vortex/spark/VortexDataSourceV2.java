@@ -5,13 +5,16 @@ package dev.vortex.spark;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import dev.vortex.api.File;
 import dev.vortex.api.Files;
 import dev.vortex.jni.NativeFileMethods;
+import dev.vortex.spark.config.HadoopUtils;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
@@ -33,13 +36,19 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     private static final String PATH_KEY = "path";
     private static final String PATHS_KEY = "paths";
 
+    private final SparkSession sparkSession;
+
     /**
      * Creates a new instance of the Vortex data source.
      * <p>
      * This no-argument constructor is required for Spark to instantiate the data source
      * through reflection.
      */
-    public VortexDataSourceV2() {}
+    public VortexDataSourceV2() {
+        this.sparkSession = SparkSession.getActiveSession().getOrElse(() -> {
+            throw new IllegalStateException("Cannot create VortexDataSourceV2 outside of active SparkSession");
+        });
+    }
 
     /**
      * Infers the schema of the Vortex files specified in the options.
@@ -101,9 +110,19 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     @Override
     public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
-
         ImmutableList<String> paths = getPaths(uncased);
-        return new VortexTable(paths, schema, properties);
+
+        var hadoopConf = sparkSession.sessionState().newHadoopConf();
+
+        var options = ImmutableMap.<String, String>builder();
+        options.putAll(uncased.asCaseSensitiveMap());
+
+        // Forward any S3-relevant properties from hadoopConf to the reader config.
+        options.putAll(HadoopUtils.s3PropertiesFromHadoopConf(hadoopConf));
+        // Forward any Azure-relevant properties from hadoopConf to the reader config.
+        options.putAll(HadoopUtils.azurePropertiesFromHadoopConf(hadoopConf));
+
+        return new VortexTable(paths, schema, options.build());
     }
 
     /**

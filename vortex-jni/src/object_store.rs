@@ -57,7 +57,10 @@ pub(crate) fn make_object_store(
                 .with_url(url.to_string())
                 // Use generic S3 endpoint to avoid DNS resolution issues with region-specific endpoints
                 .with_endpoint("https://s3.amazonaws.com")
-                .with_virtual_hosted_style_request(false); // Use path-style URLs
+                // Use path-style URLs
+                .with_virtual_hosted_style_request(false)
+                // Allow user to override endpoint to HTTP endpoints, e.g. LocalStack, Minio
+                .with_allow_http(true);
 
             // Try to load credentials from environment if not provided in properties
             if !properties.contains_key("access_key_id")
