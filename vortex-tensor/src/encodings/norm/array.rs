@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::Float;
+use num_traits::Zero;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
@@ -57,7 +58,8 @@ pub struct NormVectorArray {
 }
 
 impl NormVectorArray {
-    /// Creates a new [`NormVectorArray`] from a unit-normalized vector array and its L2 norms.
+    /// Creates a new [`NormVectorArray`] from a unit-normalized vector array and associated L2
+    /// norms for each vector.
     ///
     /// The `vector_array` must be a [`Vector`] extension array with floating-point elements, and
     /// `norms` must be a primitive array of the same float type with the same length. The
@@ -113,12 +115,15 @@ impl NormVectorArray {
     /// The input must be a [`Vector`] extension array with floating-point elements. Nullable inputs
     /// are supported; the validity mask is preserved and the normalized data for null rows is
     /// unspecified.
+    ///
+    /// Note that compression is lossy per floating-point operations.
     pub fn compress(vector_array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let ext = Self::validate(&vector_array)?;
 
         let list_size = extension_list_size(&ext)?;
         let row_count = vector_array.len();
         let nullability = Nullability::from(vector_array.dtype().is_nullable());
+        let validity = vector_array.validity()?;
 
         // Compute L2 norms using the scalar function. If the input is nullable, the norms will
         // also be nullable (null vectors produce null norms).
@@ -135,10 +140,17 @@ impl NormVectorArray {
             let norms_slice = norms_prim.as_slice::<T>();
 
             let normalized_elems: PrimitiveArray = (0..row_count)
-                .flat_map(|i| {
+                .map(|i| -> VortexResult<Vec<T>> {
+                    if !validity.is_valid(i)? {
+                        return Ok(vec![T::zero(); list_size]);
+                    }
+
                     let inv_norm = safe_inv_norm(norms_slice[i]);
-                    flat.row::<T>(i).iter().map(move |&v| v * inv_norm)
+                    Ok(flat.row::<T>(i).iter().map(|&v| v * inv_norm).collect())
                 })
+                .collect::<VortexResult<Vec<Vec<T>>>>()?
+                .into_iter()
+                .flatten()
                 .collect();
 
             // Reconstruct the vector array with the same nullability as the input.
