@@ -803,6 +803,39 @@ mod tests {
         Ok(())
     }
 
+    #[crate::test]
+    fn test_dict_mismatched_ptypes_rejected() -> VortexResult<()> {
+        let dict_values: Vec<u32> = vec![100, 200, 300, 400];
+        let len = 3000;
+        let codes: Vec<u8> = (0..len).map(|i| (i % dict_values.len()) as u8).collect();
+
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
+        let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        // build_plan should fail because u8 codes != u32 values in byte width.
+        assert!(build_plan(&dict.into_array(), &cuda_ctx).is_err());
+
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_runend_mismatched_ptypes_rejected() -> VortexResult<()> {
+        let ends: Vec<u64> = vec![1000, 2000, 3000];
+        let values: Vec<i32> = vec![10, 20, 30];
+
+        let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
+        let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        let re = RunEndArray::new(ends_arr, values_arr);
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        // build_plan should fail because u64 ends != i32 values in byte width.
+        assert!(build_plan(&re.into_array(), &cuda_ctx).is_err());
+
+        Ok(())
+    }
+
     #[rstest]
     #[case(0, 1024)]
     #[case(0, 3000)]
