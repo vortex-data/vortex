@@ -118,6 +118,8 @@ pub fn vortex_sequence::SequenceArray::try_new_typed<T: vortex_array::dtype::pty
 
 impl vortex_sequence::SequenceArray
 
+pub fn vortex_sequence::SequenceArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_sequence::SequenceArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_sequence::SequenceArray

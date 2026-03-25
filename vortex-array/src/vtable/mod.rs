@@ -349,6 +349,14 @@ macro_rules! vtable {
                     use $crate::IntoArray;
                     self.clone().into_array()
                 }
+
+                /// Upcasts an `Arc<Self>` to an [`ArrayRef`] without cloning.
+                pub fn into_array_ref(self: std::sync::Arc<Self>) -> $crate::ArrayRef {
+                    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
+                    // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
+                    let raw = std::sync::Arc::into_raw(self) as *const $crate::ArrayAdapter<$VT>;
+                    unsafe { std::sync::Arc::from_raw(raw) }
+                }
             }
         }
     };

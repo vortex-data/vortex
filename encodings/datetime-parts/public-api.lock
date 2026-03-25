@@ -114,6 +114,8 @@ pub fn vortex_datetime_parts::DateTimePartsArray::try_new(dtype: vortex_array::d
 
 impl vortex_datetime_parts::DateTimePartsArray
 
+pub fn vortex_datetime_parts::DateTimePartsArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_datetime_parts::DateTimePartsArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_datetime_parts::DateTimePartsArray

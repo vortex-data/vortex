@@ -32,6 +32,7 @@ members = [
     "vortex-jni",
     "vortex-python",
     "vortex-tui",
+    "vortex-web/crate",
     "vortex-test/compat-gen",
     "vortex-test/e2e-cuda",
     "xtask",

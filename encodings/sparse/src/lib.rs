@@ -200,11 +200,6 @@ impl VTable for Sparse {
             "SparseArray expects 2 children for sparse encoding, found {}",
             children.len()
         );
-        vortex_ensure_eq!(
-            metadata.patches.offset()?,
-            0,
-            "Patches must start at offset 0"
-        );
 
         let patch_indices = children.get(
             0,
@@ -213,10 +208,14 @@ impl VTable for Sparse {
         )?;
         let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
-        SparseArray::try_new(
-            patch_indices,
-            patch_values,
-            len,
+        SparseArray::try_new_from_patches(
+            Patches::new(
+                len,
+                metadata.patches.offset()?,
+                patch_indices,
+                patch_values,
+                None,
+            )?,
             metadata.fill_value.clone(),
         )
     }

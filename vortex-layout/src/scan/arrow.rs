@@ -16,7 +16,7 @@ use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 
-use crate::ScanBuilder;
+use crate::scan::scan_builder::ScanBuilder;
 
 impl ScanBuilder<ArrayRef> {
     /// Creates a new `RecordBatchReader` from the scan builder.
@@ -128,7 +128,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::test::SCAN_SESSION;
+    use crate::scan::test::SCAN_SESSION;
 
     fn create_test_struct_array() -> VortexResult<ArrayRef> {
         // Create Arrow arrays

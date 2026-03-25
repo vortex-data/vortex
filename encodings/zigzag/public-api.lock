@@ -108,6 +108,8 @@ pub fn vortex_zigzag::ZigZagArray::try_new(encoded: vortex_array::array::ArrayRe
 
 impl vortex_zigzag::ZigZagArray
 
+pub fn vortex_zigzag::ZigZagArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_zigzag::ZigZagArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_zigzag::ZigZagArray

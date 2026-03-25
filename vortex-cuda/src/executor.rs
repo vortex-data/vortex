@@ -252,6 +252,22 @@ impl CudaExecutionCtx {
         self.stream.copy_to_device(host_buffer)?.await
     }
 
+    /// Synchronous variant of [`ensure_on_device`](Self::ensure_on_device).
+    ///
+    /// Safe to call from within an async executor (no nested `block_on`).
+    /// The copy is enqueued on the stream and completes before any subsequent
+    /// work on the same stream.
+    pub fn ensure_on_device_sync(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
+        if handle.is_on_device() {
+            return Ok(handle);
+        }
+        let host_buffer = handle
+            .as_host_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
+            .clone();
+        self.stream.copy_to_device_sync(host_buffer.as_ref())
+    }
+
     /// Returns a reference to the underlying [`VortexCudaStream`].
     ///
     /// Through [`Deref`][std::ops::Deref], this also provides access to the

@@ -77,23 +77,18 @@ impl DeltaArray {
         Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
 
-    /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays.
-    /// Note the `deltas` might be nullable
-    pub fn try_from_delta_compress_parts(bases: ArrayRef, deltas: ArrayRef) -> VortexResult<Self> {
-        let logical_len = deltas.len();
-        Self::try_new(bases, deltas, 0, logical_len)
-    }
-
+    /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays
+    /// with given `offset` into first chunk and `logical_len` length.
     pub fn try_new(
         bases: ArrayRef,
         deltas: ArrayRef,
         offset: usize,
-        logical_len: usize,
+        len: usize,
     ) -> VortexResult<Self> {
         vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
         vortex_ensure!(
-            offset + logical_len <= deltas.len(),
-            "offset + logical_len, {offset} + {logical_len}, must be less than or equal to the size of deltas: {}",
+            offset + len <= deltas.len(),
+            "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
             deltas.len()
         );
         vortex_ensure!(
@@ -123,7 +118,7 @@ impl DeltaArray {
         );
 
         // SAFETY: validation done above
-        Ok(unsafe { Self::new_unchecked(bases, deltas, offset, logical_len) })
+        Ok(unsafe { Self::new_unchecked(bases, deltas, offset, len) })
     }
 
     pub(crate) unsafe fn new_unchecked(

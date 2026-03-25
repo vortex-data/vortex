@@ -9,7 +9,6 @@
 
 use std::sync::Arc;
 
-use futures::executor::block_on;
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
@@ -324,13 +323,24 @@ impl PlanBuilderState<'_> {
     fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let prim = array.to_canonical()?.into_primitive();
         let PrimitiveArrayParts { buffer, .. } = prim.into_parts();
-        let device_buf = block_on(self.ctx.ensure_on_device(buffer))?;
+
+        // TODO(0ax1): Optimize device buffer allocation and copying.
+        //
+        // Ideally, there would be a buffer pool of preallocated device memory
+        // such that retrieving a device pointer is O(1) when building the
+        // dynamic dispatch plan. In the current setup, we need to allocate the
+        // buffer before we can get the device pointer. As the memory is
+        // allocated via the global allocator, which does not pin the host
+        // memory to physical addresses unlike `cudaHostAlloc`, the subsequent
+        // memory copy from host to device is sync and cannot be pushed to the
+        // CUDA stream as an async operation.
+        let device_buf = self.ctx.ensure_on_device_sync(buffer)?;
         let ptr = device_buf.cuda_device_ptr()?;
         self.device_buffers.push(device_buf);
         Ok(Pipeline {
             source: SourceOp::load(),
             scalar_ops: vec![],
-            input_ptr: ptr as u64,
+            input_ptr: ptr,
         })
     }
 
@@ -354,13 +364,13 @@ impl PlanBuilderState<'_> {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
 
-        let device_buf = block_on(self.ctx.ensure_on_device(packed))?;
+        let device_buf = self.ctx.ensure_on_device_sync(packed)?;
         let ptr = device_buf.cuda_device_ptr()?;
         self.device_buffers.push(device_buf);
         Ok(Pipeline {
             source: SourceOp::bitunpack(bit_width, offset),
             scalar_ops: vec![],
-            input_ptr: ptr as u64,
+            input_ptr: ptr,
         })
     }
 

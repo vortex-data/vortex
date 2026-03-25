@@ -19,8 +19,9 @@ use vortex::array::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scan::ScanBuilder;
-use vortex::scan::arrow::RecordBatchIteratorAdapter;
+use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
+use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::scan::selection::Selection;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -89,8 +90,7 @@ impl VortexScanBuilder {
     }
 
     pub(crate) fn with_include_by_index(&mut self, include_by_index: &[u64]) {
-        let selection =
-            vortex::scan::Selection::IncludeByIndex(Buffer::copy_from(include_by_index));
+        let selection = Selection::IncludeByIndex(Buffer::copy_from(include_by_index));
         take_mut::take(&mut self.inner, |inner| inner.with_selection(selection));
     }
 

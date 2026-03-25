@@ -498,10 +498,10 @@ impl Mask {
             Mask::AllFalse(len) => MaskMut::new_false(len),
             Mask::Values(values) => {
                 let bit_buffer_mut = match Arc::try_unwrap(values) {
-                    Ok(mask_values) => {
-                        let bit_buffer = mask_values.into_buffer();
-                        bit_buffer.into_mut()
-                    }
+                    Ok(mask_values) => mask_values
+                        .into_buffer()
+                        .try_into_mut()
+                        .unwrap_or_else(|bb| BitBufferMut::copy_from(&bb)),
                     Err(arc_mask_values) => {
                         let bit_buffer = arc_mask_values.bit_buffer();
                         BitBufferMut::copy_from(bit_buffer)

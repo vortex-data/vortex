@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -223,8 +224,7 @@ fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
         .vortex_expect("Failed to downcast array to expected encoding type");
     // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
     // so Arc<ArrayAdapter<V>> and Arc<V::Array> have identical layout.
-    let raw = Arc::into_raw(adapter) as *const V::Array;
-    unsafe { Arc::from_raw(raw) }
+    unsafe { transmute::<Arc<ArrayAdapter<V>>, Arc<V::Array>>(adapter) }
 }
 
 /// Upcast an `Arc<V::Array>` into an `ArrayRef` without cloning.
@@ -234,6 +234,5 @@ fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
 pub(crate) fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
     // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
     // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
-    let raw = Arc::into_raw(array) as *const ArrayAdapter<V>;
-    unsafe { Arc::from_raw(raw) }
+    unsafe { transmute::<Arc<V::Array>, Arc<ArrayAdapter<V>>>(array) }
 }

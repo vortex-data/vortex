@@ -16,6 +16,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
+use crate::FL_CHUNK_SIZE;
 use crate::bit_transpose::transpose_validity;
 use crate::fill_forward_nulls;
 
@@ -40,53 +41,46 @@ pub fn delta_compress(
     Ok((bases, deltas))
 }
 
-fn compress_primitive<T: NativePType + Delta + Transpose, const LANES: usize>(
-    array: &[T],
-) -> (Buffer<T>, Buffer<T>) {
-    let padded_len = array.len().next_multiple_of(1024);
-    let num_chunks = padded_len / 1024;
-    let bases_len = num_chunks * LANES;
+fn compress_primitive<T, const LANES: usize>(array: &[T]) -> (Buffer<T>, Buffer<T>)
+where
+    T: NativePType + Delta + Transpose,
+{
+    let padded_len = array.len().next_multiple_of(FL_CHUNK_SIZE);
+    let bases_len = (padded_len / FL_CHUNK_SIZE) * LANES;
 
     // Split into full 1024-element chunks and a remainder.
-    let (full_chunks, remainder) = array.as_chunks::<1024>();
+    let (full_chunks, remainder) = array.as_chunks::<FL_CHUNK_SIZE>();
 
     // Allocate result arrays.
     let mut bases = BufferMut::with_capacity(bases_len);
     let mut deltas = BufferMut::with_capacity(padded_len);
-    let (output_deltas, _) = deltas.spare_capacity_mut().as_chunks_mut::<1024>();
+    let (output_deltas, _) = deltas.spare_capacity_mut().as_chunks_mut::<FL_CHUNK_SIZE>();
 
     // Loop over all full 1024-element chunks.
-    let mut transposed: [T; 1024] = [T::default(); 1024];
-    for (chunk, output) in full_chunks.iter().zip(output_deltas.iter_mut()) {
-        Transpose::transpose(chunk, &mut transposed);
+    let mut transposed: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
+    let mut process_chunk = |input: &[T; FL_CHUNK_SIZE], output: &mut [MaybeUninit<T>; 1024]| {
+        Transpose::transpose(input, &mut transposed);
         bases.extend_from_slice(&transposed[0..T::LANES]);
 
         unsafe {
             Delta::delta::<LANES>(
                 &transposed,
                 &*(transposed[0..T::LANES].as_ptr().cast()),
-                mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(output),
+                mem::transmute::<&mut [MaybeUninit<T>; FL_CHUNK_SIZE], &mut [T; FL_CHUNK_SIZE]>(
+                    output,
+                ),
             );
         }
+    };
+    for (chunk, output) in full_chunks.iter().zip(output_deltas.iter_mut()) {
+        process_chunk(chunk, output);
     }
 
     // Pad the remainder to 1024 elements and process as a full chunk.
     if !remainder.is_empty() {
-        let mut padded_chunk = [T::default(); 1024];
+        let mut padded_chunk = [T::default(); FL_CHUNK_SIZE];
         padded_chunk[..remainder.len()].copy_from_slice(remainder);
-
-        Transpose::transpose(&padded_chunk, &mut transposed);
-        bases.extend_from_slice(&transposed[0..T::LANES]);
-
-        unsafe {
-            Delta::delta::<LANES>(
-                &transposed,
-                &*(transposed[0..T::LANES].as_ptr().cast()),
-                mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(
-                    &mut output_deltas[full_chunks.len()],
-                ),
-            );
-        }
+        process_chunk(&padded_chunk, &mut output_deltas[full_chunks.len()]);
     }
 
     unsafe { deltas.set_len(padded_len) };
@@ -102,6 +96,8 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -110,7 +106,9 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::DeltaArray;
+    use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
+    use crate::delta_compress;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -135,12 +133,6 @@ mod tests {
     /// sum propagates corrupted values from null positions.
     #[test]
     fn delta_bitpacked_trailing_nulls() {
-        use vortex_array::IntoArray;
-        use vortex_array::ToCanonical;
-
-        use crate::bitpack_compress::bitpack_encode;
-        use crate::delta_compress;
-
         let array = PrimitiveArray::from_option_iter(
             (0u8..200).map(|i| (!(50..100).contains(&i)).then_some(i)),
         );

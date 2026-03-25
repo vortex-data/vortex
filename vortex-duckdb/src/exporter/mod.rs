@@ -180,6 +180,9 @@ fn new_array_exporter_with_flatten(
             }
             vortex_bail!("no non-temporal extension exporter")
         }
+        Canonical::Variant(_) => {
+            vortex_bail!("Variant arrays can't be exported to DuckDB")
+        }
     }
 }
 

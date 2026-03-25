@@ -6,7 +6,7 @@ pub struct vortex_file::multi::MultiFileDataSource
 
 impl vortex_file::multi::MultiFileDataSource
 
-pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::api::DataSource>
+pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::DataSource>
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
 
@@ -264,7 +264,7 @@ impl vortex_file::VortexFile
 
 pub fn vortex_file::VortexFile::can_prune(&self, filter: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<bool>
 
-pub fn vortex_file::VortexFile::data_source(&self) -> vortex_error::VortexResult<vortex_scan::api::DataSourceRef>
+pub fn vortex_file::VortexFile::data_source(&self) -> vortex_error::VortexResult<vortex_scan::DataSourceRef>
 
 pub fn vortex_file::VortexFile::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -278,7 +278,7 @@ pub fn vortex_file::VortexFile::layout_reader(&self) -> vortex_error::VortexResu
 
 pub fn vortex_file::VortexFile::row_count(&self) -> u64
 
-pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_scan::scan_builder::ScanBuilder<vortex_array::array::ArrayRef>>
+pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::ArrayRef>>
 
 pub fn vortex_file::VortexFile::scan2(&self) -> vortex_error::VortexResult<vortex_layout::v2::scan::shim::ScanBuilder>
 

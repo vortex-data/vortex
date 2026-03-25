@@ -23,12 +23,12 @@ use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_layout::LayoutReader;
+use vortex_layout::scan::layout::LayoutReaderDataSource;
+use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::v2;
-use vortex_scan::ScanBuilder;
-use vortex_scan::SplitBy;
-use vortex_scan::api::DataSourceRef;
-use vortex_scan::layout::LayoutReaderDataSource;
+use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -111,7 +111,7 @@ impl VortexFile {
         )
     }
 
-    /// Create a [`DataSource`](vortex_scan::api::DataSource) from this file for scanning.
+    /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
     ///
     /// Wraps the file's layout reader with [`FileStatsLayoutReader`] (when file-level
     /// statistics are available) and [`LayoutReaderDataSource`].
@@ -126,6 +126,19 @@ impl VortexFile {
         }
         Ok(Arc::new(LayoutReaderDataSource::new(
             reader,
+            self.session.clone(),
+        )))
+    }
+
+    /// Create a v2 [`DataSource`](vortex_scan::DataSource) from this file for scanning.
+    ///
+    /// Uses the v2 layout scan state machine instead of the legacy layout reader.
+    pub fn data_source2(&self) -> VortexResult<DataSourceRef> {
+        use vortex_layout::scan::v2_layout::V2LayoutDataSource;
+
+        let layout = self.layout2()?;
+        Ok(Arc::new(V2LayoutDataSource::new(
+            layout,
             self.session.clone(),
         )))
     }

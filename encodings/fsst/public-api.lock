@@ -124,6 +124,8 @@ pub fn vortex_fsst::FSSTArray::uncompressed_lengths_dtype(&self) -> &vortex_arra
 
 impl vortex_fsst::FSSTArray
 
+pub fn vortex_fsst::FSSTArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_fsst::FSSTArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_fsst::FSSTArray

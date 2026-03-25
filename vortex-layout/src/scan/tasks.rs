@@ -15,11 +15,11 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
-use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
+use vortex_scan::selection::Selection;
 
-use crate::filter::FilterExpr;
-use crate::selection::Selection;
+use crate::LayoutReader;
+use crate::scan::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -35,7 +35,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 ///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
 /// finally mapping the Vortex columnar record batches into some result type `A`.
-pub(super) fn split_exec<A: 'static + Send>(
+pub fn split_exec<A: 'static + Send>(
     ctx: Arc<TaskContext<A>>,
     split: Range<u64>,
     limit: Option<&mut u64>,
@@ -156,15 +156,15 @@ pub(super) fn split_exec<A: 'static + Send>(
 }
 
 /// Information needed to execute a single split task.
-pub(super) struct TaskContext<A> {
+pub struct TaskContext<A> {
     /// A row selection to apply.
-    pub(super) selection: Selection,
+    pub selection: Selection,
     /// The shared filter expression.
-    pub(super) filter: Option<Arc<FilterExpr>>,
+    pub filter: Option<Arc<FilterExpr>>,
     /// The layout reader.
-    pub(super) reader: Arc<dyn LayoutReader>,
+    pub reader: Arc<dyn LayoutReader>,
     /// The projection expression to apply to gather the scanned rows.
-    pub(super) projection: Expression,
+    pub projection: Expression,
     /// Function that maps into an A.
-    pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

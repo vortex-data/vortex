@@ -136,6 +136,8 @@ pub fn vortex_runend::RunEndArray::values(&self) -> &vortex_array::array::ArrayR
 
 impl vortex_runend::RunEndArray
 
+pub fn vortex_runend::RunEndArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_runend::RunEndArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_runend::RunEndArray

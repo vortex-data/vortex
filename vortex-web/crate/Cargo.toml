@@ -1,0 +1,26 @@
+[package]
+name = "vortex-web-wasm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+description = "WASM bindings for the Vortex web explorer"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vortex = { path = "../../vortex", default-features = false, features = [
+    "files",
+] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.104"
+wasm-bindgen-futures = { workspace = true }
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3.81"
+web-sys = { version = "0.3.81", features = ["console", "File", "FileReader"] }
+
+[lints]
+workspace = true

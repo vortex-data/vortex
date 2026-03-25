@@ -100,6 +100,8 @@ pub fn vortex_zstd::ZstdArray::new(dictionary: core::option::Option<vortex_buffe
 
 impl vortex_zstd::ZstdArray
 
+pub fn vortex_zstd::ZstdArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
+
 pub fn vortex_zstd::ZstdArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_zstd::ZstdArray

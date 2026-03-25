@@ -25,6 +25,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::BtrBlocksCompressorBuilder;
 use crate::CompressorContext;
@@ -214,7 +215,6 @@ impl CanonicalCompressor for BtrBlocksCompressor {
     ) -> VortexResult<ArrayRef> {
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
-            // TODO(aduffy): Sparse, other bool compressors.
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
@@ -297,6 +297,9 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array(),
                 )
+            }
+            Canonical::Variant(_) => {
+                vortex_bail!("Variant arrays can not be compressed")
             }
         }
     }

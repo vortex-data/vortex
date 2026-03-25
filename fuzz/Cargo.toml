@@ -68,14 +68,6 @@ required-features = ["native"]
 [[bin]]
 bench = false
 doc = false
-name = "array_ops_unstable_encodings"
-path = "fuzz_targets/array_ops.rs"
-test = false
-required-features = ["native"]
-
-[[bin]]
-bench = false
-doc = false
 name = "file_io"
 path = "fuzz_targets/file_io.rs"
 test = false
