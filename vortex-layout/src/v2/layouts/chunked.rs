@@ -88,6 +88,7 @@ impl LayoutVTable for Chunked {
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &Selection,
+        row_offset: Option<u64>,
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
@@ -108,36 +109,15 @@ impl LayoutVTable for Chunked {
             // Translate the selection to chunk-local coordinates.
             let local_selection = translate_selection(selection, chunk_start, chunk_end);
 
-            // Step into the child's coordinate space.
+            // Derive the child's global row offset from ours.
+            let relationship = Self::child_relationship(layout, chunk_idx);
+            let child_offset = relationship.child_row_offset(row_offset);
+
             let child = layout.child(chunk_idx)?;
-            let planner = child.prepare(expr, &local_selection, row_splits, session)?;
+            let planner =
+                child.prepare(expr, &local_selection, child_offset, row_splits, session)?;
 
-            // Translate any row splits added by the child back to global coordinates.
-            // We collect and re-insert since the child adds splits in its local space.
-            let global_splits: Vec<u64> = row_splits
-                .range(0..chunk_end.saturating_sub(chunk_start))
-                .map(|&s| s + chunk_start)
-                .collect();
-            let local_splits: Vec<u64> = row_splits
-                .range(0..chunk_end.saturating_sub(chunk_start))
-                .copied()
-                .collect();
-            for s in &local_splits {
-                row_splits.remove(s);
-            }
-            for s in global_splits {
-                row_splits.insert(s);
-            }
-
-            // Register the chunk boundary as a split point.
-            row_splits.insert(chunk_end);
-
-            children.push((chunk_range, planner));
-        }
-
-        // Ensure the start boundary is registered.
-        if let Some(first_offset) = offsets.first() {
-            row_splits.insert(*first_offset);
+            children.push((chunk_range, relationship, planner));
         }
 
         Ok(Arc::new(ChunkedSplitPlanner {
@@ -150,7 +130,7 @@ impl LayoutVTable for Chunked {
 /// A split planner for the chunked layout.
 struct ChunkedSplitPlanner {
     dtype: DType,
-    children: Vec<(Range<u64>, SplitPlannerRef)>,
+    children: Vec<(Range<u64>, ChildRelationship, SplitPlannerRef)>,
 }
 
 impl SplitPlanner for ChunkedSplitPlanner {
@@ -164,7 +144,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
         let overlapping: Vec<_> = self
             .children
             .iter()
-            .filter(|(chunk_range, _)| ranges_overlap(row_range, chunk_range))
+            .filter(|(chunk_range, ..)| ranges_overlap(row_range, chunk_range))
             .collect();
 
         match overlapping.len() {
@@ -172,6 +152,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
                 // No overlapping children — return an empty array.
                 let dtype = self.dtype.clone();
                 builder.create_node(NodeOpts {
+                    label: "Empty",
                     inputs: &[],
                     segments: vec![],
                     lifetime: builder.row_range_lifetime(row_range.clone()),
@@ -180,23 +161,29 @@ impl SplitPlanner for ChunkedSplitPlanner {
             }
             1 => {
                 // Single child — translate row_range to local and delegate.
-                let (chunk_range, planner) = overlapping[0];
+                let (chunk_range, relationship, planner) = overlapping[0];
                 let local_start = row_range.start.saturating_sub(chunk_range.start);
                 let local_end = row_range.end.min(chunk_range.end) - chunk_range.start;
-                planner.plan_split(&(local_start..local_end), selection, builder)
+                let mut child_builder = builder.step_into(relationship);
+                planner.plan_split(&(local_start..local_end), selection, &mut child_builder)
             }
             _ => {
                 // Multiple children — plan each and concatenate.
                 let mut child_outputs = Vec::with_capacity(overlapping.len());
-                for (chunk_range, planner) in &overlapping {
+                for (chunk_range, relationship, planner) in &overlapping {
                     let local_start = row_range.start.max(chunk_range.start) - chunk_range.start;
                     let local_end = row_range.end.min(chunk_range.end) - chunk_range.start;
-                    let child_output =
-                        planner.plan_split(&(local_start..local_end), selection, builder)?;
+                    let mut child_builder = builder.step_into(relationship);
+                    let child_output = planner.plan_split(
+                        &(local_start..local_end),
+                        selection,
+                        &mut child_builder,
+                    )?;
                     child_outputs.push(child_output);
                 }
                 let dtype = self.dtype.clone();
                 builder.create_node(NodeOpts {
+                    label: "Concat",
                     inputs: &child_outputs,
                     segments: vec![],
                     lifetime: builder.row_range_lifetime(row_range.clone()),

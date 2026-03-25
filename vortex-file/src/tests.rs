@@ -1696,3 +1696,91 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
 
     Ok(())
 }
+
+/// Generates a DOT visualization of the scan plan for a ClickBench partition.
+///
+/// Run with: `cargo test -p vortex-file -- clickbench_plan_dot --ignored --nocapture`
+#[tokio::test]
+#[ignore]
+async fn clickbench_plan_dot() -> VortexResult<()> {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../vortex-bench/data/clickbench_partitioned/vortex-file-compressed/hits_0.vortex");
+    let file = SESSION.open_options().open_path(&path).await?;
+    // Plan only the first split.
+    let config = vortex_layout::v2::scan::ScanConfig::default().with_plan_ahead(Some(1));
+    let mut scan = file.scan2()?.with_config(config).build()?;
+
+    eprintln!("Number of splits: {}", scan.num_splits());
+    for (i, range) in scan.split_row_ranges().iter().enumerate() {
+        eprintln!("  split {i}: {range:?} ({} rows)", range.end - range.start);
+    }
+
+    // Trigger planning of the first split.
+    let _actions = scan.actions()?;
+
+    let plan = scan.plan();
+    eprintln!("Total nodes in plan: {}", plan.len());
+
+    // Walk the graph backwards from the last node (the first split's root).
+    use vortex_layout::v2::scan::planner::NodeId;
+    let root = plan.len() - 1;
+    let mut visited = std::collections::BTreeSet::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        for &input_id in plan.node_inputs(NodeId::new(id)) {
+            stack.push(input_id.as_usize());
+        }
+    }
+    eprintln!(
+        "Reachable from root: {} / {} total",
+        visited.len(),
+        plan.len()
+    );
+    assert_eq!(
+        visited.len(),
+        plan.len(),
+        "unreachable nodes in single-split plan"
+    );
+
+    let dot = plan.to_dot();
+    let dot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../clickbench.dot");
+    std::fs::write(&dot_path, &dot)?;
+    eprintln!("Wrote {} nodes to {}", plan.len(), dot_path.display());
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_plan_dot() -> VortexResult<()> {
+    let strings = VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array();
+    let numbers = buffer![1u32, 2, 3, 4].into_array();
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?.into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let config = vortex_layout::v2::scan::ScanConfig::default().with_plan_ahead(None);
+    let mut scan = file.scan2()?.with_config(config).build()?;
+
+    // Trigger planning of all splits.
+    let _actions = scan.actions()?;
+
+    let dot = scan.plan().to_dot();
+    eprintln!("{dot}");
+
+    assert!(!dot.is_empty());
+    assert!(dot.contains("digraph"));
+    assert!(dot.contains("Flat"));
+    assert!(dot.contains("StructMulti"));
+    assert!(dot.contains("Resolved"));
+
+    Ok(())
+}

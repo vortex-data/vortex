@@ -52,14 +52,16 @@ impl LayoutRef {
 
     /// Prepares a split planner for the given expression and row selection.
     ///
-    /// This dispatches through the type-erased vtable to the concrete layout's `prepare`.
+    /// `row_offset` is the global row offset of this layout in the main row space.
+    /// `None` means the layout is auxiliary and should not register split boundaries.
     pub fn prepare(
         &self,
         expr: &Expression,
         selection: &Selection,
+        row_offset: Option<u64>,
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
-        self.0.prepare(expr, selection, row_splits, session)
+        self.0.prepare(expr, selection, row_offset, row_splits, session)
     }
 }

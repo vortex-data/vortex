@@ -52,13 +52,14 @@ pub trait LayoutVTable: 'static + Sized + Clone + Send + Sync {
     /// Implementations should perform expression partitioning once here, rather than doing it
     /// once per split later.
     ///
-    /// Row splits should be registered into the BTreeSet.
-    ///
-    /// The [`PlanBuilder`] can be used to construct nodes that will be shared across many splits.
+    /// `row_offset` is the global row offset of this layout. `Some(offset)` means the layout
+    /// is in the main row space and should register split boundaries at global coordinates
+    /// (`offset + local`). `None` means the layout is auxiliary and should not register splits.
     fn prepare(
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &Selection,
+        row_offset: Option<u64>,
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef>;
@@ -74,4 +75,19 @@ pub enum ChildRelationship {
     /// The row range specifies the parent's row range that this auxiliary data covers,
     /// used to determine the lifetime scope for nodes in this subtree.
     Auxiliary(Range<u64>),
+}
+
+impl ChildRelationship {
+    /// Derives the child's global row offset from the parent's offset and this relationship.
+    ///
+    /// - `RowOffset(n)`: child is at `parent + n`.
+    /// - `FieldName`: same row space, offset unchanged.
+    /// - `Auxiliary`: not in the parent's row space, returns `None`.
+    pub fn child_row_offset(&self, parent_offset: Option<u64>) -> Option<u64> {
+        match self {
+            Self::RowOffset(n) => parent_offset.map(|o| o + n),
+            Self::FieldName(_) => parent_offset,
+            Self::Auxiliary(_) => None,
+        }
+    }
 }

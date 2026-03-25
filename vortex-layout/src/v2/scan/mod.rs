@@ -10,7 +10,7 @@ mod split;
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 use planner::PlanBuilder;
@@ -24,6 +24,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use self::output::OutputQueue;
 use self::plan::Plan;
@@ -46,16 +47,18 @@ pub struct ScanConfig {
     /// The maximum number of rows in each split.
     max_split_rows: u64,
 
-    /// How far planning should run ahead of I/O. This configuration determines how many
-    /// splits to plan before launching I/O. It is used to ensure that we don't have to
-    /// plan all splits up-front before we start processing the query since this can be
-    /// reasonably expensive for very large files.
+    /// How many splits to plan ahead of the most recently dispatched split.
     ///
-    /// The plan-ahead window is measured in terms of the number of bytes of planned but
-    /// not-yet-scheduled segment reads.
+    /// Planning is incremental: the scan plans a window of splits ahead of execution so
+    /// that I/O and compute can overlap with planning. This avoids paying the full
+    /// planning cost up-front for very large files.
+    ///
+    /// The right unit for this window is still an open question — it may eventually be
+    /// measured in bytes of un-launched I/O rather than split count. For now, it is a
+    /// simple count of splits.
     ///
     /// `None` implies all splits should be planned up-front.
-    plan_ahead_kb: Option<u64>,
+    plan_ahead: Option<usize>,
 }
 
 impl Default for ScanConfig {
@@ -63,8 +66,29 @@ impl Default for ScanConfig {
         Self {
             min_split_rows: 2_000,
             max_split_rows: 1_000_000,
-            plan_ahead_kb: Some(2 * 1024 * 1024), // 2 GB
+            plan_ahead: Some(4),
         }
+    }
+}
+
+impl ScanConfig {
+    /// Set the plan-ahead window as a number of splits, or `None` to plan all splits
+    /// up-front.
+    pub fn with_plan_ahead(mut self, plan_ahead: Option<usize>) -> Self {
+        self.plan_ahead = plan_ahead;
+        self
+    }
+
+    /// Set the minimum number of rows in each split.
+    pub fn with_min_split_rows(mut self, min_split_rows: u64) -> Self {
+        self.min_split_rows = min_split_rows;
+        self
+    }
+
+    /// Set the maximum number of rows in each split.
+    pub fn with_max_split_rows(mut self, max_split_rows: u64) -> Self {
+        self.max_split_rows = max_split_rows;
+        self
     }
 }
 
@@ -85,7 +109,9 @@ pub struct Scan {
 struct State {
     next_split_to_plan: usize,
     plan: Plan,
-    plan_ahead_kb: u64,
+    /// The highest split index where we have dispatched I/O or compute.
+    /// Planning stays ahead of this by the configured `plan_ahead` window.
+    last_dispatched_split: usize,
     active_splits: BTreeMap<SplitId, NodeId>,
     output_queue: OutputQueue,
 
@@ -103,6 +129,21 @@ struct State {
 }
 
 impl Scan {
+    /// Returns a reference to the underlying plan DAG.
+    pub fn plan(&self) -> &Plan {
+        &self.state.plan
+    }
+
+    /// Returns the number of splits in this scan.
+    pub fn num_splits(&self) -> usize {
+        self.splits.len()
+    }
+
+    /// Returns the row ranges for each split.
+    pub fn split_row_ranges(&self) -> Vec<Range<u64>> {
+        self.splits.iter().map(|s| s.row_range.clone()).collect()
+    }
+
     /// Creates a new scan for the given layout and expression.
     pub fn try_new(
         layout: &LayoutRef,
@@ -119,9 +160,11 @@ impl Scan {
         row_splits.insert(layout.row_count());
 
         // Create split planners for the project / filter expressions.
-        let project_planner = layout.prepare(projection, selection, &mut row_splits, session)?;
+        // The root layout starts at global row offset 0.
+        let project_planner =
+            layout.prepare(projection, selection, Some(0), &mut row_splits, session)?;
         let filter_planner = filter
-            .map(|f| layout.prepare(f, selection, &mut row_splits, session))
+            .map(|f| layout.prepare(f, selection, Some(0), &mut row_splits, session))
             .transpose()?;
 
         // We now figure out the row splits for executing the scan. This allows us to have some
@@ -145,11 +188,11 @@ impl Scan {
             state: State {
                 next_split_to_plan: 0,
                 plan: Plan::new(),
-                plan_ahead_kb: 0,
+                last_dispatched_split: 0,
                 active_splits: BTreeMap::new(),
                 output_queue: OutputQueue::new(total_splits),
-                read_dispatch: HashMap::new(),
-                compute_dispatch: HashMap::new(),
+                read_dispatch: HashMap::default(),
+                compute_dispatch: HashMap::default(),
                 pending_reads: Vec::new(),
                 next_read_id: 0,
                 next_compute_id: 0,
@@ -207,6 +250,12 @@ impl Scan {
         // 4. Check if the scan is complete.
         if self.state.output_queue.is_complete() && self.state.active_splits.is_empty() {
             actions.push(ScanAction::Done);
+        }
+
+        // Advance the dispatch watermark so that the next call to fill_plan_ahead
+        // can plan further splits.
+        if !actions.is_empty() {
+            self.state.last_dispatched_split = self.state.next_split_to_plan;
         }
 
         Ok(actions)
@@ -281,11 +330,10 @@ impl Scan {
             if self.state.next_split_to_plan == self.splits.len() {
                 return Ok(());
             }
-            if self
-                .config
-                .plan_ahead_kb
-                .is_some_and(|window| self.state.plan_ahead_kb > window)
-            {
+            if self.config.plan_ahead.is_some_and(|window| {
+                self.state.next_split_to_plan
+                    >= self.state.last_dispatched_split.saturating_add(window)
+            }) {
                 return Ok(());
             }
 
@@ -296,8 +344,10 @@ impl Scan {
                 let mut plan_builder = PlanBuilder::new(&mut self.state.plan);
 
                 // Start with the initial row selection.
-                let mut selection =
-                    plan_builder.create_node_resolved(split_range.mask.into_array());
+                let mut selection = plan_builder.create_node_resolved(
+                    split_range.mask.into_array(),
+                    split_range.row_range.clone(),
+                );
 
                 // Map through the filter planner.
                 if let Some(filter_planner) = &self.filter_planner {
@@ -314,6 +364,7 @@ impl Scan {
                     // FIXME(ngates): per the comment above, we currently need to perform a rank
                     //  intersection after the fact on the filter result.
                     selection = plan_builder.create_node(NodeOpts {
+                        label: "FilterIntersect",
                         inputs: &[selection, filter_result],
                         segments: vec![],
                         lifetime: plan_builder.row_range_lifetime(split_range.row_range.clone()),
@@ -361,7 +412,6 @@ impl Scan {
                             segment_id: seg.segment_id,
                         });
                     }
-                    // TODO: accumulate segment byte estimates into plan_ahead_kb.
                 }
             }
         }

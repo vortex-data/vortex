@@ -83,12 +83,14 @@ impl LayoutVTable for Flat {
         // TODO(ngates): we probably want to pass this down? Although it should be available
         //  through the "latest" view of the SplitSelection.
         _selection: &Selection,
+        row_offset: Option<u64>,
         row_splits: &mut BTreeSet<u64>,
         _session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
-        // TODO(ngates): surely we only need one of them
-        row_splits.insert(0);
-        row_splits.insert(layout.row_count());
+        if let Some(offset) = row_offset {
+            row_splits.insert(offset);
+            row_splits.insert(offset + layout.row_count());
+        }
 
         let segment_source = layout.segment_source().clone();
         let segment_id = layout
@@ -131,6 +133,7 @@ impl SplitPlanner for FlatLayoutPlanner {
         let len = self.len;
 
         builder.create_node(NodeOpts {
+            label: "Flat",
             inputs: &[selection],
             segments: vec![SegmentRequest {
                 source: self.segment_source.clone(),

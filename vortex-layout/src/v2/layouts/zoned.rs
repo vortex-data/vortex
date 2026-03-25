@@ -97,6 +97,7 @@ impl LayoutVTable for Zoned {
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &Selection,
+        row_offset: Option<u64>,
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
@@ -104,10 +105,11 @@ impl LayoutVTable for Zoned {
         let nzones = layout.row_count().div_ceil(zone_len);
 
         // Prepare the data child with the original expression and selection.
-        // Only the data child contributes row split boundaries.
-        let _data_rel = Self::child_relationship(layout, 0);
+        let data_relationship = Self::child_relationship(layout, 0);
+        let data_offset = data_relationship.child_row_offset(row_offset);
         let data_child = layout.data_child()?;
-        let data_planner = data_child.prepare(expr, selection, row_splits, session)?;
+        let data_planner =
+            data_child.prepare(expr, selection, data_offset, row_splits, session)?;
 
         // TODO(ngates): derive pruning predicate via expr.stat_falsification(...)
         // For now, skip zone map optimization and just delegate to the data child.
@@ -118,14 +120,15 @@ impl LayoutVTable for Zoned {
         let _zm_child = layout.zone_map_child()?;
         let _zm_rel = Self::child_relationship(layout, 1);
         let _zm_selection = Selection::All;
-        // let mut zm_builder = builder.step_into(&zm_rel);
-        // let zm_planner = zm_child.prepare(&pruning_expr, &zm_selection, ..., &mut zm_builder)?;
+        // let zm_offset = zm_rel.child_row_offset(row_offset); // None for auxiliary
+        // let zm_planner = zm_child.prepare(&pruning_expr, &zm_selection, zm_offset, ...)?;
 
         Ok(Arc::new(ZonedSplitPlanner {
             zone_len,
             row_count: layout.row_count(),
             _nzones: nzones,
             data_planner,
+            data_relationship,
             zone_map_planner,
         }))
     }
@@ -148,6 +151,7 @@ struct ZonedSplitPlanner {
     row_count: u64,
     _nzones: u64,
     data_planner: SplitPlannerRef,
+    data_relationship: ChildRelationship,
     zone_map_planner: Option<SplitPlannerRef>,
 }
 
@@ -168,9 +172,11 @@ impl SplitPlanner for ZonedSplitPlanner {
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         // Always plan the data child split.
-        let data_output = self
-            .data_planner
-            .plan_split(row_range, selection, builder)?;
+        let data_output = {
+            let mut child_builder = builder.step_into(&self.data_relationship);
+            self.data_planner
+                .plan_split(row_range, selection, &mut child_builder)?
+        };
 
         let Some(zone_map_planner) = &self.zone_map_planner else {
             // No pruning predicate, just return the data output directly.
@@ -188,6 +194,7 @@ impl SplitPlanner for ZonedSplitPlanner {
         let zone_len = self.zone_len;
         let row_count = self.row_count;
         builder.create_node(NodeOpts {
+            label: "Zoned",
             inputs: &[zm_output, data_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),

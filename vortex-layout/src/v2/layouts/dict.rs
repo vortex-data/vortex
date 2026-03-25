@@ -122,6 +122,7 @@ impl LayoutVTable for Dict {
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &Selection,
+        row_offset: Option<u64>,
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
@@ -129,17 +130,23 @@ impl LayoutVTable for Dict {
         let values_child = layout.values_child()?;
         let values_row_count = values_child.row_count();
         let values_rel = Self::child_relationship(layout, 0);
+        let codes_rel = Self::child_relationship(layout, 1);
 
         // Only the codes child contributes row split boundaries.
-        let codes_planner = codes_child.prepare(&root(), selection, row_splits, session)?;
+        let codes_offset = codes_rel.child_row_offset(row_offset);
+        let codes_planner =
+            codes_child.prepare(&root(), selection, codes_offset, row_splits, session)?;
 
-        // Prepare the values child (read in full, shared across all splits).
-        let values_planner = values_child.prepare(&root(), selection, row_splits, session)?;
+        // Values are auxiliary — they don't register split boundaries.
+        let values_offset = values_rel.child_row_offset(row_offset); // always None
+        let values_planner =
+            values_child.prepare(&root(), selection, values_offset, row_splits, session)?;
 
         Ok(Arc::new(DictSplitPlanner {
             expression: expr.clone(),
             all_values_referenced: layout.metadata().all_values_referenced,
             codes_planner,
+            codes_relationship: codes_rel,
             values_planner,
             values_row_count,
             values_relationship: values_rel,
@@ -163,6 +170,7 @@ struct DictSplitPlanner {
     expression: Expression,
     all_values_referenced: bool,
     codes_planner: SplitPlannerRef,
+    codes_relationship: ChildRelationship,
     values_planner: SplitPlannerRef,
     values_row_count: u64,
     values_relationship: ChildRelationship,
@@ -176,9 +184,11 @@ impl SplitPlanner for DictSplitPlanner {
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         // Plan codes in the parent's row space.
-        let codes_output = self
-            .codes_planner
-            .plan_split(row_range, selection, builder)?;
+        let codes_output = {
+            let mut codes_builder = builder.step_into(&self.codes_relationship);
+            self.codes_planner
+                .plan_split(row_range, selection, &mut codes_builder)?
+        };
 
         // Plan values in the auxiliary row space.
         // Values are read in full (0..values_row_count) and shared across splits.
@@ -189,6 +199,7 @@ impl SplitPlanner for DictSplitPlanner {
             let values_selection = values_builder.create_node_resolved(
                 #[allow(clippy::cast_possible_truncation)]
                 vortex_mask::Mask::AllTrue(values_row_count as usize).into_array(),
+                0..values_row_count,
             );
             self.values_planner.plan_split(
                 &(0..values_row_count),
@@ -201,6 +212,7 @@ impl SplitPlanner for DictSplitPlanner {
         let expression = self.expression.clone();
         let all_values_referenced = self.all_values_referenced;
         builder.create_node(NodeOpts {
+            label: "Dict",
             inputs: &[codes_output, values_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),

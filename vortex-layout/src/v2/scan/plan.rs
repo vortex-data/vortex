@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Write;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::scan::planner::ComputeFn;
+use crate::v2::scan::planner::LayoutPosition;
 use crate::v2::scan::planner::Lifetime;
 use crate::v2::scan::planner::NodeId;
 
@@ -42,6 +45,7 @@ impl std::fmt::Debug for SegmentRequest {
 }
 
 pub(crate) struct PlanNode {
+    label: &'static str,
     input_nodes: Vec<NodeId>,
     segments: Vec<SegmentRequest>,
     compute: Option<ComputeFn>,
@@ -62,6 +66,8 @@ pub struct Plan {
     root_node: Option<NodeId>,
     /// Reverse dependency index: `dependents[node_id]` lists `(downstream_node, input_slot)`.
     dependents: Vec<Vec<(NodeId, usize)>>,
+    /// Deduplication map: `(position, label, lifetime_start, lifetime_end) → NodeId`.
+    pub(crate) dedup: HashMap<(LayoutPosition, &'static str, u64, u64), NodeId>,
 }
 
 // Debug is required by `Rc::try_unwrap().expect()` in `PlanBuilder::take_plan`.
@@ -80,6 +86,7 @@ impl Plan {
             nodes: Vec::new(),
             root_node: None,
             dependents: Vec::new(),
+            dedup: HashMap::default(),
         }
     }
 
@@ -88,6 +95,7 @@ impl Plan {
     /// If the node has no dependencies it is immediately marked `Ready`.
     pub(crate) fn add_node(
         &mut self,
+        label: &'static str,
         inputs: &[NodeId],
         segments: Vec<SegmentRequest>,
         compute: ComputeFn,
@@ -111,7 +119,8 @@ impl Plan {
 
         let num_segments = segments.len();
         let num_inputs = inputs.len();
-        let node = PlanNode {
+        let mut node = PlanNode {
+            label,
             input_nodes: inputs.to_vec(),
             segments,
             compute: Some(compute),
@@ -123,19 +132,42 @@ impl Plan {
             output: None,
         };
 
+        // Pre-resolve inputs that are already complete (from deduplicated nodes).
+        for (i, &input_id) in inputs.iter().enumerate() {
+            if self.nodes[input_id.as_usize()].state == NodeState::Complete
+                && let Some(output) = self.nodes[input_id.as_usize()].output.clone()
+            {
+                node.resolved_inputs[i] = Some(output);
+                node.pending_deps -= 1;
+            }
+        }
+        if node.pending_deps == 0 {
+            node.state = NodeState::Ready;
+        }
+
         self.nodes.push(node);
         self.dependents.push(Vec::new());
         id
     }
 
     /// Returns the number of nodes in the plan.
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// Returns the number of entries in the dedup map.
+    pub fn dedup_count(&self) -> usize {
+        self.dedup.len()
     }
 
     /// Returns the state of a node.
     pub(crate) fn node_state(&self, node_id: NodeId) -> NodeState {
         self.nodes[node_id.as_usize()].state
+    }
+
+    /// Returns the input node IDs of a node.
+    pub fn node_inputs(&self, node_id: NodeId) -> &[NodeId] {
+        &self.nodes[node_id.as_usize()].input_nodes
     }
 
     /// Returns the output of a completed node, if available.
@@ -171,6 +203,44 @@ impl Plan {
         range
             .filter(move |&i| self.nodes[i].state == NodeState::Ready)
             .map(NodeId::new)
+    }
+
+    /// Renders the plan DAG in DOT format for visualization.
+    ///
+    /// Pipe the output to `dot -Tsvg` to render as SVG.
+    pub fn to_dot(&self) -> String {
+        let mut out = String::new();
+        let _ = writeln!(out, "digraph Plan {{");
+        let _ = writeln!(out, "  rankdir=BT;");
+
+        for (i, node) in self.nodes.iter().enumerate() {
+            let lifetime_str = format!("{}..{}", node.lifetime.0.start, node.lifetime.0.end);
+
+            let shape = if node.input_nodes.is_empty() && node.segments.is_empty() {
+                "oval"
+            } else {
+                "box"
+            };
+
+            let _ = writeln!(
+                out,
+                "  N{i} [shape={shape}, label=\"N{i}\\n{label}\\nsegs={segs} lifetime={lt}\"];",
+                label = node.label,
+                segs = node.segments.len(),
+                lt = lifetime_str,
+            );
+
+            for (slot, input_id) in node.input_nodes.iter().enumerate() {
+                let _ = writeln!(
+                    out,
+                    "  N{} -> N{i} [label=\"input[{slot}]\"];",
+                    input_id.as_usize(),
+                );
+            }
+        }
+
+        let _ = writeln!(out, "}}");
+        out
     }
 
     /// Takes the segment requests from a node, transitioning it to `Dispatched`.
@@ -277,10 +347,11 @@ mod tests {
 
     fn add_resolved_node(plan: &mut Plan, array: ArrayRef) -> NodeId {
         plan.add_node(
+            "Test",
             &[],
             Vec::new(),
             Box::new(move |_args| Ok(array)),
-            Lifetime::Scan,
+            Lifetime(0..0),
         )
     }
 
@@ -288,10 +359,11 @@ mod tests {
     fn test_zero_dep_node_is_ready() {
         let mut plan = Plan::new();
         let node_id = plan.add_node(
+            "Test",
             &[],
             Vec::new(),
             Box::new(|_args| Ok(PrimitiveArray::from_iter([1i32]).into_array())),
-            Lifetime::Scan,
+            Lifetime(0..0),
         );
         assert_eq!(plan.node_state(node_id), NodeState::Ready);
     }
@@ -305,10 +377,11 @@ mod tests {
 
         // Node B: depends on A.
         let b = plan.add_node(
+            "Test",
             &[a],
             Vec::new(),
             Box::new(|_args| Ok(PrimitiveArray::from_iter([20i32]).into_array())),
-            Lifetime::Scan,
+            Lifetime(0..0),
         );
 
         // B starts Waiting since it has 1 input dep.
@@ -350,10 +423,11 @@ mod tests {
         let a = add_resolved_node(&mut plan, PrimitiveArray::from_iter([1i32]).into_array());
 
         let b = plan.add_node(
+            "Test",
             &[a],
             Vec::new(),
             Box::new(|_args| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
-            Lifetime::Scan,
+            Lifetime(0..0),
         );
 
         let deps = plan.dependents_of(a);
@@ -369,10 +443,11 @@ mod tests {
         // Both nodes have no deps, so both are Ready.
         let _a = add_resolved_node(&mut plan, PrimitiveArray::from_iter([1i32]).into_array());
         let _b = plan.add_node(
+            "Test",
             &[],
             Vec::new(),
             Box::new(|_args| Ok(PrimitiveArray::from_iter([2i32]).into_array())),
-            Lifetime::Scan,
+            Lifetime(0..0),
         );
 
         let ready: Vec<_> = plan.ready_nodes_in_range(0..plan.len()).collect();

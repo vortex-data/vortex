@@ -158,6 +158,7 @@ impl LayoutVTable for Struct {
         layout: &Layout<Self>,
         expr: &Expression,
         selection: &Selection,
+        row_offset: Option<u64>,
         row_splits: &mut BTreeSet<u64>,
         session: &VortexSession,
     ) -> VortexResult<SplitPlannerRef> {
@@ -167,26 +168,48 @@ impl LayoutVTable for Struct {
         // StructReader.
         let partitioned = compute_partitioned_expr(expr, layout.dtype(), struct_fields);
 
+        // Pre-compute validity relationship if nullable.
+        let validity_relationship = if layout.dtype().is_nullable() {
+            Some(Self::child_relationship(layout, 0))
+        } else {
+            None
+        };
+
         match partitioned {
             Partitioned::Single(field_name, field_expr) => {
                 let Some(field_idx) = struct_fields.find(&field_name) else {
                     vortex_bail!("Partitioned field {field_name} not found in struct fields")
                 };
                 let child = layout.field_child(field_idx)?;
-                let planner = child.prepare(&field_expr, selection, row_splits, session)?;
+                let field_relationship = layout.field_child_relationship(field_idx);
+                let child_offset = field_relationship.child_row_offset(row_offset);
+                let planner =
+                    child.prepare(&field_expr, selection, child_offset, row_splits, session)?;
 
                 // If nullable, also prepare validity.
-                let validity_planner = if let Some(validity_child) = layout.validity_child()? {
-                    Some(validity_child.prepare(&root(), selection, row_splits, session)?)
-                } else {
-                    None
-                };
+                let validity_planner =
+                    if let (Some(validity_child), Some(validity_rel)) =
+                        (layout.validity_child()?, &validity_relationship)
+                    {
+                        let val_offset = validity_rel.child_row_offset(row_offset);
+                        Some(validity_child.prepare(
+                            &root(),
+                            selection,
+                            val_offset,
+                            row_splits,
+                            session,
+                        )?)
+                    } else {
+                        None
+                    };
 
                 let is_pack_merge = field_expr.is::<Pack>() || field_expr.is::<Merge>();
 
                 Ok(Arc::new(SingleFieldSplitPlanner {
                     planner,
+                    field_relationship,
                     validity_planner,
+                    validity_relationship,
                     is_pack_merge,
                 }))
             }
@@ -202,16 +225,34 @@ impl LayoutVTable for Struct {
                         vortex_bail!("Partitioned field {annotation} not found in struct fields")
                     };
                     let child = layout.field_child(field_idx)?;
-                    let planner = child.prepare(partition_expr, selection, row_splits, session)?;
-                    field_planners.push(planner);
+                    let relationship = layout.field_child_relationship(field_idx);
+                    let child_offset = relationship.child_row_offset(row_offset);
+                    let planner = child.prepare(
+                        partition_expr,
+                        selection,
+                        child_offset,
+                        row_splits,
+                        session,
+                    )?;
+                    field_planners.push((planner, relationship));
                 }
 
                 // If nullable, also prepare validity.
-                let validity_planner = if let Some(validity_child) = layout.validity_child()? {
-                    Some(validity_child.prepare(&root(), selection, row_splits, session)?)
-                } else {
-                    None
-                };
+                let validity_planner =
+                    if let (Some(validity_child), Some(validity_rel)) =
+                        (layout.validity_child()?, &validity_relationship)
+                    {
+                        let val_offset = validity_rel.child_row_offset(row_offset);
+                        Some(validity_child.prepare(
+                            &root(),
+                            selection,
+                            val_offset,
+                            row_splits,
+                            session,
+                        )?)
+                    } else {
+                        None
+                    };
 
                 let is_pack_merge =
                     partitioned_expr.root.is::<Pack>() || partitioned_expr.root.is::<Merge>();
@@ -222,6 +263,7 @@ impl LayoutVTable for Struct {
                     is_pack_merge,
                     field_planners,
                     validity_planner,
+                    validity_relationship,
                 }))
             }
         }
@@ -282,7 +324,9 @@ fn compute_partitioned_expr(
 /// Split planner for a single-field struct expression.
 struct SingleFieldSplitPlanner {
     planner: SplitPlannerRef,
+    field_relationship: ChildRelationship,
     validity_planner: Option<SplitPlannerRef>,
+    validity_relationship: Option<ChildRelationship>,
     /// Whether the field expression produces a struct (Pack/Merge at top level).
     /// When true, validity is applied per-field to avoid changing the outermost struct's
     /// nullability (which may belong to a parent layout's wrapping expression).
@@ -296,16 +340,24 @@ impl SplitPlanner for SingleFieldSplitPlanner {
         selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
-        let data_output = self.planner.plan_split(row_range, selection, builder)?;
+        let data_output = {
+            let mut child_builder = builder.step_into(&self.field_relationship);
+            self.planner
+                .plan_split(row_range, selection, &mut child_builder)?
+        };
 
         let Some(validity_planner) = &self.validity_planner else {
             return Ok(data_output);
         };
 
-        let validity_output = validity_planner.plan_split(row_range, selection, builder)?;
+        let validity_output = {
+            let mut child_builder = builder.step_into(self.validity_relationship.as_ref().unwrap());
+            validity_planner.plan_split(row_range, selection, &mut child_builder)?
+        };
 
         let is_pack_merge = self.is_pack_merge;
         builder.create_node(NodeOpts {
+            label: "StructSingle",
             inputs: &[data_output, validity_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
@@ -341,8 +393,9 @@ struct MultiFieldSplitPlanner {
     root_expr: Expression,
     partition_names: FieldNames,
     is_pack_merge: bool,
-    field_planners: Vec<SplitPlannerRef>,
+    field_planners: Vec<(SplitPlannerRef, ChildRelationship)>,
     validity_planner: Option<SplitPlannerRef>,
+    validity_relationship: Option<ChildRelationship>,
 }
 
 impl SplitPlanner for MultiFieldSplitPlanner {
@@ -353,13 +406,16 @@ impl SplitPlanner for MultiFieldSplitPlanner {
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
         let mut child_outputs = Vec::with_capacity(self.field_planners.len());
-        for planner in &self.field_planners {
-            let output = planner.plan_split(row_range, selection, builder)?;
+        for (planner, relationship) in &self.field_planners {
+            let mut child_builder = builder.step_into(relationship);
+            let output = planner.plan_split(row_range, selection, &mut child_builder)?;
             child_outputs.push(output);
         }
 
         if let Some(validity_planner) = &self.validity_planner {
-            let validity_output = validity_planner.plan_split(row_range, selection, builder)?;
+            let mut child_builder = builder.step_into(self.validity_relationship.as_ref().unwrap());
+            let validity_output =
+                validity_planner.plan_split(row_range, selection, &mut child_builder)?;
             child_outputs.push(validity_output);
         }
 
@@ -368,6 +424,7 @@ impl SplitPlanner for MultiFieldSplitPlanner {
         let is_pack_merge = self.is_pack_merge;
         let has_validity = self.validity_planner.is_some();
         builder.create_node(NodeOpts {
+            label: "StructMulti",
             inputs: &child_outputs,
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),

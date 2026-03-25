@@ -51,6 +51,12 @@ impl ScanBuilder {
         }
     }
 
+    /// Set the scan configuration.
+    pub fn with_config(mut self, config: ScanConfig) -> Self {
+        self.config = config;
+        self
+    }
+
     /// Set the filter expression for the scan.
     pub fn with_filter(mut self, filter: Expression) -> Self {
         self.filter = Some(filter);
@@ -84,6 +90,18 @@ impl ScanBuilder {
     /// Returns the [`DType`] of the scan output after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection.return_dtype(self.layout.dtype())
+    }
+
+    /// Build and return the [`Scan`] state machine directly.
+    pub fn build(self) -> VortexResult<Scan> {
+        Scan::try_new(
+            &self.layout,
+            &self.projection,
+            self.filter.as_ref(),
+            &self.selection,
+            self.config,
+            &self.session,
+        )
     }
 
     /// Build and return an [`ArrayStream`] that drives the v2 scan state machine.
