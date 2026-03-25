@@ -38,8 +38,9 @@ use vortex::session::VortexSession;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
-use vortex_cuda::dynamic_dispatch;
-use vortex_cuda::dynamic_dispatch::DynamicDispatchPlan;
+use vortex_cuda::dynamic_dispatch::CudaDispatchPlan;
+use vortex_cuda::dynamic_dispatch::MaterializedPlan;
+use vortex_cuda::dynamic_dispatch::UnmaterializedPlan;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
@@ -51,14 +52,14 @@ const BENCH_ARGS: &[(usize, &str)] = &[
 
 /// Launch the dynamic_dispatch kernel and return GPU-timed duration.
 ///
-/// This deliberately does not use `DynamicDispatchPlan::execute` because the
+/// This deliberately does not use `CudaDispatchPlan::execute` because the
 /// benchmark pre-allocates the output buffer and device plan once, then reuses
 /// them across iterations.
 fn run_timed(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
     output_buf: &CudaDeviceBuffer,
-    device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
+    device_plan: &Arc<cudarc::driver::CudaSlice<CudaDispatchPlan>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[PType::U32])?;
@@ -111,40 +112,43 @@ fn run_timed(
 
 /// Benchmark runner: builds a dynamic plan and launches the kernel.
 struct BenchRunner {
-    _plan: DynamicDispatchPlan,
+    _plan: CudaDispatchPlan,
     smem_bytes: u32,
     len: usize,
     // Keep alive
-    device_plan: Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
+    device_plan: Arc<cudarc::driver::CudaSlice<CudaDispatchPlan>>,
     output_buf: CudaDeviceBuffer,
     _plan_buffers: Vec<vortex::array::buffer::BufferHandle>,
 }
 
 impl BenchRunner {
     fn new(array: &vortex::array::ArrayRef, len: usize, cuda_ctx: &CudaExecutionCtx) -> Self {
-        let (plan, plan_buffers) =
-            dynamic_dispatch::build_plan(array, cuda_ctx).vortex_expect("build_plan");
-        let smem_bytes = plan.shared_mem_bytes::<u32>();
+        let MaterializedPlan {
+            dispatch_plan,
+            device_buffers,
+            shared_mem_bytes,
+        } = UnmaterializedPlan::new(array)
+            .and_then(|p| p.materialize(cuda_ctx))
+            .vortex_expect("build_dyn_dispatch_plan");
 
         let device_plan = Arc::new(
             cuda_ctx
                 .stream()
-                .clone_htod(std::slice::from_ref(&plan))
+                .clone_htod(std::slice::from_ref(&dispatch_plan))
                 .expect("htod plan"),
         );
 
-        let output_slice = cuda_ctx
-            .device_alloc::<u32>(len.next_multiple_of(1024))
-            .expect("alloc output");
-        let output_buf = CudaDeviceBuffer::new(output_slice);
-
         Self {
-            _plan: plan,
-            smem_bytes,
+            _plan: dispatch_plan,
+            smem_bytes: shared_mem_bytes,
             len,
             device_plan,
-            output_buf,
-            _plan_buffers: plan_buffers,
+            output_buf: CudaDeviceBuffer::new(
+                cuda_ctx
+                    .device_alloc::<u32>(len.next_multiple_of(1024))
+                    .expect("alloc output"),
+            ),
+            _plan_buffers: device_buffers,
         }
     }
 

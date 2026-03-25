@@ -1,15 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Walks an encoding tree and builds a [`DynamicDispatchPlan`].
+//! Walks an encoding tree and produces a dispatch plan for a single GPU kernel launch.
+//! [`UnmaterializedPlan::new`] builds the plan without a CUDA context, then
+//! [`materialize`](UnmaterializedPlan::materialize) copies buffers to the device.
 //!
-//! The builder recursively inspects the array's encoding, moves leaf buffers
-//! to the device, computes shared memory offsets, and produces a plan that the
-//! dynamic dispatch kernel can execute in a single launch.
+//! For partially-fusable trees (where some nodes can't be fused into the
+//! dispatch plan), the free function [`with_subtree_inputs`] builds a plan
+//! that incorporates pre-executed subtree outputs as `LOAD` sources.
+//!
+//! The two-phase design allows callers to query shared memory requirements
+//! before committing to device allocation, and keeps the bulk of the logic
+//! independent of the CUDA runtime.
+//!
+//! # Known limitations
+//!
+//! TODO(0ax1): Optimize device buffer allocation and copying.
+//!
+//! Ideally, there would be a buffer pool of preallocated device memory such
+//! that retrieving a device pointer is O(1) during materialization. In the
+//! current setup, we allocate via the global allocator, which does not pin
+//! host memory to physical addresses (unlike `cudaHostAlloc`). This means
+//! the host-to-device copy is synchronous and cannot be pushed to the CUDA
+//! stream as an async operation.
 
 use std::sync::Arc;
 
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVisitor;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Dict;
@@ -35,131 +53,45 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::session::VortexSession;
 
-use super::DynamicDispatchPlan;
+use super::CudaDispatchPlan;
 use super::MAX_SCALAR_OPS;
 use super::MAX_STAGES;
+use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
 use super::Stage;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 
-/// The result of walking a subtree: a source op, scalar ops to apply after,
-/// and the device pointer to the leaf buffer.
-struct Pipeline {
-    source: SourceOp,
-    scalar_ops: Vec<ScalarOp>,
-    input_ptr: u64,
+/// A plan whose source buffers have been copied to the device, ready for kernel launch.
+pub struct MaterializedPlan {
+    /// The C ABI plan struct, ready to upload to the device.
+    pub dispatch_plan: CudaDispatchPlan,
+    /// Device buffer handles that must be kept alive while the plan is in use.
+    pub device_buffers: Vec<BufferHandle>,
+    /// Dynamic shared memory bytes needed to launch this plan.
+    pub shared_mem_bytes: u32,
 }
 
-/// Walk the encoding tree of `array` and build a [`DynamicDispatchPlan`].
+/// Find encoding-tree nodes that cannot be fused into a dynamic-dispatch plan.
 ///
-/// Leaf buffers are moved to the device if not already there. The returned
-/// buffer handles must be kept alive while the plan's device pointers are
-/// in use.
+/// Each returned node is the root of a branch that must be executed by a
+/// separate kernel. Their outputs can then be fed into
+/// [`UnmaterializedPlan::new_with_subtree_inputs`] as `LOAD` sources.
 ///
-/// # Plan construction
-///
-/// The builder walks the encoding tree from root to leaf. Single-child
-/// encodings (FoR, ZigZag, ALP) recurse into their child and append an
-/// element-wise transform to the pipeline. Leaf encodings (BitPacked,
-/// Primitive) produce a source op and a device pointer.
-///
-/// Encodings with multiple children (Dict, RunEnd) emit an input stage
-/// for each child, writing its output to shared memory. The root of the
-/// tree becomes the final output stage, which writes directly to global
-/// memory instead.
-///
-/// Shared memory offsets are bump-allocated: each input stage claims
-/// the next available region. Since the output stage may reference any
-/// input stage's output (e.g., dictionary lookup, run-end resolution),
-/// all regions must coexist simultaneously — the total shared memory
-/// is `max(smem_offset + len) * sizeof(T)` across all stages.
-///
-/// # Supported encodings
-///
-/// - `PrimitiveArray` → `LOAD` source
-/// - `BitPackedArray` → `BITUNPACK` source (no patches)
-/// - `FoRArray` → recurse + `FoR` scalar op
-/// - `ZigZagArray` → recurse + `ZigZag` scalar op
-/// - `ALPArray` → recurse + `ALP` scalar op (f32 only, no patches)
-/// - `DictArray` → input stage for values + recurse codes + `DICT` scalar op
-/// - `RunEndArray` → input stages for ends/values + `RUNEND` source
-/// - `SequenceArray` → `SEQUENCE` source (integer ptypes only)
-/// - `SliceArray` → resolve via child's slice reduce/kernel
-///
-/// # Limitations
-///
-/// **Nullability**: validity bitmaps are silently ignored. All output elements
-/// receive a value regardless of whether the input was null. Only arrays with
-/// `NonNullable` or `AllValid` validity produce correct results.
-///
-/// **Patches**: `BitPackedArray` with patches and `ALPArray` with patches are
-/// not supported and will return an error.
-///
-/// **f64 ALP**: Only f32 ALP is supported. The CUDA kernel's `AlpParams`
-/// stores multipliers as `float`, so f64 ALP arrays will return an error.
-pub fn build_plan(
-    array: &ArrayRef,
-    ctx: &CudaExecutionCtx,
-) -> VortexResult<(DynamicDispatchPlan, Vec<BufferHandle>)> {
-    build_plan_with_subtrees(array, ctx, &[])
-}
-
-/// Build a [`DynamicDispatchPlan`] with subtrees run as separate
-/// kernels that provide device buffers as inputs integrated via `LOAD`.
-pub fn build_plan_with_subtrees(
-    array: &ArrayRef,
-    ctx: &CudaExecutionCtx,
-    subtree_inputs: &[(ArrayRef, BufferHandle)],
-) -> VortexResult<(DynamicDispatchPlan, Vec<BufferHandle>)> {
-    let sub_map = subtree_inputs
-        .iter()
-        .map(|(arr, handle)| {
-            let ptr = handle.cuda_device_ptr()?;
-            Ok((Arc::as_ptr(arr) as *const () as usize, ptr))
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    let mut state = PlanBuilderState {
-        ctx,
-        stages: Vec::new(),
-        smem_cursor: 0,
-        device_buffers: Vec::new(),
-        subtree_inputs: sub_map,
-    };
-
-    let pipeline = state.walk(array.clone())?;
-    let output_stage = Stage::output(
-        pipeline.input_ptr,
-        state.smem_cursor,
-        pipeline.source,
-        &pipeline.scalar_ops,
-    );
-    state.stages.push(output_stage);
-
-    assert!(state.stages.len() <= MAX_STAGES as usize);
-    assert!(
-        state
-            .stages
-            .iter()
-            .all(|&stage| (stage.num_scalar_ops as u32) <= MAX_SCALAR_OPS)
-    );
-
-    Ok((DynamicDispatchPlan::new(state.stages), state.device_buffers))
-}
-
-/// Walk the encoding tree and find subtrees that cannot be fused into a
-/// dynamic-dispatch plan. The root of each subtree has a node that cannot
-/// be fused.
-///
-/// Returns an empty vec if the root itself cannot be fused.
-pub fn find_subtrees(array: &ArrayRef) -> Vec<ArrayRef> {
+/// Returns an empty vec if the root itself is not fusable.
+pub fn find_unfusable_nodes(array: &ArrayRef) -> Vec<ArrayRef> {
     if !is_dyn_dispatch_compatible(array) {
         return Vec::new();
     }
     let mut out = Vec::new();
-    collect_subtrees(array, &mut out);
+    for child in array.children() {
+        if is_dyn_dispatch_compatible(&child) {
+            out.extend(find_unfusable_nodes(&child));
+        } else {
+            out.push(child);
+        }
+    }
     out
 }
 
@@ -213,81 +145,188 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         || id == Sequence::ID
 }
 
-/// Walk the children of a dynamic dispatch compatible root node. Any child
-/// that is not dyn dispatch compatible is recorded as a subtree that must be
-/// executed separately.
-fn collect_subtrees(array: &ArrayRef, out: &mut Vec<ArrayRef>) {
-    let id = array.encoding_id();
-
-    fn visit_child(child: &ArrayRef, out: &mut Vec<ArrayRef>) {
-        if is_dyn_dispatch_compatible(child) {
-            collect_subtrees(child, out);
-        } else {
-            out.push(child.clone());
-        }
+/// Extract a FoR reference scalar as u64 bits.
+fn extract_for_reference(for_arr: &FoRArray) -> VortexResult<u64> {
+    if let Ok(v) = u32::try_from(for_arr.reference_scalar()) {
+        Ok(v as u64)
+    } else if let Ok(v) = i32::try_from(for_arr.reference_scalar()) {
+        Ok(v as u32 as u64)
+    } else if let Ok(v) = u64::try_from(for_arr.reference_scalar()) {
+        Ok(v)
+    } else if let Ok(v) = i64::try_from(for_arr.reference_scalar()) {
+        Ok(v as u64)
+    } else {
+        vortex_bail!("Cannot extract FoR reference as an integer type")
     }
-
-    if id == FoR::ID {
-        if let Ok(a) = array.clone().try_into::<FoR>() {
-            visit_child(a.encoded(), out);
-        }
-    } else if id == ZigZag::ID {
-        if let Ok(a) = array.clone().try_into::<ZigZag>() {
-            visit_child(a.encoded(), out);
-        }
-    } else if id == ALP::ID {
-        if let Ok(a) = array.clone().try_into::<ALP>() {
-            visit_child(a.encoded(), out);
-        }
-    } else if id == Slice::ID {
-        if let Some(a) = array.as_opt::<Slice>() {
-            visit_child(a.child(), out);
-        }
-    } else if id == Dict::ID
-        && let Ok(a) = array.clone().try_into::<Dict>()
-    {
-        visit_child(a.values(), out);
-        visit_child(a.codes(), out);
-    } else if id == RunEnd::ID
-        && let Ok(a) = array.clone().try_into::<RunEnd>()
-    {
-        visit_child(a.ends(), out);
-        visit_child(a.values(), out);
-    }
-    // BitPacked, Primitive, Sequence — leaves, no children.
 }
 
-/// Internal mutable state for the recursive tree walk.
-struct PlanBuilderState<'a> {
-    ctx: &'a CudaExecutionCtx,
-    /// Stages to process in the dynamic dispatch kernel.
-    stages: Vec<Stage>,
-    /// Next available element offset in shared memory.
-    smem_cursor: u32,
-    /// Device buffers to keep alive.
-    device_buffers: Vec<BufferHandle>,
-    /// Pre-executed subtree outputs injected as `LOAD` sources: `(identity, device_ptr)`.
-    subtree_inputs: Vec<(usize, u64)>,
+/// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
+struct UnmaterializedStage {
+    source: SourceOp,
+    scalar_ops: Vec<ScalarOp>,
+    /// Index into `UnmaterializedPlan::source_buffers`, or `None`
+    /// for sources that don't read from a device buffer.
+    source_buffer_index: Option<usize>,
 }
 
-impl PlanBuilderState<'_> {
-    /// If `array` matches a pre-executed subtree input, return a `LOAD` pipeline pointing at its device buffer.
-    fn find_subtree(&self, array: &ArrayRef) -> Option<Pipeline> {
-        let subtree_id = Arc::as_ptr(array) as *const () as usize;
-        self.subtree_inputs
+impl UnmaterializedStage {
+    fn new(source: SourceOp, source_buffer_index: Option<usize>) -> Self {
+        Self {
+            source,
+            scalar_ops: vec![],
+            source_buffer_index,
+        }
+    }
+}
+
+type SmemOffset = u32;
+type StageLen = u32;
+type ArrayId = usize;
+type SourceBufferIdx = usize;
+
+/// A dispatch plan before device materialization.
+///
+/// Created by [`UnmaterializedPlan::new`] or [`new_with_subtree_inputs`](Self::new_with_subtree_inputs).
+/// Query shared memory requirements via [`shared_mem_bytes`](Self::shared_mem_bytes),
+/// then copy source buffers to the device via [`materialize`](Self::materialize).
+pub struct UnmaterializedPlan {
+    /// Input stages followed by one output stage.
+    stages: Vec<(UnmaterializedStage, SmemOffset, StageLen)>,
+    smem_cursor: SmemOffset,
+    source_buffers: Vec<BufferHandle>,
+    elem_bytes: u32,
+    subtree_inputs: Vec<(ArrayId, SourceBufferIdx)>,
+}
+
+impl UnmaterializedPlan {
+    /// Construct a plan by walking the encoding tree from root to leaf.
+    ///
+    /// No CUDA context is needed — source buffers are extracted but not
+    /// yet copied to the device. Call [`materialize`](Self::materialize)
+    /// to do the device copy.
+    ///
+    /// # Limitations
+    ///
+    /// - Validity bitmaps are ignored; only `NonNullable`/`AllValid` is supported.
+    /// - `BitPackedArray` and `ALPArray` with patches are not supported.
+    /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
+    pub fn new(array: &ArrayRef) -> VortexResult<Self> {
+        Self::new_with_subtree_inputs(array, &[])
+    }
+
+    /// Build an [`UnmaterializedPlan`] with pre-executed subtree outputs
+    /// injected as `LOAD` sources.
+    ///
+    /// Used by hybrid dispatch when some nodes in the encoding tree cannot
+    /// be fused. Those nodes are executed separately, and their device buffers
+    /// are passed here so the remaining fusable tree can reference them.
+    pub fn new_with_subtree_inputs(
+        array: &ArrayRef,
+        subtree_inputs: &[(ArrayRef, BufferHandle)],
+    ) -> VortexResult<UnmaterializedPlan> {
+        let elem_bytes = PType::try_from(array.dtype())
+            .map_err(|_| {
+                vortex_err!(
+                    "dyn dispatch requires primitive dtype, got {:?}",
+                    array.dtype()
+                )
+            })?
+            .byte_width() as u32;
+
+        let subtree_map: Vec<(ArrayId, SourceBufferIdx)> = subtree_inputs
             .iter()
-            .find(|(id, _)| *id == subtree_id)
-            .map(|(_, ptr)| Pipeline {
-                source: SourceOp::load(),
-                scalar_ops: vec![],
-                input_ptr: *ptr,
-            })
+            .enumerate()
+            .map(|(leaf_idx, (arr, _handle))| (Arc::as_ptr(arr) as *const () as usize, leaf_idx))
+            .collect();
+
+        // Subtree source buffers get indices 0..n
+        let source_buffers: Vec<BufferHandle> = subtree_inputs
+            .iter()
+            .map(|(_, handle)| handle.clone())
+            .collect();
+
+        let mut plan = Self {
+            stages: Vec::new(),
+            smem_cursor: SmemOffset::from(0u32),
+            source_buffers,
+            elem_bytes,
+            subtree_inputs: subtree_map,
+        };
+
+        let len = array.len() as u32;
+        let output = plan.walk(array.clone())?;
+        plan.stages.push((output, plan.smem_cursor, len));
+
+        assert!(plan.stages.len() <= MAX_STAGES as usize);
+        assert!(
+            plan.stages
+                .iter()
+                .all(|(s, ..)| (s.scalar_ops.len() as u32) <= MAX_SCALAR_OPS)
+        );
+
+        Ok(plan)
     }
 
-    /// Recursively walk the encoding tree.
-    fn walk(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
-        if let Some(pipeline) = self.find_subtree(&array) {
-            return Ok(pipeline);
+    /// Shared memory bytes needed to launch this plan.
+    ///
+    /// Shared memory holds the *output* of each stage so later stages can
+    /// reference it (e.g., dictionary values, run-end endpoints). The total
+    /// is the sum of all input stage lengths plus the output tile size,
+    /// multiplied by the element byte width.
+    pub fn shared_mem_bytes(&self) -> u32 {
+        (self.smem_cursor + SMEM_TILE_SIZE) * self.elem_bytes
+    }
+
+    /// Copy source buffers to the device, producing a [`MaterializedPlan`].
+    pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
+        let shared_mem_bytes = self.shared_mem_bytes();
+        let mut device_buffers = Vec::new();
+        let mut device_ptrs: Vec<u64> = Vec::new();
+
+        // Copy each source buffer to the device and record its pointer.
+        for source_buf in self.source_buffers {
+            let device_buf = ctx.ensure_on_device_sync(source_buf)?;
+            let ptr = device_buf.cuda_device_ptr()?;
+            device_ptrs.push(ptr);
+            device_buffers.push(device_buf);
+        }
+
+        // Resolve the device pointer for a stage's source buffer.
+        // RUNEND and SEQUENCE sources don't read from global memory —
+        // they use shared memory or generate data on the fly, so
+        // `input_ptr = 0` is safe (the kernel never dereferences it).
+        let resolve_ptr = |stage: &UnmaterializedStage| -> u64 {
+            match stage.source_buffer_index {
+                Some(idx) => device_ptrs[idx],
+                None => 0,
+            }
+        };
+
+        let mut stages = Vec::with_capacity(self.stages.len());
+
+        for (stage, smem_offset, len) in &self.stages {
+            stages.push(Stage::new(
+                resolve_ptr(stage),
+                *smem_offset,
+                *len,
+                stage.source,
+                &stage.scalar_ops,
+            ));
+        }
+
+        Ok(MaterializedPlan {
+            dispatch_plan: CudaDispatchPlan::new(stages),
+            device_buffers,
+            shared_mem_bytes,
+        })
+    }
+
+    /// Walk the encoding tree, producing an [`UnmaterializedStage`] for the root.
+    fn walk(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
+        // Check if this array matches a pre-executed subtree input.
+        let subtree_id = Arc::as_ptr(&array) as *const () as usize;
+        if let Some((_, buf_idx)) = self.subtree_inputs.iter().find(|(id, _)| *id == subtree_id) {
+            return Ok(UnmaterializedStage::new(SourceOp::load(), Some(*buf_idx)));
         }
 
         if !is_dyn_dispatch_compatible(&array) {
@@ -329,7 +368,7 @@ impl PlanBuilderState<'_> {
     ///
     /// When the plan builder encounters a `SliceArray`, it resolves the slice
     /// by invoking the child's `reduce_parent`, `execute_parent`.
-    fn walk_slice(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_slice(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
@@ -350,38 +389,15 @@ impl PlanBuilderState<'_> {
         )
     }
 
-    /// Canonical primitive array → LOAD source op.
-    ///
-    /// The device pointer accounts for buffer slicing, so no offset parameter is needed.
-    fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let prim = array.to_canonical()?.into_primitive();
         let PrimitiveArrayParts { buffer, .. } = prim.into_parts();
-
-        // TODO(0ax1): Optimize device buffer allocation and copying.
-        //
-        // Ideally, there would be a buffer pool of preallocated device memory
-        // such that retrieving a device pointer is O(1) when building the
-        // dynamic dispatch plan. In the current setup, we need to allocate the
-        // buffer before we can get the device pointer. As the memory is
-        // allocated via the global allocator, which does not pin the host
-        // memory to physical addresses unlike `cudaHostAlloc`, the subsequent
-        // memory copy from host to device is sync and cannot be pushed to the
-        // CUDA stream as an async operation.
-        let device_buf = self.ctx.ensure_on_device_sync(buffer)?;
-        let ptr = device_buf.cuda_device_ptr()?;
-        self.device_buffers.push(device_buf);
-        Ok(Pipeline {
-            source: SourceOp::load(),
-            scalar_ops: vec![],
-            input_ptr: ptr,
-        })
+        let buf_index = self.source_buffers.len();
+        self.source_buffers.push(buffer);
+        Ok(UnmaterializedStage::new(SourceOp::load(), Some(buf_index)))
     }
 
-    /// BitPackedArray → BITUNPACK source op.
-    ///
-    /// The sub-byte element offset (0..=1023) is passed as a kernel parameter
-    /// as it cannot be expressed as pointer arithmetic on the device pointer.
-    fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let bp = array
             .try_into::<BitPacked>()
             .map_err(|_| vortex_err!("Expected BitPackedArray"))?;
@@ -397,18 +413,15 @@ impl PlanBuilderState<'_> {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
 
-        let device_buf = self.ctx.ensure_on_device_sync(packed)?;
-        let ptr = device_buf.cuda_device_ptr()?;
-        self.device_buffers.push(device_buf);
-        Ok(Pipeline {
-            source: SourceOp::bitunpack(bit_width, offset),
-            scalar_ops: vec![],
-            input_ptr: ptr,
-        })
+        let buf_index = self.source_buffers.len();
+        self.source_buffers.push(packed);
+        Ok(UnmaterializedStage::new(
+            SourceOp::bitunpack(bit_width, offset),
+            Some(buf_index),
+        ))
     }
 
-    /// FoRArray → recurse into encoded child, add FoR scalar op.
-    fn walk_for(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_for(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let for_arr = array
             .try_into::<FoR>()
             .map_err(|_| vortex_err!("Expected FoRArray"))?;
@@ -420,8 +433,7 @@ impl PlanBuilderState<'_> {
         Ok(pipeline)
     }
 
-    /// ZigZagArray → recurse into encoded child, add ZigZag scalar op.
-    fn walk_zigzag(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_zigzag(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let zz = array
             .try_into::<ZigZag>()
             .map_err(|_| vortex_err!("Expected ZigZagArray"))?;
@@ -432,8 +444,7 @@ impl PlanBuilderState<'_> {
         Ok(pipeline)
     }
 
-    /// ALPArray → recurse into encoded child, add ALP scalar op (f32 only).
-    fn walk_alp(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_alp(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let alp = array
             .try_into::<ALP>()
             .map_err(|_| vortex_err!("Expected ALPArray"))?;
@@ -460,8 +471,7 @@ impl PlanBuilderState<'_> {
         Ok(pipeline)
     }
 
-    /// DictArray → add input stage for values, recurse into codes, add DICT scalar op.
-    fn walk_dict(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_dict(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let dict = array
             .try_into::<Dict>()
             .map_err(|_| vortex_err!("Expected DictArray"))?;
@@ -475,10 +485,7 @@ impl PlanBuilderState<'_> {
         Ok(pipeline)
     }
 
-    /// SequenceArray → SEQUENCE source op
-    ///
-    /// Generates `value[i] = base + i * multiplier` on the GPU.
-    fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let seq = array
             .try_into::<Sequence>()
             .map_err(|_| vortex_err!("Expected SequenceArray"))?;
@@ -486,16 +493,13 @@ impl PlanBuilderState<'_> {
             base, multiplier, ..
         } = seq.into_parts();
 
-        Ok(Pipeline {
-            source: SourceOp::sequence(base.cast()?, multiplier.cast()?),
-            scalar_ops: vec![],
-            // SEQUENCE does not have an input pointer.
-            input_ptr: 0,
-        })
+        Ok(UnmaterializedStage::new(
+            SourceOp::sequence(base.cast()?, multiplier.cast()?),
+            None,
+        ))
     }
 
-    /// RunEndArray → add input stages for ends and values, RUNEND source op.
-    fn walk_runend(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_runend(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let re = array
             .try_into::<RunEnd>()
             .map_err(|_| vortex_err!("Expected RunEndArray"))?;
@@ -506,43 +510,18 @@ impl PlanBuilderState<'_> {
         let ends_smem = self.add_input_stage(ends)?;
         let values_smem = self.add_input_stage(values)?;
 
-        Ok(Pipeline {
-            source: SourceOp::runend(ends_smem, values_smem, num_runs, offset),
-            scalar_ops: vec![],
-            input_ptr: 0,
-        })
+        Ok(UnmaterializedStage::new(
+            SourceOp::runend(ends_smem, values_smem, num_runs, offset),
+            None,
+        ))
     }
 
-    /// Recursively walk `array` and add it as an input stage in shared memory.
-    /// Claims the next `array.len()` elements from the bump allocator and
-    /// returns the smem element offset where this stage's output begins.
     fn add_input_stage(&mut self, array: ArrayRef) -> VortexResult<u32> {
         let smem_offset = self.smem_cursor;
         let len = array.len() as u32;
-        let pipeline = self.walk(array)?;
-        self.stages.push(Stage::input(
-            pipeline.input_ptr,
-            smem_offset,
-            len,
-            pipeline.source,
-            &pipeline.scalar_ops,
-        ));
+        let spec = self.walk(array)?;
+        self.stages.push((spec, smem_offset, len));
         self.smem_cursor += len;
         Ok(smem_offset)
-    }
-}
-
-/// Extract a FoR reference scalar as u64 bits.
-fn extract_for_reference(for_arr: &FoRArray) -> VortexResult<u64> {
-    if let Ok(v) = u32::try_from(for_arr.reference_scalar()) {
-        Ok(v as u64)
-    } else if let Ok(v) = i32::try_from(for_arr.reference_scalar()) {
-        Ok(v as u32 as u64)
-    } else if let Ok(v) = u64::try_from(for_arr.reference_scalar()) {
-        Ok(v)
-    } else if let Ok(v) = i64::try_from(for_arr.reference_scalar()) {
-        Ok(v as u64)
-    } else {
-        vortex_bail!("Cannot extract FoR reference as an integer type")
     }
 }

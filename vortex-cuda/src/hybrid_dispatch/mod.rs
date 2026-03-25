@@ -4,31 +4,30 @@
 //! Hybrid dispatch: fuses dynamic-dispatch plans with single-kernel fallbacks.
 //!
 //! When an array is executed on the GPU, we fuse as much of its encoding
-//! tree as possible into dynamic-dispatch kernel launches.  Encodings the
-//! plan builder cannot handle are executed by their own kernels, and their
-//! outputs are fed back into the fused plan as `LOAD` source ops.
+//! tree as possible into a single kernel launch via [`UnmaterializedPlan`].
+//! Nodes the plan builder cannot handle are found by [`find_unfusable_nodes`],
+//! executed by their own kernels, and their outputs fed back into the fused
+//! plan as `LOAD` sources via [`UnmaterializedPlan::new_with_subtree_inputs`].
 //!
 //! ```text
-//!   Dict                       <-- dyn-dispatch-compatible
-//!   ├── codes: FoR(BP)         <-- dyn-dispatch-compatible
-//!   └── values: Zstd(FoR(BP)) <-- Zstd is NOT compatible ("subtree")
-//!                 └── FoR(BP)  <-- compatible (fuses inside the subtree)
+//!   Dict                       <-- fusable
+//!   ├── codes: FoR(BP)         <-- fusable
+//!   └── values: Zstd(FoR(BP)) <-- Zstd is NOT fusable (unfusable node)
+//!                 └── FoR(BP)  <-- fusable (fuses inside the subtree)
 //! ```
-//!
-//! A "subtree" is a branch with a root node that is not dyn dispatch compatible
-//! (below a compatible parent). It is executed via `execute_cuda`, which
-//! re-enters `try_gpu_dispatch` so compatible descendants still get fused.
 //!
 //! Strategies tried in order:
 //!
-//! 1. Fully fused — no subtrees, whole tree is one `DynamicDispatchPlan`.
+//! 1. Fully fused — no unfusable nodes, entire tree compiles into one
+//!    [`UnmaterializedPlan`] → [`MaterializedPlan`](crate::dynamic_dispatch::MaterializedPlan) → kernel launch.
 //!
-//! 2. Partial fusion — subtrees are executed first (sequentially, same
-//!    stream), their device buffers become `LOAD` ops in a fused plan.
-//!    Each subtree re-enters `try_gpu_dispatch` and may itself fuse.
+//! 2. Partial fusion — unfusable nodes are executed first (sequentially,
+//!    same stream), their device buffers become `LOAD` ops in a fused plan
+//!    via [`UnmaterializedPlan::new_with_subtree_inputs`]. Each node re-enters [`try_gpu_dispatch`]
+//!    and may itself fuse.
 //!
-//! 3. Fallback — root is not compatible.  Delegate to its registered
-//!    `CudaExecute` kernel; its children re-enter `try_gpu_dispatch`.
+//! 3. Fallback — root is not fusable. Delegate to its registered
+//!    `CudaExecute` kernel; its children re-enter [`try_gpu_dispatch`].
 //!
 //! All three compose recursively to arbitrary depth.
 //!
@@ -52,24 +51,20 @@ use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
-use crate::dynamic_dispatch::plan_builder::build_plan;
-use crate::dynamic_dispatch::plan_builder::build_plan_with_subtrees;
-use crate::dynamic_dispatch::plan_builder::find_subtrees;
+use crate::dynamic_dispatch::plan_builder::UnmaterializedPlan;
+use crate::dynamic_dispatch::plan_builder::find_unfusable_nodes;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecutionCtx;
 
 /// Try to execute `array` on the GPU, attempting three strategies in order:
 ///
-/// 1. Fully fused — the entire encoding tree compiles into one
-///    `DynamicDispatchPlan` kernel launch.
-/// 2. Partially fused — incompatible subtrees are executed first
-///    (via recursive `execute_cuda`), then the remaining compatible tree
-///    is fused into a single plan with their outputs as `LOAD` sources.
-/// 3. Single-kernel fallback — the root encoding's registered
-///    `CudaExecute` kernel handles one layer; its children re-enter
-///    this function recursively.
+/// 1. Fully fused — [`UnmaterializedPlan::new`] + [`materialize`](UnmaterializedPlan::materialize).
+/// 2. Partially fused — unfusable nodes executed first, then
+///    [`UnmaterializedPlan::new_with_subtree_inputs`] + [`materialize`](UnmaterializedPlan::materialize).
+/// 3. Fallback — root encoding's `CudaExecute` kernel; children
+///    re-enter this function recursively.
 ///
-/// Returns `Ok(Canonical)` on success.  Returns `Err` when the array
+/// Returns `Ok(Canonical)` on success. Returns `Err` when the array
 /// cannot be handled (non-primitive output dtype, no registered kernel).
 pub async fn try_gpu_dispatch(
     array: &ArrayRef,
@@ -84,13 +79,13 @@ pub async fn try_gpu_dispatch(
 
     trace!(encoding = %array.encoding_id(), ptype = %output_ptype, len = array.len(), "attempting dyn dispatch");
 
-    let subtrees = find_subtrees(array);
+    let subtrees = find_unfusable_nodes(array);
 
     if subtrees.is_empty() {
         // Whole tree is dyn-dispatch-compatible.
-        if let Ok((plan, bufs)) = build_plan(array, ctx) {
-            debug!(encoding = %array.encoding_id(), num_stages = plan.num_stages, "fully-fused dyn dispatch");
-            return plan.execute(output_ptype, array.len(), bufs, ctx);
+        if let Ok(plan) = UnmaterializedPlan::new(array).and_then(|p| p.materialize(ctx)) {
+            debug!(encoding = %array.encoding_id(), num_stages = plan.dispatch_plan.num_stages, "fully-fused dyn dispatch");
+            return plan.execute(output_ptype, array.len(), ctx);
         }
     } else if let Some(result) =
         // Incompatible subtrees are executed first (re-entering try_gpu_dispatch),
@@ -108,8 +103,8 @@ pub async fn try_gpu_dispatch(
         .await
 }
 
-/// Execute each subtree that is not dyn-dispatch-compatible, then build a fused
-/// plan that reads their outputs via `LOAD`. Returns `None` if partial fusion
+/// Execute each unfusable node separately, then build a fused plan that reads
+/// their outputs via [`with_subtree_inputs`]. Returns `None` if partial fusion
 /// isn't possible (e.g. a subtree produced a non-primitive result).
 async fn try_partial_fuse(
     array: &ArrayRef,
@@ -134,14 +129,17 @@ async fn try_partial_fuse(
         ));
     }
 
-    let Ok((plan, mut bufs)) = build_plan_with_subtrees(array, ctx, &subtree_inputs) else {
+    let Ok(mut plan) = UnmaterializedPlan::new_with_subtree_inputs(array, &subtree_inputs)
+        .and_then(|p| p.materialize(ctx))
+    else {
         return Ok(None);
     };
 
     let n = subtree_inputs.len();
-    bufs.extend(subtree_inputs.into_iter().map(|(_, h)| h));
-    debug!(encoding = %array.encoding_id(), num_stages = plan.num_stages, num_subtrees = n, "partially-fused dyn dispatch");
-    plan.execute(output_ptype, array.len(), bufs, ctx).map(Some)
+    plan.device_buffers
+        .extend(subtree_inputs.into_iter().map(|(_, h)| h));
+    debug!(encoding = %array.encoding_id(), num_stages = plan.dispatch_plan.num_stages, num_subtrees = n, "partially-fused dyn dispatch");
+    plan.execute(output_ptype, array.len(), ctx).map(Some)
 }
 
 #[cfg(test)]
@@ -189,7 +187,7 @@ mod tests {
     }
 
     /// ALP(FoR(BP)) f32 — fully fused, output is f32 but kernel runs as u32.
-    /// Exercises the unsigned type reinterpretation in DynamicDispatchPlan::execute.
+    /// Exercises the unsigned type reinterpretation in CudaDispatchPlan::execute.
     #[crate::test]
     async fn test_fused_f32() -> VortexResult<()> {
         use vortex::encodings::alp::ALPArray;
