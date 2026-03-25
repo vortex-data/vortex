@@ -6,7 +6,7 @@ dynamic = ["version", "description", "authors"]
 readme = "README.md"
 dependencies = [
     "pyarrow>=17.0.0",
-    "substrait>=0.23.0",
+    "substrait>=0.23.0,<0.85.0",
     "typing-extensions>=4.5.0",
 ]
 requires-python = ">= 3.11"
