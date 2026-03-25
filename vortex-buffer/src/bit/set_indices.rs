@@ -4,7 +4,12 @@
 //! Fast extraction of set-bit indices from packed bitmaps.
 //!
 //! Provides both an iterator-based API and a bulk collection API, with
-//! scalar and (on x86-64) BMI2-accelerated implementations.
+//! scalar and (on x86-64) SIMD-accelerated implementations.
+//!
+//! The fastest path uses AVX-512 VPCOMPRESSD to convert 16 bitmap bits into
+//! compressed index stores in a single instruction, combined with 512-bit
+//! zero-checks to skip sparse regions. Falls back to BMI2 BLSR/TZCNT, then
+//! pure scalar.
 
 use crate::bit::count_ones::count_ones;
 
@@ -142,9 +147,7 @@ impl<'a> ScalarBitIndexIterator<'a> {
         let avail = unsafe { self.end.offset_from(self.ptr) } as usize;
 
         // Fast path: skip 4 zero words at a time (256 bits).
-        // At 1% density ~64% of words are zero — this cuts scan cost by ~4x.
         if self.remaining >= 256 && avail >= 32 {
-            // OR four words together; if all zero, skip entire group.
             loop {
                 let w0 = unsafe { read_u64_le(self.ptr) };
                 let w1 = unsafe { read_u64_le(self.ptr.add(8)) };
@@ -152,7 +155,6 @@ impl<'a> ScalarBitIndexIterator<'a> {
                 let w3 = unsafe { read_u64_le(self.ptr.add(24)) };
 
                 if (w0 | w1 | w2 | w3) != 0 {
-                    // At least one is non-zero — find which one.
                     self.base = self.next_base;
                     if w0 != 0 {
                         self.current_word = w0;
@@ -185,7 +187,6 @@ impl<'a> ScalarBitIndexIterator<'a> {
                     return true;
                 }
 
-                // All four zero — skip.
                 self.ptr = unsafe { self.ptr.add(32) };
                 self.next_base += 256;
                 self.remaining -= 256;
@@ -259,11 +260,8 @@ impl Iterator for ScalarBitIndexIterator<'_> {
 // Bulk collection: scalar
 // ---------------------------------------------------------------------------
 
-/// Collect all set-bit indices into a `Vec<u32>`. Faster than iterating
-/// one-by-one because it pre-allocates and avoids per-element iterator overhead.
-///
-/// Uses `u32` indices to halve memory bandwidth (sufficient for buffers up to
-/// 4 billion bits).
+/// Collect all set-bit indices into a `Vec<u32>`. Scalar fallback that works
+/// on all platforms.
 #[allow(clippy::cast_possible_truncation)]
 pub fn collect_set_indices_scalar(buffer: &[u8], offset: usize, len: usize) -> Vec<u32> {
     if len == 0 {
@@ -306,7 +304,6 @@ pub fn collect_set_indices_scalar(buffer: &[u8], offset: usize, len: usize) -> V
     out
 }
 
-/// Extract all set-bit positions from a u64 and append them to `out`.
 #[inline]
 fn drain_word_to_vec(word: u64, base: u32, out: &mut Vec<u32>) {
     if word == u64::MAX {
@@ -325,20 +322,37 @@ fn drain_word_to_vec(word: u64, base: u32, out: &mut Vec<u32>) {
 }
 
 // ---------------------------------------------------------------------------
-// BMI2-accelerated bulk collection (x86-64 only)
+// Dispatch: pick the best available SIMD path
 // ---------------------------------------------------------------------------
 
 /// Collect set-bit indices using the best available method for this platform.
 ///
-/// On x86-64 with BMI2: uses hardware BLSR/TZCNT for bit extraction and
-/// scans 4 words (256 bits) at a time to skip zero regions. The `count_ones`
-/// pre-pass allows exact pre-allocation and raw pointer writes (no bounds
-/// checks in the hot loop).
+/// On x86-64 with AVX-512F + BMI2: uses density-aware dispatch. Dense bitmaps
+/// (>12.5% set) use AVX-512 VPCOMPRESSD which processes 16 bits per compress
+/// store. Sparse bitmaps use BMI2 BLSR/TZCNT with 4-word zero-skip. Both share
+/// the pre-computed popcount for exact allocation.
 pub fn collect_set_indices(buffer: &[u8], offset: usize, len: usize) -> Vec<u32> {
+    if len == 0 {
+        return Vec::new();
+    }
+
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("bmi2") {
-            return unsafe { collect_set_indices_bmi2(buffer, offset, len) };
+        let has_avx512 = is_x86_feature_detected!("avx512f");
+        let has_bmi2 = is_x86_feature_detected!("bmi2");
+
+        if has_avx512 || has_bmi2 {
+            // count_ones is needed for pre-allocation in all SIMD paths.
+            let count = count_ones(buffer, offset, len);
+
+            // Density > 12.5% (count * 8 > len): VPCOMPRESSD throughput
+            // beats serial BLSR. Below that, BLSR with zero-skip wins.
+            if has_avx512 && count * 8 > len {
+                return unsafe { collect_set_indices_avx512(buffer, offset, len, count) };
+            }
+            if has_bmi2 {
+                return unsafe { collect_set_indices_bmi2(buffer, offset, len, count) };
+            }
         }
     }
 
@@ -346,18 +360,19 @@ pub fn collect_set_indices(buffer: &[u8], offset: usize, len: usize) -> Vec<u32>
 }
 
 // ---------------------------------------------------------------------------
-// BMI2 implementation — BLSR/TZCNT + 4-word zero skip
+// AVX-512 implementation — VPCOMPRESSD + 512-bit zero-skip
 // ---------------------------------------------------------------------------
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "bmi1,bmi2")]
+#[target_feature(enable = "avx512f,bmi1,bmi2,popcnt")]
 #[allow(clippy::cast_possible_truncation)]
-unsafe fn collect_set_indices_bmi2(buffer: &[u8], offset: usize, len: usize) -> Vec<u32> {
-    if len == 0 {
-        return Vec::new();
-    }
-
-    let count = count_ones(buffer, offset, len);
+unsafe fn collect_set_indices_avx512(
+    buffer: &[u8],
+    offset: usize,
+    len: usize,
+    count: usize,
+) -> Vec<u32> {
+    use std::arch::x86_64::*;
     let mut out: Vec<u32> = Vec::with_capacity(count);
     let mut dst = out.as_mut_ptr();
 
@@ -368,13 +383,166 @@ unsafe fn collect_set_indices_bmi2(buffer: &[u8], offset: usize, len: usize) -> 
     let end = unsafe { bytes.as_ptr().add(bytes.len()) };
 
     let (first_word, first_bits) = unsafe { load_first_word(&mut ptr, end, start_bit, len) };
-    dst = unsafe { drain_word_to_ptr(first_word, 0, dst) };
+    dst = unsafe { drain_word_avx512(first_word, 0, dst) };
     let mut base = first_bits as u32;
     let mut remaining = len - first_bits;
 
-    // Main loop: scan 4 words (256 bits) at a time.
-    // OR them together — if the group is all-zero, skip the entire 256 bits
-    // with a single branch. At ≤5% density this skips ~60%+ of groups.
+    // Main loop: 8 words (512 bits) at a time.
+    // _mm512_test_epi64_mask checks all 8 qwords for zero in one instruction.
+    // Returns an 8-bit mask of non-zero qwords — we only process those.
+    while remaining >= 512 {
+        let avail = unsafe { end.offset_from(ptr) } as usize;
+        if avail < 64 {
+            break;
+        }
+
+        let chunk = unsafe { _mm512_loadu_si512(ptr as *const __m512i) };
+        let nz_mask = _mm512_test_epi64_mask(chunk, chunk);
+
+        if nz_mask != 0 {
+            let mut m = nz_mask;
+            while m != 0 {
+                let i = m.trailing_zeros() as usize;
+                let word = unsafe { *(ptr as *const u64).add(i) };
+                let word_base = base + (i as u32 * 64);
+                dst = unsafe { drain_word_avx512(word, word_base, dst) };
+                m &= m - 1;
+            }
+        }
+
+        ptr = unsafe { ptr.add(64) };
+        base += 512;
+        remaining -= 512;
+    }
+
+    // Tail: one word at a time with AVX-512 extraction.
+    while remaining >= 64 {
+        let avail = unsafe { end.offset_from(ptr) } as usize;
+        if avail < 8 {
+            break;
+        }
+        let word = unsafe { read_u64_le(ptr) };
+        dst = unsafe { drain_word_avx512(word, base, dst) };
+        ptr = unsafe { ptr.add(8) };
+        base += 64;
+        remaining -= 64;
+    }
+
+    if remaining > 0 {
+        let avail = unsafe { end.offset_from(ptr) } as usize;
+        let word = unsafe { load_partial_u64(ptr, avail) };
+        let masked = if remaining < 64 {
+            word & ((1u64 << remaining) - 1)
+        } else {
+            word
+        };
+        dst = unsafe { drain_word_avx512(masked, base, dst) };
+    }
+
+    let written = unsafe { dst.offset_from(out.as_ptr()) } as usize;
+    debug_assert_eq!(written, count);
+    unsafe { out.set_len(written) };
+
+    out
+}
+
+/// Drain set bits from a u64 word using AVX-512 VPCOMPRESSD for dense words
+/// and BMI1 BLSR for sparse words.
+///
+/// VPCOMPRESSD takes a 16-element vector `[base, base+1, ..., base+15]` and a
+/// 16-bit mask (from the bitmap), and writes only the elements where the mask
+/// bit is set, in order. This processes 16 bitmap bits per instruction.
+///
+/// For sparse words (≤8 set bits), the serial BLSR/TZCNT loop is faster because
+/// it does ~2 cycles per bit vs VPCOMPRESSD's fixed ~16 cycles per word.
+///
+/// # Safety
+/// Caller must ensure `dst` has room for `word.count_ones()` elements.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,bmi1,bmi2,popcnt")]
+#[inline]
+unsafe fn drain_word_avx512(word: u64, base: u32, mut dst: *mut u32) -> *mut u32 {
+    use std::arch::x86_64::*;
+
+    if word == 0 {
+        return dst;
+    }
+
+    let pc = word.count_ones();
+
+    // Sparse path: BLSR loop is faster for ≤8 set bits (~2 cycles/bit vs
+    // VPCOMPRESSD's fixed ~16 cycles for 4 chunks).
+    if pc <= 8 {
+        let mut w = word;
+        while w != 0 {
+            unsafe {
+                dst.write(base + w.trailing_zeros());
+                dst = dst.add(1);
+                w = _blsr_u64(w);
+            }
+        }
+        return dst;
+    }
+
+    // Dense path: VPCOMPRESSD processes 16 bits per instruction.
+    // Split the 64-bit word into 4 × 16-bit chunks.
+    let offsets = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+
+    // Chunk 0: bits [0..16)
+    let mask0 = (word & 0xFFFF) as u16;
+    let base0 = _mm512_add_epi32(_mm512_set1_epi32(base as i32), offsets);
+    unsafe { _mm512_mask_compressstoreu_epi32(dst as *mut i32, mask0, base0) };
+    dst = unsafe { dst.add(mask0.count_ones() as usize) };
+
+    // Chunk 1: bits [16..32)
+    let mask1 = ((word >> 16) & 0xFFFF) as u16;
+    let base1 = _mm512_add_epi32(_mm512_set1_epi32((base + 16) as i32), offsets);
+    unsafe { _mm512_mask_compressstoreu_epi32(dst as *mut i32, mask1, base1) };
+    dst = unsafe { dst.add(mask1.count_ones() as usize) };
+
+    // Chunk 2: bits [32..48)
+    let mask2 = ((word >> 32) & 0xFFFF) as u16;
+    let base2 = _mm512_add_epi32(_mm512_set1_epi32((base + 32) as i32), offsets);
+    unsafe { _mm512_mask_compressstoreu_epi32(dst as *mut i32, mask2, base2) };
+    dst = unsafe { dst.add(mask2.count_ones() as usize) };
+
+    // Chunk 3: bits [48..64)
+    let mask3 = ((word >> 48) & 0xFFFF) as u16;
+    let base3 = _mm512_add_epi32(_mm512_set1_epi32((base + 48) as i32), offsets);
+    unsafe { _mm512_mask_compressstoreu_epi32(dst as *mut i32, mask3, base3) };
+    dst = unsafe { dst.add(mask3.count_ones() as usize) };
+
+    dst
+}
+
+// ---------------------------------------------------------------------------
+// BMI2 implementation — BLSR/TZCNT + 4-word zero skip
+// ---------------------------------------------------------------------------
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi1,bmi2")]
+#[allow(clippy::cast_possible_truncation)]
+unsafe fn collect_set_indices_bmi2(
+    buffer: &[u8],
+    offset: usize,
+    len: usize,
+    count: usize,
+) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::with_capacity(count);
+    let mut dst = out.as_mut_ptr();
+
+    let start_byte = offset / 8;
+    let start_bit = offset % 8;
+    let bytes = &buffer[start_byte..];
+    let mut ptr = bytes.as_ptr();
+    let end = unsafe { bytes.as_ptr().add(bytes.len()) };
+
+    let (first_word, first_bits) = unsafe { load_first_word(&mut ptr, end, start_bit, len) };
+    dst = unsafe { drain_word_bmi2(first_word, 0, dst) };
+    let mut base = first_bits as u32;
+    let mut remaining = len - first_bits;
+
+    // 4-word zero skip
     while remaining >= 256 {
         let avail = unsafe { end.offset_from(ptr) } as usize;
         if avail < 32 {
@@ -387,11 +555,10 @@ unsafe fn collect_set_indices_bmi2(buffer: &[u8], offset: usize, len: usize) -> 
         let w3 = unsafe { read_u64_le(ptr.add(24)) };
 
         if (w0 | w1 | w2 | w3) != 0 {
-            // Process each word in the group.
-            dst = unsafe { drain_word_to_ptr(w0, base, dst) };
-            dst = unsafe { drain_word_to_ptr(w1, base + 64, dst) };
-            dst = unsafe { drain_word_to_ptr(w2, base + 128, dst) };
-            dst = unsafe { drain_word_to_ptr(w3, base + 192, dst) };
+            dst = unsafe { drain_word_bmi2(w0, base, dst) };
+            dst = unsafe { drain_word_bmi2(w1, base + 64, dst) };
+            dst = unsafe { drain_word_bmi2(w2, base + 128, dst) };
+            dst = unsafe { drain_word_bmi2(w3, base + 192, dst) };
         }
 
         ptr = unsafe { ptr.add(32) };
@@ -399,20 +566,18 @@ unsafe fn collect_set_indices_bmi2(buffer: &[u8], offset: usize, len: usize) -> 
         remaining -= 256;
     }
 
-    // Remaining full words one at a time.
     while remaining >= 64 {
         let avail = unsafe { end.offset_from(ptr) } as usize;
         if avail < 8 {
             break;
         }
         let word = unsafe { read_u64_le(ptr) };
-        dst = unsafe { drain_word_to_ptr(word, base, dst) };
+        dst = unsafe { drain_word_bmi2(word, base, dst) };
         ptr = unsafe { ptr.add(8) };
         base += 64;
         remaining -= 64;
     }
 
-    // Final partial word.
     if remaining > 0 {
         let avail = unsafe { end.offset_from(ptr) } as usize;
         let word = unsafe { load_partial_u64(ptr, avail) };
@@ -421,7 +586,7 @@ unsafe fn collect_set_indices_bmi2(buffer: &[u8], offset: usize, len: usize) -> 
         } else {
             word
         };
-        dst = unsafe { drain_word_to_ptr(masked, base, dst) };
+        dst = unsafe { drain_word_bmi2(masked, base, dst) };
     }
 
     let written = unsafe { dst.offset_from(out.as_ptr()) } as usize;
@@ -431,18 +596,16 @@ unsafe fn collect_set_indices_bmi2(buffer: &[u8], offset: usize, len: usize) -> 
     out
 }
 
-/// Drain set bits from `word` into raw pointer `dst`.
-///
-/// Uses BMI1 BLSR (clear lowest set bit) and TZCNT (count trailing zeros)
-/// as single-cycle hardware instructions. For fully-set words, writes 64
-/// sequential indices without any bit manipulation.
+/// Drain set bits using BMI1 BLSR + TZCNT.
 ///
 /// # Safety
 /// Caller must ensure `dst` has room for `word.count_ones()` elements.
 #[cfg(target_arch = "x86_64")]
 #[inline]
 #[target_feature(enable = "bmi1,bmi2")]
-unsafe fn drain_word_to_ptr(word: u64, base: u32, mut dst: *mut u32) -> *mut u32 {
+unsafe fn drain_word_bmi2(word: u64, base: u32, mut dst: *mut u32) -> *mut u32 {
+    use std::arch::x86_64::_blsr_u64;
+
     if word == 0 {
         return dst;
     }
@@ -462,7 +625,7 @@ unsafe fn drain_word_to_ptr(word: u64, base: u32, mut dst: *mut u32) -> *mut u32
         unsafe {
             dst.write(base + tz);
             dst = dst.add(1);
-            w = core::arch::x86_64::_blsr_u64(w);
+            w = _blsr_u64(w);
         }
     }
     dst
@@ -606,8 +769,6 @@ mod tests {
         assert_eq!(expected, actual_simd);
     }
 
-    // Test at various densities and sizes to catch edge cases in the
-    // 4-word skip logic.
     #[rstest]
     #[case(1000, 100)] // 10%
     #[case(1000, 20)] // 2%
@@ -634,7 +795,6 @@ mod tests {
         );
     }
 
-    // Test random-ish patterns.
     #[test]
     fn test_random_pattern() {
         fn splitmix(i: usize) -> u64 {
@@ -643,7 +803,7 @@ mod tests {
             z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
             z ^ (z >> 31)
         }
-        for density in [1u64, 5, 10, 20] {
+        for density in [1u64, 5, 10, 20, 50] {
             let len = 100_000;
             let buf = BitBuffer::from_iter((0..len).map(|i| (splitmix(i) % 100) < density));
             let expected = arrow_set_indices(&buf);
