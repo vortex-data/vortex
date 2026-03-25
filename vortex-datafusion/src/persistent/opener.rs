@@ -110,9 +110,7 @@ impl FileOpener for VortexOpener {
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
 
-        let reader = self
-            .vortex_reader_factory
-            .create_reader(file.path().as_ref(), &session)?;
+        let reader = self.vortex_reader_factory.create_reader(&file, &session)?;
 
         let reader =
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());

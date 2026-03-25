@@ -10,6 +10,7 @@ mod validity;
 use std::fmt::Debug;
 use std::hash::Hasher;
 use std::ops::Deref;
+use std::sync::Arc;
 
 pub use dyn_::*;
 pub use operations::*;
@@ -22,7 +23,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -48,7 +49,7 @@ use crate::validity::Validity;
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
-pub trait VTable: 'static + Sized + Send + Sync + Debug {
+pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn DynArray> + IntoArray;
     type Metadata: Debug;
 
@@ -186,13 +187,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
+    /// Execute this array by returning an [`ExecutionResult`] that tells the scheduler what to
     /// do next.
     ///
     /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionStep::ExecuteChild`] to request that the scheduler execute a child first,
-    /// or [`ExecutionStep::Done`] when the
-    /// encoding can produce a result directly.
+    /// [`ExecutionResult::execute_child`] to request that the scheduler execute a child first,
+    /// or [`ExecutionResult::done`] when the encoding can produce a result directly.
     ///
     /// Array execution is designed such that repeated execution of an array will eventually
     /// converge to a canonical representation. Implementations of this function should therefore
@@ -203,7 +203,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     ///
@@ -348,6 +348,14 @@ macro_rules! vtable {
                 pub fn to_array(&self) -> $crate::ArrayRef {
                     use $crate::IntoArray;
                     self.clone().into_array()
+                }
+
+                /// Upcasts an `Arc<Self>` to an [`ArrayRef`] without cloning.
+                pub fn into_array_ref(self: std::sync::Arc<Self>) -> $crate::ArrayRef {
+                    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
+                    // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
+                    let raw = std::sync::Arc::into_raw(self) as *const $crate::ArrayAdapter<$VT>;
+                    unsafe { std::sync::Arc::from_raw(raw) }
                 }
             }
         }

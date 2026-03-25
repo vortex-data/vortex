@@ -6,6 +6,10 @@ impl vortex_fsst::FSST
 
 pub const vortex_fsst::FSST::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_fsst::FSST
+
+pub fn vortex_fsst::FSST::clone(&self) -> vortex_fsst::FSST
+
 impl core::fmt::Debug for vortex_fsst::FSST
 
 pub fn vortex_fsst::FSST::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -64,7 +68,7 @@ pub fn vortex_fsst::FSST::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype
 
 pub fn vortex_fsst::FSST::dtype(array: &vortex_fsst::FSSTArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_fsst::FSST::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_fsst::FSST::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_fsst::FSST::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -119,6 +123,8 @@ pub fn vortex_fsst::FSSTArray::uncompressed_lengths(&self) -> &vortex_array::arr
 pub fn vortex_fsst::FSSTArray::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
 
 impl vortex_fsst::FSSTArray
+
+pub fn vortex_fsst::FSSTArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
 
 pub fn vortex_fsst::FSSTArray::to_array(&self) -> vortex_array::array::ArrayRef
 

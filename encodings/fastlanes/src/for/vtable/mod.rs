@@ -3,12 +3,13 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
@@ -170,8 +171,8 @@ impl VTable for FoR {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(decompress(array, ctx)?.into_array()))
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
     }
 
     fn execute_parent(
@@ -184,7 +185,7 @@ impl VTable for FoR {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FoR;
 
 impl FoR {

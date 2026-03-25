@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -15,7 +16,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
@@ -42,7 +43,7 @@ mod operations;
 mod validity;
 vtable!(Chunked);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Chunked;
 
 impl Chunked {
@@ -244,8 +245,10 @@ impl VTable for Chunked {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            _canonicalize(&array, ctx)?.into_array(),
+        ))
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

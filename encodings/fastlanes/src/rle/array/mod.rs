@@ -230,8 +230,10 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
+    use vortex_error::VortexResult;
     use vortex_session::registry::ReadContext;
 
+    use crate::FL_CHUNK_SIZE;
     use crate::RLEArray;
     use crate::test::SESSION;
 
@@ -517,5 +519,49 @@ mod tests {
         let decoded_data = decoded.to_primitive();
 
         assert_arrays_eq!(original_data, decoded_data);
+    }
+
+    /// Regression test: re-encoding RLE indices with RLE must not corrupt
+    /// chunk-local index values via cross-chunk fill-forward.
+    ///
+    /// The scenario: an array spanning 2 chunks where chunk 0 has 2 distinct
+    /// non-null values (producing chunk-local indices 0 and 1) and chunk 1 is
+    /// entirely null. When fill_forward_nulls propagated the last valid index
+    /// (1) from chunk 0 into chunk 1 during re-encoding, decoding panicked
+    /// because chunk 1 only had 1 unique value and index 1 was out of bounds.
+    #[test]
+    fn test_recompress_indices_no_cross_chunk_leak() -> VortexResult<()> {
+        let len = FL_CHUNK_SIZE + 100;
+        let mut values: Vec<Option<i16>> = vec![None; len];
+        // Two distinct values in chunk 0 → indices 0 and 1.
+        values[0] = Some(10);
+        values[500] = Some(20);
+        // Chunk 1 (positions 1024..) is all-null.
+
+        let original = PrimitiveArray::from_option_iter(values);
+        let rle = RLEArray::encode(&original)?;
+
+        // Simulate cascading compression: narrow u16→u8 then re-encode with RLE,
+        // matching the path taken by the BtrBlocks compressor.
+        let indices_prim = rle.indices().to_primitive().narrow()?;
+        let re_encoded = RLEArray::encode(&indices_prim)?;
+
+        // Reconstruct the outer RLE with re-encoded indices.
+        // SAFETY: we only replace the indices child; all other invariants hold.
+        let reconstructed = unsafe {
+            RLEArray::new_unchecked(
+                rle.values().clone(),
+                re_encoded.into_array(),
+                rle.values_idx_offsets().clone(),
+                rle.dtype().clone(),
+                rle.offset(),
+                rle.len(),
+            )
+        };
+
+        // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
+        let decoded = reconstructed.to_primitive();
+        assert_arrays_eq!(decoded, original);
+        Ok(())
     }
 }

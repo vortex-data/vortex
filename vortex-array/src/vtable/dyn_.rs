@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -13,6 +14,7 @@ use vortex_session::VortexSession;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::ExecutionResult;
 use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::buffer::BufferHandle;
@@ -32,6 +34,9 @@ pub type DynVTableRef = Arc<dyn DynVTable>;
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`DynArray`] trait API to a minimum.
 pub trait DynVTable: 'static + Send + Sync + Debug {
+    /// Clone this vtable into a `Box<dyn DynVTable>`.
+    fn clone_boxed(&self) -> Box<dyn DynVTable>;
+
     #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
@@ -57,7 +62,7 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 
     /// See [`VTable::execute`]
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
+    fn execute(&self, array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// See [`VTable::execute_parent`]
     fn execute_parent(
@@ -70,6 +75,10 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
 }
 
 impl<V: VTable> DynVTable for V {
+    fn clone_boxed(&self) -> Box<dyn DynVTable> {
+        Box::new(self.clone())
+    }
+
     fn build(
         &self,
         _id: ArrayId,
@@ -138,31 +147,34 @@ impl<V: VTable> DynVTable for V {
         Ok(Some(reduced))
     }
 
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        let step = V::execute(downcast::<V>(array), ctx)?;
+    fn execute(&self, array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // Capture metadata before the move for post-validation and stats inheritance.
+        let len = array.len();
+        let dtype = array.dtype().clone();
+        let stats = array.statistics().to_owned();
 
-        if let ExecutionStep::Done(ref result) = step {
+        let owned = downcast_owned::<V>(array);
+        let result = V::execute(owned, ctx)?;
+
+        if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
                 vortex_ensure!(
-                    result.as_ref().len() == array.len(),
+                    result.array().len() == len,
                     "Result length mismatch for {:?}",
                     self
                 );
                 vortex_ensure!(
-                    result.as_ref().dtype() == array.dtype(),
+                    result.array().dtype() == &dtype,
                     "Executed canonical dtype mismatch for {:?}",
                     self
                 );
             }
 
             // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
-            result
-                .as_ref()
-                .statistics()
-                .inherit_from(array.statistics());
+            result.array().statistics().set_iter(stats.into_iter());
         }
 
-        Ok(step)
+        Ok(result)
     }
 
     fn execute_parent(
@@ -197,4 +209,29 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
         .downcast_ref::<ArrayAdapter<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
         .as_inner()
+}
+
+/// Downcast an `ArrayRef` into an `Arc<V::Array>` without cloning.
+///
+/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
+/// [`ArrayAdapter`].
+fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
+    let adapter: Arc<ArrayAdapter<V>> = array
+        .as_any_arc()
+        .downcast::<ArrayAdapter<V>>()
+        .ok()
+        .vortex_expect("Failed to downcast array to expected encoding type");
+    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
+    // so Arc<ArrayAdapter<V>> and Arc<V::Array> have identical layout.
+    unsafe { transmute::<Arc<ArrayAdapter<V>>, Arc<V::Array>>(adapter) }
+}
+
+/// Upcast an `Arc<V::Array>` into an `ArrayRef` without cloning.
+///
+/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
+/// [`ArrayAdapter`]. It is the reverse of `downcast_owned`.
+pub(crate) fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
+    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
+    // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
+    unsafe { transmute::<Arc<V::Array>, Arc<ArrayAdapter<V>>>(array) }
 }

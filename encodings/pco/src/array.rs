@@ -4,6 +4,7 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -20,7 +21,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
@@ -269,8 +270,8 @@ impl VTable for Pco {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.decompress(ctx)?.into_array()))
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array.decompress(ctx)?.into_array()))
     }
 
     fn reduce_parent(
@@ -312,7 +313,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Pco;
 
 impl Pco {

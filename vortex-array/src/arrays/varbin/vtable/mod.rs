@@ -10,7 +10,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -32,6 +32,7 @@ mod kernel;
 mod operations;
 mod validity;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use canonical::varbin_to_canonical;
 use kernel::PARENT_KERNELS;
@@ -223,14 +224,14 @@ impl VTable for VarBin {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            varbin_to_canonical(array, ctx)?.into_array(),
+    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            varbin_to_canonical(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarBin;
 
 impl VarBin {
