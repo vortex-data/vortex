@@ -350,19 +350,28 @@ impl Scan {
                 );
 
                 // Map through the filter planner.
+                //
+                // We push the initial selection into the filter planner, meaning the filter
+                // evaluates only over selected rows and returns a mask with lower cardinality
+                // than the full row range. We then perform a rank intersection to map the
+                // filter result back to the original selection's coordinate space.
+                //
+                // An alternative design would pass separate "definition" and "selection" masks
+                // so the filter returns a full-cardinality mask that can be intersected
+                // positionally. We chose the current approach because rank intersection
+                // (via `intersect_by_rank`) is very fast in practice, and for sparse
+                // selections the win from evaluating fewer rows dominates.
+                //
+                // For very high density selections (e.g. >95% true), it may be worth
+                // pushing down an all-true mask instead to avoid the rank intersection
+                // cost entirely. Revisit if profiling shows this as a bottleneck.
                 if let Some(filter_planner) = &self.filter_planner {
                     let filter_result = filter_planner.plan_split(
                         &split_range.row_range,
-                        // FIXME(ngates): note that we always pass down the initial selection.
-                        //  We should instead pass separate selection and definition masks.
-                        //  That way we can have the filter plan return a refined mask, rather
-                        //  than one with lower cardinality.
                         selection,
                         &mut plan_builder,
                     )?;
 
-                    // FIXME(ngates): per the comment above, we currently need to perform a rank
-                    //  intersection after the fact on the filter result.
                     selection = plan_builder.create_node(NodeOpts {
                         label: "FilterIntersect",
                         inputs: &[selection, filter_result],
