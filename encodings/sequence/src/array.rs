@@ -409,7 +409,11 @@ impl VTable for Sequence {
 }
 
 impl OperationsVTable<Sequence> for Sequence {
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SequenceArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Scalar::try_new(
             array.dtype().clone(),
             Some(ScalarValue::Primitive(array.index_value(index))),

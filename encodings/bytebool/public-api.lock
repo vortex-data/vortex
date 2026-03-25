@@ -84,7 +84,7 @@ pub fn vortex_bytebool::ByteBool::with_children(array: &mut Self::Array, childre
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBool::scalar_at(array: &vortex_bytebool::ByteBoolArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_bytebool::ByteBool::scalar_at(array: &vortex_bytebool::ByteBoolArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub struct vortex_bytebool::ByteBoolArray
 

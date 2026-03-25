@@ -108,7 +108,7 @@ pub fn vortex_sparse::Sparse::with_children(array: &mut Self::Array, children: a
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sparse::Sparse> for vortex_sparse::Sparse
 
-pub fn vortex_sparse::Sparse::scalar_at(array: &vortex_sparse::SparseArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_sparse::Sparse::scalar_at(array: &vortex_sparse::SparseArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_sparse::Sparse> for vortex_sparse::Sparse
 

@@ -167,7 +167,11 @@ impl VTable for PythonVTable {
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        _array: &PythonArray,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         todo!()
     }
 }

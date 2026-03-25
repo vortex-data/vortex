@@ -94,7 +94,7 @@ pub fn vortex_fsst::FSST::with_children(array: &mut Self::Array, children: alloc
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::scalar_at(array: &vortex_fsst::FSSTArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fsst::FSST::scalar_at(array: &vortex_fsst::FSSTArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_fsst::FSST> for vortex_fsst::FSST
 

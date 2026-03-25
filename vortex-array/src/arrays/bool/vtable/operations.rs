@@ -3,13 +3,14 @@
 
 use vortex_error::VortexResult;
 
+use crate::ExecutionCtx;
 use crate::arrays::Bool;
 use crate::arrays::bool::vtable::BoolArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Bool> for Bool {
-    fn scalar_at(array: &BoolArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &BoolArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             array.to_bit_buffer().value(index),
             array.dtype().nullability(),

@@ -190,7 +190,11 @@ impl NullArray {
     }
 }
 impl OperationsVTable<Null> for Null {
-    fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        _array: &NullArray,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }

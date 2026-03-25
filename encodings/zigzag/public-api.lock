@@ -88,7 +88,7 @@ pub fn vortex_zigzag::ZigZag::with_children(array: &mut Self::Array, children: a
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZag::scalar_at(array: &vortex_zigzag::ZigZagArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_zigzag::ZigZag::scalar_at(array: &vortex_zigzag::ZigZagArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 

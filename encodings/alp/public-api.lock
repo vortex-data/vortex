@@ -102,7 +102,7 @@ pub fn vortex_alp::ALP::with_children(array: &mut Self::Array, children: alloc::
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_alp::ALP> for vortex_alp::ALP
 
-pub fn vortex_alp::ALP::scalar_at(array: &vortex_alp::ALPArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_alp::ALP::scalar_at(array: &vortex_alp::ALPArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALP> for vortex_alp::ALP
 
@@ -266,7 +266,7 @@ pub fn vortex_alp::ALPRD::with_children(array: &mut Self::Array, children: alloc
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_alp::ALPRD> for vortex_alp::ALPRD
 
-pub fn vortex_alp::ALPRD::scalar_at(array: &vortex_alp::ALPRDArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_alp::ALPRD::scalar_at(array: &vortex_alp::ALPRDArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALPRD> for vortex_alp::ALPRD
 
