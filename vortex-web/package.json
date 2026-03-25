@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "react": "^19.1.0",
@@ -20,6 +22,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
+    "@storybook/addon-docs": "^10.3.3",
+    "@storybook/react-vite": "^10.3.3",
     "@tailwindcss/vite": "^4.1.4",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
@@ -27,7 +31,9 @@
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
+    "eslint-plugin-storybook": "^10.3.3",
     "globals": "^16.0.0",
+    "storybook": "^10.3.3",
     "tailwindcss": "^4.1.4",
     "typescript": "~5.7.0",
     "typescript-eslint": "^8.30.1",
