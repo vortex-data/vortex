@@ -178,6 +178,7 @@ fn walsh_hadamard_transform(buf: &mut [f32]) {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
 
     use super::*;
@@ -202,109 +203,71 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn roundtrip_rotation() -> VortexResult<()> {
-        let dim = 64;
-        let rot = RotationMatrix::try_new(99, dim)?;
-        let pd = rot.padded_dim();
+    /// Verify roundtrip is exact to f32 precision across many dimensions,
+    /// including non-power-of-two dimensions that require padding.
+    #[rstest]
+    #[case(32)]
+    #[case(64)]
+    #[case(100)]
+    #[case(128)]
+    #[case(256)]
+    #[case(512)]
+    #[case(768)]
+    #[case(1024)]
+    fn roundtrip_exact(#[case] dim: usize) -> VortexResult<()> {
+        let rot = RotationMatrix::try_new(42, dim)?;
+        let padded_dim = rot.padded_dim();
 
-        let mut input = vec![0.0f32; pd];
+        let mut input = vec![0.0f32; padded_dim];
         for i in 0..dim {
-            input[i] = (i as f32) * 0.1;
+            input[i] = (i as f32 + 1.0) * 0.01;
         }
-        let mut rotated = vec![0.0f32; pd];
-        let mut recovered = vec![0.0f32; pd];
+        let mut rotated = vec![0.0f32; padded_dim];
+        let mut recovered = vec![0.0f32; padded_dim];
 
         rot.rotate(&input, &mut rotated);
         rot.inverse_rotate(&rotated, &mut recovered);
 
-        for i in 0..dim {
-            assert!(
-                (input[i] - recovered[i]).abs() < 1e-3,
-                "roundtrip mismatch at {i}: {} vs {}",
-                input[i],
-                recovered[i]
-            );
-        }
-        Ok(())
-    }
+        let max_err: f32 = input
+            .iter()
+            .zip(recovered.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        let max_val: f32 = input.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+        let rel_err = max_err / max_val;
 
-    #[test]
-    fn roundtrip_non_power_of_two() -> VortexResult<()> {
-        let dim = 100;
-        let rot = RotationMatrix::try_new(77, dim)?;
-        let pd = rot.padded_dim();
-        assert_eq!(pd, 128); // 100 rounds up to 128
-
-        let mut input = vec![0.0f32; pd];
-        for i in 0..dim {
-            input[i] = (i as f32) * 0.01;
-        }
-        let mut rotated = vec![0.0f32; pd];
-        let mut recovered = vec![0.0f32; pd];
-
-        rot.rotate(&input, &mut rotated);
-        rot.inverse_rotate(&rotated, &mut recovered);
-
-        for i in 0..dim {
-            assert!(
-                (input[i] - recovered[i]).abs() < 1e-2,
-                "roundtrip mismatch at {i}: {} vs {}",
-                input[i],
-                recovered[i]
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn preserves_norm() -> VortexResult<()> {
-        let dim = 128;
-        let rot = RotationMatrix::try_new(7, dim)?;
-        let pd = rot.padded_dim();
-
-        let mut input = vec![0.0f32; pd];
-        for i in 0..dim {
-            input[i] = (i as f32) * 0.01;
-        }
-        let input_norm: f32 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-        let mut rotated = vec![0.0f32; pd];
-        rot.rotate(&input, &mut rotated);
-        let rotated_norm: f32 = rotated.iter().map(|x| x * x).sum::<f32>().sqrt();
-
+        // SRHT roundtrip should be exact up to f32 precision (~1e-6).
         assert!(
-            (input_norm - rotated_norm).abs() / input_norm < 0.01,
-            "norm not preserved: {} vs {} (ratio: {})",
-            input_norm,
-            rotated_norm,
-            rotated_norm / input_norm
+            rel_err < 1e-5,
+            "roundtrip relative error too large for dim={dim}: {rel_err:.2e}"
         );
         Ok(())
     }
 
-    #[test]
-    fn preserves_norm_dim768() -> VortexResult<()> {
-        let dim = 768;
-        let rot = RotationMatrix::try_new(42, dim)?;
-        let pd = rot.padded_dim();
+    /// Verify norm preservation across dimensions.
+    #[rstest]
+    #[case(128)]
+    #[case(768)]
+    fn preserves_norm(#[case] dim: usize) -> VortexResult<()> {
+        let rot = RotationMatrix::try_new(7, dim)?;
+        let padded_dim = rot.padded_dim();
 
-        let mut input = vec![0.0f32; pd];
+        let mut input = vec![0.0f32; padded_dim];
         for i in 0..dim {
-            input[i] = (i as f32) * 0.001;
+            input[i] = (i as f32) * 0.01;
         }
         let input_norm: f32 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
 
-        let mut rotated = vec![0.0f32; pd];
+        let mut rotated = vec![0.0f32; padded_dim];
         rot.rotate(&input, &mut rotated);
         let rotated_norm: f32 = rotated.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         assert!(
-            (input_norm - rotated_norm).abs() / input_norm < 0.01,
-            "norm not preserved for dim768: {} vs {} (ratio: {})",
+            (input_norm - rotated_norm).abs() / input_norm < 1e-5,
+            "norm not preserved for dim={dim}: {} vs {} (rel err: {:.2e})",
             input_norm,
             rotated_norm,
-            rotated_norm / input_norm
+            (input_norm - rotated_norm).abs() / input_norm
         );
         Ok(())
     }

@@ -53,6 +53,10 @@ pub fn turboquant_encode(
     }
 
     let dimension = fsl.list_size();
+    vortex_ensure!(
+        dimension >= 2,
+        "TurboQuant requires dimension >= 2, got {dimension}"
+    );
     let num_rows = fsl.len();
 
     if num_rows == 0 {
@@ -147,15 +151,15 @@ fn encode_mse(
 ) -> VortexResult<TurboQuantArray> {
     let dim = dimension as usize;
     let rotation = RotationMatrix::try_new(seed, dim)?;
-    let pd = rotation.padded_dim();
+    let padded_dim = rotation.padded_dim();
     #[allow(clippy::cast_possible_truncation)]
-    let centroids = get_centroids(pd as u32, bit_width)?;
+    let centroids = get_centroids(padded_dim as u32, bit_width)?;
 
-    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * pd);
+    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
     let mut norms_buf = BufferMut::<f32>::with_capacity(num_rows);
 
-    let mut padded = vec![0.0f32; pd];
-    let mut rotated = vec![0.0f32; pd];
+    let mut padded = vec![0.0f32; padded_dim];
+    let mut rotated = vec![0.0f32; padded_dim];
 
     for row in 0..num_rows {
         let x = &elements[row * dim..(row + 1) * dim];
@@ -174,7 +178,7 @@ fn encode_mse(
         rotation.rotate(&padded, &mut rotated);
 
         // Quantize all padded_dim coordinates.
-        for j in 0..pd {
+        for j in 0..padded_dim {
             all_indices.push(find_nearest_centroid(rotated[j], &centroids));
         }
     }
@@ -207,27 +211,27 @@ fn encode_prod(
     let mse_bit_width = bit_width - 1;
 
     let rotation = RotationMatrix::try_new(seed, dim)?;
-    let pd = rotation.padded_dim();
+    let padded_dim = rotation.padded_dim();
     #[allow(clippy::cast_possible_truncation)]
-    let centroids = get_centroids(pd as u32, mse_bit_width)?;
+    let centroids = get_centroids(padded_dim as u32, mse_bit_width)?;
 
-    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * pd);
+    let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
     let mut norms_buf = BufferMut::<f32>::with_capacity(num_rows);
     let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);
 
-    // QJL sign bits: num_rows * pd bits, packed into bytes.
-    let total_sign_bits = num_rows * pd;
+    // QJL sign bits: num_rows * padded_dim bits, packed into bytes.
+    let total_sign_bits = num_rows * padded_dim;
     let sign_byte_count = total_sign_bits.div_ceil(8);
     let mut sign_buf = BufferMut::<u8>::with_capacity(sign_byte_count);
     sign_buf.extend(std::iter::repeat_n(0u8, sign_byte_count));
     let sign_slice = sign_buf.as_mut_slice();
 
-    let mut padded = vec![0.0f32; pd];
-    let mut rotated = vec![0.0f32; pd];
-    let mut dequantized_rotated = vec![0.0f32; pd];
-    let mut dequantized = vec![0.0f32; pd];
-    let mut residual = vec![0.0f32; pd];
-    let mut projected = vec![0.0f32; pd];
+    let mut padded = vec![0.0f32; padded_dim];
+    let mut rotated = vec![0.0f32; padded_dim];
+    let mut dequantized_rotated = vec![0.0f32; padded_dim];
+    let mut dequantized = vec![0.0f32; padded_dim];
+    let mut residual = vec![0.0f32; padded_dim];
+    let mut projected = vec![0.0f32; padded_dim];
 
     // QJL random sign matrix generator (using seed + 1).
     let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), dim)?;
@@ -249,7 +253,7 @@ fn encode_prod(
         rotation.rotate(&padded, &mut rotated);
 
         // MSE quantize at (bit_width - 1) bits over padded_dim coordinates.
-        for j in 0..pd {
+        for j in 0..padded_dim {
             let idx = find_nearest_centroid(rotated[j], &centroids);
             all_indices.push(idx);
             dequantized_rotated[j] = centroids[idx as usize];
@@ -278,8 +282,8 @@ fn encode_prod(
         }
 
         // Store sign bits for padded_dim positions.
-        let bit_offset = row * pd;
-        for j in 0..pd {
+        let bit_offset = row * padded_dim;
+        for j in 0..padded_dim {
             if projected[j] >= 0.0 {
                 let bit_idx = bit_offset + j;
                 sign_slice[bit_idx / 8] |= 1 << (bit_idx % 8);

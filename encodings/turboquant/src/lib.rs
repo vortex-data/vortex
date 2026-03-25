@@ -315,12 +315,17 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn roundtrip_empty() -> VortexResult<()> {
+    #[rstest]
+    #[case(TurboQuantVariant::Mse, 2)]
+    #[case(TurboQuantVariant::Prod, 2)]
+    fn roundtrip_empty(
+        #[case] variant: TurboQuantVariant,
+        #[case] bit_width: u8,
+    ) -> VortexResult<()> {
         let fsl = make_fsl(0, 128, 0);
         let config = TurboQuantConfig {
-            bit_width: 2,
-            variant: TurboQuantVariant::Mse,
+            bit_width,
+            variant,
             seed: Some(0),
         };
 
@@ -332,5 +337,39 @@ mod tests {
         assert_eq!(decoded.len(), 0);
 
         Ok(())
+    }
+
+    #[rstest]
+    #[case(TurboQuantVariant::Mse, 2)]
+    #[case(TurboQuantVariant::Prod, 3)]
+    fn roundtrip_single_row(
+        #[case] variant: TurboQuantVariant,
+        #[case] bit_width: u8,
+    ) -> VortexResult<()> {
+        let fsl = make_fsl(1, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width,
+            variant,
+            seed: Some(123),
+        };
+
+        let (original, decoded) = encode_decode(&fsl, &config)?;
+        assert_eq!(original.len(), decoded.len());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_dimension_below_2() {
+        let mut buf = BufferMut::<f32>::with_capacity(1);
+        buf.push(1.0);
+        let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
+        let fsl = FixedSizeListArray::try_new(elements.into_array(), 1, Validity::NonNullable, 1)
+            .unwrap();
+        let config = TurboQuantConfig {
+            bit_width: 2,
+            variant: TurboQuantVariant::Mse,
+            seed: Some(0),
+        };
+        assert!(turboquant_encode(&fsl, &config).is_err());
     }
 }
