@@ -192,8 +192,21 @@ impl Mask {
 
     /// Create a new [`Mask`] from a [`BitBuffer`].
     pub fn from_buffer(buffer: BitBuffer) -> Self {
-        let len = buffer.len();
         let true_count = buffer.true_count();
+        Self::from_buffer_with_true_count(buffer, true_count)
+    }
+
+    /// Create a new [`Mask`] from a [`BitBuffer`] with a known `true_count`.
+    ///
+    /// This avoids the O(n) popcount scan when the caller already knows the
+    /// number of set bits (e.g., from a prior operation's invariants).
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserts that `true_count` matches the actual count in the buffer.
+    pub fn from_buffer_with_true_count(buffer: BitBuffer, true_count: usize) -> Self {
+        let len = buffer.len();
+        debug_assert_eq!(true_count, buffer.true_count());
 
         if true_count == 0 {
             return Self::AllFalse(len);

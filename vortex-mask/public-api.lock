@@ -54,6 +54,8 @@ pub fn vortex_mask::Mask::first(&self) -> core::option::Option<usize>
 
 pub fn vortex_mask::Mask::from_buffer(buffer: vortex_buffer::bit::buf::BitBuffer) -> Self
 
+pub fn vortex_mask::Mask::from_buffer_with_true_count(buffer: vortex_buffer::bit::buf::BitBuffer, true_count: usize) -> Self
+
 pub fn vortex_mask::Mask::from_excluded_indices(len: usize, indices: impl core::iter::traits::collect::IntoIterator<Item = usize>) -> Self
 
 pub fn vortex_mask::Mask::from_indices(len: usize, indices: alloc::vec::Vec<usize>) -> Self
@@ -103,6 +105,8 @@ pub fn vortex_mask::Mask::bitand_not(self, rhs: &vortex_mask::Mask) -> vortex_ma
 impl vortex_mask::Mask
 
 pub fn vortex_mask::Mask::intersect_by_rank(&self, mask: &vortex_mask::Mask) -> vortex_mask::Mask
+
+pub fn vortex_mask::Mask::intersect_by_rank_owned(self, mask: &vortex_mask::Mask) -> vortex_mask::Mask
 
 impl vortex_mask::Mask
 

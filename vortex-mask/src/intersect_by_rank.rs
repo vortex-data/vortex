@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 
 use crate::AllOr;
@@ -184,6 +185,7 @@ unsafe fn dense_loop_bmi2(
     self_remainder: u64,
     mask_flat: &[u64],
     len: usize,
+    out_true_count: usize,
 ) -> Mask {
     let has_remainder = !len.is_multiple_of(64);
     let num_out = self_full_chunks.len() + has_remainder as usize;
@@ -192,10 +194,6 @@ unsafe fn dense_loop_bmi2(
     let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_out);
     let mut bit_pos: usize = 0;
 
-    // Main loop over full u64 chunks — operates on zero-copy &[u64] from BitBuffer.
-    // Branchless: PDEP(anything, 0) == 0, SHRD handles bit_offset == 0 as no-op.
-    // Uses a single `bit_pos` cursor instead of separate chunk_idx + bit_offset:
-    //   chunk_idx = bit_pos >> 6, bit_offset = bit_pos & 63 (implicit via SHRD mod 64).
     for &self_chunk in self_full_chunks {
         let chunk_idx = bit_pos >> 6;
         let lo = unsafe { *mask_ptr.add(chunk_idx) };
@@ -208,7 +206,6 @@ unsafe fn dense_loop_bmi2(
         bit_pos += self_chunk.count_ones() as usize;
     }
 
-    // Handle remainder (partial chunk at the end)
     if has_remainder {
         let chunk_idx = bit_pos >> 6;
         let lo = unsafe { *mask_ptr.add(chunk_idx) };
@@ -219,7 +216,166 @@ unsafe fn dense_loop_bmi2(
     }
 
     buffer.truncate(len.div_ceil(8));
-    Mask::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
+    Mask::from_buffer_with_true_count(
+        BitBuffer::new(buffer.freeze().into_byte_buffer(), len),
+        out_true_count,
+    )
+}
+
+/// In-place BMI2+SHRD loop: overwrites self's buffer with intersection results.
+///
+/// Reads each self_chunk from `buf_ptr[i]`, computes PDEP with the corresponding
+/// rank bits from the mask, and writes the result back to `buf_ptr[i]`. This avoids
+/// allocating a separate output buffer, reducing memory streams from 3 to 2.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2,popcnt")]
+#[allow(clippy::cast_possible_truncation)]
+unsafe fn dense_loop_bmi2_inplace(
+    buf_ptr: *mut u64,
+    num_full: usize,
+    self_remainder: u64,
+    mask_flat: &[u64],
+    len: usize,
+) {
+    let mask_ptr = mask_flat.as_ptr();
+    let mut bit_pos: usize = 0;
+
+    for i in 0..num_full {
+        let self_chunk = unsafe { *buf_ptr.add(i) };
+        let chunk_idx = bit_pos >> 6;
+        let lo = unsafe { *mask_ptr.add(chunk_idx) };
+        let hi = unsafe { *mask_ptr.add(chunk_idx + 1) };
+        let rank_bits = unsafe { extract_shrd(lo, hi, bit_pos as u8) };
+        let result_chunk = core::arch::x86_64::_pdep_u64(rank_bits, self_chunk);
+        unsafe { *buf_ptr.add(i) = result_chunk };
+        bit_pos += self_chunk.count_ones() as usize;
+    }
+
+    if !len.is_multiple_of(64) {
+        let chunk_idx = bit_pos >> 6;
+        let lo = unsafe { *mask_ptr.add(chunk_idx) };
+        let hi = unsafe { *mask_ptr.add(chunk_idx + 1) };
+        let rank_bits = unsafe { extract_shrd(lo, hi, bit_pos as u8) };
+        let result_chunk = core::arch::x86_64::_pdep_u64(rank_bits, self_remainder);
+        // Write remainder as individual bytes to avoid overwriting past the buffer
+        let rem_bytes = (len % 64).div_ceil(8);
+        let dst = unsafe { (buf_ptr as *mut u8).add(num_full * 8) };
+        for b in 0..rem_bytes {
+            unsafe { *dst.add(b) = (result_chunk >> (b * 8)) as u8 };
+        }
+    }
+}
+
+/// Dense portable loop operating on raw u64 slices for zero-copy performance.
+///
+/// Same algorithm as the iterator-based portable path, but accepts pre-extracted
+/// raw u64 chunks + remainder to avoid BitChunks iterator overhead.
+#[allow(clippy::cast_possible_truncation)]
+fn dense_loop_portable(
+    self_full_chunks: &[u64],
+    self_remainder: u64,
+    mask_flat: &[u64],
+    len: usize,
+    out_true_count: usize,
+) -> Mask {
+    let has_remainder = !len.is_multiple_of(64);
+    let num_out = self_full_chunks.len() + has_remainder as usize;
+    let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_out);
+    let mut bit_pos = 0usize;
+
+    for &self_chunk in self_full_chunks {
+        let popcount = self_chunk.count_ones() as usize;
+        let result_chunk = if self_chunk == 0 {
+            0u64
+        } else {
+            let rank_bits = extract_bits_portable(mask_flat, bit_pos);
+            pdep_lut(rank_bits, self_chunk)
+        };
+        unsafe { buffer.push_unchecked(result_chunk) };
+        bit_pos += popcount;
+    }
+
+    if has_remainder {
+        let result_chunk = if self_remainder == 0 {
+            0u64
+        } else {
+            let rank_bits = extract_bits_portable(mask_flat, bit_pos);
+            pdep_lut(rank_bits, self_remainder)
+        };
+        unsafe { buffer.push_unchecked(result_chunk) };
+    }
+
+    buffer.truncate(len.div_ceil(8));
+    Mask::from_buffer_with_true_count(
+        BitBuffer::new(buffer.freeze().into_byte_buffer(), len),
+        out_true_count,
+    )
+}
+
+/// In-place portable loop: overwrites self's buffer with intersection results.
+#[allow(clippy::cast_possible_truncation)]
+fn dense_loop_portable_inplace(
+    buf_ptr: *mut u64,
+    num_full: usize,
+    self_remainder: u64,
+    mask_flat: &[u64],
+    len: usize,
+) {
+    let mut bit_pos = 0usize;
+
+    for i in 0..num_full {
+        let self_chunk = unsafe { *buf_ptr.add(i) };
+        let popcount = self_chunk.count_ones() as usize;
+        let result_chunk = if self_chunk == 0 {
+            0u64
+        } else {
+            let rank_bits = extract_bits_portable(mask_flat, bit_pos);
+            pdep_lut(rank_bits, self_chunk)
+        };
+        unsafe { *buf_ptr.add(i) = result_chunk };
+        bit_pos += popcount;
+    }
+
+    if !len.is_multiple_of(64) {
+        let result_chunk = if self_remainder == 0 {
+            0u64
+        } else {
+            let rank_bits = extract_bits_portable(mask_flat, bit_pos);
+            pdep_lut(rank_bits, self_remainder)
+        };
+        let rem_bytes = (len % 64).div_ceil(8);
+        let dst = unsafe { (buf_ptr as *mut u8).add(num_full * 8) };
+        for b in 0..rem_bytes {
+            unsafe { *dst.add(b) = (result_chunk >> (b * 8)) as u8 };
+        }
+    }
+}
+
+/// Try to get a mutable `*mut u64` pointer from a `BitBufferMut`, returning
+/// the pointer, num_full chunks, and remainder bits if the buffer is u64-aligned
+/// with zero offset.
+fn try_inplace_ptr(buf: &mut BitBufferMut) -> Option<(*mut u64, usize, u64)> {
+    if buf.offset() != 0 {
+        return None;
+    }
+    let ptr = buf.as_mut_ptr();
+    if ptr.align_offset(align_of::<u64>()) != 0 {
+        return None;
+    }
+    let len = buf.len();
+    let num_full = len / 64;
+    let remainder = if !len.is_multiple_of(64) {
+        let bytes = buf.as_slice();
+        let rem_bytes = &bytes[num_full * 8..];
+        let mut val = 0u64;
+        for (i, &b) in rem_bytes.iter().enumerate() {
+            val |= (b as u64) << (i * 8);
+        }
+        val & ((1u64 << (len % 64)) - 1)
+    } else {
+        0
+    };
+    Some((ptr.cast::<u64>(), num_full, remainder))
 }
 
 impl Mask {
@@ -234,7 +390,8 @@ impl Mask {
 
             (AllOr::Some(self_indices), AllOr::Some(mask_indices)) => {
                 let len = self.len();
-                if mask_indices.is_empty() {
+                let out_true_count = mask_indices.len();
+                if out_true_count == 0 {
                     return Self::new_false(len);
                 }
 
@@ -243,16 +400,17 @@ impl Mask {
                 let chunks = buffer.as_mut_slice();
 
                 for &idx in mask_indices.iter() {
-                    // SAFETY: mask_indices values are < mask.len() == self.true_count() == self_indices.len()
                     let bit_pos = unsafe { *self_indices.get_unchecked(idx) };
-                    // SAFETY: bit_pos < self.len() and we allocated ceil(self.len()/64) chunks
                     unsafe {
                         *chunks.get_unchecked_mut(bit_pos / 64) |= 1u64 << (bit_pos % 64);
                     }
                 }
 
                 buffer.truncate(len.div_ceil(8));
-                Self::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
+                Self::from_buffer_with_true_count(
+                    BitBuffer::new(buffer.freeze().into_byte_buffer(), len),
+                    out_true_count,
+                )
             }
         }
     }
@@ -295,66 +453,139 @@ impl Mask {
 
             (AllOr::Some(self_buffer), AllOr::Some(mask_buffer)) => {
                 let len = self.len();
-
-                // On x86_64 with BMI2+POPCNT, use the optimized dense loop
-                // where PDEP is inlined and count_ones() uses hardware POPCNT.
-                #[cfg(target_arch = "x86_64")]
-                if std::arch::is_x86_feature_detected!("bmi2") {
-                    // Build flat mask: full chunks + remainder + sentinel (for SHRD lookahead).
-                    // Uses memcpy (extend_from_slice) when the buffer is u64-aligned.
-                    let mask_flat = build_mask_flat(mask_buffer);
-
-                    // For self: zero-copy &[u64] when aligned, otherwise collect.
-                    // This avoids a full Vec allocation+copy in the common case.
-                    let self_chunks = self_buffer.chunks();
-                    return if let Some((raw_chunks, remainder)) = bit_buffer_raw_u64s(self_buffer) {
-                        // SAFETY: We just verified BMI2 is available.
-                        unsafe { dense_loop_bmi2(raw_chunks, remainder, &mask_flat, len) }
-                    } else {
-                        // Fallback: collect through iterator (handles non-zero offset)
-                        let full: Vec<u64> = self_chunks.iter().collect();
-                        let remainder = self_chunks.remainder_bits();
-                        unsafe { dense_loop_bmi2(&full, remainder, &mask_flat, len) }
-                    };
-                }
-
-                // Portable fallback: LUT PDEP + flat mask with sliding window.
-                // Same structure as BMI2 path but with software PDEP.
+                let out_true_count = mask.true_count();
                 let mask_flat = build_mask_flat(mask_buffer);
 
-                let self_chunks = self_buffer.chunks();
-                let has_remainder = !len.is_multiple_of(64);
-                let num_out = self_chunks.chunk_len() + has_remainder as usize;
-                let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_out);
-                let mut bit_pos = 0usize;
-
-                for self_chunk in self_chunks.iter() {
-                    let popcount = self_chunk.count_ones() as usize;
-                    let result_chunk = if self_chunk == 0 {
-                        0u64
+                let (self_full, self_remainder) =
+                    if let Some((raw, rem)) = bit_buffer_raw_u64s(self_buffer) {
+                        (std::borrow::Cow::Borrowed(raw), rem)
                     } else {
-                        let rank_bits = extract_bits_portable(&mask_flat, bit_pos);
-                        pdep_lut(rank_bits, self_chunk)
+                        let chunks = self_buffer.chunks();
+                        let full: Vec<u64> = chunks.iter().collect();
+                        let rem = chunks.remainder_bits();
+                        (std::borrow::Cow::Owned(full), rem)
                     };
-                    unsafe { buffer.push_unchecked(result_chunk) };
-                    bit_pos += popcount;
+
+                #[cfg(target_arch = "x86_64")]
+                if std::arch::is_x86_feature_detected!("bmi2") {
+                    return unsafe {
+                        dense_loop_bmi2(
+                            &self_full,
+                            self_remainder,
+                            &mask_flat,
+                            len,
+                            out_true_count,
+                        )
+                    };
                 }
 
-                if has_remainder {
-                    let self_chunk = self_chunks.remainder_bits();
-                    let result_chunk = if self_chunk == 0 {
-                        0u64
-                    } else {
-                        let rank_bits = extract_bits_portable(&mask_flat, bit_pos);
-                        pdep_lut(rank_bits, self_chunk)
-                    };
-                    unsafe { buffer.push_unchecked(result_chunk) };
-                }
-
-                buffer.truncate(len.div_ceil(8));
-                Self::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
+                dense_loop_portable(
+                    &self_full,
+                    self_remainder,
+                    &mask_flat,
+                    len,
+                    out_true_count,
+                )
             }
         }
+    }
+
+    /// Owned variant of [`intersect_by_rank`](Self::intersect_by_rank) that takes `self` by value.
+    ///
+    /// When `self` has unique ownership (no other clones), this performs the intersection
+    /// in-place, avoiding output buffer allocation and reducing memory streams from 3 to 2.
+    /// When ownership is shared, falls back to the allocating path.
+    ///
+    /// Callers that don't need `self` after the call should prefer this method.
+    pub fn intersect_by_rank_owned(self, mask: &Mask) -> Mask {
+        assert_eq!(self.true_count(), mask.len());
+
+        let self_sparse = self.true_count().saturating_mul(20) <= self.len();
+        let mask_sparse = mask.true_count().saturating_mul(20) <= mask.len();
+        if self_sparse || mask_sparse {
+            return self.intersect_by_rank_sparse(mask);
+        }
+
+        // Handle trivial variants before consuming self
+        if matches!(&self, Mask::AllFalse(_)) || matches!(mask.bit_buffer(), AllOr::None) {
+            return Self::new_false(self.len());
+        }
+        if matches!(&self, Mask::AllTrue(_)) {
+            return mask.clone();
+        }
+        if matches!(mask.bit_buffer(), AllOr::All) {
+            return self;
+        }
+
+        let len = self.len();
+        let out_true_count = mask.true_count();
+        let mask_buffer = match mask.bit_buffer() {
+            AllOr::Some(b) => b,
+            _ => unreachable!(),
+        };
+        let mask_flat = build_mask_flat(mask_buffer);
+
+        // Consume self to try for in-place operation
+        let self_bit_buffer = self.into_bit_buffer();
+        match self_bit_buffer.try_into_mut() {
+            Ok(mut bit_buf_mut) => {
+                if let Some((buf_ptr, num_full, remainder)) = try_inplace_ptr(&mut bit_buf_mut) {
+                    #[cfg(target_arch = "x86_64")]
+                    if std::arch::is_x86_feature_detected!("bmi2") {
+                        unsafe {
+                            dense_loop_bmi2_inplace(
+                                buf_ptr, num_full, remainder, &mask_flat, len,
+                            );
+                        }
+                        return Mask::from_buffer_with_true_count(
+                            bit_buf_mut.freeze(),
+                            out_true_count,
+                        );
+                    }
+
+                    dense_loop_portable_inplace(buf_ptr, num_full, remainder, &mask_flat, len);
+                    return Mask::from_buffer_with_true_count(
+                        bit_buf_mut.freeze(),
+                        out_true_count,
+                    );
+                }
+                // Not aligned — freeze back and use allocating path
+                let frozen = bit_buf_mut.freeze();
+                Self::intersect_dense_alloc(frozen, &mask_flat, len, out_true_count)
+            }
+            Err(self_bit_buffer) => {
+                // Shared buffer — use allocating path
+                Self::intersect_dense_alloc(self_bit_buffer, &mask_flat, len, out_true_count)
+            }
+        }
+    }
+
+    /// Allocating dense intersection: extracts chunks from the BitBuffer and delegates
+    /// to the appropriate loop (BMI2 or portable).
+    fn intersect_dense_alloc(
+        self_buffer: BitBuffer,
+        mask_flat: &[u64],
+        len: usize,
+        out_true_count: usize,
+    ) -> Mask {
+        let (self_full, self_remainder) =
+            if let Some((raw, rem)) = bit_buffer_raw_u64s(&self_buffer) {
+                (std::borrow::Cow::Borrowed(raw), rem)
+            } else {
+                let chunks = self_buffer.chunks();
+                let full: Vec<u64> = chunks.iter().collect();
+                let rem = chunks.remainder_bits();
+                (std::borrow::Cow::Owned(full), rem)
+            };
+
+        #[cfg(target_arch = "x86_64")]
+        if std::arch::is_x86_feature_detected!("bmi2") {
+            return unsafe {
+                dense_loop_bmi2(&self_full, self_remainder, mask_flat, len, out_true_count)
+            };
+        }
+
+        dense_loop_portable(&self_full, self_remainder, mask_flat, len, out_true_count)
     }
 }
 
@@ -549,6 +780,44 @@ mod tests {
 
         let result = base.intersect_by_rank(&rank);
         assert!(result.true_count() > 0);
+    }
+
+    /// Verify `intersect_by_rank_owned` matches `intersect_by_rank` across densities.
+    #[rstest]
+    #[case::dense_50(0.5, 0.5)]
+    #[case::dense_10(0.5, 0.1)]
+    #[case::dense_90(0.5, 0.9)]
+    #[case::sparse_base(0.1, 0.5)]
+    fn test_intersect_by_rank_owned(#[case] base_density: f64, #[case] rank_density: f64) {
+        let base_len = 1000;
+        let step = (1.0 / base_density).ceil() as usize;
+        let base_indices: Vec<usize> = (0..base_len).step_by(step).collect();
+        let base = Mask::from_indices(base_len, base_indices);
+
+        let rank_len = base.true_count();
+        let rank = Mask::from_buffer(BitBuffer::from_iter((0..rank_len).map(|i| {
+            let threshold = (rank_density * 1000.0) as usize;
+            (i * 7 + 13) % 1000 < threshold
+        })));
+
+        let base2 = base.clone();
+        let expected = base.intersect_by_rank(&rank);
+        let result = base2.intersect_by_rank_owned(&rank);
+        assert_eq!(result, expected);
+    }
+
+    /// Verify owned variant works with large masks that exercise multi-chunk paths.
+    #[test]
+    fn test_intersect_by_rank_owned_large() {
+        let base_len = 10_000;
+        let base = Mask::from_buffer(BitBuffer::from_iter((0..base_len).map(|i| i % 2 == 0)));
+        let rank_len = base.true_count();
+        let rank = Mask::from_buffer(BitBuffer::from_iter((0..rank_len).map(|i| i % 3 == 0)));
+
+        let base2 = base.clone();
+        let expected = base.intersect_by_rank(&rank);
+        let result = base2.intersect_by_rank_owned(&rank);
+        assert_eq!(result, expected);
     }
 
     #[test]

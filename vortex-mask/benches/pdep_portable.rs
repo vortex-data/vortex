@@ -7,7 +7,7 @@
 //! - `baseline_portable`: bit-serial PDEP + branchy extract (old develop fallback)
 //! - `best_non_bmi2`: LUT PDEP + flat mask sliding window (new portable path, good on Apple M-series)
 //! - `production`: current `Mask::intersect_by_rank` (BMI2+SHRD on x86_64, LUT on others)
-//! - `inplace_bmi2`: in-place BMI2+SHRD writing back into self's buffer
+//! - `production_owned`: `Mask::intersect_by_rank_owned` (in-place when sole owner)
 
 #![allow(
     clippy::unwrap_used,
@@ -272,61 +272,7 @@ fn intersect_lut_flat(base: &Mask, filter: &Mask) -> Mask {
     Mask::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
 }
 
-// ── BMI2+SHRD in-place loop ─────────────────────────────────────────────────
-
-#[cfg(target_arch = "x86_64")]
-#[inline(always)]
-unsafe fn extract_shrd(lo: u64, hi: u64, count: u8) -> u64 {
-    let result: u64;
-    unsafe {
-        core::arch::asm!(
-            "shrd {lo}, {hi}, cl",
-            lo = inout(reg) lo => result,
-            hi = in(reg) hi,
-            in("cl") count,
-            options(pure, nomem, nostack),
-        );
-    }
-    result
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "bmi2,popcnt")]
-#[allow(clippy::cast_possible_truncation)]
-unsafe fn inplace_loop_bmi2(
-    out_ptr: *mut u64,
-    num_full: usize,
-    self_remainder: u64,
-    has_remainder: bool,
-    mask_ptr: *const u64,
-    len: usize,
-) {
-    let mut bit_pos: usize = 0;
-
-    for i in 0..num_full {
-        let self_chunk = unsafe { *out_ptr.add(i) };
-        let chunk_idx = bit_pos >> 6;
-        let lo = unsafe { *mask_ptr.add(chunk_idx) };
-        let hi = unsafe { *mask_ptr.add(chunk_idx + 1) };
-        let rank_bits = unsafe { extract_shrd(lo, hi, bit_pos as u8) };
-        let result_chunk = core::arch::x86_64::_pdep_u64(rank_bits, self_chunk);
-        unsafe { *out_ptr.add(i) = result_chunk };
-        bit_pos += self_chunk.count_ones() as usize;
-    }
-
-    if has_remainder {
-        let chunk_idx = bit_pos >> 6;
-        let lo = unsafe { *mask_ptr.add(chunk_idx) };
-        let hi = unsafe { *mask_ptr.add(chunk_idx + 1) };
-        let rank_bits = unsafe { extract_shrd(lo, hi, bit_pos as u8) };
-        let result_chunk = core::arch::x86_64::_pdep_u64(rank_bits, self_remainder);
-        let rem_bytes = (len % 64).div_ceil(8);
-        let dst = unsafe { (out_ptr as *mut u8).add(num_full * 8) };
-        for b in 0..rem_bytes {
-            unsafe { *dst.add(b) = (result_chunk >> (b * 8)) as u8 };
-        }
-    }
-}
+// ── Production owned (in-place when possible) ───────────────────────────────
 
 // ── Benchmark parameters ─────────────────────────────────────────────────────
 
@@ -373,40 +319,12 @@ fn production(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
 }
 
 #[divan::bench(args = BENCH_CASES)]
-fn inplace_bmi2(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
-    use vortex_buffer::BitBufferMut;
-
+fn production_owned(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
     let base = create_random_mask(size, density);
     let rank = create_random_mask(base.true_count(), 0.5);
-    let mask_buffer = match rank.bit_buffer() {
-        AllOr::Some(b) => b,
-        _ => unreachable!(),
-    };
-    let mask_flat = build_mask_flat(mask_buffer);
-
+    // Create a unique BitBuffer so try_into_mut succeeds (no shared Arc).
     let base_buf = base.to_bit_buffer();
-    let base_chunks = base_buf.chunks();
-    let num_full = base_chunks.chunk_len();
-    let self_remainder = base_chunks.remainder_bits();
-    let has_remainder = !size.is_multiple_of(64);
-
     bencher
-        .with_inputs(|| {
-            let mut_buf = base_buf.clone().into_mut();
-            (mut_buf, mask_flat.as_ptr())
-        })
-        .bench_values(|(mut self_mut, mask_ptr): (BitBufferMut, *const u64)| {
-            let out_ptr = self_mut.as_mut_ptr() as *mut u64;
-            unsafe {
-                inplace_loop_bmi2(
-                    out_ptr,
-                    num_full,
-                    self_remainder,
-                    has_remainder,
-                    mask_ptr,
-                    size,
-                );
-            }
-            Mask::from_buffer(self_mut.freeze())
-        });
+        .with_inputs(|| (Mask::from_buffer(base_buf.clone()), &rank))
+        .bench_values(|(b, r)| b.intersect_by_rank_owned(r));
 }
