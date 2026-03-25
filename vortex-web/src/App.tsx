@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import type { InitOutput } from "./wasm/pkg/vortex_web_wasm.d.ts";
 
