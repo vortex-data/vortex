@@ -8,6 +8,7 @@
     "wasm:release": "wasm-pack build crate --release --target web --out-dir ../src/wasm/pkg",
     "dev": "npm run wasm && vite",
     "build": "npm run wasm:release && tsc -b && vite build",
+    "check": "npm run wasm && npm run lint && npm run typecheck",
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
