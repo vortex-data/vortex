@@ -29,7 +29,7 @@ impl OperationsVTable<NormVector> for NormVector {
                     array.vector_array().dtype()
                 )
             })?;
-        let list_size = extension_list_size(ext)?;
+        let list_size = extension_list_size(ext)? as usize;
 
         // Get the storage (FixedSizeList) and slice out the elements for this row.
         let storage = extension_storage(array.vector_array())?;

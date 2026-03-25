@@ -128,7 +128,7 @@ impl ScalarFnVTable for CosineSimilarity {
                 lhs.dtype()
             )
         })?;
-        let list_size = extension_list_size(ext)?;
+        let list_size = extension_list_size(ext)? as usize;
 
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.

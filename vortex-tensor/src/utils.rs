@@ -21,7 +21,7 @@ use vortex::error::vortex_err;
 /// Extracts the list size from a tensor-like extension dtype.
 ///
 /// The storage dtype must be a `FixedSizeList`.
-pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<usize> {
+pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
     let DType::FixedSizeList(_, list_size, _) = ext.storage_dtype() else {
         vortex_bail!(
             "expected FixedSizeList storage dtype, got {}",
@@ -29,7 +29,7 @@ pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<usize> {
         );
     };
 
-    Ok(*list_size as usize)
+    Ok(*list_size)
 }
 
 /// Extracts the float element [`PType`] from a tensor-like extension dtype.
@@ -232,7 +232,7 @@ pub mod test_helpers {
             .dtype()
             .as_extension_opt()
             .ok_or_else(|| vortex_err!("expected Vector extension dtype, got {}", array.dtype()))?;
-        let list_size = extension_list_size(ext)?;
+        let list_size = extension_list_size(ext)? as usize;
         let storage = extension_storage(array)?;
         let flat = extract_flat_elements(&storage, list_size, ctx)?;
         Ok((0..array.len())

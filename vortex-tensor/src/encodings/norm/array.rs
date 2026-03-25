@@ -6,9 +6,12 @@ use num_traits::Zero;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_float_ptype;
 use vortex::array::stats::ArrayStats;
 use vortex::array::validity::Validity;
@@ -16,6 +19,9 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::extension::ExtDType;
 use vortex::dtype::extension::ExtDTypeRef;
+use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::sequence::SequenceArray;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
@@ -23,8 +29,10 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::root;
 use vortex::extension::EmptyMetadata;
+use vortex::scalar::PValue;
 use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFn;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extension_element_ptype;
@@ -45,12 +53,13 @@ pub struct NormVectorArray {
     /// The backing vector array that has been unit normalized.
     ///
     /// The underlying elements of the vector array must be floating-point. This child may be
-    /// nullable; its validity determines the validity of the `NormVectorArray`.
+    /// nullable, and its validity determines the validity of the `NormVectorArray`.
     pub(crate) vector_array: ArrayRef,
 
     /// The L2 norms of each vector.
     ///
-    /// This must have the same dtype as the elements of the vector array.
+    /// This must have the same validity as the vector array, and the same dtype as the elements of
+    /// the vector array.
     pub(crate) norms: ArrayRef,
 
     /// Stats set owned by this array.
@@ -65,7 +74,7 @@ impl NormVectorArray {
     /// `norms` must be a primitive array of the same float type with the same length. The
     /// `vector_array` may be nullable.
     pub fn try_new(vector_array: ArrayRef, norms: ArrayRef) -> VortexResult<Self> {
-        let ext = Self::validate(&vector_array)?;
+        let ext = Self::validate(&vector_array, &norms)?;
 
         let element_ptype = extension_element_ptype(&ext)?;
 
@@ -90,9 +99,9 @@ impl NormVectorArray {
         })
     }
 
-    /// Validates that the given array has the [`Vector`] extension type and returns the extension
-    /// dtype.
-    fn validate(vector_array: &ArrayRef) -> VortexResult<ExtDTypeRef> {
+    /// Validates that the given array has the [`Vector`] extension type and returns the
+    /// [`ExtDTypeRef`] of the vector array on success.
+    fn validate_vector_array(vector_array: &ArrayRef) -> VortexResult<ExtDTypeRef> {
         let ext = vector_array.dtype().as_extension_opt().ok_or_else(|| {
             vortex_err!(
                 "vector_array dtype must be an extension type, got {}",
@@ -109,6 +118,54 @@ impl NormVectorArray {
         Ok(ext.clone())
     }
 
+    /// Validates that the given `vector_array` and `norms` are compatible.
+    ///
+    /// Checks that:
+    /// - The `vector_array` has the [`Vector`] extension type.
+    /// - Both arrays have the same length.
+    /// - The element primitive type of the vectors matches the primitive type of the norms.
+    /// - Both arrays share the same validity mask.
+    ///
+    /// Returns the [`ExtDTypeRef`] of the vector array on success.
+    fn validate(vector_array: &ArrayRef, norms: &ArrayRef) -> VortexResult<ExtDTypeRef> {
+        let ext = Self::validate_vector_array(vector_array)?;
+
+        vortex_ensure_eq!(
+            vector_array.len(),
+            norms.len(),
+            "vector_array and norms must have the same length"
+        );
+
+        let element_ptype = extension_element_ptype(&ext)?;
+        vortex_ensure_eq!(
+            element_ptype,
+            norms.dtype().as_ptype(),
+            "vector elements ptype must be the same as the norms ptype"
+        );
+
+        // TODO(connor): Is there a better way to do this?
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mask_eq = vector_array
+            .validity()?
+            .mask_eq(&norms.validity()?, &mut ctx)?;
+        vortex_ensure!(
+            mask_eq,
+            "vector_array and norms must have the same validity"
+        );
+
+        Ok(ext)
+    }
+
+    /// Returns a reference to the backing vector array that has been unit normalized.
+    pub fn vector_array(&self) -> &ArrayRef {
+        &self.vector_array
+    }
+
+    /// Returns a reference to the L2 norms of each vector.
+    pub fn norms(&self) -> &ArrayRef {
+        &self.norms
+    }
+
     /// Encodes a [`Vector`] extension array into a [`NormVectorArray`] by computing L2 norms and
     /// dividing each vector by its norm.
     ///
@@ -118,9 +175,9 @@ impl NormVectorArray {
     ///
     /// Note that compression is lossy per floating-point operations.
     pub fn compress(vector_array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let ext = Self::validate(&vector_array)?;
+        let ext = Self::validate_vector_array(&vector_array)?;
 
-        let list_size = extension_list_size(&ext)?;
+        let list_size = extension_list_size(&ext)? as usize;
         let row_count = vector_array.len();
         let nullability = Nullability::from(vector_array.dtype().is_nullable());
         let validity = vector_array.validity()?;
@@ -170,55 +227,60 @@ impl NormVectorArray {
         })
     }
 
-    /// Returns a reference to the backing vector array that has been unit normalized.
-    pub fn vector_array(&self) -> &ArrayRef {
-        &self.vector_array
-    }
-
-    /// Returns a reference to the L2 norms of each vector.
-    pub fn norms(&self) -> &ArrayRef {
-        &self.norms
-    }
-
     /// Reconstructs the original vectors by multiplying each unit-normalized vector by its L2 norm.
     ///
     /// The returned array has the same dtype (including nullability) as the original
     /// `vector_array` child.
     pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let ext = Self::validate(&self.vector_array)?;
-        let nullability = Nullability::from(self.vector_array.dtype().is_nullable());
-
-        let list_size = extension_list_size(&ext)?;
-        let row_count = self.vector_array.len();
+        let ext = self
+            .dtype()
+            .as_extension_opt()
+            .vortex_expect("somehow had a non-extension dtype");
 
         let storage = extension_storage(&self.vector_array)?;
-        let flat = extract_flat_elements(&storage, list_size, ctx)?;
+        let fsl: FixedSizeListArray = storage.execute(ctx)?;
 
-        let norms_prim: PrimitiveArray = self.norms.clone().execute(ctx)?;
+        let denormalized_fsl =
+            broadcast_binary_to_elements(fsl, self.norms.clone(), Operator::Mul, ctx)?;
 
-        match_each_float_ptype!(flat.ptype(), |T| {
-            let norms_slice = norms_prim.as_slice::<T>();
-
-            let result_elems: PrimitiveArray = (0..row_count)
-                .flat_map(|i| {
-                    let norm = norms_slice[i];
-                    flat.row::<T>(i).iter().map(move |&v| v * norm)
-                })
-                .collect();
-
-            let validity = Validity::from(nullability);
-            let fsl = FixedSizeListArray::new(
-                result_elems.into_array(),
-                u32::try_from(list_size)?,
-                validity,
-                row_count,
-            );
-
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-        })
+        Ok(ExtensionArray::new(ext.clone(), denormalized_fsl.into_array()).into_array())
     }
+}
+
+/// We do not have any kind of "broadcast" expression where we evaluate a binary expression between
+/// every `FixedSizeList` element and another value. We can mimic this by creating a
+/// `RunEnd(Sequence)` array that we evaluate with the elements of the [`FixedSizeListArray`].
+fn broadcast_binary_to_elements(
+    fsl: FixedSizeListArray,
+    values: ArrayRef,
+    op: Operator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FixedSizeListArray> {
+    let num_lists = fsl.len();
+    let list_size = fsl.list_size();
+    let validity = fsl.validity()?;
+    let elements = fsl.elements();
+    debug_assert!(elements.dtype().is_primitive());
+
+    // Create the broadcasting array via a runend array with a sequence of ends.
+    let base: PValue = list_size.into();
+    let multiplier: PValue = base;
+    let ends_ptype = base.ptype();
+    let ends_nullability = Nullability::NonNullable;
+
+    let ends = SequenceArray::try_new(base, multiplier, ends_ptype, ends_nullability, num_lists)?;
+    let runend = RunEndArray::try_new(ends.into_array(), values)?;
+
+    let binary_eval = elements.binary(runend.into_array(), op)?;
+    let executed: PrimitiveArray = binary_eval.execute(ctx)?;
+
+    // SAFETY: We simply evaluated a scalar function on all of the elements, so none of the length
+    // properties have changed.
+    let fsl = unsafe {
+        FixedSizeListArray::new_unchecked(executed.into_array(), list_size, validity, num_lists)
+    };
+
+    Ok(fsl)
 }
 
 /// Returns `1 / norm` if the norm is non-zero, or zero otherwise.

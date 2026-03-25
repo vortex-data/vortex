@@ -110,7 +110,7 @@ impl ScalarFnVTable for L2Norm {
                 input.dtype()
             )
         })?;
-        let list_size = extension_list_size(ext)?;
+        let list_size = extension_list_size(ext)? as usize;
 
         let storage = extension_storage(&input)?;
         let flat = extract_flat_elements(&storage, list_size, ctx)?;
