@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 // Layout node types for the columnar format visualizer
 
 export type DtypeCategory = 'bool' | 'int' | 'float' | 'struct' | 'list' | 'other';

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import type {
   LayoutNode,

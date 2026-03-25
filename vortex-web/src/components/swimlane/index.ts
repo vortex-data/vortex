@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 // Main component
 export { LayoutSwimlane, default } from './LayoutSwimlane';
 export type { LayoutSwimlaneProps } from './LayoutSwimlane';
