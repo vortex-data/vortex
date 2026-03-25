@@ -178,10 +178,36 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         }
         return false;
     }
+    if id == Dict::ID {
+        if let Ok(a) = array.clone().try_into::<Dict>() {
+            // As of now the dict dyn dispatch kernel requires
+            // codes and values to have the same byte width.
+            return match (
+                PType::try_from(a.values().dtype()),
+                PType::try_from(a.codes().dtype()),
+            ) {
+                (Ok(values), Ok(codes)) => values.byte_width() == codes.byte_width(),
+                _ => false,
+            };
+        }
+        return false;
+    }
+    if id == RunEnd::ID {
+        if let Ok(a) = array.clone().try_into::<RunEnd>() {
+            // As of now the run-end dyn dispatch kernel requires
+            // ends and values to have the same byte width.
+            return match (
+                PType::try_from(a.ends().dtype()),
+                PType::try_from(a.values().dtype()),
+            ) {
+                (Ok(e), Ok(v)) => e.byte_width() == v.byte_width(),
+                _ => false,
+            };
+        }
+        return false;
+    }
     id == FoR::ID
         || id == ZigZag::ID
-        || id == Dict::ID
-        || id == RunEnd::ID
         || id == Primitive::ID
         || id == Slice::ID
         || id == Sequence::ID
@@ -262,6 +288,13 @@ impl PlanBuilderState<'_> {
     fn walk(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         if let Some(pipeline) = self.find_subtree(&array) {
             return Ok(pipeline);
+        }
+
+        if !is_dyn_dispatch_compatible(&array) {
+            vortex_bail!(
+                "Encoding {:?} is not compatible with the dynamic dispatch plan builder",
+                array.encoding_id()
+            );
         }
 
         let id = array.encoding_id();
