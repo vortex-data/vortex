@@ -40,8 +40,8 @@ pub fn turboquant_encode(
     config: &TurboQuantConfig,
 ) -> VortexResult<TurboQuantArray> {
     vortex_ensure!(
-        config.bit_width >= 1 && config.bit_width <= 4,
-        "bit_width must be 1-4, got {}",
+        config.bit_width >= 1 && config.bit_width <= 8,
+        "bit_width must be 1-8, got {}",
         config.bit_width
     );
     if config.variant == TurboQuantVariant::Prod {
@@ -183,15 +183,19 @@ fn encode_mse(
         }
     }
 
-    // Bitpack indices via FastLanes.
+    // Pack indices: bitpack for 1-7 bits, store raw u8 for 8 bits.
     let indices_array = PrimitiveArray::new::<u8>(all_indices.freeze(), Validity::NonNullable);
-    let bitpacked = bitpack_encode(&indices_array, bit_width, None)?;
+    let codes = if bit_width < 8 {
+        bitpack_encode(&indices_array, bit_width, None)?.into_array()
+    } else {
+        indices_array.into_array()
+    };
 
     let norms_array = PrimitiveArray::new::<f32>(norms_buf.freeze(), Validity::NonNullable);
 
     TurboQuantArray::try_new_mse(
         fsl.dtype().clone(),
-        bitpacked.into_array(),
+        codes,
         norms_array.into_array(),
         dimension,
         bit_width,
@@ -291,9 +295,13 @@ fn encode_prod(
         }
     }
 
-    // Bitpack MSE indices via FastLanes.
+    // Pack MSE indices: bitpack for 1-7 bits, store raw u8 for 8 bits.
     let indices_array = PrimitiveArray::new::<u8>(all_indices.freeze(), Validity::NonNullable);
-    let bitpacked = bitpack_encode(&indices_array, mse_bit_width, None)?;
+    let codes = if mse_bit_width < 8 {
+        bitpack_encode(&indices_array, mse_bit_width, None)?.into_array()
+    } else {
+        indices_array.into_array()
+    };
 
     let norms_array = PrimitiveArray::new::<f32>(norms_buf.freeze(), Validity::NonNullable);
     let residual_norms_array =
@@ -303,7 +311,7 @@ fn encode_prod(
 
     TurboQuantArray::try_new_prod(
         fsl.dtype().clone(),
-        bitpacked.into_array(),
+        codes,
         norms_array.into_array(),
         qjl_signs.into_array(),
         residual_norms_array.into_array(),

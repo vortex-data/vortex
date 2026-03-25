@@ -22,12 +22,16 @@
 //!
 //! > `E[||x - x̂||² / ||x||²] ≤ (√3 · π / 2) / 4^b`
 //!
-//! | Bits | MSE bound |
-//! |------|-----------|
-//! | 1    | 0.680     |
-//! | 2    | 0.170     |
-//! | 3    | 0.043     |
-//! | 4    | 0.011     |
+//! | Bits | MSE bound  | Quality           |
+//! |------|------------|-------------------|
+//! | 1    | 6.80e-01   | Poor              |
+//! | 2    | 1.70e-01   | Usable for ANN    |
+//! | 3    | 4.25e-02   | Good              |
+//! | 4    | 1.06e-02   | Very good         |
+//! | 5    | 2.66e-03   | Excellent         |
+//! | 6    | 6.64e-04   | Near-lossless     |
+//! | 7    | 1.66e-04   | Near-lossless     |
+//! | 8    | 4.15e-05   | Near-lossless     |
 //!
 //! # Compression ratios
 //!
@@ -35,15 +39,14 @@
 //! 4-byte f32 norm. Non-power-of-2 dimensions are padded to the next power of 2 for the
 //! Walsh-Hadamard transform, which reduces the effective ratio for those dimensions.
 //!
-//! | dim  | padded | bits | f32 bytes | TQ bytes | ratio |
-//! |------|--------|------|-----------|----------|-------|
-//! |  256 |    256 |    2 |      1024 |       68 | 15.1x |
-//! |  512 |    512 |    2 |      2048 |      132 | 15.5x |
-//! |  768 |   1024 |    2 |      3072 |      260 | 11.8x |
-//! | 1024 |   1024 |    2 |      4096 |      260 | 15.8x |
-//! | 1536 |   2048 |    2 |      6144 |      516 | 11.9x |
-//! |  768 |   1024 |    4 |      3072 |      516 |  6.0x |
-//! | 1024 |   1024 |    4 |      4096 |      516 |  7.9x |
+//! | dim  | padded | bits | f32 bytes | TQ bytes | ratio  |
+//! |------|--------|------|-----------|----------|--------|
+//! |  768 |   1024 |    2 |      3072 |      260 | 11.8x  |
+//! | 1024 |   1024 |    2 |      4096 |      260 | 15.8x  |
+//! |  768 |   1024 |    4 |      3072 |      516 |  6.0x  |
+//! | 1024 |   1024 |    4 |      4096 |      516 |  7.9x  |
+//! |  768 |   1024 |    8 |      3072 |     1028 |  3.0x  |
+//! | 1024 |   1024 |    8 |      4096 |     1028 |  4.0x  |
 //!
 //! # Example
 //!
@@ -218,6 +221,8 @@ mod tests {
     #[case(32, 4)]
     #[case(128, 2)]
     #[case(128, 4)]
+    #[case(128, 6)]
+    #[case(128, 8)]
     #[case(256, 2)]
     fn roundtrip_mse(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let num_rows = 10;
@@ -232,11 +237,13 @@ mod tests {
         Ok(())
     }
 
-    /// Verify that MSE distortion is within theoretical bounds.
+    /// Verify that MSE distortion is within theoretical bounds (Theorem 1).
     ///
     /// Paper Theorem 1: D_mse <= (sqrt(3)*pi/2) / 4^b for the normalized
-    /// per-coordinate MSE of unit-norm vectors. We use a relaxed bound since
-    /// the SRHT is an approximation.
+    /// per-coordinate MSE of unit-norm vectors. This bound holds tightly for
+    /// 1-4 bits; at higher bit widths the SRHT finite-dimension effects
+    /// dominate the vanishingly small quantization error, so we test those
+    /// separately in `high_bitwidth_mse_is_small`.
     #[rstest]
     #[case(128, 1)]
     #[case(128, 2)]
@@ -260,8 +267,52 @@ mod tests {
         assert!(
             normalized_mse < bound,
             "Normalized MSE {normalized_mse:.6} exceeds theoretical bound {bound:.6} \
-             (theoretical {:.6}) for dim={dim}, bits={bit_width}",
-            theoretical_mse_bound(bit_width)
+             for dim={dim}, bits={bit_width}",
+        );
+
+        Ok(())
+    }
+
+    /// Verify that high bit-width quantization (5-8) achieves very low distortion.
+    ///
+    /// At these bit widths the theoretical bound is extremely tight and the actual
+    /// distortion is dominated by the SRHT finite-dimension approximation rather
+    /// than quantization error. We just verify the MSE is well below 1% and
+    /// strictly less than the 4-bit MSE.
+    #[rstest]
+    #[case(128, 6)]
+    #[case(128, 8)]
+    #[case(256, 6)]
+    #[case(256, 8)]
+    fn high_bitwidth_mse_is_small(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+        let num_rows = 200;
+        let fsl = make_fsl(num_rows, dim, 42);
+
+        // Get the 4-bit MSE as a reference ceiling.
+        let config_4bit = TurboQuantConfig {
+            bit_width: 4,
+            variant: TurboQuantVariant::Mse,
+            seed: Some(123),
+        };
+        let (original_4, decoded_4) = encode_decode(&fsl, &config_4bit)?;
+        let mse_4bit = per_vector_normalized_mse(&original_4, &decoded_4, dim, num_rows);
+
+        let config = TurboQuantConfig {
+            bit_width,
+            variant: TurboQuantVariant::Mse,
+            seed: Some(123),
+        };
+        let (original, decoded) = encode_decode(&fsl, &config)?;
+        let mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
+
+        assert!(
+            mse < mse_4bit,
+            "{bit_width}-bit MSE ({mse:.6}) should be less than 4-bit MSE ({mse_4bit:.6}) \
+             for dim={dim}",
+        );
+        assert!(
+            mse < 0.01,
+            "{bit_width}-bit MSE ({mse:.6}) should be well below 1% for dim={dim}",
         );
 
         Ok(())
@@ -272,6 +323,8 @@ mod tests {
     #[case(32, 3)]
     #[case(128, 2)]
     #[case(128, 4)]
+    #[case(128, 6)]
+    #[case(128, 8)]
     fn roundtrip_prod(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let num_rows = 10;
         let fsl = make_fsl(num_rows, dim, 42);
@@ -296,6 +349,8 @@ mod tests {
     #[case(128, 2)]
     #[case(128, 3)]
     #[case(128, 4)]
+    #[case(128, 6)]
+    #[case(128, 8)]
     fn prod_inner_product_bias(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let num_rows = 100;
         let fsl = make_fsl(num_rows, dim, 42);
@@ -368,7 +423,7 @@ mod tests {
         };
 
         let mut prev_mse = f32::MAX;
-        for bit_width in min_bits..=4u8 {
+        for bit_width in min_bits..=8u8 {
             let config = TurboQuantConfig {
                 bit_width,
                 variant,

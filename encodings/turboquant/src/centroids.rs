@@ -36,8 +36,8 @@ static CENTROID_CACHE: OnceLock<CentroidCache> = OnceLock::new();
 /// optimal scalar quantization levels for the coordinate distribution after
 /// random rotation in `dimension`-dimensional space.
 pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
-    if !(1..=4).contains(&bit_width) {
-        vortex_bail!("TurboQuant bit_width must be 1-4, got {bit_width}");
+    if !(1..=8).contains(&bit_width) {
+        vortex_bail!("TurboQuant bit_width must be 1-8, got {bit_width}");
     }
     if dimension < 2 {
         vortex_bail!("TurboQuant dimension must be >= 2, got {dimension}");
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn rejects_invalid_params() {
         assert!(get_centroids(128, 0).is_err());
-        assert!(get_centroids(128, 5).is_err());
+        assert!(get_centroids(128, 9).is_err());
         assert!(get_centroids(1, 2).is_err());
     }
 }

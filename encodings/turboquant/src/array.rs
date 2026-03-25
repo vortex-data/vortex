@@ -317,7 +317,7 @@ impl TurboQuantArray {
         bit_width: u8,
         rotation_seed: u64,
     ) -> VortexResult<Self> {
-        vortex_ensure!((1..=4).contains(&bit_width), "bit_width must be 1-4");
+        vortex_ensure!((1..=8).contains(&bit_width), "bit_width must be 1-8");
         Ok(Self {
             dtype,
             codes,
@@ -345,8 +345,8 @@ impl TurboQuantArray {
         rotation_seed: u64,
     ) -> VortexResult<Self> {
         vortex_ensure!(
-            (2..=4).contains(&bit_width),
-            "Prod variant bit_width must be 2-4"
+            (2..=8).contains(&bit_width),
+            "Prod variant bit_width must be 2-8"
         );
         Ok(Self {
             dtype,
