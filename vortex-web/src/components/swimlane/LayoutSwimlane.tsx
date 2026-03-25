@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import type {
   LayoutNode,
+  StructLayout,
   Split,
   FlattenedNode,
   ChunkNode,
@@ -62,11 +63,11 @@ function Tooltip({ node, position }: TooltipProps) {
 
   return (
     <div
-      className="fixed z-[1000] pointer-events-none max-w-[220px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg p-2 text-xs"
+      className="fixed z-[1000] pointer-events-none max-w-[220px] rounded-lg border border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-white dark:bg-vortex-black shadow-lg p-2 text-xs"
       style={{ left: position.x + 12, top: position.y - 10 }}
     >
       <div className="flex items-center gap-1.5 mb-1">
-        <span className="font-medium text-gray-900 dark:text-gray-100">{node.name}</span>
+        <span className="font-medium text-vortex-black dark:text-vortex-white">{node.name}</span>
         <span
           className="text-[9px] px-1.5 py-0.5 rounded"
           style={{ color: dtypeColor, backgroundColor: `${dtypeColor}20` }}
@@ -74,31 +75,31 @@ function Tooltip({ node, position }: TooltipProps) {
           {dtypeCat}
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-gray-500 dark:text-gray-400">
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-vortex-grey-dark">
         <span>rows</span>
-        <span className="text-gray-900 dark:text-gray-100">{rows.toLocaleString()}</span>
+        <span className="text-vortex-black dark:text-vortex-white">{rows.toLocaleString()}</span>
         {meta?.dtype && (
           <>
             <span>dtype</span>
-            <span className="text-gray-900 dark:text-gray-100">{meta.dtype}</span>
+            <span className="text-vortex-black dark:text-vortex-white">{meta.dtype}</span>
           </>
         )}
         {meta?.bytes && (
           <>
             <span>size</span>
-            <span className="text-gray-900 dark:text-gray-100">{formatBytes(meta.bytes)}</span>
+            <span className="text-vortex-black dark:text-vortex-white">{formatBytes(meta.bytes)}</span>
           </>
         )}
         {meta?.min !== undefined && (
           <>
             <span>min</span>
-            <span className="text-gray-900 dark:text-gray-100">{String(meta.min)}</span>
+            <span className="text-vortex-black dark:text-vortex-white">{String(meta.min)}</span>
           </>
         )}
         {meta?.max !== undefined && (
           <>
             <span>max</span>
-            <span className="text-gray-900 dark:text-gray-100">{String(meta.max)}</span>
+            <span className="text-vortex-black dark:text-vortex-white">{String(meta.max)}</span>
           </>
         )}
       </div>
@@ -132,7 +133,7 @@ function TreeRow({
   if (isHint || isHiddenIndicator) {
     return (
       <div
-        className="flex items-center text-[10px] text-gray-400 dark:text-gray-500 italic border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900"
+        className="flex items-center text-[10px] text-vortex-grey-dark italic border-b border-vortex-grey-lightest dark:border-vortex-grey-dark/30 bg-vortex-white dark:bg-vortex-black"
         style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 10 }}
       >
         <span className="ml-3">{node.name}</span>
@@ -159,17 +160,17 @@ function TreeRow({
 
   return (
     <div
-      className={`flex items-center gap-1.5 text-[11px] border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 whitespace-nowrap hover:bg-gray-50 dark:hover:bg-gray-800 cursor-default ${opacity} ${fontStyle}`}
+      className={`flex items-center gap-1.5 text-[11px] border-b border-vortex-grey-lightest dark:border-vortex-grey-dark/30 bg-vortex-white dark:bg-vortex-black whitespace-nowrap hover:bg-vortex-grey-lightest dark:hover:bg-vortex-grey-dark/20 cursor-default ${opacity} ${fontStyle}`}
       style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 10, paddingRight: 8 }}
     >
       <span
-        className={`text-[8px] w-3 text-gray-400 ${expandable ? 'cursor-pointer' : ''}`}
+        className={`text-[8px] w-3 text-vortex-grey-dark ${expandable ? 'cursor-pointer' : ''}`}
         style={{ opacity: expandable ? 1 : 0 }}
         onClick={expandable ? onToggle : undefined}
       >
         {isExpanded ? '▼' : '▶'}
       </span>
-      <span className="flex-1 overflow-hidden text-ellipsis text-gray-900 dark:text-gray-100">
+      <span className="flex-1 overflow-hidden text-ellipsis text-vortex-black dark:text-vortex-white">
         {node.name}
       </span>
       <span
@@ -181,6 +182,22 @@ function TreeRow({
       </span>
     </div>
   );
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function findFirstFlat(node: LayoutNode | ChunkNode | ZoneNode): FlatLayout | null {
+  if ('type' in node && (node as LayoutNode).type === 'flat') return node as FlatLayout;
+  if ('child' in node) return findFirstFlat((node as ChunkNode).child);
+  if ('children' in node) {
+    for (const c of (node as StructLayout).children) {
+      const flat = findFirstFlat(c);
+      if (flat) return flat;
+    }
+  }
+  return null;
 }
 
 // ============================================================================
@@ -199,6 +216,33 @@ function SwimlaneBar({ node, totalRows, isGroup, onHover }: SwimlaneBarProps) {
   const isGroupNode = isGroup || ('_isGroup' in node && node._isGroup);
   const style = LAYOUT_STYLES[node.type as keyof typeof LAYOUT_STYLES] || LAYOUT_STYLES.chunk;
 
+  // For group nodes, render rolled-up flat bars from each chunk
+  if (isGroupNode && node.chunks) {
+    return (
+      <>
+        {node.chunks.map(chunk => {
+          const flatChild = findFirstFlat(chunk);
+          const chunkLeft = (chunk.rowRange[0] / totalRows) * 100;
+          const chunkWidth = ((chunk.rowRange[1] - chunk.rowRange[0]) / totalRows) * 100;
+          const dtypeCat = flatChild ? getDtypeCategory(flatChild.meta?.dtype) : 'other';
+          const dtypeColor = DTYPE_COLORS[dtypeCat];
+          return (
+            <div
+              key={chunk.id}
+              className="absolute top-[3px] bottom-[3px] rounded"
+              style={{
+                left: `calc(${chunkLeft}% + 1px)`,
+                width: `calc(${chunkWidth}% - 3px)`,
+                backgroundColor: `${dtypeColor}40`,
+                border: `1.5px solid ${dtypeColor}`,
+              }}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
   const left = (node.rowRange[0] / totalRows) * 100;
   const width = ((node.rowRange[1] - node.rowRange[0]) / totalRows) * 100;
 
@@ -214,11 +258,9 @@ function SwimlaneBar({ node, totalRows, isGroup, onHover }: SwimlaneBarProps) {
     barStyle.backgroundColor = `${dtypeColor}40`;
     barStyle.border = `1.5px solid ${dtypeColor}`;
     barClasses += ' cursor-pointer';
-  } else if (isGroupNode) {
-    barStyle.border = `1.5px dotted ${style.color}40`;
-    barStyle.opacity = 0.4;
   } else {
-    barStyle.border = `1.5px dashed ${style.color}60`;
+    // All container nodes: solid outline, no fill
+    barStyle.border = `1.5px solid ${style.color}40`;
   }
 
   const handleMouseEnter = (e: React.MouseEvent) => {
@@ -274,11 +316,15 @@ function SplitRegion({ split, totalRows, swimlaneWidth, isSelected, onClick }: S
 
   return (
     <div
-      className="absolute top-0 bottom-0 cursor-pointer border-r border-gray-200 dark:border-gray-700"
+      className="absolute top-0 bottom-0 cursor-pointer border-r border-vortex-grey-light/50 dark:border-vortex-grey-dark/20"
       style={{
         left: `${left}%`,
         width: `${width}%`,
-        backgroundColor: isSelected ? '#88C0D015' : isHovered ? 'rgba(136,192,208,0.05)' : undefined,
+        backgroundColor: isSelected
+          ? 'rgba(44, 185, 209, 0.08)'
+          : isHovered
+            ? 'rgba(44, 185, 209, 0.03)'
+            : undefined,
       }}
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
@@ -287,8 +333,8 @@ function SplitRegion({ split, totalRows, swimlaneWidth, isSelected, onClick }: S
       <div
         className="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap transition-opacity duration-150 pointer-events-none"
         style={{
-          color: isSelected ? '#88C0D0' : '#9CA3AF',
-          backgroundColor: isSelected ? '#88C0D025' : 'rgba(249,250,251,0.9)',
+          color: isSelected ? 'rgba(44, 185, 209, 1)' : 'rgba(143, 143, 143, 1)',
+          backgroundColor: isSelected ? 'rgba(44, 185, 209, 0.15)' : 'rgba(241, 241, 241, 0.9)',
           opacity: showLabel ? 1 : 0,
           fontWeight: isSelected ? 500 : 400,
         }}
@@ -312,7 +358,7 @@ interface SelectionPanelProps {
 function SelectionPanel({ splits, selectedSplits, onRemove }: SelectionPanelProps) {
   if (selectedSplits.size === 0) {
     return (
-      <div className="p-5 text-center text-gray-500 dark:text-gray-400 text-xs">
+      <div className="p-5 text-center text-vortex-grey-dark text-xs">
         Click a split to select · Click again to deselect · Ctrl+click to multi-select
       </div>
     );
@@ -322,27 +368,27 @@ function SelectionPanel({ splits, selectedSplits, onRemove }: SelectionPanelProp
 
   return (
     <div>
-      <div className="flex justify-between items-center px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
-        <span className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+      <div className="flex justify-between items-center px-3 py-2 bg-vortex-white dark:bg-vortex-black border-b border-vortex-grey-lightest dark:border-vortex-grey-dark/30">
+        <span className="text-[10px] uppercase tracking-wider text-vortex-grey-dark">
           Selected splits
         </span>
-        <span className="text-[10px] text-cyan-500">{selected.length} selected</span>
+        <span className="text-[10px] text-vortex-light-blue">{selected.length} selected</span>
       </div>
       <div className="flex flex-wrap gap-1.5 p-3">
         {selected.map(s => (
           <div
             key={s.id}
-            className="inline-flex gap-2 items-center bg-white dark:bg-gray-900 px-2.5 py-1.5 rounded-md text-[11px] border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+            className="inline-flex gap-2 items-center bg-vortex-white dark:bg-vortex-black px-2.5 py-1.5 rounded-md text-[11px] border border-vortex-grey-lightest dark:border-vortex-grey-dark/30 cursor-pointer hover:bg-vortex-grey-lightest dark:hover:bg-vortex-grey-dark/20"
             onClick={() => onRemove(s.id)}
           >
-            <span className="text-cyan-500 font-medium">{s.id}</span>
-            <span className="text-gray-900 dark:text-gray-100">
+            <span className="text-vortex-light-blue font-medium">{s.id}</span>
+            <span className="text-vortex-black dark:text-vortex-white">
               {s.rowRange[0].toLocaleString()}–{s.rowRange[1].toLocaleString()}
             </span>
-            <span className="text-gray-400">
+            <span className="text-vortex-grey-dark">
               {(s.rowRange[1] - s.rowRange[0]).toLocaleString()} rows
             </span>
-            <span className="text-gray-400 ml-1">✕</span>
+            <span className="text-vortex-grey-dark ml-1">✕</span>
           </div>
         ))}
       </div>
@@ -356,7 +402,7 @@ function SelectionPanel({ splits, selectedSplits, onRemove }: SelectionPanelProp
 
 function DtypeLegend() {
   return (
-    <div className="flex gap-3.5 px-3 py-2 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 text-[11px] text-gray-500 dark:text-gray-400">
+    <div className="flex gap-3.5 px-3 py-2 border-t border-vortex-grey-lightest dark:border-vortex-grey-dark/30 bg-vortex-white dark:bg-vortex-black text-[11px] text-vortex-grey-dark">
       {DTYPE_CATEGORIES.map(cat => (
         <div key={cat} className="flex items-center gap-1">
           <div
@@ -645,20 +691,20 @@ export function LayoutSwimlane({
     <div className="font-sans">
       {/* Header */}
       <div className="flex items-center gap-4 mb-4">
-        <span className="text-lg font-medium text-gray-900 dark:text-gray-100">Layout swimlane</span>
+        <span className="text-lg font-medium text-vortex-black dark:text-vortex-white">Layout swimlane</span>
         {fileName && (
-          <span className="text-[13px] text-gray-500 dark:text-gray-400">
+          <span className="text-[13px] text-vortex-grey-dark">
             {fileName} · {formatRowCount(totalRows)} rows
           </span>
         )}
       </div>
 
       {/* Main panel */}
-      <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div className="rounded-lg overflow-hidden border border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-grey-lightest dark:bg-vortex-black">
         {/* Tree + Swimlane */}
         <div className="flex overflow-y-auto overflow-x-hidden" style={{ height }}>
           {/* Tree panel */}
-          <div className="w-[260px] flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700">
+          <div className="w-[260px] flex-shrink-0 bg-vortex-white dark:bg-vortex-black border-r border-vortex-grey-light dark:border-vortex-grey-dark">
             {flattenedNodes.map(({ node, depth, isGroup, isHint, isHiddenIndicator }) => (
               <TreeRow
                 key={node.id}
@@ -704,7 +750,7 @@ export function LayoutSwimlane({
                 {flattenedNodes.map(({ node, isGroup, isHint, isHiddenIndicator }) => (
                   <div
                     key={node.id}
-                    className="relative border-b border-gray-100 dark:border-gray-800"
+                    className="relative border-b border-vortex-grey-lightest dark:border-vortex-grey-dark/30"
                     style={{ height: ROW_HEIGHT }}
                   >
                     {!isHint && !isHiddenIndicator && (
@@ -722,7 +768,7 @@ export function LayoutSwimlane({
               {/* Ruler line */}
               {rulerPosition && (
                 <div
-                  className="absolute top-0 bottom-0 w-px bg-gray-900 dark:bg-gray-100 opacity-40 pointer-events-none z-[100]"
+                  className="absolute top-0 bottom-0 w-px bg-vortex-black dark:bg-vortex-white opacity-40 pointer-events-none z-[100]"
                   style={{ left: rulerPosition.x }}
                 />
               )}
@@ -731,8 +777,8 @@ export function LayoutSwimlane({
         </div>
 
         {/* Axis */}
-        <div className="flex border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 relative">
-          <div className="w-[260px] flex-shrink-0 border-r border-gray-200 dark:border-gray-700" />
+        <div className="flex border-t border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-white dark:bg-vortex-black relative">
+          <div className="w-[260px] flex-shrink-0 border-r border-vortex-grey-light dark:border-vortex-grey-dark" />
           <div className="flex-1 overflow-hidden relative">
             <div
               ref={axisRef}
@@ -742,7 +788,7 @@ export function LayoutSwimlane({
               {axisTicks.map(tick => (
                 <div
                   key={tick}
-                  className="absolute text-[9px] text-gray-400 top-1.5"
+                  className="absolute text-[9px] text-vortex-grey-dark top-1.5"
                   style={{
                     left: `${(tick / totalRows) * 100}%`,
                     transform: 'translateX(-50%)',
@@ -756,7 +802,7 @@ export function LayoutSwimlane({
             {/* Ruler label */}
             {rulerPosition && (
               <div
-                className="absolute top-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-1.5 py-0.5 rounded text-[10px] font-medium pointer-events-none z-[100] whitespace-nowrap"
+                className="absolute top-1 bg-vortex-black dark:bg-vortex-white text-vortex-white dark:text-vortex-black px-1.5 py-0.5 rounded text-[10px] font-medium pointer-events-none z-[100] whitespace-nowrap"
                 style={{
                   left: Math.max(
                     0,
@@ -778,7 +824,7 @@ export function LayoutSwimlane({
       </div>
 
       {/* Selection panel */}
-      <div className="mt-4 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div className="mt-4 rounded-lg overflow-hidden border border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-grey-lightest dark:bg-vortex-black">
         <SelectionPanel
           splits={splits}
           selectedSplits={selectedSplits}

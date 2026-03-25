@@ -1,25 +1,25 @@
 import type { LayoutNode, Split, DtypeCategory, LayoutType, ChunkNode, ZoneNode, ChunkGroup } from './types';
 
-// Layout type styles (for tree badges)
+// Layout type styles (for tree badges) — using Vortex palette as hex
 export const LAYOUT_STYLES: Record<LayoutType | 'chunk' | 'zone' | 'chunkGroup', { color: string; label: string }> = {
-  struct: { color: '#5E81AC', label: 'struct' },
-  chunked: { color: '#A3BE8C', label: 'chunked' },
-  chunk: { color: '#A3BE8C', label: 'chunk' },
-  chunkGroup: { color: '#A3BE8C', label: '···' },
-  zonemap: { color: '#EBCB8B', label: 'zonemap' },
-  zone: { color: '#EBCB8B', label: 'zone' },
-  dict: { color: '#B48EAD', label: 'dict' },
-  flat: { color: '#81A1C1', label: 'flat' },
+  struct: { color: '#5971FD', label: 'struct' },       // vortex-blue
+  chunked: { color: '#CEE562', label: 'chunked' },     // vortex-green
+  chunk: { color: '#CEE562', label: 'chunk' },          // vortex-green
+  chunkGroup: { color: '#CEE562', label: '···' },       // vortex-green
+  zonemap: { color: '#FB863D', label: 'zonemap' },     // vortex-orange
+  zone: { color: '#FB863D', label: 'zone' },            // vortex-orange
+  dict: { color: '#EEB3E1', label: 'dict' },            // vortex-pink
+  flat: { color: '#2CB9D1', label: 'flat' },             // vortex-light-blue
 };
 
-// Dtype colors (for flat chunk bars in swimlane)
+// Dtype colors (for flat chunk bars in swimlane) — using Vortex palette as hex
 export const DTYPE_COLORS: Record<DtypeCategory, string> = {
-  bool: '#E5A0E8',
-  int: '#7CB3F0',
-  float: '#F0C674',
-  struct: '#8ABEB7',
-  list: '#B294BB',
-  other: '#969896',
+  bool: '#EEB3E1',    // vortex-pink
+  int: '#2CB9D1',     // vortex-light-blue
+  float: '#FB863D',   // vortex-orange
+  struct: '#5971FD',  // vortex-blue
+  list: '#CEE562',    // vortex-green
+  other: '#8F8F8F',   // vortex-grey-dark
 };
 
 export const DTYPE_CATEGORIES: DtypeCategory[] = ['bool', 'int', 'float', 'struct', 'list', 'other'];
@@ -55,7 +55,7 @@ export function rangesOverlap(a: [number, number], b: [number, number]): boolean
 export function collectBoundaries(node: LayoutNode | ChunkNode | ZoneNode, set: Set<number> = new Set()): Set<number> {
   set.add(node.rowRange[0]);
   set.add(node.rowRange[1]);
-  
+
   if ('chunks' in node && node.chunks) {
     node.chunks.forEach(c => collectBoundaries(c, set));
   }
@@ -68,7 +68,7 @@ export function collectBoundaries(node: LayoutNode | ChunkNode | ZoneNode, set: 
   if ('child' in node && node.child) {
     collectBoundaries(node.child, set);
   }
-  
+
   return set;
 }
 
@@ -99,7 +99,7 @@ export function getSelectedRowRange(splits: Split[], selectedSplits: Set<string>
  */
 export function groupChunks(chunks: ChunkNode[], parentId: string): ChunkGroup[] | null {
   if (chunks.length <= GROUP_SIZE) return null;
-  
+
   const groups: ChunkGroup[] = [];
   for (let i = 0; i < chunks.length; i += GROUP_SIZE) {
     const groupChunks = chunks.slice(i, Math.min(i + GROUP_SIZE, chunks.length));

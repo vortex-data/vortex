@@ -190,7 +190,7 @@ export const Orders: Story = {
         layout: ordersLayout,
         totalRows: 100000,
         fileName: 'orders.vortex',
-        defaultExpanded: ['root', 'customer', 'status'],
+        defaultExpanded: ['root', 'customer', 'customer_id', 'status'],
     },
 };
 
