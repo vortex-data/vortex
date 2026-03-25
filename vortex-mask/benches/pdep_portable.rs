@@ -272,6 +272,115 @@ fn intersect_lut_flat(base: &Mask, filter: &Mask) -> Mask {
     Mask::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
 }
 
+// ── Nibble LUT PDEP (256 bytes, guaranteed L1-hot) ──────────────────────────
+
+/// 256-byte LUT for nibble-level PDEP.
+/// 16 iterations per u64 chunk but entire table fits in 4 cache lines.
+struct PdepNibbleLut {
+    table: [[u8; 16]; 16],
+    counts: [u8; 16],
+}
+
+impl PdepNibbleLut {
+    const fn new() -> Self {
+        let mut table = [[0u8; 16]; 16];
+        let mut counts = [0u8; 16];
+        let mut mask_nib = 0usize;
+        while mask_nib < 16 {
+            let mut m = mask_nib as u8;
+            let mut c = 0u8;
+            while m != 0 {
+                c += 1;
+                m &= m.wrapping_sub(1);
+            }
+            counts[mask_nib] = c;
+            let mut src_val = 0usize;
+            while src_val < 16 {
+                let mut src = src_val as u8;
+                let mut m = mask_nib as u8;
+                let mut res = 0u8;
+                while m != 0 {
+                    let lowest = m & m.wrapping_neg();
+                    if src & 1 != 0 {
+                        res |= lowest;
+                    }
+                    src >>= 1;
+                    m &= m.wrapping_sub(1);
+                }
+                table[mask_nib][src_val] = res;
+                src_val += 1;
+            }
+            mask_nib += 1;
+        }
+        PdepNibbleLut { table, counts }
+    }
+}
+
+static NIBBLE_LUT: PdepNibbleLut = PdepNibbleLut::new();
+
+#[inline]
+fn pdep_nibble(mut source: u64, mask: u64) -> u64 {
+    let mut result = 0u64;
+    for nib_idx in 0..16u32 {
+        let mask_nib = ((mask >> (nib_idx * 4)) & 0xF) as usize;
+        if mask_nib == 0 {
+            continue;
+        }
+        let count = NIBBLE_LUT.counts[mask_nib];
+        let src_nib = (source & 0xF) as usize;
+        result |= (NIBBLE_LUT.table[mask_nib][src_nib] as u64) << (nib_idx * 4);
+        source >>= count;
+    }
+    result
+}
+
+fn intersect_nibble_flat(base: &Mask, filter: &Mask) -> Mask {
+    let self_buffer = match base.bit_buffer() {
+        AllOr::Some(b) => b,
+        AllOr::All => return filter.clone(),
+        AllOr::None => return Mask::new_false(base.len()),
+    };
+    let mask_buffer = match filter.bit_buffer() {
+        AllOr::Some(b) => b,
+        AllOr::All => return base.clone(),
+        AllOr::None => return Mask::new_false(base.len()),
+    };
+
+    let len = base.len();
+    let mask_flat = build_mask_flat(mask_buffer);
+    let self_chunks = self_buffer.chunks();
+    let has_remainder = !len.is_multiple_of(64);
+    let num_out = self_chunks.chunk_len() + has_remainder as usize;
+    let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_out);
+    let mut bit_pos = 0usize;
+
+    for self_chunk in self_chunks.iter() {
+        let popcount = self_chunk.count_ones() as usize;
+        let result_chunk = if self_chunk == 0 {
+            0u64
+        } else {
+            let rank_bits = extract_bits_flat(&mask_flat, bit_pos);
+            pdep_nibble(rank_bits, self_chunk)
+        };
+        unsafe { buffer.push_unchecked(result_chunk) };
+        bit_pos += popcount;
+    }
+
+    if has_remainder {
+        let self_chunk = self_chunks.remainder_bits();
+        let result_chunk = if self_chunk == 0 {
+            0u64
+        } else {
+            let rank_bits = extract_bits_flat(&mask_flat, bit_pos);
+            pdep_nibble(rank_bits, self_chunk)
+        };
+        unsafe { buffer.push_unchecked(result_chunk) };
+    }
+
+    buffer.truncate(len.div_ceil(8));
+    Mask::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
+}
+
 // ── Production owned (in-place when possible) ───────────────────────────────
 
 // ── Benchmark parameters ─────────────────────────────────────────────────────
@@ -307,6 +416,15 @@ fn best_non_bmi2(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
     bencher
         .with_inputs(|| (&base, &rank))
         .bench_refs(|(b, r)| intersect_lut_flat(b, r));
+}
+
+#[divan::bench(args = BENCH_CASES)]
+fn nibble_lut(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
+    let base = create_random_mask(size, density);
+    let rank = create_random_mask(base.true_count(), 0.5);
+    bencher
+        .with_inputs(|| (&base, &rank))
+        .bench_refs(|(b, r)| intersect_nibble_flat(b, r));
 }
 
 #[divan::bench(args = BENCH_CASES)]
