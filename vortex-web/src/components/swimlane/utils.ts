@@ -1,28 +1,46 @@
-import type { LayoutNode, Split, DtypeCategory, LayoutType, ChunkNode, ZoneNode, ChunkGroup } from './types';
+import type {
+  LayoutNode,
+  Split,
+  DtypeCategory,
+  LayoutType,
+  ChunkNode,
+  ZoneNode,
+  ChunkGroup,
+} from './types';
 
 // Layout type styles (for tree badges) — using Vortex palette as hex
-export const LAYOUT_STYLES: Record<LayoutType | 'chunk' | 'zone' | 'chunkGroup', { color: string; label: string }> = {
-  struct: { color: '#5971FD', label: 'struct' },       // vortex-blue
-  chunked: { color: '#CEE562', label: 'chunked' },     // vortex-green
-  chunk: { color: '#CEE562', label: 'chunk' },          // vortex-green
-  chunkGroup: { color: '#CEE562', label: '···' },       // vortex-green
-  zonemap: { color: '#FB863D', label: 'zonemap' },     // vortex-orange
-  zone: { color: '#FB863D', label: 'zone' },            // vortex-orange
-  dict: { color: '#EEB3E1', label: 'dict' },            // vortex-pink
-  flat: { color: '#2CB9D1', label: 'flat' },             // vortex-light-blue
+export const LAYOUT_STYLES: Record<
+  LayoutType | 'chunk' | 'zone' | 'chunkGroup',
+  { color: string; label: string }
+> = {
+  struct: { color: '#5971FD', label: 'struct' }, // vortex-blue
+  chunked: { color: '#CEE562', label: 'chunked' }, // vortex-green
+  chunk: { color: '#CEE562', label: 'chunk' }, // vortex-green
+  chunkGroup: { color: '#CEE562', label: '···' }, // vortex-green
+  zonemap: { color: '#FB863D', label: 'zonemap' }, // vortex-orange
+  zone: { color: '#FB863D', label: 'zone' }, // vortex-orange
+  dict: { color: '#EEB3E1', label: 'dict' }, // vortex-pink
+  flat: { color: '#2CB9D1', label: 'flat' }, // vortex-light-blue
 };
 
 // Dtype colors (for flat chunk bars in swimlane) — using Vortex palette as hex
 export const DTYPE_COLORS: Record<DtypeCategory, string> = {
-  bool: '#EEB3E1',    // vortex-pink
-  int: '#2CB9D1',     // vortex-light-blue
-  float: '#FB863D',   // vortex-orange
-  struct: '#5971FD',  // vortex-blue
-  list: '#CEE562',    // vortex-green
-  other: '#8F8F8F',   // vortex-grey-dark
+  bool: '#EEB3E1', // vortex-pink
+  int: '#2CB9D1', // vortex-light-blue
+  float: '#FB863D', // vortex-orange
+  struct: '#5971FD', // vortex-blue
+  list: '#CEE562', // vortex-green
+  other: '#8F8F8F', // vortex-grey-dark
 };
 
-export const DTYPE_CATEGORIES: DtypeCategory[] = ['bool', 'int', 'float', 'struct', 'list', 'other'];
+export const DTYPE_CATEGORIES: DtypeCategory[] = [
+  'bool',
+  'int',
+  'float',
+  'struct',
+  'list',
+  'other',
+];
 
 export const ROW_HEIGHT = 26;
 export const MIN_LABEL_WIDTH = 36;
@@ -52,18 +70,21 @@ export function rangesOverlap(a: [number, number], b: [number, number]): boolean
 /**
  * Collect all row boundaries from a layout tree
  */
-export function collectBoundaries(node: LayoutNode | ChunkNode | ZoneNode, set: Set<number> = new Set()): Set<number> {
+export function collectBoundaries(
+  node: LayoutNode | ChunkNode | ZoneNode,
+  set: Set<number> = new Set(),
+): Set<number> {
   set.add(node.rowRange[0]);
   set.add(node.rowRange[1]);
 
   if ('chunks' in node && node.chunks) {
-    node.chunks.forEach(c => collectBoundaries(c, set));
+    node.chunks.forEach((c) => collectBoundaries(c, set));
   }
   if ('zones' in node && node.zones) {
-    node.zones.forEach(z => collectBoundaries(z, set));
+    node.zones.forEach((z) => collectBoundaries(z, set));
   }
   if ('children' in node && node.children) {
-    node.children.forEach(c => collectBoundaries(c, set));
+    node.children.forEach((c) => collectBoundaries(c, set));
   }
   if ('child' in node && node.child) {
     collectBoundaries(node.child, set);
@@ -86,11 +107,14 @@ export function createSplits(layout: LayoutNode): Split[] {
 /**
  * Get the combined row range of selected splits
  */
-export function getSelectedRowRange(splits: Split[], selectedSplits: Set<string>): [number, number] | null {
+export function getSelectedRowRange(
+  splits: Split[],
+  selectedSplits: Set<string>,
+): [number, number] | null {
   if (selectedSplits.size === 0) return null;
-  const selected = splits.filter(s => selectedSplits.has(s.id));
-  const min = Math.min(...selected.map(s => s.rowRange[0]));
-  const max = Math.max(...selected.map(s => s.rowRange[1]));
+  const selected = splits.filter((s) => selectedSplits.has(s.id));
+  const min = Math.min(...selected.map((s) => s.rowRange[0]));
+  const max = Math.max(...selected.map((s) => s.rowRange[1]));
   return [min, max];
 }
 
@@ -144,7 +168,9 @@ export function formatRowCount(n: number): string {
 /**
  * Check if a node has expandable children
  */
-export function hasExpandableChildren(node: LayoutNode | ChunkNode | ZoneNode | ChunkGroup): boolean {
+export function hasExpandableChildren(
+  node: LayoutNode | ChunkNode | ZoneNode | ChunkGroup,
+): boolean {
   if ('chunks' in node && node.chunks) return true;
   if ('zones' in node && node.zones) return true;
   if ('children' in node && node.children) return true;

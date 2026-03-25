@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* SPDX-FileCopyrightText: Copyright the Vortex contributors */
 
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-grey: #D9D9D9;
+  --color-grey: #d9d9d9;
   --color-vortex-black: rgba(16, 16, 16, 1);
   --color-vortex-white: rgba(255, 255, 255, 1);
   --color-vortex-grey: rgba(236, 236, 236, 1);
@@ -23,9 +23,9 @@
   --color-vortex-orange: rgba(251, 134, 61, 1);
   --color-vortex-red: rgba(204, 51, 51, 1);
 
-  --font-sans: "Geist", sans-serif;
-  --font-mono: "Geist Mono", monospace;
-  --font-funnel: "Funnel Display", sans-serif;
+  --font-sans: 'Geist', sans-serif;
+  --font-mono: 'Geist Mono', monospace;
+  --font-funnel: 'Funnel Display', sans-serif;
 }
 
 html {
@@ -43,7 +43,7 @@ html {
 }
 
 body {
-  font-family: theme("fontFamily.sans");
+  font-family: theme('fontFamily.sans');
   text-rendering: optimizeLegibility;
 }
 

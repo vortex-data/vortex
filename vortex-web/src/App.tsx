@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
-import type { InitOutput } from "./wasm/pkg/vortex_web_wasm.d.ts";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import type { InitOutput } from './wasm/pkg/vortex_web_wasm.d.ts';
 
 interface FileInfo {
   name: string;
@@ -18,37 +18,34 @@ function App() {
   const wasmRef = useRef<InitOutput | null>(null);
 
   useEffect(() => {
-    import("./wasm/pkg/vortex_web_wasm.js").then(async (wasm) => {
+    import('./wasm/pkg/vortex_web_wasm.js').then(async (wasm) => {
       wasmRef.current = await wasm.default();
     });
   }, []);
 
-  const openFile = useCallback(
-    async (file: File) => {
-      setError(null);
-      setLoading(true);
-      try {
-        const wasm = await import("./wasm/pkg/vortex_web_wasm.js");
-        if (!wasmRef.current) {
-          wasmRef.current = await wasm.default();
-        }
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const handle = wasm.open_vortex_file(bytes);
-        setFileInfo({
-          name: file.name,
-          rowCount: handle.row_count,
-          dtype: handle.dtype,
-        });
-        handle.free();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setFileInfo(null);
-      } finally {
-        setLoading(false);
+  const openFile = useCallback(async (file: File) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const wasm = await import('./wasm/pkg/vortex_web_wasm.js');
+      if (!wasmRef.current) {
+        wasmRef.current = await wasm.default();
       }
-    },
-    [],
-  );
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const handle = wasm.open_vortex_file(bytes);
+      setFileInfo({
+        name: file.name,
+        rowCount: handle.row_count,
+        dtype: handle.dtype,
+      });
+      handle.free();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setFileInfo(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -73,9 +70,9 @@ function App() {
   );
 
   const handleClick = useCallback(() => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".vortex,.vtx";
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.vortex,.vtx';
     input.onchange = () => {
       const file = input.files?.[0];
       if (file) {
@@ -97,7 +94,7 @@ function App() {
         onDrop={handleDrop}
         onClick={handleClick}
         className={`dashed-top dashed-bottom flex h-64 w-full max-w-lg cursor-pointer flex-col items-center justify-center transition-colors ${
-          isDragging ? "bg-vortex-light-blue/10" : "hover:bg-white/5"
+          isDragging ? 'bg-vortex-light-blue/10' : 'hover:bg-white/5'
         }`}
       >
         {loading ? (
@@ -106,9 +103,7 @@ function App() {
           <div className="text-center">
             <p className="font-mono text-lg text-white">{fileInfo.name}</p>
             <p className="mt-4 font-mono text-sm text-grey">
-              <span className="text-vortex-light-blue">
-                {fileInfo.rowCount.toLocaleString()}
-              </span>{" "}
+              <span className="text-vortex-light-blue">{fileInfo.rowCount.toLocaleString()}</span>{' '}
               rows
             </p>
             <pre className="mt-4 max-w-md overflow-x-auto rounded bg-white/5 px-4 py-2 text-left font-mono text-xs text-vortex-grey-light">
@@ -118,24 +113,18 @@ function App() {
         ) : (
           <div className="text-center">
             <p className="font-mono text-lg text-grey">
-              Drop a{" "}
+              Drop a{' '}
               <code className="rounded bg-white/10 px-1.5 py-0.5 text-vortex-light-blue">
                 .vortex
-              </code>{" "}
+              </code>{' '}
               file here
             </p>
-            <p className="mt-2 font-mono text-sm text-vortex-grey-dark">
-              or click to browse
-            </p>
+            <p className="mt-2 font-mono text-sm text-vortex-grey-dark">or click to browse</p>
           </div>
         )}
       </div>
 
-      {error && (
-        <p className="mt-4 max-w-lg font-mono text-sm text-vortex-red">
-          {error}
-        </p>
-      )}
+      {error && <p className="mt-4 max-w-lg font-mono text-sm text-vortex-red">{error}</p>}
     </div>
   );
 }

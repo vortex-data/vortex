@@ -58,12 +58,7 @@ export interface ZoneNode extends BaseLayoutNode {
   child: LayoutNode;
 }
 
-export type LayoutNode = 
-  | StructLayout 
-  | ChunkedLayout 
-  | ZonemapLayout 
-  | DictLayout 
-  | FlatLayout;
+export type LayoutNode = StructLayout | ChunkedLayout | ZonemapLayout | DictLayout | FlatLayout;
 
 export interface Split {
   id: string;
@@ -72,8 +67,8 @@ export interface Split {
 
 // Internal types for tree flattening
 export interface FlattenedNode {
-  node: LayoutNode & { 
-    _isPartition?: boolean; 
+  node: LayoutNode & {
+    _isPartition?: boolean;
     _isGroup?: boolean;
     chunks?: ChunkNode[];
   };

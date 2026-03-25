@@ -87,7 +87,9 @@ function Tooltip({ node, position }: TooltipProps) {
         {meta?.bytes && (
           <>
             <span>size</span>
-            <span className="text-vortex-black dark:text-vortex-white">{formatBytes(meta.bytes)}</span>
+            <span className="text-vortex-black dark:text-vortex-white">
+              {formatBytes(meta.bytes)}
+            </span>
           </>
         )}
         {meta?.min !== undefined && (
@@ -220,7 +222,7 @@ function SwimlaneBar({ node, totalRows, isGroup, onHover }: SwimlaneBarProps) {
   if (isGroupNode && node.chunks) {
     return (
       <>
-        {node.chunks.map(chunk => {
+        {node.chunks.map((chunk) => {
           const flatChild = findFirstFlat(chunk);
           const chunkLeft = (chunk.rowRange[0] / totalRows) * 100;
           const chunkWidth = ((chunk.rowRange[1] - chunk.rowRange[0]) / totalRows) * 100;
@@ -247,7 +249,7 @@ function SwimlaneBar({ node, totalRows, isGroup, onHover }: SwimlaneBarProps) {
   const width = ((node.rowRange[1] - node.rowRange[0]) / totalRows) * 100;
 
   let barClasses = 'absolute top-[3px] bottom-[3px] rounded transition-[filter] duration-100';
-  let barStyle: React.CSSProperties = {
+  const barStyle: React.CSSProperties = {
     left: `calc(${left}% + 1px)`,
     width: `calc(${width}% - 3px)`,
   };
@@ -364,7 +366,7 @@ function SelectionPanel({ splits, selectedSplits, onRemove }: SelectionPanelProp
     );
   }
 
-  const selected = splits.filter(s => selectedSplits.has(s.id));
+  const selected = splits.filter((s) => selectedSplits.has(s.id));
 
   return (
     <div>
@@ -375,7 +377,7 @@ function SelectionPanel({ splits, selectedSplits, onRemove }: SelectionPanelProp
         <span className="text-[10px] text-vortex-light-blue">{selected.length} selected</span>
       </div>
       <div className="flex flex-wrap gap-1.5 p-3">
-        {selected.map(s => (
+        {selected.map((s) => (
           <div
             key={s.id}
             className="inline-flex gap-2 items-center bg-vortex-white dark:bg-vortex-black px-2.5 py-1.5 rounded-md text-[11px] border border-vortex-grey-lightest dark:border-vortex-grey-dark/30 cursor-pointer hover:bg-vortex-grey-lightest dark:hover:bg-vortex-grey-dark/20"
@@ -403,12 +405,9 @@ function SelectionPanel({ splits, selectedSplits, onRemove }: SelectionPanelProp
 function DtypeLegend() {
   return (
     <div className="flex gap-3.5 px-3 py-2 border-t border-vortex-grey-lightest dark:border-vortex-grey-dark/30 bg-vortex-white dark:bg-vortex-black text-[11px] text-vortex-grey-dark">
-      {DTYPE_CATEGORIES.map(cat => (
+      {DTYPE_CATEGORIES.map((cat) => (
         <div key={cat} className="flex items-center gap-1">
-          <div
-            className="w-2.5 h-2.5 rounded"
-            style={{ backgroundColor: DTYPE_COLORS[cat] }}
-          />
+          <div className="w-2.5 h-2.5 rounded" style={{ backgroundColor: DTYPE_COLORS[cat] }} />
           {cat}
         </div>
       ))}
@@ -432,7 +431,10 @@ export function LayoutSwimlane({
   // State
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(defaultExpanded));
   const [selectedSplits, setSelectedSplits] = useState<Set<string>>(new Set());
-  const [tooltip, setTooltip] = useState<{ node: FlatLayout; position: { x: number; y: number } } | null>(null);
+  const [tooltip, setTooltip] = useState<{
+    node: FlatLayout;
+    position: { x: number; y: number };
+  } | null>(null);
   const [rulerPosition, setRulerPosition] = useState<{ x: number; row: number } | null>(null);
 
   // Refs
@@ -444,7 +446,7 @@ export function LayoutSwimlane({
   const splits = useMemo(() => createSplits(layout), [layout]);
   const selectedRange = useMemo(
     () => getSelectedRowRange(splits, selectedSplits),
-    [splits, selectedSplits]
+    [splits, selectedSplits],
   );
 
   // Flatten tree for rendering
@@ -454,17 +456,22 @@ export function LayoutSwimlane({
     function flatten(
       node: LayoutNode | ChunkNode | ZoneNode,
       depth: number,
-      result: FlattenedNode[]
+      result: FlattenedNode[],
     ): FlattenedNode[] {
-      const isChunkOrZone = 'child' in node && !('type' in node && (node as unknown as LayoutNode).type);
+      const isChunkOrZone =
+        'child' in node && !('type' in node && (node as unknown as LayoutNode).type);
       const nodeType =
         'type' in node
           ? (node as LayoutNode).type
           : 'meta' in node && 'min' in (node as ZoneNode).meta
-          ? 'zone'
-          : 'chunk';
+            ? 'zone'
+            : 'chunk';
 
-      const flatNode = { ...node, type: nodeType, _isPartition: isChunkOrZone } as unknown as FlattenedNode['node'];
+      const flatNode = {
+        ...node,
+        type: nodeType,
+        _isPartition: isChunkOrZone,
+      } as unknown as FlattenedNode['node'];
       result.push({ node: flatNode, depth });
       nodeDataMap.set(node.id, flatNode);
 
@@ -476,18 +483,22 @@ export function LayoutSwimlane({
 
           if (groups) {
             const visibleGroups = selectedRange
-              ? groups.filter(g => rangesOverlap(g.rowRange, selectedRange))
+              ? groups.filter((g) => rangesOverlap(g.rowRange, selectedRange))
               : groups;
 
-            visibleGroups.forEach(group => {
-              result.push({ node: group as unknown as FlattenedNode['node'], depth: depth + 1, isGroup: true });
+            visibleGroups.forEach((group) => {
+              result.push({
+                node: group as unknown as FlattenedNode['node'],
+                depth: depth + 1,
+                isGroup: true,
+              });
               nodeDataMap.set(group.id, group as unknown as FlattenedNode['node']);
 
               if (expanded.has(group.id)) {
                 const visibleInGroup = selectedRange
-                  ? group.chunks.filter(p => rangesOverlap(p.rowRange, selectedRange))
+                  ? group.chunks.filter((p) => rangesOverlap(p.rowRange, selectedRange))
                   : group.chunks;
-                visibleInGroup.forEach(p => flatten(p, depth + 2, result));
+                visibleInGroup.forEach((p) => flatten(p, depth + 2, result));
 
                 if (selectedRange && visibleInGroup.length < group.chunks.length) {
                   const hidden = group.chunks.length - visibleInGroup.length;
@@ -520,9 +531,9 @@ export function LayoutSwimlane({
             }
           } else {
             const visible = selectedRange
-              ? node.chunks.filter(p => rangesOverlap(p.rowRange, selectedRange))
+              ? node.chunks.filter((p) => rangesOverlap(p.rowRange, selectedRange))
               : node.chunks;
-            visible.forEach(p => flatten(p, depth + 1, result));
+            visible.forEach((p) => flatten(p, depth + 1, result));
 
             if (selectedRange && visible.length < node.chunks.length) {
               result.push({
@@ -541,9 +552,9 @@ export function LayoutSwimlane({
 
         if ('zones' in node && node.zones) {
           const visible = selectedRange
-            ? node.zones.filter(z => rangesOverlap(z.rowRange, selectedRange))
+            ? node.zones.filter((z) => rangesOverlap(z.rowRange, selectedRange))
             : node.zones;
-          visible.forEach(z => flatten(z, depth + 1, result));
+          visible.forEach((z) => flatten(z, depth + 1, result));
 
           if (selectedRange && visible.length < node.zones.length) {
             result.push({
@@ -564,7 +575,7 @@ export function LayoutSwimlane({
         }
 
         if ('children' in node && node.children) {
-          node.children.forEach(c => flatten(c, depth + 1, result));
+          node.children.forEach((c) => flatten(c, depth + 1, result));
         }
       }
 
@@ -576,7 +587,7 @@ export function LayoutSwimlane({
 
   // Callbacks
   const toggleExpanded = useCallback((id: string) => {
-    setExpanded(prev => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -587,34 +598,31 @@ export function LayoutSwimlane({
     });
   }, []);
 
-  const handleSplitClick = useCallback(
-    (splitId: string, e: React.MouseEvent) => {
-      setSelectedSplits(prev => {
-        const next = new Set(prev);
+  const handleSplitClick = useCallback((splitId: string, e: React.MouseEvent) => {
+    setSelectedSplits((prev) => {
+      const next = new Set(prev);
 
-        if (e.ctrlKey || e.metaKey) {
-          if (next.has(splitId)) {
-            next.delete(splitId);
-          } else {
-            next.add(splitId);
-          }
+      if (e.ctrlKey || e.metaKey) {
+        if (next.has(splitId)) {
+          next.delete(splitId);
         } else {
-          if (next.size === 1 && next.has(splitId)) {
-            next.clear();
-          } else {
-            next.clear();
-            next.add(splitId);
-          }
+          next.add(splitId);
         }
+      } else {
+        if (next.size === 1 && next.has(splitId)) {
+          next.clear();
+        } else {
+          next.clear();
+          next.add(splitId);
+        }
+      }
 
-        return next;
-      });
-    },
-    []
-  );
+      return next;
+    });
+  }, []);
 
   const handleRemoveSplit = useCallback((id: string) => {
-    setSelectedSplits(prev => {
+    setSelectedSplits((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
@@ -629,7 +637,7 @@ export function LayoutSwimlane({
         setTooltip(null);
       }
     },
-    []
+    [],
   );
 
   // Sync horizontal scroll
@@ -662,7 +670,7 @@ export function LayoutSwimlane({
         setRulerPosition({ x, row: Math.max(0, Math.min(totalRows, rowNum)) });
       }
     },
-    [totalRows]
+    [totalRows],
   );
 
   const handleSwimlaneMouseLeave = useCallback(() => {
@@ -672,7 +680,7 @@ export function LayoutSwimlane({
   // Notify parent of selection changes
   useEffect(() => {
     if (onSplitSelect) {
-      const selected = splits.filter(s => selectedSplits.has(s.id));
+      const selected = splits.filter((s) => selectedSplits.has(s.id));
       onSplitSelect(selected);
     }
   }, [selectedSplits, splits, onSplitSelect]);
@@ -691,7 +699,9 @@ export function LayoutSwimlane({
     <div className="font-sans">
       {/* Header */}
       <div className="flex items-center gap-4 mb-4">
-        <span className="text-lg font-medium text-vortex-black dark:text-vortex-white">Layout swimlane</span>
+        <span className="text-lg font-medium text-vortex-black dark:text-vortex-white">
+          Layout swimlane
+        </span>
         {fileName && (
           <span className="text-[13px] text-vortex-grey-dark">
             {fileName} · {formatRowCount(totalRows)} rows
@@ -726,21 +736,17 @@ export function LayoutSwimlane({
             onMouseMove={handleSwimlaneMouseMove}
             onMouseLeave={handleSwimlaneMouseLeave}
           >
-            <div
-              ref={swimlanePanelRef}
-              className="relative"
-              style={{ minWidth: swimlaneMinWidth }}
-            >
+            <div ref={swimlanePanelRef} className="relative" style={{ minWidth: swimlaneMinWidth }}>
               {/* Split regions (background) */}
               <div className="absolute inset-0 z-[1]">
-                {splits.map(split => (
+                {splits.map((split) => (
                   <SplitRegion
                     key={split.id}
                     split={split}
                     totalRows={totalRows}
                     swimlaneWidth={swimlaneMinWidth}
                     isSelected={selectedSplits.has(split.id)}
-                    onClick={e => handleSplitClick(split.id, e)}
+                    onClick={(e) => handleSplitClick(split.id, e)}
                   />
                 ))}
               </div>
@@ -780,12 +786,8 @@ export function LayoutSwimlane({
         <div className="flex border-t border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-white dark:bg-vortex-black relative">
           <div className="w-[260px] flex-shrink-0 border-r border-vortex-grey-light dark:border-vortex-grey-dark" />
           <div className="flex-1 overflow-hidden relative">
-            <div
-              ref={axisRef}
-              className="relative h-[26px]"
-              style={{ minWidth: swimlaneMinWidth }}
-            >
-              {axisTicks.map(tick => (
+            <div ref={axisRef} className="relative h-[26px]" style={{ minWidth: swimlaneMinWidth }}>
+              {axisTicks.map((tick) => (
                 <div
                   key={tick}
                   className="absolute text-[9px] text-vortex-grey-dark top-1.5"
@@ -808,8 +810,8 @@ export function LayoutSwimlane({
                     0,
                     Math.min(
                       rulerPosition.x - (swimlaneScrollRef.current?.scrollLeft || 0) - 20,
-                      (swimlaneScrollRef.current?.offsetWidth || 0) - 50
-                    )
+                      (swimlaneScrollRef.current?.offsetWidth || 0) - 50,
+                    ),
                   ),
                 }}
               >
