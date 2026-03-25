@@ -94,7 +94,7 @@ function App() {
         onDrop={handleDrop}
         onClick={handleClick}
         className={`dashed-top dashed-bottom flex h-64 w-full max-w-lg cursor-pointer flex-col items-center justify-center transition-colors ${
-          isDragging ? "bg-spiral-light-blue/10" : "hover:bg-white/5"
+          isDragging ? "bg-vortex-light-blue/10" : "hover:bg-white/5"
         }`}
       >
         {loading ? (
@@ -103,12 +103,12 @@ function App() {
           <div className="text-center">
             <p className="font-mono text-lg text-white">{fileInfo.name}</p>
             <p className="mt-4 font-mono text-sm text-grey">
-              <span className="text-spiral-light-blue">
+              <span className="text-vortex-light-blue">
                 {fileInfo.rowCount.toLocaleString()}
               </span>{" "}
               rows
             </p>
-            <pre className="mt-4 max-w-md overflow-x-auto rounded bg-white/5 px-4 py-2 text-left font-mono text-xs text-spiral-grey-light">
+            <pre className="mt-4 max-w-md overflow-x-auto rounded bg-white/5 px-4 py-2 text-left font-mono text-xs text-vortex-grey-light">
               {fileInfo.dtype}
             </pre>
           </div>
@@ -116,12 +116,12 @@ function App() {
           <div className="text-center">
             <p className="font-mono text-lg text-grey">
               Drop a{" "}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 text-spiral-light-blue">
+              <code className="rounded bg-white/10 px-1.5 py-0.5 text-vortex-light-blue">
                 .vortex
               </code>{" "}
               file here
             </p>
-            <p className="mt-2 font-mono text-sm text-spiral-grey-dark">
+            <p className="mt-2 font-mono text-sm text-vortex-grey-dark">
               or click to browse
             </p>
           </div>
@@ -129,7 +129,7 @@ function App() {
       </div>
 
       {error && (
-        <p className="mt-4 max-w-lg font-mono text-sm text-spiral-red">
+        <p className="mt-4 max-w-lg font-mono text-sm text-vortex-red">
           {error}
         </p>
       )}
