@@ -74,6 +74,10 @@ pub mod vortex::encodings::sparse
 
 pub use vortex::encodings::sparse::<<vortex_sparse::*>>
 
+pub mod vortex::encodings::turboquant
+
+pub use vortex::encodings::turboquant::<<vortex_turboquant::*>>
+
 pub mod vortex::encodings::zigzag
 
 pub use vortex::encodings::zigzag::<<vortex_zigzag::*>>

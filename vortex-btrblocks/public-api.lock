@@ -194,6 +194,8 @@ pub vortex_btrblocks::BtrBlocksCompressor::int_schemes: alloc::vec::Vec<&'static
 
 pub vortex_btrblocks::BtrBlocksCompressor::string_schemes: alloc::vec::Vec<&'static dyn vortex_btrblocks::compressor::string::StringScheme>
 
+pub vortex_btrblocks::BtrBlocksCompressor::turboquant_config: core::option::Option<vortex_turboquant::compress::TurboQuantConfig>
+
 impl vortex_btrblocks::BtrBlocksCompressor
 
 pub fn vortex_btrblocks::BtrBlocksCompressor::compress(&self, array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
@@ -235,6 +237,8 @@ pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include_float(self, codes: 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include_int(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::IntCode>) -> Self
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include_string(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::StringCode>) -> Self
+
+pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::with_turboquant(self, config: vortex_turboquant::compress::TurboQuantConfig) -> Self
 
 impl core::clone::Clone for vortex_btrblocks::BtrBlocksCompressorBuilder
 

@@ -217,13 +217,17 @@ fn encode_prod(
 
     // QJL sign bits: num_rows * pd bits, packed into bytes.
     let total_sign_bits = num_rows * pd;
-    let sign_bytes = total_sign_bits.div_ceil(8);
-    let mut sign_buf = vec![0u8; sign_bytes];
+    let sign_byte_count = total_sign_bits.div_ceil(8);
+    let mut sign_buf = BufferMut::<u8>::with_capacity(sign_byte_count);
+    sign_buf.extend(std::iter::repeat_n(0u8, sign_byte_count));
+    let sign_slice = sign_buf.as_mut_slice();
 
     let mut padded = vec![0.0f32; pd];
     let mut rotated = vec![0.0f32; pd];
     let mut dequantized_rotated = vec![0.0f32; pd];
     let mut dequantized = vec![0.0f32; pd];
+    let mut residual = vec![0.0f32; pd];
+    let mut projected = vec![0.0f32; pd];
 
     // QJL random sign matrix generator (using seed + 1).
     let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), dim)?;
@@ -260,7 +264,7 @@ fn encode_prod(
         }
 
         // Compute residual r = x - x_hat_mse (only first dim elements matter).
-        let mut residual = vec![0.0f32; pd];
+        residual.fill(0.0);
         for j in 0..dim {
             residual[j] = x[j] - dequantized[j];
         }
@@ -268,7 +272,7 @@ fn encode_prod(
         residual_norms_buf.push(residual_norm);
 
         // QJL: sign(S * r).
-        let mut projected = vec![0.0f32; pd];
+        projected.fill(0.0);
         if residual_norm > 0.0 {
             qjl_rotation.rotate(&residual, &mut projected);
         }
@@ -278,29 +282,20 @@ fn encode_prod(
         for j in 0..pd {
             if projected[j] >= 0.0 {
                 let bit_idx = bit_offset + j;
-                sign_buf[bit_idx / 8] |= 1 << (bit_idx % 8);
+                sign_slice[bit_idx / 8] |= 1 << (bit_idx % 8);
             }
         }
     }
 
     // Bitpack MSE indices via FastLanes.
     let indices_array = PrimitiveArray::new::<u8>(all_indices.freeze(), Validity::NonNullable);
-    let bitpacked = if mse_bit_width > 0 {
-        bitpack_encode(&indices_array, mse_bit_width, None)?
-    } else {
-        // 0-bit MSE encoding (bit_width=1 for Prod means 0-bit MSE).
-        // This shouldn't happen since we validate bit_width >= 2 for Prod.
-        unreachable!("Prod variant requires bit_width >= 2")
-    };
+    let bitpacked = bitpack_encode(&indices_array, mse_bit_width, None)?;
 
     let norms_array = PrimitiveArray::new::<f32>(norms_buf.freeze(), Validity::NonNullable);
     let residual_norms_array =
         PrimitiveArray::new::<f32>(residual_norms_buf.freeze(), Validity::NonNullable);
 
-    // Store QJL signs as a u8 PrimitiveArray (packed bits).
-    let mut sign_buf_mut = BufferMut::<u8>::with_capacity(sign_buf.len());
-    sign_buf_mut.extend_from_slice(&sign_buf);
-    let qjl_signs = PrimitiveArray::new::<u8>(sign_buf_mut.freeze(), Validity::NonNullable);
+    let qjl_signs = PrimitiveArray::new::<u8>(sign_buf.freeze(), Validity::NonNullable);
 
     TurboQuantArray::try_new_prod(
         fsl.dtype().clone(),

@@ -87,7 +87,6 @@ mod tests {
     ///
     /// The paper's bound is an upper bound; with fixed seeds our results are
     /// deterministic and empirically 0.5x-0.9x of the theoretical limit.
-
     fn theoretical_mse_bound(bit_width: u8) -> f32 {
         let sqrt3_pi_over_2 = (3.0f32).sqrt() * std::f32::consts::PI / 2.0;
         sqrt3_pi_over_2 / (4.0f32).powi(bit_width as i32)
