@@ -6,14 +6,10 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
-use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::serde::ArrayParts;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
@@ -25,9 +21,7 @@ use crate::v2::layout::LayoutChild;
 use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::plan::SegmentRequest;
-use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
-use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
 use crate::v2::scan::planner::SplitPlannerRef;
@@ -126,35 +120,32 @@ impl SplitPlanner for FlatLayoutPlanner {
         selection: NodeId,
         builder: &mut PlanBuilder,
     ) -> VortexResult<NodeId> {
-        let dtype = self.dtype.clone();
-        let array_ctx = self.array_ctx.clone();
-        let expression = self.expression.clone();
-        let len = self.len;
+        let split_start = usize::try_from(row_range.start)
+            .map_err(|_| vortex_err!("row_range start exceeds usize"))?;
+        let split_end = usize::try_from(row_range.end)
+            .map_err(|_| vortex_err!("row_range end exceeds usize"))?;
 
-        builder.create_node(NodeOpts {
-            label: "Flat",
-            inputs: &[selection],
-            segments: vec![SegmentRequest {
-                source: self.segment_source.clone(),
-                segment_id: self.segment_id,
-            }],
-            lifetime: builder.row_range_lifetime(row_range.clone()),
-            compute: move |mut args: ComputeArgs| {
-                // The segment is deserialized into an array by the scheduler.
-                let buffer = args.segments.remove(0);
+        let segment_req = SegmentRequest {
+            source: self.segment_source.clone(),
+            segment_id: self.segment_id,
+        };
 
-                // The selection mask
-                let mask = args.inputs.remove(0).execute::<Mask>(&mut args.ctx)?;
+        let decoded = builder.decode_segment(
+            segment_req,
+            self.dtype.clone(),
+            self.len,
+            self.array_ctx.clone(),
+            row_range,
+        )?;
 
-                let parts = ArrayParts::try_from(buffer)?;
-                let array = parts.decode(&dtype, len, &array_ctx, args.ctx.session())?;
+        let sliced = if split_start == 0 && split_end == self.len {
+            decoded
+        } else {
+            builder.slice_node(decoded, split_start..split_end, row_range)?
+        };
 
-                let array = array.filter(mask)?;
-                let array = array.apply(&expression)?;
-                let array = array.optimize_recursive()?;
-
-                Ok(array)
-            },
-        })
+        let filtered = builder.filter_node(sliced, selection, row_range)?;
+        let applied = builder.apply_node(filtered, self.expression.clone(), row_range)?;
+        builder.optimize_node(applied, row_range)
     }
 }

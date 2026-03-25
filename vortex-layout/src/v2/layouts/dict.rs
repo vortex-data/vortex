@@ -30,6 +30,7 @@ use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeOp;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
@@ -211,7 +212,7 @@ impl SplitPlanner for DictSplitPlanner {
         let expression = self.expression.clone();
         let all_values_referenced = self.all_values_referenced;
         builder.create_node(NodeOpts {
-            label: "Dict",
+            op: NodeOp::Custom { label: "Dict" },
             inputs: &[codes_output, values_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),

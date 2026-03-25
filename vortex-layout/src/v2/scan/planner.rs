@@ -5,10 +5,17 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
+use vortex_array::expr::Expression;
+use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::serde::ArrayParts;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_session::registry::ReadContext;
 
 use crate::v2::layout::ChildRelationship;
 use crate::v2::scan::plan::Plan;
@@ -35,6 +42,47 @@ impl NodeId {
 
     pub fn as_usize(self) -> usize {
         self.0
+    }
+}
+
+/// Describes the operation a plan node performs.
+///
+/// Used as part of the dedup key to distinguish nodes at the same layout position
+/// with different operation parameters (e.g. different expressions or slice ranges).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum NodeOp {
+    /// A pre-resolved constant array.
+    Resolved,
+    /// Decode a segment into an array.
+    Decode {
+        dtype: DType,
+        len: usize,
+        array_ctx: ReadContext,
+    },
+    /// Slice an array to a sub-range.
+    Slice { start: usize, end: usize },
+    /// Filter an array with a selection mask.
+    Filter,
+    /// Apply an expression to an array.
+    Apply { expression: Expression },
+    /// Optimize an array recursively.
+    Optimize,
+    /// A custom operation (used by struct, dict, zoned, etc.).
+    Custom { label: &'static str },
+}
+
+impl NodeOp {
+    /// Returns a human-readable label for this operation.
+    pub fn label(&self) -> &'static str {
+        match self {
+            NodeOp::Resolved => "Resolved",
+            NodeOp::Decode { .. } => "Decode",
+            NodeOp::Slice { .. } => "Slice",
+            NodeOp::Filter => "Filter",
+            NodeOp::Apply { .. } => "Apply",
+            NodeOp::Optimize => "Optimize",
+            NodeOp::Custom { label } => label,
+        }
     }
 }
 
@@ -127,18 +175,20 @@ impl<'a> PlanBuilder<'a> {
     where
         F: FnOnce(ComputeArgs) -> VortexResult<ArrayRef> + Send + 'static,
     {
-        let key = (
-            self.position.clone(),
-            options.label,
-            options.lifetime.0.start,
-            options.lifetime.0.end,
-        );
+        let key = NodeKey {
+            position: self.position.clone(),
+            op: options.op.clone(),
+            lifetime_start: options.lifetime.0.start,
+            lifetime_end: options.lifetime.0.end,
+            inputs: options.inputs.iter().map(|n| n.as_usize()).collect(),
+        };
         if let Some(&existing) = self.plan.dedup.get(&key) {
             return Ok(existing);
         }
+        let label = options.op.label();
         let compute: ComputeFn = Box::new(options.compute);
         let id = self.plan.add_node(
-            options.label,
+            label,
             options.inputs,
             options.segments,
             compute,
@@ -154,12 +204,13 @@ impl<'a> PlanBuilder<'a> {
     /// Ready → Compute → Complete → propagate path.
     pub fn create_node_resolved(&mut self, array: ArrayRef, row_range: Range<u64>) -> NodeId {
         let lifetime = self.row_range_lifetime(row_range);
-        let key = (
-            self.position.clone(),
-            "Resolved",
-            lifetime.0.start,
-            lifetime.0.end,
-        );
+        let key = NodeKey {
+            position: self.position.clone(),
+            op: NodeOp::Resolved,
+            lifetime_start: lifetime.0.start,
+            lifetime_end: lifetime.0.end,
+            inputs: Vec::new(),
+        };
         if let Some(&existing) = self.plan.dedup.get(&key) {
             return existing;
         }
@@ -173,11 +224,106 @@ impl<'a> PlanBuilder<'a> {
         self.plan.dedup.insert(key, id);
         id
     }
+
+    /// Decode a segment into an array.
+    pub fn decode_segment(
+        &mut self,
+        segment: SegmentRequest,
+        dtype: DType,
+        len: usize,
+        array_ctx: ReadContext,
+        row_range: &Range<u64>,
+    ) -> VortexResult<NodeId> {
+        let op = NodeOp::Decode {
+            dtype: dtype.clone(),
+            len,
+            array_ctx: array_ctx.clone(),
+        };
+        self.create_node(NodeOpts {
+            op,
+            inputs: &[],
+            segments: vec![segment],
+            lifetime: self.row_range_lifetime(row_range.clone()),
+            compute: move |mut args: ComputeArgs| {
+                let buffer = args.segments.remove(0);
+                let parts = ArrayParts::try_from(buffer)?;
+                parts.decode(&dtype, len, &array_ctx, args.ctx.session())
+            },
+        })
+    }
+
+    /// Slice an array to a sub-range.
+    pub fn slice_node(
+        &mut self,
+        input: NodeId,
+        range: Range<usize>,
+        row_range: &Range<u64>,
+    ) -> VortexResult<NodeId> {
+        let start = range.start;
+        let end = range.end;
+        self.create_node(NodeOpts {
+            op: NodeOp::Slice { start, end },
+            inputs: &[input],
+            segments: vec![],
+            lifetime: self.row_range_lifetime(row_range.clone()),
+            compute: move |mut args: ComputeArgs| args.inputs.remove(0).slice(start..end),
+        })
+    }
+
+    /// Filter an array with a selection mask.
+    pub fn filter_node(
+        &mut self,
+        array: NodeId,
+        mask: NodeId,
+        row_range: &Range<u64>,
+    ) -> VortexResult<NodeId> {
+        self.create_node(NodeOpts {
+            op: NodeOp::Filter,
+            inputs: &[array, mask],
+            segments: vec![],
+            lifetime: self.row_range_lifetime(row_range.clone()),
+            compute: move |mut args: ComputeArgs| {
+                let array = args.inputs.remove(0);
+                let mask = args.inputs.remove(0).execute::<Mask>(&mut args.ctx)?;
+                array.filter(mask)
+            },
+        })
+    }
+
+    /// Apply an expression to an array.
+    pub fn apply_node(
+        &mut self,
+        input: NodeId,
+        expression: Expression,
+        row_range: &Range<u64>,
+    ) -> VortexResult<NodeId> {
+        let op = NodeOp::Apply {
+            expression: expression.clone(),
+        };
+        self.create_node(NodeOpts {
+            op,
+            inputs: &[input],
+            segments: vec![],
+            lifetime: self.row_range_lifetime(row_range.clone()),
+            compute: move |mut args: ComputeArgs| args.inputs.remove(0).apply(&expression),
+        })
+    }
+
+    /// Optimize an array recursively.
+    pub fn optimize_node(&mut self, input: NodeId, row_range: &Range<u64>) -> VortexResult<NodeId> {
+        self.create_node(NodeOpts {
+            op: NodeOp::Optimize,
+            inputs: &[input],
+            segments: vec![],
+            lifetime: self.row_range_lifetime(row_range.clone()),
+            compute: move |mut args: ComputeArgs| args.inputs.remove(0).optimize_recursive(),
+        })
+    }
 }
 
 pub struct NodeOpts<'a, F> {
-    /// Human-readable label for this node (used in DAG visualization).
-    pub label: &'static str,
+    /// The operation this node performs (used for deduplication and DAG visualization).
+    pub op: NodeOp,
     /// Wait for these nodes to complete before running.
     pub inputs: &'a [NodeId],
     /// Fetch these segments before running.
@@ -199,6 +345,20 @@ pub struct ComputeArgs {
 /// The row-range lifetime of a plan node, in global coordinates.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Lifetime(pub Range<u64>);
+
+/// Deduplication key for plan nodes.
+///
+/// Includes the [`NodeOp`] so that nodes at the same position and lifetime but with
+/// different operation parameters (e.g. different expressions or slice ranges) are not
+/// incorrectly deduplicated.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct NodeKey {
+    pub position: LayoutPosition,
+    pub op: NodeOp,
+    pub lifetime_start: u64,
+    pub lifetime_end: u64,
+    pub inputs: Vec<usize>,
+}
 
 /// A step in the layout tree path.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

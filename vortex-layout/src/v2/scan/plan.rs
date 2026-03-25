@@ -13,9 +13,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::scan::planner::ComputeFn;
-use crate::v2::scan::planner::LayoutPosition;
 use crate::v2::scan::planner::Lifetime;
 use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NodeState {
@@ -66,8 +66,8 @@ pub struct Plan {
     root_node: Option<NodeId>,
     /// Reverse dependency index: `dependents[node_id]` lists `(downstream_node, input_slot)`.
     dependents: Vec<Vec<(NodeId, usize)>>,
-    /// Deduplication map: `(position, label, lifetime_start, lifetime_end) → NodeId`.
-    pub(crate) dedup: HashMap<(LayoutPosition, &'static str, u64, u64), NodeId>,
+    /// Deduplication map for plan nodes.
+    pub(crate) dedup: HashMap<NodeKey, NodeId>,
 }
 
 // Debug is required by `Rc::try_unwrap().expect()` in `PlanBuilder::take_plan`.

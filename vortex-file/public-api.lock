@@ -6,7 +6,7 @@ pub struct vortex_file::multi::MultiFileDataSource
 
 impl vortex_file::multi::MultiFileDataSource
 
-pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::DataSource>
+pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<vortex_scan::DataSourceRef>
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
 
@@ -15,6 +15,8 @@ pub fn vortex_file::multi::MultiFileDataSource::with_filesystem(self, fs: vortex
 pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>) -> Self
 
 pub fn vortex_file::multi::MultiFileDataSource::with_open_options(self, f: impl core::ops::function::Fn(vortex_file::VortexOpenOptions) -> vortex_file::VortexOpenOptions + core::marker::Send + core::marker::Sync + 'static) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSource::with_v2(self, v2: bool) -> Self
 
 pub mod vortex_file::segments
 
@@ -265,6 +267,8 @@ impl vortex_file::VortexFile
 pub fn vortex_file::VortexFile::can_prune(&self, filter: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<bool>
 
 pub fn vortex_file::VortexFile::data_source(&self) -> vortex_error::VortexResult<vortex_scan::DataSourceRef>
+
+pub fn vortex_file::VortexFile::data_source2(&self) -> vortex_error::VortexResult<vortex_scan::DataSourceRef>
 
 pub fn vortex_file::VortexFile::dtype(&self) -> &vortex_array::dtype::DType
 

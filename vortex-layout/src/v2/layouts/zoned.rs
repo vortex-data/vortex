@@ -24,6 +24,7 @@ use crate::v2::layout::LayoutRef;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeOp;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
@@ -192,7 +193,7 @@ impl SplitPlanner for ZonedSplitPlanner {
         let zone_len = self.zone_len;
         let row_count = self.row_count;
         builder.create_node(NodeOpts {
-            label: "Zoned",
+            op: NodeOp::Custom { label: "Zoned" },
             inputs: &[zm_output, data_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),

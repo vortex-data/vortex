@@ -38,6 +38,7 @@ use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeOp;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
@@ -354,7 +355,9 @@ impl SplitPlanner for SingleFieldSplitPlanner {
 
         let is_pack_merge = self.is_pack_merge;
         builder.create_node(NodeOpts {
-            label: "StructSingle",
+            op: NodeOp::Custom {
+                label: "StructSingle",
+            },
             inputs: &[data_output, validity_output],
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),
@@ -421,7 +424,9 @@ impl SplitPlanner for MultiFieldSplitPlanner {
         let is_pack_merge = self.is_pack_merge;
         let has_validity = self.validity_planner.is_some();
         builder.create_node(NodeOpts {
-            label: "StructMulti",
+            op: NodeOp::Custom {
+                label: "StructMulti",
+            },
             inputs: &child_outputs,
             segments: vec![],
             lifetime: builder.row_range_lifetime(row_range.clone()),

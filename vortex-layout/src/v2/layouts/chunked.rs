@@ -22,6 +22,7 @@ use crate::v2::layout::LayoutId;
 use crate::v2::layout::LayoutVTable;
 use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeOp;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::planner::PlanBuilder;
 use crate::v2::scan::planner::SplitPlanner;
@@ -133,6 +134,7 @@ struct ChunkedSplitPlanner {
 }
 
 impl SplitPlanner for ChunkedSplitPlanner {
+    #[allow(clippy::cast_possible_truncation)]
     fn plan_split(
         &self,
         row_range: &Range<u64>,
@@ -151,7 +153,7 @@ impl SplitPlanner for ChunkedSplitPlanner {
                 // No overlapping children — return an empty array.
                 let dtype = self.dtype.clone();
                 builder.create_node(NodeOpts {
-                    label: "Empty",
+                    op: NodeOp::Custom { label: "Empty" },
                     inputs: &[],
                     segments: vec![],
                     lifetime: builder.row_range_lifetime(row_range.clone()),
@@ -161,28 +163,54 @@ impl SplitPlanner for ChunkedSplitPlanner {
             1 => {
                 // Single child — translate row_range to local and delegate.
                 let (chunk_range, relationship, planner) = overlapping[0];
-                let local_start = row_range.start.saturating_sub(chunk_range.start);
-                let local_end = row_range.end.min(chunk_range.end) - chunk_range.start;
+                let overlap_start = row_range.start.max(chunk_range.start);
+                let overlap_end = row_range.end.min(chunk_range.end);
+                let local_start = overlap_start - chunk_range.start;
+                let local_end = overlap_end - chunk_range.start;
+
+                // Slice the selection mask if the overlap doesn't cover the full row_range.
+                let local_selection =
+                    if overlap_start == row_range.start && overlap_end == row_range.end {
+                        selection
+                    } else {
+                        let sel_start = (overlap_start - row_range.start) as usize;
+                        let sel_end = (overlap_end - row_range.start) as usize;
+                        builder.slice_node(selection, sel_start..sel_end, row_range)?
+                    };
+
                 let mut child_builder = builder.step_into(relationship);
-                planner.plan_split(&(local_start..local_end), selection, &mut child_builder)
+                planner.plan_split(
+                    &(local_start..local_end),
+                    local_selection,
+                    &mut child_builder,
+                )
             }
             _ => {
                 // Multiple children — plan each and concatenate.
                 let mut child_outputs = Vec::with_capacity(overlapping.len());
                 for (chunk_range, relationship, planner) in &overlapping {
-                    let local_start = row_range.start.max(chunk_range.start) - chunk_range.start;
-                    let local_end = row_range.end.min(chunk_range.end) - chunk_range.start;
+                    let overlap_start = row_range.start.max(chunk_range.start);
+                    let overlap_end = row_range.end.min(chunk_range.end);
+                    let local_start = overlap_start - chunk_range.start;
+                    let local_end = overlap_end - chunk_range.start;
+
+                    // Slice the selection mask to match this child's portion.
+                    let sel_start = (overlap_start - row_range.start) as usize;
+                    let sel_end = (overlap_end - row_range.start) as usize;
+                    let local_selection =
+                        builder.slice_node(selection, sel_start..sel_end, row_range)?;
+
                     let mut child_builder = builder.step_into(relationship);
                     let child_output = planner.plan_split(
                         &(local_start..local_end),
-                        selection,
+                        local_selection,
                         &mut child_builder,
                     )?;
                     child_outputs.push(child_output);
                 }
                 let dtype = self.dtype.clone();
                 builder.create_node(NodeOpts {
-                    label: "Concat",
+                    op: NodeOp::Custom { label: "Concat" },
                     inputs: &child_outputs,
                     segments: vec![],
                     lifetime: builder.row_range_lifetime(row_range.clone()),

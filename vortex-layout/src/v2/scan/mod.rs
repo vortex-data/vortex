@@ -36,6 +36,7 @@ use crate::v2::layout::LayoutRef;
 use crate::v2::scan::planner::ComputeArgs;
 use crate::v2::scan::planner::ComputeFn;
 use crate::v2::scan::planner::NodeId;
+use crate::v2::scan::planner::NodeOp;
 use crate::v2::scan::planner::NodeOpts;
 use crate::v2::scan::split::SplitId;
 use crate::v2::selection::Selection;
@@ -373,7 +374,9 @@ impl Scan {
                     )?;
 
                     selection = plan_builder.create_node(NodeOpts {
-                        label: "FilterIntersect",
+                        op: NodeOp::Custom {
+                            label: "FilterIntersect",
+                        },
                         inputs: &[selection, filter_result],
                         segments: vec![],
                         lifetime: plan_builder.row_range_lifetime(split_range.row_range.clone()),
