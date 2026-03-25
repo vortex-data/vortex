@@ -10632,6 +10632,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-web-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "js-sys",
+ "vortex",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "vortex-zigzag"
 version = "0.1.0"
 dependencies = [
