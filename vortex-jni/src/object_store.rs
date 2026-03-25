@@ -148,7 +148,6 @@ fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
         .map(|(k, v)| format!("{k}={v}"))
         .collect::<Vec<_>>()
         .join(",");
-
     format!(
         "{}://{};{}",
         url.scheme(),
