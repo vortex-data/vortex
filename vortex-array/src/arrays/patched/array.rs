@@ -86,14 +86,14 @@ impl PatchedArray {
             values,
         } = transpose_patches(patches, ctx)?;
 
-        let len = inner.len();
-
         let values = PrimitiveArray::from_buffer_handle(
             BufferHandle::new_host(values),
             values_ptype,
             Validity::NonNullable,
         )
         .into_array();
+
+        let len = inner.len();
 
         Ok(Self {
             inner,
