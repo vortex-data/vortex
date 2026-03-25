@@ -208,6 +208,8 @@ mod tests {
     use crate::string::vx_string_free;
 
     #[test]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
     fn test_simple() {
         unsafe {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
@@ -230,6 +232,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
     fn test_slice() {
         unsafe {
             let primitive =
@@ -250,8 +254,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
     // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
     fn test_null_operations() {
         unsafe {
             let primitive = PrimitiveArray::new(
@@ -277,8 +281,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
     // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
     fn test_get_field() {
         unsafe {
             let names = VarBinViewArray::from_iter_str(["Alice", "Bob", "Charlie"]);
@@ -317,6 +321,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
     fn test_primitive_getters() {
         unsafe {
             // Test a representative sample of primitive types
@@ -367,6 +373,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
     fn test_get_utf8() {
         unsafe {
             let utf8_array = VarBinViewArray::from_iter_str(["hello", "world", "test"]);
@@ -389,6 +397,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
     fn test_get_binary() {
         unsafe {
             let binary_array = VarBinViewArray::from_iter_bin(vec![
