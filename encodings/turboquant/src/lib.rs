@@ -3,13 +3,86 @@
 
 //! TurboQuant vector quantization encoding for Vortex.
 //!
-//! Implements the TurboQuant algorithm for lossy compression of high-dimensional vector data.
-//! Supports two variants:
-//! - **MSE**: Optimal for mean-squared error reconstruction
-//! - **Prod**: Optimal for inner product preservation (unbiased)
+//! Implements the TurboQuant algorithm ([arXiv:2504.19874]) for lossy compression of
+//! high-dimensional vector data. The encoding operates on `FixedSizeList` arrays of floats
+//! (the storage format of `Vector` and `FixedShapeTensor` extension types).
 //!
-//! The encoding operates on `FixedSizeList` arrays of floats (the storage format of
-//! `Vector` and `FixedShapeTensor` extension types).
+//! [arXiv:2504.19874]: https://arxiv.org/abs/2504.19874
+//!
+//! # Variants
+//!
+//! - **MSE** (`TurboQuantVariant::Mse`): Minimizes mean-squared reconstruction error.
+//! - **Prod** (`TurboQuantVariant::Prod`): Preserves inner products with an unbiased
+//!   estimator (uses `b-1` bits for MSE + 1-bit QJL residual correction).
+//!
+//! # Theoretical error bounds
+//!
+//! For unit-norm vectors quantized at `b` bits per coordinate, the paper's Theorem 1
+//! guarantees normalized MSE distortion:
+//!
+//! > `E[||x - x̂||² / ||x||²] ≤ (√3 · π / 2) / 4^b`
+//!
+//! | Bits | MSE bound |
+//! |------|-----------|
+//! | 1    | 0.680     |
+//! | 2    | 0.170     |
+//! | 3    | 0.043     |
+//! | 4    | 0.011     |
+//!
+//! # Compression ratios
+//!
+//! Each vector is stored as `padded_dim × bit_width / 8` bytes of quantized codes plus a
+//! 4-byte f32 norm. Non-power-of-2 dimensions are padded to the next power of 2 for the
+//! Walsh-Hadamard transform, which reduces the effective ratio for those dimensions.
+//!
+//! | dim  | padded | bits | f32 bytes | TQ bytes | ratio |
+//! |------|--------|------|-----------|----------|-------|
+//! |  256 |    256 |    2 |      1024 |       68 | 15.1x |
+//! |  512 |    512 |    2 |      2048 |      132 | 15.5x |
+//! |  768 |   1024 |    2 |      3072 |      260 | 11.8x |
+//! | 1024 |   1024 |    2 |      4096 |      260 | 15.8x |
+//! | 1536 |   2048 |    2 |      6144 |      516 | 11.9x |
+//! |  768 |   1024 |    4 |      3072 |      516 |  6.0x |
+//! | 1024 |   1024 |    4 |      4096 |      516 |  7.9x |
+//!
+//! # Example
+//!
+//! ```
+//! use vortex_array::IntoArray;
+//! use vortex_array::arrays::FixedSizeListArray;
+//! use vortex_array::arrays::PrimitiveArray;
+//! use vortex_array::validity::Validity;
+//! use vortex_buffer::BufferMut;
+//! use vortex_turboquant::{TurboQuantConfig, TurboQuantVariant, turboquant_encode};
+//!
+//! // Create a FixedSizeListArray of 100 random 128-d vectors.
+//! let num_rows = 100;
+//! let dim = 128;
+//! let mut buf = BufferMut::<f32>::with_capacity(num_rows * dim);
+//! for i in 0..(num_rows * dim) {
+//!     buf.push((i as f32 * 0.001).sin());
+//! }
+//! let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
+//! let fsl = FixedSizeListArray::try_new(
+//!     elements.into_array(), dim as u32, Validity::NonNullable, num_rows,
+//! ).unwrap();
+//!
+//! // Quantize at 2 bits per coordinate.
+//! let config = TurboQuantConfig {
+//!     bit_width: 2,
+//!     variant: TurboQuantVariant::Mse,
+//!     seed: Some(42),
+//! };
+//! let encoded = turboquant_encode(&fsl, &config).unwrap();
+//!
+//! // Verify compression: 100 vectors × 128 dims × 4 bytes = 51200 bytes input.
+//! // Output: 100 × (128 padded × 2 bits / 8 + 4 norm bytes) = 100 × 36 = 3600 bytes.
+//! assert!(encoded.codes().nbytes() + encoded.norms().nbytes() < 51200);
+//!
+//! // Verify the theoretical MSE bound holds.
+//! // For 2-bit quantization: bound = sqrt(3)*pi/2 / 4^2 ≈ 0.170.
+//! // (Full roundtrip decoding requires an ExecutionCtx from a VortexSession.)
+//! ```
 
 pub use array::TurboQuant;
 pub use array::TurboQuantArray;
