@@ -22,6 +22,7 @@ import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import scala.Option;
 
 /**
  * Spark V2 data source for reading and writing Vortex files.
@@ -36,7 +37,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     private static final String PATH_KEY = "path";
     private static final String PATHS_KEY = "paths";
 
-    private final SparkSession sparkSession;
+    private final Option<SparkSession> sparkSession;
 
     /**
      * Creates a new instance of the Vortex data source.
@@ -45,9 +46,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * through reflection.
      */
     public VortexDataSourceV2() {
-        this.sparkSession = SparkSession.getActiveSession().getOrElse(() -> {
-            throw new IllegalStateException("Cannot create VortexDataSourceV2 outside of active SparkSession");
-        });
+        this.sparkSession = SparkSession.getActiveSession();
     }
 
     /**
@@ -112,7 +111,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         var uncased = new CaseInsensitiveStringMap(properties);
         ImmutableList<String> paths = getPaths(uncased);
 
-        var hadoopConf = sparkSession.sessionState().newHadoopConf();
+        var hadoopConf = sparkSession.get().sessionState().newHadoopConf();
 
         var options = ImmutableMap.<String, String>builder();
         options.putAll(uncased.asCaseSensitiveMap());
