@@ -332,43 +332,125 @@ fn collect_set_indices_simd_bench(bencher: Bencher, length: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Density-varied benchmarks: 100k bits at different set-bit densities
+// Density-varied benchmarks: 1M bits at different set-bit densities
+// and distributions.
+//
+// Distributions tested:
+//   - "uniform":  every Nth bit (perfectly regular)
+//   - "clustered": set bits arrive in bursts/clusters
+//   - "random":   pseudo-random (deterministic hash)
 // ---------------------------------------------------------------------------
 
-const LARGE_N: usize = 100_000;
+const LARGE_N: usize = 1_000_000;
 
-/// 1% density (sparse)
-fn make_sparse() -> BitBuffer {
-    BitBuffer::from_iter((0..LARGE_N).map(|i| i % 100 == 0))
+/// Simple deterministic hash for pseudo-random patterns.
+#[inline]
+fn splitmix(i: usize) -> u64 {
+    let mut z = (i as u64).wrapping_add(0x9e3779b97f4a7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    z ^ (z >> 31)
 }
 
-/// 50% density (dense)
-fn make_dense() -> BitBuffer {
-    BitBuffer::from_iter((0..LARGE_N).map(|i| i % 2 == 0))
+// --- Buffer constructors ---
+
+fn make_uniform(density_pct: usize) -> BitBuffer {
+    let period = 100 / density_pct;
+    BitBuffer::from_iter((0..LARGE_N).map(|i| i % period == 0))
 }
 
-/// 99% density (nearly all set)
-fn make_nearly_full() -> BitBuffer {
-    BitBuffer::from_iter((0..LARGE_N).map(|i| i % 100 != 0))
+fn make_clustered(density_pct: usize) -> BitBuffer {
+    // Clusters of 8 set bits, then gaps.
+    // Cluster spacing chosen to achieve target density.
+    let cluster_size = 8usize;
+    let total_per_group = (cluster_size * 100) / density_pct;
+    BitBuffer::from_iter((0..LARGE_N).map(|i| (i % total_per_group) < cluster_size))
 }
 
-fn make_sparse_arrow() -> Arrow<BooleanBuffer> {
-    Arrow(BooleanBuffer::from_iter((0..LARGE_N).map(|i| i % 100 == 0)))
+fn make_random(density_pct: usize) -> BitBuffer {
+    // Pseudo-random: bit is set if splitmix(i) mod 100 < density_pct
+    BitBuffer::from_iter((0..LARGE_N).map(|i| (splitmix(i) % 100) < density_pct as u64))
 }
 
-fn make_dense_arrow() -> Arrow<BooleanBuffer> {
-    Arrow(BooleanBuffer::from_iter((0..LARGE_N).map(|i| i % 2 == 0)))
+fn make_uniform_arrow(density_pct: usize) -> Arrow<BooleanBuffer> {
+    let period = 100 / density_pct;
+    Arrow(BooleanBuffer::from_iter(
+        (0..LARGE_N).map(|i| i % period == 0),
+    ))
 }
 
-fn make_nearly_full_arrow() -> Arrow<BooleanBuffer> {
-    Arrow(BooleanBuffer::from_iter((0..LARGE_N).map(|i| i % 100 != 0)))
+fn make_random_arrow(density_pct: usize) -> Arrow<BooleanBuffer> {
+    Arrow(BooleanBuffer::from_iter(
+        (0..LARGE_N).map(|i| (splitmix(i) % 100) < density_pct as u64),
+    ))
 }
 
-// --- Arrow baseline at different densities ---
+// =========================================================================
+// Macro to generate all benchmark variants for a given density + distribution
+// =========================================================================
+macro_rules! bench_density {
+    ($density:literal, $dist:ident, $make_fn:ident, $make_arrow_fn:ident) => {
+        ::paste::paste! {
+            #[divan::bench]
+            fn [< d $density pct_ $dist _arrow >](bencher: Bencher) {
+                let buffer = $make_arrow_fn($density);
+                bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+                    for idx in buffer.0.set_indices() {
+                        divan::black_box(idx);
+                    }
+                });
+            }
+
+            #[divan::bench]
+            fn [< d $density pct_ $dist _vortex >](bencher: Bencher) {
+                let buffer = $make_fn($density);
+                bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+                    for idx in buffer.set_indices() {
+                        divan::black_box(idx);
+                    }
+                });
+            }
+
+            #[divan::bench]
+            fn [< d $density pct_ $dist _collect_simd >](bencher: Bencher) {
+                let buffer = $make_fn($density);
+                bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+                    divan::black_box(collect_set_indices(
+                        buffer.inner().as_slice(),
+                        buffer.offset(),
+                        buffer.len(),
+                    ));
+                });
+            }
+        }
+    };
+}
+
+// 0.01% density (1 in 10,000 — almost all 256-bit groups are zero)
+fn make_very_sparse(period: usize) -> BitBuffer {
+    BitBuffer::from_iter((0..LARGE_N).map(|i| i % period == 0))
+}
+
+fn make_very_sparse_arrow(period: usize) -> Arrow<BooleanBuffer> {
+    Arrow(BooleanBuffer::from_iter(
+        (0..LARGE_N).map(|i| i % period == 0),
+    ))
+}
+
+fn make_very_sparse_random() -> BitBuffer {
+    // ~0.01%: 1 in 10,000
+    BitBuffer::from_iter((0..LARGE_N).map(|i| splitmix(i).is_multiple_of(10_000)))
+}
+
+fn make_very_sparse_random_arrow() -> Arrow<BooleanBuffer> {
+    Arrow(BooleanBuffer::from_iter(
+        (0..LARGE_N).map(|i| splitmix(i).is_multiple_of(10_000)),
+    ))
+}
 
 #[divan::bench]
-fn density_1pct_arrow(bencher: Bencher) {
-    let buffer = make_sparse_arrow();
+fn d001pct_uniform_arrow(bencher: Bencher) {
+    let buffer = make_very_sparse_arrow(10_000);
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         for idx in buffer.0.set_indices() {
             divan::black_box(idx);
@@ -377,30 +459,8 @@ fn density_1pct_arrow(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn density_50pct_arrow(bencher: Bencher) {
-    let buffer = make_dense_arrow();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        for idx in buffer.0.set_indices() {
-            divan::black_box(idx);
-        }
-    });
-}
-
-#[divan::bench]
-fn density_99pct_arrow(bencher: Bencher) {
-    let buffer = make_nearly_full_arrow();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        for idx in buffer.0.set_indices() {
-            divan::black_box(idx);
-        }
-    });
-}
-
-// --- Current vortex (delegates to Arrow) ---
-
-#[divan::bench]
-fn density_1pct_vortex_current(bencher: Bencher) {
-    let buffer = make_sparse();
+fn d001pct_uniform_vortex(bencher: Bencher) {
+    let buffer = make_very_sparse(10_000);
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         for idx in buffer.set_indices() {
             divan::black_box(idx);
@@ -409,106 +469,8 @@ fn density_1pct_vortex_current(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn density_50pct_vortex_current(bencher: Bencher) {
-    let buffer = make_dense();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        for idx in buffer.set_indices() {
-            divan::black_box(idx);
-        }
-    });
-}
-
-#[divan::bench]
-fn density_99pct_vortex_current(bencher: Bencher) {
-    let buffer = make_nearly_full();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        for idx in buffer.set_indices() {
-            divan::black_box(idx);
-        }
-    });
-}
-
-// --- New scalar iterator ---
-
-#[divan::bench]
-fn density_1pct_scalar_iter(bencher: Bencher) {
-    let buffer = make_sparse();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        for idx in
-            ScalarBitIndexIterator::new(buffer.inner().as_slice(), buffer.offset(), buffer.len())
-        {
-            divan::black_box(idx);
-        }
-    });
-}
-
-#[divan::bench]
-fn density_50pct_scalar_iter(bencher: Bencher) {
-    let buffer = make_dense();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        for idx in
-            ScalarBitIndexIterator::new(buffer.inner().as_slice(), buffer.offset(), buffer.len())
-        {
-            divan::black_box(idx);
-        }
-    });
-}
-
-#[divan::bench]
-fn density_99pct_scalar_iter(bencher: Bencher) {
-    let buffer = make_nearly_full();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        for idx in
-            ScalarBitIndexIterator::new(buffer.inner().as_slice(), buffer.offset(), buffer.len())
-        {
-            divan::black_box(idx);
-        }
-    });
-}
-
-// --- Bulk scalar collect ---
-
-#[divan::bench]
-fn density_1pct_collect_scalar(bencher: Bencher) {
-    let buffer = make_sparse();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        divan::black_box(collect_set_indices_scalar(
-            buffer.inner().as_slice(),
-            buffer.offset(),
-            buffer.len(),
-        ));
-    });
-}
-
-#[divan::bench]
-fn density_50pct_collect_scalar(bencher: Bencher) {
-    let buffer = make_dense();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        divan::black_box(collect_set_indices_scalar(
-            buffer.inner().as_slice(),
-            buffer.offset(),
-            buffer.len(),
-        ));
-    });
-}
-
-#[divan::bench]
-fn density_99pct_collect_scalar(bencher: Bencher) {
-    let buffer = make_nearly_full();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        divan::black_box(collect_set_indices_scalar(
-            buffer.inner().as_slice(),
-            buffer.offset(),
-            buffer.len(),
-        ));
-    });
-}
-
-// --- Bulk SIMD/BMI2 collect ---
-
-#[divan::bench]
-fn density_1pct_collect_simd(bencher: Bencher) {
-    let buffer = make_sparse();
+fn d001pct_uniform_collect_simd(bencher: Bencher) {
+    let buffer = make_very_sparse(10_000);
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         divan::black_box(collect_set_indices(
             buffer.inner().as_slice(),
@@ -519,8 +481,28 @@ fn density_1pct_collect_simd(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn density_50pct_collect_simd(bencher: Bencher) {
-    let buffer = make_dense();
+fn d001pct_random_arrow(bencher: Bencher) {
+    let buffer = make_very_sparse_random_arrow();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.0.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn d001pct_random_vortex(bencher: Bencher) {
+    let buffer = make_very_sparse_random();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn d001pct_random_collect_simd(bencher: Bencher) {
+    let buffer = make_very_sparse_random();
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         divan::black_box(collect_set_indices(
             buffer.inner().as_slice(),
@@ -530,14 +512,24 @@ fn density_50pct_collect_simd(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
-fn density_99pct_collect_simd(bencher: Bencher) {
-    let buffer = make_nearly_full();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        divan::black_box(collect_set_indices(
-            buffer.inner().as_slice(),
-            buffer.offset(),
-            buffer.len(),
-        ));
-    });
-}
+// 1% density
+bench_density!(1, uniform, make_uniform, make_uniform_arrow);
+bench_density!(1, random, make_random, make_random_arrow);
+
+// 5% density
+bench_density!(5, uniform, make_uniform, make_uniform_arrow);
+bench_density!(5, random, make_random, make_random_arrow);
+bench_density!(5, clustered, make_clustered, make_uniform_arrow);
+
+// 10% density
+bench_density!(10, uniform, make_uniform, make_uniform_arrow);
+bench_density!(10, random, make_random, make_random_arrow);
+bench_density!(10, clustered, make_clustered, make_uniform_arrow);
+
+// 20% density
+bench_density!(20, uniform, make_uniform, make_uniform_arrow);
+bench_density!(20, random, make_random, make_random_arrow);
+bench_density!(20, clustered, make_clustered, make_uniform_arrow);
+
+// 50% density (for reference)
+bench_density!(50, uniform, make_uniform, make_uniform_arrow);

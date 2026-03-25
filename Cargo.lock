@@ -9921,6 +9921,7 @@ dependencies = [
  "itertools 0.14.0",
  "memmap2",
  "num-traits",
+ "paste",
  "rstest",
  "serde",
  "simdutf8",
