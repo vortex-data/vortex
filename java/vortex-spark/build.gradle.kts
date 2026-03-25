@@ -92,6 +92,7 @@ tasks.withType<ShadowJar> {
         // Note this class is not used by us, but required when loading the native lib
         exclude("org.apache.arrow.c.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
     }
+    relocate("com.fasterxml.jackson", "dev.vortex.relocated.com.fasterxml.jackson")
 }
 
 tasks.withType<Test>().all {
