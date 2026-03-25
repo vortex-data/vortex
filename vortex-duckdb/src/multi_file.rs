@@ -10,7 +10,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scan::api::DataSourceRef;
+use vortex::scan::DataSourceRef;
 
 use crate::RUNTIME;
 use crate::SESSION;

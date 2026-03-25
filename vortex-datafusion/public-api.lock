@@ -48,7 +48,7 @@ pub struct vortex_datafusion::v2::VortexDataSource
 
 impl vortex_datafusion::v2::VortexDataSource
 
-pub fn vortex_datafusion::v2::VortexDataSource::builder(data_source: vortex_scan::api::DataSourceRef, session: vortex_session::VortexSession) -> vortex_datafusion::v2::source::VortexDataSourceBuilder
+pub fn vortex_datafusion::v2::VortexDataSource::builder(data_source: vortex_scan::DataSourceRef, session: vortex_session::VortexSession) -> vortex_datafusion::v2::source::VortexDataSourceBuilder
 
 impl core::clone::Clone for vortex_datafusion::v2::VortexDataSource
 
@@ -86,7 +86,7 @@ pub struct vortex_datafusion::v2::VortexTable
 
 impl vortex_datafusion::v2::VortexTable
 
-pub fn vortex_datafusion::v2::VortexTable::new(data_source: vortex_scan::api::DataSourceRef, session: vortex_session::VortexSession, arrow_schema: arrow_schema::schema::SchemaRef) -> Self
+pub fn vortex_datafusion::v2::VortexTable::new(data_source: vortex_scan::DataSourceRef, session: vortex_session::VortexSession, arrow_schema: arrow_schema::schema::SchemaRef) -> Self
 
 impl core::fmt::Debug for vortex_datafusion::v2::VortexTable
 
@@ -108,7 +108,7 @@ pub struct vortex_datafusion::VortexAccessPlan
 
 impl vortex_datafusion::VortexAccessPlan
 
-pub fn vortex_datafusion::VortexAccessPlan::apply_to_builder<A>(&self, scan_builder: vortex_scan::scan_builder::ScanBuilder<A>) -> vortex_scan::scan_builder::ScanBuilder<A> where A: 'static + core::marker::Send
+pub fn vortex_datafusion::VortexAccessPlan::apply_to_builder<A>(&self, scan_builder: vortex_layout::scan::scan_builder::ScanBuilder<A>) -> vortex_layout::scan::scan_builder::ScanBuilder<A> where A: 'static + core::marker::Send
 
 pub fn vortex_datafusion::VortexAccessPlan::selection(&self) -> core::option::Option<&vortex_scan::selection::Selection>
 

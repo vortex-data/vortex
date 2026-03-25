@@ -7,7 +7,8 @@ use std::ops::Range;
 
 use vortex_array::dtype::FieldMask;
 use vortex_error::VortexResult;
-use vortex_layout::LayoutReader;
+
+use crate::LayoutReader;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -59,15 +60,15 @@ mod test {
     use vortex_array::dtype::FieldPath;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
-    use vortex_layout::LayoutReaderRef;
-    use vortex_layout::LayoutStrategy;
-    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::segments::TestSegments;
-    use vortex_layout::sequence::SequenceId;
-    use vortex_layout::sequence::SequentialArrayStreamExt;
 
     use super::*;
-    use crate::test::SCAN_SESSION;
+    use crate::LayoutReaderRef;
+    use crate::LayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::scan::test::SCAN_SESSION;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialArrayStreamExt;
 
     fn reader() -> LayoutReaderRef {
         let ctx = ArrayContext::empty();

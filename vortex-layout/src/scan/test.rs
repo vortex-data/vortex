@@ -8,8 +8,9 @@ use vortex_array::session::ArraySession;
 use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
+
+use crate::session::LayoutSession;
 
 pub fn new_session() -> VortexSession {
     VortexSession::empty()

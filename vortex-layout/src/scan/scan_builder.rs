@@ -35,17 +35,17 @@ use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::LayoutReader;
-use vortex_layout::LayoutReaderRef;
-use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_metrics::MetricsRegistry;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
-use crate::RepeatedScan;
-use crate::selection::Selection;
-use crate::split_by::SplitBy;
-use crate::splits::Splits;
-use crate::splits::attempt_split_ranges;
+use crate::LayoutReader;
+use crate::LayoutReaderRef;
+use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::scan::repeated_scan::RepeatedScan;
+use crate::scan::split_by::SplitBy;
+use crate::scan::splits::Splits;
+use crate::scan::splits::attempt_split_ranges;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -413,7 +413,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
 /// Projection and filter must be pre-simplified.
-pub(crate) fn filter_and_projection_masks(
+pub fn filter_and_projection_masks(
     projection: &Expression,
     filter: Option<&Expression>,
     dtype: &DType,
@@ -477,11 +477,11 @@ mod test {
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
-    use vortex_layout::ArrayFuture;
-    use vortex_layout::LayoutReader;
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
+    use crate::ArrayFuture;
+    use crate::LayoutReader;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -561,7 +561,7 @@ mod test {
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
 
-        let session = crate::test::SCAN_SESSION.clone();
+        let session = crate::scan::test::SCAN_SESSION.clone();
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
@@ -657,7 +657,7 @@ mod test {
         let reader = Arc::new(SplittingLayoutReader::new(calls.clone()));
 
         let runtime = SingleThreadRuntime::default();
-        let session = crate::test::session_with_handle(runtime.handle());
+        let session = crate::scan::test::session_with_handle(runtime.handle());
 
         let stream = ScanBuilder::new(session, reader).into_stream().unwrap();
         let mut iter = runtime.block_on_stream(stream);
@@ -758,7 +758,7 @@ mod test {
         let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls.clone()));
 
         let runtime = SingleThreadRuntime::default();
-        let session = crate::test::session_with_handle(runtime.handle());
+        let session = crate::scan::test::session_with_handle(runtime.handle());
 
         let mut stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
