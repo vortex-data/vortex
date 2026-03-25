@@ -10,6 +10,9 @@ use arrow_buffer::BooleanBufferBuilder;
 use divan::Bencher;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::ScalarBitIndexIterator;
+use vortex_buffer::collect_set_indices;
+use vortex_buffer::collect_set_indices_scalar;
 
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never
@@ -19,6 +22,7 @@ fn main() {
         let _ = is_x86_feature_detected!("avx2");
         let _ = is_x86_feature_detected!("avx512f");
         let _ = is_x86_feature_detected!("avx512vpopcntdq");
+        let _ = is_x86_feature_detected!("bmi2");
     }
 
     divan::main();
@@ -288,5 +292,252 @@ fn set_indices_arrow_buffer(bencher: Bencher, length: usize) {
         for idx in buffer.0.set_indices() {
             divan::black_box(idx);
         }
+    });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn set_indices_scalar_optimized(bencher: Bencher, length: usize) {
+    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in
+            ScalarBitIndexIterator::new(buffer.inner().as_slice(), buffer.offset(), buffer.len())
+        {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn collect_set_indices_scalar_bench(bencher: Bencher, length: usize) {
+    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices_scalar(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
+    });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn collect_set_indices_simd_bench(bencher: Bencher, length: usize) {
+    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Density-varied benchmarks: 100k bits at different set-bit densities
+// ---------------------------------------------------------------------------
+
+const LARGE_N: usize = 100_000;
+
+/// 1% density (sparse)
+fn make_sparse() -> BitBuffer {
+    BitBuffer::from_iter((0..LARGE_N).map(|i| i % 100 == 0))
+}
+
+/// 50% density (dense)
+fn make_dense() -> BitBuffer {
+    BitBuffer::from_iter((0..LARGE_N).map(|i| i % 2 == 0))
+}
+
+/// 99% density (nearly all set)
+fn make_nearly_full() -> BitBuffer {
+    BitBuffer::from_iter((0..LARGE_N).map(|i| i % 100 != 0))
+}
+
+fn make_sparse_arrow() -> Arrow<BooleanBuffer> {
+    Arrow(BooleanBuffer::from_iter((0..LARGE_N).map(|i| i % 100 == 0)))
+}
+
+fn make_dense_arrow() -> Arrow<BooleanBuffer> {
+    Arrow(BooleanBuffer::from_iter((0..LARGE_N).map(|i| i % 2 == 0)))
+}
+
+fn make_nearly_full_arrow() -> Arrow<BooleanBuffer> {
+    Arrow(BooleanBuffer::from_iter((0..LARGE_N).map(|i| i % 100 != 0)))
+}
+
+// --- Arrow baseline at different densities ---
+
+#[divan::bench]
+fn density_1pct_arrow(bencher: Bencher) {
+    let buffer = make_sparse_arrow();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.0.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn density_50pct_arrow(bencher: Bencher) {
+    let buffer = make_dense_arrow();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.0.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn density_99pct_arrow(bencher: Bencher) {
+    let buffer = make_nearly_full_arrow();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.0.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+// --- Current vortex (delegates to Arrow) ---
+
+#[divan::bench]
+fn density_1pct_vortex_current(bencher: Bencher) {
+    let buffer = make_sparse();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn density_50pct_vortex_current(bencher: Bencher) {
+    let buffer = make_dense();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn density_99pct_vortex_current(bencher: Bencher) {
+    let buffer = make_nearly_full();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in buffer.set_indices() {
+            divan::black_box(idx);
+        }
+    });
+}
+
+// --- New scalar iterator ---
+
+#[divan::bench]
+fn density_1pct_scalar_iter(bencher: Bencher) {
+    let buffer = make_sparse();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in
+            ScalarBitIndexIterator::new(buffer.inner().as_slice(), buffer.offset(), buffer.len())
+        {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn density_50pct_scalar_iter(bencher: Bencher) {
+    let buffer = make_dense();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in
+            ScalarBitIndexIterator::new(buffer.inner().as_slice(), buffer.offset(), buffer.len())
+        {
+            divan::black_box(idx);
+        }
+    });
+}
+
+#[divan::bench]
+fn density_99pct_scalar_iter(bencher: Bencher) {
+    let buffer = make_nearly_full();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        for idx in
+            ScalarBitIndexIterator::new(buffer.inner().as_slice(), buffer.offset(), buffer.len())
+        {
+            divan::black_box(idx);
+        }
+    });
+}
+
+// --- Bulk scalar collect ---
+
+#[divan::bench]
+fn density_1pct_collect_scalar(bencher: Bencher) {
+    let buffer = make_sparse();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices_scalar(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
+    });
+}
+
+#[divan::bench]
+fn density_50pct_collect_scalar(bencher: Bencher) {
+    let buffer = make_dense();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices_scalar(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
+    });
+}
+
+#[divan::bench]
+fn density_99pct_collect_scalar(bencher: Bencher) {
+    let buffer = make_nearly_full();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices_scalar(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
+    });
+}
+
+// --- Bulk SIMD/BMI2 collect ---
+
+#[divan::bench]
+fn density_1pct_collect_simd(bencher: Bencher) {
+    let buffer = make_sparse();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
+    });
+}
+
+#[divan::bench]
+fn density_50pct_collect_simd(bencher: Bencher) {
+    let buffer = make_dense();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
+    });
+}
+
+#[divan::bench]
+fn density_99pct_collect_simd(bencher: Bencher) {
+    let buffer = make_nearly_full();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+        ));
     });
 }

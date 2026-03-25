@@ -252,6 +252,8 @@ pub fn vortex_buffer::BitBuffer::clear(&mut self)
 
 pub fn vortex_buffer::BitBuffer::collect_bool<F: core::ops::function::FnMut(usize) -> bool>(len: usize, f: F) -> Self
 
+pub fn vortex_buffer::BitBuffer::collect_set_indices(&self) -> alloc::vec::Vec<u32>
+
 pub fn vortex_buffer::BitBuffer::empty() -> Self
 
 pub fn vortex_buffer::BitBuffer::false_count(&self) -> usize
@@ -280,7 +282,7 @@ pub fn vortex_buffer::BitBuffer::new_with_offset(buffer: vortex_buffer::ByteBuff
 
 pub fn vortex_buffer::BitBuffer::offset(&self) -> usize
 
-pub fn vortex_buffer::BitBuffer::set_indices(&self) -> arrow_buffer::util::bit_iterator::BitIndexIterator<'_>
+pub fn vortex_buffer::BitBuffer::set_indices(&self) -> vortex_buffer::ScalarBitIndexIterator<'_>
 
 pub fn vortex_buffer::BitBuffer::set_slices(&self) -> arrow_buffer::util::bit_iterator::BitSliceIterator<'_>
 
@@ -1012,6 +1014,20 @@ pub fn vortex_buffer::Iter<'_, T>::len(&self) -> usize
 
 impl<T> vortex_buffer::trusted_len::TrustedLen for vortex_buffer::Iter<'_, T>
 
+pub struct vortex_buffer::ScalarBitIndexIterator<'a>
+
+impl<'a> vortex_buffer::ScalarBitIndexIterator<'a>
+
+pub fn vortex_buffer::ScalarBitIndexIterator<'a>::new(buffer: &'a [u8], offset: usize, len: usize) -> Self
+
+impl core::iter::traits::iterator::Iterator for vortex_buffer::ScalarBitIndexIterator<'_>
+
+pub type vortex_buffer::ScalarBitIndexIterator<'_>::Item = usize
+
+pub fn vortex_buffer::ScalarBitIndexIterator<'_>::next(&mut self) -> core::option::Option<usize>
+
+pub fn vortex_buffer::ScalarBitIndexIterator<'_>::size_hint(&self) -> (usize, core::option::Option<usize>)
+
 pub const vortex_buffer::ALIGNMENT_TO_HOST_COPY: vortex_buffer::Alignment
 
 pub trait vortex_buffer::AlignedBuf: bytes::buf::buf_impl::Buf
@@ -1025,6 +1041,10 @@ impl<B: bytes::buf::buf_impl::Buf> vortex_buffer::AlignedBuf for B
 pub fn B::copy_to_aligned(&mut self, len: usize, alignment: vortex_buffer::Alignment) -> vortex_buffer::ByteBuffer
 
 pub fn B::copy_to_const_aligned<const A: usize>(&mut self, len: usize) -> vortex_buffer::ConstByteBuffer<A>
+
+pub fn vortex_buffer::collect_set_indices(buffer: &[u8], offset: usize, len: usize) -> alloc::vec::Vec<u32>
+
+pub fn vortex_buffer::collect_set_indices_scalar(buffer: &[u8], offset: usize, len: usize) -> alloc::vec::Vec<u32>
 
 pub fn vortex_buffer::get_bit(buf: &[u8], index: usize) -> bool
 

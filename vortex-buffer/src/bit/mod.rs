@@ -13,6 +13,7 @@ mod buf_mut;
 mod count_ones;
 mod macros;
 mod ops;
+mod set_indices;
 
 pub use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 pub use arrow_buffer::bit_chunk_iterator::BitChunks;
@@ -23,6 +24,9 @@ pub use arrow_buffer::bit_iterator::BitIterator;
 pub use arrow_buffer::bit_iterator::BitSliceIterator;
 pub use buf::*;
 pub use buf_mut::*;
+pub use set_indices::ScalarBitIndexIterator;
+pub use set_indices::collect_set_indices;
+pub use set_indices::collect_set_indices_scalar;
 
 /// Get the bit value at `index` out of `buf`.
 ///
