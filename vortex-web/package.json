@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "wasm": "wasm-pack build crate --target web --out-dir ../src/wasm/pkg",
+    "wasm": "wasm-pack build crate --dev --target web --out-dir ../src/wasm/pkg",
+    "wasm:release": "wasm-pack build crate --release --target web --out-dir ../src/wasm/pkg",
     "dev": "npm run wasm && vite",
-    "build": "npm run wasm && tsc -b && vite build",
+    "build": "npm run wasm:release && tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
