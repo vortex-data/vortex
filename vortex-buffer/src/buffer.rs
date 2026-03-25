@@ -418,7 +418,6 @@ impl<T> Buffer<T> {
             .try_into_mut()
             .map(|bytes| BufferMut {
                 bytes,
-                length: self.length,
                 alignment: self.alignment,
                 _marker: Default::default(),
             })

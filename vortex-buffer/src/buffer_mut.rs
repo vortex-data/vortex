@@ -23,10 +23,13 @@ use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
+///
+/// Length is derived from `bytes.len() / size_of::<T>()` — there is no separate `length` field.
+/// This eliminates a redundant store in hot paths like `push_unchecked`, reducing register
+/// pressure in tight loops.
 #[derive(PartialEq, Eq)]
 pub struct BufferMut<T> {
     pub(crate) bytes: BytesMut,
-    pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
@@ -52,7 +55,6 @@ impl<T> BufferMut<T> {
 
         Self {
             bytes,
-            length: 0,
             alignment,
             _marker: Default::default(),
         }
@@ -70,7 +72,6 @@ impl<T> BufferMut<T> {
         unsafe { bytes.set_len(len * size_of::<T>()) };
         Self {
             bytes,
-            length: len,
             alignment,
             _marker: Default::default(),
         }
@@ -126,14 +127,13 @@ impl<T> BufferMut<T> {
     /// Returns the length of the buffer.
     #[inline(always)]
     pub fn len(&self) -> usize {
-        debug_assert_eq!(self.length, self.bytes.len() / size_of::<T>());
-        self.length
+        self.bytes.len() / size_of::<T>()
     }
 
     /// Returns whether the buffer is empty.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.length == 0
+        self.bytes.is_empty()
     }
 
     /// Returns the capacity of the buffer.
@@ -147,22 +147,22 @@ impl<T> BufferMut<T> {
     pub fn as_slice(&self) -> &[T] {
         let raw_slice = self.bytes.as_ref();
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
+        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.len()) }
     }
 
     /// Returns a slice over the buffer of elements of type T.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
+        let len = self.len();
         let raw_slice = self.bytes.as_mut();
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts_mut(raw_slice.as_mut_ptr().cast(), self.length) }
+        unsafe { std::slice::from_raw_parts_mut(raw_slice.as_mut_ptr().cast(), len) }
     }
 
     /// Clear the buffer, retaining any existing capacity.
     #[inline]
     pub fn clear(&mut self) {
         unsafe { self.bytes.set_len(0) }
-        self.length = 0;
     }
 
     /// Shortens the buffer, keeping the first `len` bytes and dropping the
@@ -196,7 +196,7 @@ impl<T> BufferMut<T> {
     /// A separate function so we can inline the reserve call's fast path. According to `BytesMut`
     /// this has significant performance implications.
     fn reserve_allocate(&mut self, additional: usize) {
-        let new_capacity: usize = ((self.length + additional) * size_of::<T>()) + *self.alignment;
+        let new_capacity: usize = ((self.len() + additional) * size_of::<T>()) + *self.alignment;
         // Make sure we at least double in size each time we re-allocate to amortize the cost
         let new_capacity = new_capacity.max(self.bytes.capacity() * 2);
 
@@ -241,10 +241,7 @@ impl<T> BufferMut<T> {
     pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
         let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
         unsafe {
-            std::slice::from_raw_parts_mut(
-                dst as *mut MaybeUninit<T>,
-                self.capacity() - self.length,
-            )
+            std::slice::from_raw_parts_mut(dst as *mut MaybeUninit<T>, self.capacity() - self.len())
         }
     }
 
@@ -260,7 +257,6 @@ impl<T> BufferMut<T> {
     pub unsafe fn set_len(&mut self, len: usize) {
         debug_assert!(len <= self.capacity());
         unsafe { self.bytes.set_len(len * size_of::<T>()) };
-        self.length = len;
     }
 
     /// Appends a scalar to the buffer.
@@ -283,7 +279,6 @@ impl<T> BufferMut<T> {
             dst.write(item);
             self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
-        self.length += 1;
     }
 
     /// Appends n scalars to the buffer.
@@ -318,7 +313,6 @@ impl<T> BufferMut<T> {
             }
             self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
         }
-        self.length += n;
     }
 
     /// Appends a slice of type `T`, growing the internal buffer as needed.
@@ -339,7 +333,6 @@ impl<T> BufferMut<T> {
         let raw_slice =
             unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), size_of_val(slice)) };
         self.bytes.extend_from_slice(raw_slice);
-        self.length += slice.len();
     }
 
     /// Splits the buffer into two at the given index.
@@ -367,13 +360,10 @@ impl<T> BufferMut<T> {
 
         let new_bytes = self.bytes.split_off(bytes_at);
 
-        // Adjust the lengths, given that length may be < at
-        let new_length = self.length.saturating_sub(at);
-        self.length = self.length.min(at);
-
+        // BytesMut::split_off adjusts self.bytes.len() and new_bytes.len()
+        // automatically, so our derived len() is correct for both halves.
         BufferMut {
             bytes: new_bytes,
-            length: new_length,
             alignment: self.alignment,
             _marker: Default::default(),
         }
@@ -395,14 +385,12 @@ impl<T> BufferMut<T> {
             );
         }
         self.bytes.unsplit(other.bytes);
-        self.length += other.length;
     }
 
     /// Return the [`ByteBufferMut`] for this [`BufferMut`].
     pub fn into_byte_buffer(self) -> ByteBufferMut {
         ByteBufferMut {
             bytes: self.bytes,
-            length: self.length * size_of::<T>(),
             alignment: self.alignment,
             _marker: Default::default(),
         }
@@ -410,9 +398,10 @@ impl<T> BufferMut<T> {
 
     /// Freeze the `BufferMut` into a `Buffer`.
     pub fn freeze(self) -> Buffer<T> {
+        let length = self.len();
         Buffer {
             bytes: self.bytes.freeze(),
-            length: self.length,
+            length,
             alignment: self.alignment,
             _marker: Default::default(),
         }
@@ -445,7 +434,6 @@ impl<T> BufferMut<T> {
         if self.as_ptr().align_offset(*alignment) == 0 {
             Self {
                 bytes: self.bytes,
-                length: self.length,
                 alignment,
                 _marker: std::marker::PhantomData,
             }
@@ -475,7 +463,6 @@ impl<T> BufferMut<T> {
 
         BufferMut {
             bytes: self.bytes,
-            length: self.length,
             alignment: self.alignment,
             _marker: std::marker::PhantomData,
         }
@@ -495,7 +482,7 @@ impl<T> Clone for BufferMut<T> {
 impl<T: Debug> Debug for BufferMut<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(&format!("BufferMut<{}>", type_name::<T>()))
-            .field("length", &self.length)
+            .field("length", &self.len())
             .field("alignment", &self.alignment)
             .field("as_slice", &TruncatedDebug(self.as_slice()))
             .finish()
@@ -689,7 +676,6 @@ impl Buf for ByteBufferMut {
             );
         }
         self.bytes.advance(cnt);
-        self.length -= cnt;
     }
 }
 
@@ -712,7 +698,6 @@ unsafe impl BufMut for ByteBufferMut {
             );
         }
         unsafe { self.bytes.advance_mut(cnt) };
-        self.length -= cnt;
     }
 
     #[inline]
