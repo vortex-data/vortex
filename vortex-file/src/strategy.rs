@@ -28,7 +28,6 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::session::ArraySession;
-#[cfg(feature = "zstd")]
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::FloatCode;
@@ -234,26 +233,22 @@ impl WriteStrategyBuilder {
     /// Configure lossy vector quantization for tensor columns using TurboQuant.
     ///
     /// Columns with `Vector` or `FixedShapeTensor` extension types will be quantized at the
-    /// specified bit-width. All other columns use the previously configured compressor (default
-    /// BtrBlocks if none was set). The TurboQuant array's children (norms, codes) are
-    /// recursively compressed by the inner compressor.
+    /// specified bit-width. All other columns use the default BtrBlocks compression strategy.
+    /// The TurboQuant array's children (norms, codes) are recursively compressed by the
+    /// BtrBlocks compressor.
     ///
-    /// This can be composed with other encoding configurations:
+    /// # Examples
     ///
     /// ```ignore
     /// WriteStrategyBuilder::default()
-    ///     .with_compact_encodings()
     ///     .with_vector_quantization(TurboQuantConfig { bit_width: 3, .. })
     ///     .build()
     /// ```
     pub fn with_vector_quantization(mut self, config: vortex_turboquant::TurboQuantConfig) -> Self {
-        let inner = self
-            .compressor
-            .take()
-            .unwrap_or_else(|| Arc::new(vortex_btrblocks::BtrBlocksCompressor::default()));
-        self.compressor = Some(Arc::new(vortex_turboquant::TurboQuantCompressor::new(
-            config, inner,
-        )));
+        let btrblocks = BtrBlocksCompressorBuilder::default()
+            .with_turboquant(config)
+            .build();
+        self.compressor = Some(Arc::new(btrblocks));
         self
     }
 

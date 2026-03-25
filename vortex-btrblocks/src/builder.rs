@@ -46,6 +46,7 @@ pub struct BtrBlocksCompressorBuilder {
     int_schemes: HashSet<&'static dyn IntegerScheme>,
     float_schemes: HashSet<&'static dyn FloatScheme>,
     string_schemes: HashSet<&'static dyn StringScheme>,
+    turboquant_config: Option<vortex_turboquant::TurboQuantConfig>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
@@ -66,6 +67,7 @@ impl Default for BtrBlocksCompressorBuilder {
                 .copied()
                 .filter(|s| s.code() != StringCode::Zstd && s.code() != StringCode::ZstdBuffers)
                 .collect(),
+            turboquant_config: None,
         }
     }
 }
@@ -77,6 +79,7 @@ impl BtrBlocksCompressorBuilder {
             int_schemes: Default::default(),
             float_schemes: Default::default(),
             string_schemes: Default::default(),
+            turboquant_config: None,
         }
     }
 
@@ -134,6 +137,16 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Enables TurboQuant lossy vector quantization for tensor extension types.
+    ///
+    /// When enabled, `Vector` and `FixedShapeTensor` extension columns will be
+    /// quantized at the configured bit-width instead of using the default
+    /// recursive storage compression.
+    pub fn with_turboquant(mut self, config: vortex_turboquant::TurboQuantConfig) -> Self {
+        self.turboquant_config = Some(config);
+        self
+    }
+
     /// Builds the configured `BtrBlocksCompressor`.
     pub fn build(self) -> BtrBlocksCompressor {
         // Note we should apply the schemes in the same order, in case try conflict.
@@ -153,6 +166,7 @@ impl BtrBlocksCompressorBuilder {
                 .into_iter()
                 .sorted_by_key(|s| s.code())
                 .collect_vec(),
+            turboquant_config: self.turboquant_config,
         }
     }
 }

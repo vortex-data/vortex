@@ -34,6 +34,7 @@ mod patches;
 mod rle;
 pub(crate) mod string;
 pub(crate) mod temporal;
+pub(crate) mod turboquant;
 
 /// Maximum cascade depth for compression.
 pub(crate) const MAX_CASCADE: usize = 3;

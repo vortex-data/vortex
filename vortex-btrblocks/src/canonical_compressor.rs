@@ -40,6 +40,8 @@ use crate::compressor::float::FloatScheme;
 use crate::compressor::integer::IntegerScheme;
 use crate::compressor::string::StringScheme;
 use crate::compressor::temporal::compress_temporal;
+use crate::compressor::turboquant::compress_turboquant;
+use crate::compressor::turboquant::is_tensor_extension;
 
 /// Trait for compressors that can compress canonical arrays.
 ///
@@ -101,6 +103,9 @@ pub struct BtrBlocksCompressor {
 
     /// String compressor with configured schemes.
     pub string_schemes: Vec<&'static dyn StringScheme>,
+
+    /// Optional TurboQuant configuration for tensor extension types.
+    pub turboquant_config: Option<vortex_turboquant::TurboQuantConfig>,
 }
 
 impl Default for BtrBlocksCompressor {
@@ -287,6 +292,13 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                         .into_array());
                     }
                     return compress_temporal(self, temporal_array);
+                }
+
+                // Compress tensor extension types with TurboQuant if configured.
+                if let Some(tq_config) = &self.turboquant_config
+                    && is_tensor_extension(&ext_array)
+                {
+                    return compress_turboquant(self, &ext_array, tq_config);
                 }
 
                 // Compress the underlying storage array.
