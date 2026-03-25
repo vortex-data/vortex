@@ -427,22 +427,35 @@ fn nibble_lut(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
         .bench_refs(|(b, r)| intersect_nibble_flat(b, r));
 }
 
+/// Helper: create a deep-copied Mask with unique Bytes refcount.
+/// Uses `into_mut().freeze()` to force a memcpy, and `from_buffer_with_true_count`
+/// to skip the O(n) popcount scan. This ensures `try_into_mut` will succeed
+/// for in-place operations.
+fn deep_copy_mask(buf: &BitBuffer, true_count: usize) -> Mask {
+    Mask::from_buffer_with_true_count(buf.clone().into_mut().freeze(), true_count)
+}
+
 #[divan::bench(args = BENCH_CASES)]
 fn production(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
     let base = create_random_mask(size, density);
     let rank = create_random_mask(base.true_count(), 0.5);
+    let true_count = base.true_count();
+    // Deep-copy in with_inputs so both production and production_owned have
+    // identical cache state (O(n) memcpy warms self buffer each iteration).
+    let base_buf = base.to_bit_buffer().into_mut().freeze();
     bencher
-        .with_inputs(|| (&base, &rank))
-        .bench_refs(|(b, r)| b.intersect_by_rank(r));
+        .with_inputs(|| deep_copy_mask(&base_buf, true_count))
+        .bench_refs(|b| b.intersect_by_rank(&rank));
 }
 
 #[divan::bench(args = BENCH_CASES)]
 fn production_owned(bencher: Bencher, &(size, density, _): &(usize, f64, &str)) {
     let base = create_random_mask(size, density);
     let rank = create_random_mask(base.true_count(), 0.5);
-    // Create a unique BitBuffer so try_into_mut succeeds (no shared Arc).
-    let base_buf = base.to_bit_buffer();
+    let true_count = base.true_count();
+    // Same deep-copy as production, but passed by value for in-place operation.
+    let base_buf = base.to_bit_buffer().into_mut().freeze();
     bencher
-        .with_inputs(|| (Mask::from_buffer(base_buf.clone()), &rank))
-        .bench_values(|(b, r)| b.intersect_by_rank_owned(r));
+        .with_inputs(|| deep_copy_mask(&base_buf, true_count))
+        .bench_values(|b| b.intersect_by_rank_owned(&rank));
 }
