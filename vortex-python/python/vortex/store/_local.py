@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Self
+
 from typing_extensions import override
 
 from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]

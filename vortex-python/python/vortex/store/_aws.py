@@ -2,14 +2,14 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from collections.abc import Coroutine
-from typing import Self, TypeAlias, Unpack, Literal, Any, NotRequired, Protocol, TypedDict
-from typing_extensions import override
 from datetime import datetime
+from typing import Any, Literal, NotRequired, Protocol, Self, TypeAlias, TypedDict, Unpack
 
-from ._client import ClientConfig
-from ._retry import RetryConfig
+from typing_extensions import override
 
 from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from ._client import ClientConfig
+from ._retry import RetryConfig
 
 S3Regions: TypeAlias = Literal[
     "af-south-1",

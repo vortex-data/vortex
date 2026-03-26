@@ -5,15 +5,22 @@ from collections.abc import Callable
 from typing import TypeAlias, Unpack, overload
 
 from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
-from ._aws import *
-from ._azure import *
-from ._client import *
-from ._gcs import *
-from ._http import *
-from ._retry import *
-from ._local import *
-from ._memory import *
-
+from ._aws import S3Config, S3Credential, S3CredentialProvider, S3Store
+from ._azure import (
+    AzureAccessKey,
+    AzureBearerToken,
+    AzureConfig,
+    AzureCredential,
+    AzureCredentialProvider,
+    AzureSASToken,
+    AzureStore,
+)
+from ._client import ClientConfig
+from ._gcs import GCSConfig, GCSCredential, GCSCredentialProvider, GCSStore
+from ._http import HTTPStore
+from ._local import LocalStore
+from ._memory import MemoryStore
+from ._retry import BackoffConfig, RetryConfig
 
 ObjectStore: TypeAlias = AzureStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
 """All supported ObjectStore implementations."""

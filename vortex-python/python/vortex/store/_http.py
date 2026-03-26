@@ -2,10 +2,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
 
 from typing import Self
+
 from typing_extensions import override
 
 from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
-
 from ._client import ClientConfig
 from ._retry import RetryConfig
 
