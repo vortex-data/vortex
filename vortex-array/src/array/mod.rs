@@ -403,7 +403,7 @@ mod private {
 
 /// DynArray implementation for [`Array<V>`].
 ///
-/// Identity methods (as_any, to_array, vtable, encoding_id) use the Array<V> wrapper.
+/// Identity methods (as_any, to_array, vtable, encoding_id) use the `Array<V>` wrapper.
 /// All other methods delegate to the inner `V::Array`'s DynArray impl (accessed through
 /// its `Deref<Target = dyn DynArray>` provided by the `vtable!` macro).
 impl<V: VTable> DynArray for Array<V> {
