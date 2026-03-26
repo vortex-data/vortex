@@ -118,7 +118,7 @@ class GCSStore(_store.GCSStore):
         retry_config: RetryConfig | None = None,
         credential_provider: GCSCredentialProvider | None = None,
         **kwargs: Unpack[GCSConfig],  # pyright: ignore[reportGeneralTypeIssues]
-    ):
+    ) -> Self:
         """Construct a new GCSStore.
 
         Args:
@@ -138,7 +138,7 @@ class GCSStore(_store.GCSStore):
             GCSStore
 
         """
-        return super().__new__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
+        return super().__new__(  # pyright: ignore[reportUnknownVariableType]
             cls,
             bucket,
             prefix=prefix,

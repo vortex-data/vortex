@@ -274,7 +274,7 @@ class AzureStore(_store.AzureStore):
         retry_config: RetryConfig | None = None,
         credential_provider: AzureCredentialProvider | None = None,
         **kwargs: Unpack[AzureConfig],  # pyright: ignore[reportGeneralTypeIssues]
-    ):
+    ) -> Self:
         """Construct a new AzureStore.
 
         Args:
@@ -294,7 +294,7 @@ class AzureStore(_store.AzureStore):
             AzureStore
 
         """
-        return super().__new__(
+        return super().__new__(  # pyright: ignore[reportUnknownVariableType]
             cls,
             container_name,
             prefix=prefix,

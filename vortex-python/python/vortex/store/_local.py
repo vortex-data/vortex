@@ -27,7 +27,7 @@ class LocalStore(_store.LocalStore):
         *,
         automatic_cleanup: bool = False,
         mkdir: bool = False,
-    ):
+    ) -> Self:
         """Create a new LocalStore.
 
         Args:

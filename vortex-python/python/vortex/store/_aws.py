@@ -439,7 +439,7 @@ class S3Store(_store.S3Store):
         retry_config: RetryConfig | None = None,
         credential_provider: S3CredentialProvider | None = None,
         **kwargs: Unpack[S3Config],  # pyright: ignore[reportGeneralTypeIssues]
-    ):
+    ) -> Self:
         """Create a new S3Store.
 
         Args:
@@ -459,7 +459,7 @@ class S3Store(_store.S3Store):
             S3Store
 
         """
-        return super().__new__(
+        return super().__new__(  # pyright: ignore[reportUnknownVariableType]
             cls,
             bucket,
             prefix=prefix,
@@ -467,7 +467,7 @@ class S3Store(_store.S3Store):
             client_options=client_options,
             retry_config=retry_config,
             credential_provider=credential_provider,
-            **kwargs,  # pyright: ignore[reportCallIssue]
+            **kwargs,  # pyright: ignore[reportCallIssue]  bucket appears in both S3Config and explicitly above
         )
 
     @override

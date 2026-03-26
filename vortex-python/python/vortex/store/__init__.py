@@ -116,13 +116,13 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
         kwargs: per-store configuration passed down to store-specific builders.
 
     """
-    return _store.from_url(
+    return _store.from_url(  # pyright: ignore[reportCallIssue, reportUnknownVariableType]
         url,
-        config=config,
+        config=config,  # pyright: ignore[reportArgumentType]
         client_options=client_options,
         retry_config=retry_config,
-        credential_provider=credential_provider,
-        **kwargs,
+        credential_provider=credential_provider,  # pyright: ignore[reportArgumentType]
+        **kwargs,  # pyright: ignore[reportArgumentType]
     )
 
 
