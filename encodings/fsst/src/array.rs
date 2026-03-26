@@ -543,7 +543,6 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::vtable::Array;
     use vortex_array::vtable::VTable;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
