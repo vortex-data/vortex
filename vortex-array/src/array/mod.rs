@@ -632,13 +632,16 @@ impl<V: VTable> DynArray for Array<V> {
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         let mut inner = self.array.clone();
         V::with_children(&mut inner, children)?;
-        Ok(Array::new(
-            self.typed_vtable().clone(),
-            self.dtype.clone(),
-            self.len,
-            inner,
-            self.stats.clone(),
-        )
+        // SAFETY: with_children preserves dtype and len.
+        Ok(unsafe {
+            Array::new_unchecked(
+                self.typed_vtable().clone(),
+                self.dtype.clone(),
+                self.len,
+                inner,
+                self.stats.clone(),
+            )
+        }
         .into_array())
     }
 }

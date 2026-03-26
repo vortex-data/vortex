@@ -101,13 +101,16 @@ impl<V: VTable> DynVTable for V {
             "Array dtype mismatch after building"
         );
         // Wrap in Array<V> for safe downcasting.
-        let array = Array::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            inner,
-            ArrayStats::default(),
-        );
+        // SAFETY: We just validated that V::len(&inner) == len and V::dtype(&inner) == dtype.
+        let array = unsafe {
+            Array::new_unchecked(
+                self.clone(),
+                dtype.clone(),
+                len,
+                inner,
+                ArrayStats::default(),
+            )
+        };
         Ok(array.into_array())
     }
 

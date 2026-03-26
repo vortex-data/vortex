@@ -34,8 +34,18 @@ pub struct Array<V: VTable> {
 
 #[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
-    /// Create a new typed array.
-    pub fn new(vtable: V, dtype: DType, len: usize, array: V::Array, stats: ArrayStats) -> Self {
+    /// Create a new typed array without validating that the inner array's dtype/len match.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `V::dtype(&array) == &dtype` and `V::len(&array) == len`.
+    pub unsafe fn new_unchecked(
+        vtable: V,
+        dtype: DType,
+        len: usize,
+        array: V::Array,
+        stats: ArrayStats,
+    ) -> Self {
         Self {
             vtable,
             dtype,

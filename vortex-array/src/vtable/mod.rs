@@ -238,7 +238,7 @@ pub fn patches_child_name(idx: usize) -> &'static str {
 /// vtable! macro — generates IntoArray, From, Deref, AsRef for inner array types.
 ///
 /// During the migration, IntoArray creates [`Array<V>`] (the new typed wrapper) while
-/// Deref/AsRef go through [`ArrayAdapter`] for backward-compatible DynArray access.
+/// Deref/AsRef go through AlsoArrayAdapter for backward-compatible DynArray access.
 #[macro_export]
 macro_rules! vtable {
     ($V:ident) => {
@@ -269,7 +269,10 @@ macro_rules! vtable {
                     let dtype = $VT::dtype(&self).clone();
                     let len = $VT::len(&self);
                     let stats = $VT::stats(&self).to_array_stats();
-                    std::sync::Arc::new($crate::vtable::Array::new(vtable, dtype, len, self, stats))
+                    // SAFETY: dtype and len are extracted from `self` via VTable methods.
+                    std::sync::Arc::new(unsafe {
+                        $crate::vtable::Array::new_unchecked(vtable, dtype, len, self, stats)
+                    })
                 }
             }
 
