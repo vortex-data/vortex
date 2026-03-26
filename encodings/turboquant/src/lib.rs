@@ -95,6 +95,8 @@ pub use array::TurboQuantArray;
 pub use array::TurboQuantVariant;
 pub use compress::TurboQuantConfig;
 pub use compress::turboquant_encode;
+pub use compress::turboquant_encode_mse;
+pub use compress::turboquant_encode_qjl;
 pub use mse_array::TurboQuantMSE;
 pub use mse_array::TurboQuantMSEArray;
 pub use qjl_array::TurboQuantQJL;
@@ -512,5 +514,133 @@ mod tests {
             seed: Some(0),
         };
         assert!(turboquant_encode(&fsl, &config).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests for new cascaded MSE/QJL array types
+    // -----------------------------------------------------------------------
+
+    #[rstest]
+    #[case(32, 2)]
+    #[case(128, 2)]
+    #[case(128, 4)]
+    #[case(128, 8)]
+    fn roundtrip_new_mse(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+        use crate::turboquant_encode_mse;
+
+        let fsl = make_fsl(10, dim, 42);
+        let config = TurboQuantConfig {
+            bit_width,
+            variant: TurboQuantVariant::Mse,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = encoded
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        assert_eq!(decoded.len(), 10);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(32, 2)]
+    #[case(128, 3)]
+    #[case(128, 4)]
+    #[case(128, 9)]
+    fn roundtrip_new_qjl(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+        use crate::turboquant_encode_qjl;
+
+        let fsl = make_fsl(10, dim, 42);
+        let config = TurboQuantConfig {
+            bit_width,
+            variant: TurboQuantVariant::Prod,
+            seed: Some(456),
+        };
+        let encoded = turboquant_encode_qjl(&fsl, &config)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = encoded
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        assert_eq!(decoded.len(), 10);
+        Ok(())
+    }
+
+    /// Verify that the new MSE path produces the same reconstruction as the old path.
+    #[test]
+    fn new_mse_matches_legacy() -> VortexResult<()> {
+        use crate::turboquant_encode_mse;
+
+        let fsl = make_fsl(50, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            variant: TurboQuantVariant::Mse,
+            seed: Some(123),
+        };
+
+        let (_, legacy_decoded) = encode_decode(&fsl, &config)?;
+
+        let new_encoded = turboquant_encode_mse(&fsl, &config)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let new_decoded_fsl = new_encoded
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let new_decoded_prim = new_decoded_fsl.elements().to_canonical()?.into_primitive();
+        let new_decoded = new_decoded_prim.as_slice::<f32>();
+
+        assert_eq!(legacy_decoded.len(), new_decoded.len());
+        for i in 0..legacy_decoded.len() {
+            assert!(
+                (legacy_decoded[i] - new_decoded[i]).abs() < 1e-6,
+                "Mismatch at {i}: legacy={} new={}",
+                legacy_decoded[i],
+                new_decoded[i]
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    fn roundtrip_new_mse_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
+        use crate::turboquant_encode_mse;
+
+        let fsl = make_fsl(num_rows, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 2,
+            variant: TurboQuantVariant::Mse,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = encoded
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        assert_eq!(decoded.len(), num_rows);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    fn roundtrip_new_qjl_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
+        use crate::turboquant_encode_qjl;
+
+        let fsl = make_fsl(num_rows, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            variant: TurboQuantVariant::Prod,
+            seed: Some(456),
+        };
+        let encoded = turboquant_encode_qjl(&fsl, &config)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = encoded
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        assert_eq!(decoded.len(), num_rows);
+        Ok(())
     }
 }
