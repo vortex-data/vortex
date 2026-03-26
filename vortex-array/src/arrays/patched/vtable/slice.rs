@@ -92,6 +92,7 @@ mod tests {
             @r#"
             root: vortex.patched(u16, len=9)
               inner: vortex.primitive(u16, len=512)
+              patch_indices: vortex.primitive(u16, len=3)
               patch_values: vortex.primitive(u16, len=3)
             "#);
 

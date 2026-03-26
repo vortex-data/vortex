@@ -31,27 +31,3 @@ const fn patch_lanes<V: Sized>() -> usize {
     // from shared to global memory.
     if size_of::<V>() < 8 { 32 } else { 16 }
 }
-
-/// A cached accessor to the patch values.
-pub struct PatchAccessor<'a> {
-    n_lanes: usize,
-    lane_offsets: &'a [u32],
-    indices: &'a [u16],
-}
-
-impl<'a> PatchAccessor<'a> {
-    /// Get an iterator over indices and values offsets.
-    ///
-    /// The first component is the index into the `indices` and `values`, and the second is
-    /// the datum from `indices[index]` already prefetched.
-    pub fn offsets_iter(
-        &self,
-        chunk: usize,
-        lane: usize,
-    ) -> impl Iterator<Item = (usize, u16)> + '_ {
-        let start = self.lane_offsets[chunk * self.n_lanes + lane] as usize;
-        let stop = self.lane_offsets[chunk * self.n_lanes + lane + 1] as usize;
-
-        std::iter::zip(start..stop, self.indices[start..stop].iter().copied())
-    }
-}
