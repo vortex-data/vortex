@@ -3973,9 +3973,9 @@ dependencies = [
 
 [[package]]
 name = "fsst-rs"
-version = "0.5.8"
+version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbfc42bd5e2b76f850ba4ff6dd6cb170389bc3c1e64dc45238a742d79bbfb2ca"
+checksum = "cdf65e16e100438be0030d113042e07a62bed67203998640ca6fae0404eed71e"
 dependencies = [
  "rustc-hash",
 ]
