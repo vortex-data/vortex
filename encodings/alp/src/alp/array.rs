@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -240,9 +241,9 @@ impl VTable for ALP {
         Ok(())
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            execute_decompress(array.into_inner(), ctx)?.into_array(),
+            execute_decompress(Arc::unwrap_or_clone(array).into_inner(), ctx)?.into_array(),
         ))
     }
 

@@ -143,6 +143,12 @@ impl<V: VTable> IntoArray for Array<V> {
     }
 }
 
+impl<V: VTable> IntoArray for Arc<Array<V>> {
+    fn into_array(self) -> ArrayRef {
+        self
+    }
+}
+
 impl<V: VTable> From<Array<V>> for ArrayRef {
     fn from(value: Array<V>) -> ArrayRef {
         value.into_array()

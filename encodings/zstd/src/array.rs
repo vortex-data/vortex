@@ -280,7 +280,7 @@ impl VTable for Zstd {
         Ok(())
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .decompress(ctx)?
             .execute::<ArrayRef>(ctx)

@@ -4,6 +4,7 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -270,7 +271,7 @@ impl VTable for Pco {
         Ok(())
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array.decompress(ctx)?.into_array()))
     }
 

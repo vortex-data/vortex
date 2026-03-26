@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
@@ -386,7 +387,7 @@ impl VTable for Sequence {
         Ok(())
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         sequence_decompress(&array).map(ExecutionResult::done)
     }
 

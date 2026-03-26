@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -201,7 +202,7 @@ impl VTable for Dict {
         Ok(())
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if array.is_empty() {
             let result_dtype = array
                 .dtype()
@@ -223,7 +224,8 @@ impl VTable for Dict {
 
         let array = require_child!(array, array.values(), 1 => AnyCanonical);
 
-        let DictArrayParts { codes, values, .. } = array.into_inner().into_parts();
+        let DictArrayParts { codes, values, .. } =
+            Arc::unwrap_or_clone(array).into_inner().into_parts();
 
         let codes = codes
             .try_into::<Primitive>()

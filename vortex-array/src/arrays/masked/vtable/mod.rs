@@ -5,6 +5,7 @@ mod operations;
 mod validity;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -166,7 +167,7 @@ impl VTable for Masked {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.

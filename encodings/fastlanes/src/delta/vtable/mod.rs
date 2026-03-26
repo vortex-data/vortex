@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use fastlanes::FastLanes;
 use prost::Message;
@@ -194,7 +195,7 @@ impl VTable for Delta {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             delta_decompress(&array, ctx)?.into_array(),
         ))

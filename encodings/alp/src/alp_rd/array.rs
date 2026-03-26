@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayEq;
@@ -303,7 +304,7 @@ impl VTable for ALPRD {
         Ok(())
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.left_parts(), 0 => Primitive);
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
 
@@ -315,7 +316,7 @@ impl VTable for ALPRD {
             left_parts_patches,
             dtype,
             ..
-        } = array.into_inner().into_parts();
+        } = Arc::unwrap_or_clone(array).into_inner().into_parts();
         let ptype = dtype.as_ptype();
 
         let left_parts = left_parts

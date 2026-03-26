@@ -227,15 +227,11 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
         .vortex_expect("Failed to downcast array to expected encoding type")
 }
 
-/// Downcast an `ArrayRef` into an `Array<V>`.
-fn downcast_owned<V: VTable>(array: ArrayRef) -> Array<V> {
+/// Downcast an `ArrayRef` into an `Arc<Array<V>>`.
+fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<Array<V>> {
     let any_arc = array.as_any_arc();
-    let typed: Arc<Array<V>> = any_arc
+    any_arc
         .downcast::<Array<V>>()
         .ok()
-        .vortex_expect("Failed to downcast array to expected encoding type");
-    match Arc::try_unwrap(typed) {
-        Ok(array) => array,
-        Err(arc) => (*arc).clone(),
-    }
+        .vortex_expect("Failed to downcast array to expected encoding type")
 }

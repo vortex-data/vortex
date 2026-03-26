@@ -11,6 +11,7 @@ mod validity;
 use std::fmt::Debug;
 use std::hash::Hasher;
 use std::ops::Deref;
+use std::sync::Arc;
 
 pub use dyn_::*;
 pub use operations::*;
@@ -147,7 +148,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     fn execute_parent(
