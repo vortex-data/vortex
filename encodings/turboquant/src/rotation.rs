@@ -16,7 +16,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::arrays::BoolArray;
 use vortex_array::validity::Validity;
-use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;

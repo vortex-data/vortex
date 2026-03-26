@@ -95,19 +95,27 @@ pub use array::TurboQuantArray;
 pub use array::TurboQuantVariant;
 pub use compress::TurboQuantConfig;
 pub use compress::turboquant_encode;
+pub use mse_array::TurboQuantMSE;
+pub use mse_array::TurboQuantMSEArray;
+pub use qjl_array::TurboQuantQJL;
+pub use qjl_array::TurboQuantQJLArray;
 mod array;
 pub mod centroids;
 mod compress;
 mod decompress;
+pub mod mse_array;
+pub mod qjl_array;
 pub mod rotation;
 mod rules;
 
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
-/// Initialize the TurboQuant encoding in the given session.
+/// Initialize the TurboQuant encodings in the given session.
 pub fn initialize(session: &mut VortexSession) {
     session.arrays().register(TurboQuant);
+    session.arrays().register(TurboQuantMSE);
+    session.arrays().register(TurboQuantQJL);
 }
 
 #[cfg(test)]

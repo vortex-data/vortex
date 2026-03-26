@@ -6,6 +6,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -16,7 +17,14 @@ use vortex_error::VortexResult;
 use crate::array::TurboQuantArray;
 use crate::array::TurboQuantVariant;
 use crate::centroids::get_centroids;
+use crate::mse_array::TurboQuantMSEArray;
+use crate::qjl_array::TurboQuantQJLArray;
 use crate::rotation::RotationMatrix;
+use crate::rotation::apply_inverse_srht_from_bits;
+
+// ---------------------------------------------------------------------------
+// Legacy decompression (for old monolithic TurboQuantArray)
+// ---------------------------------------------------------------------------
 
 /// Decompress a TurboQuantArray back into a FixedSizeListArray of floats.
 pub fn execute_decompress(
@@ -24,12 +32,12 @@ pub fn execute_decompress(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     match array.variant() {
-        TurboQuantVariant::Mse => decode_mse(array, ctx),
-        TurboQuantVariant::Prod => decode_prod(array, ctx),
+        TurboQuantVariant::Mse => decode_mse_legacy(array, ctx),
+        TurboQuantVariant::Prod => decode_prod_legacy(array, ctx),
     }
 }
 
-fn decode_mse(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+fn decode_mse_legacy(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let dimension = array.dimension();
     let dim = dimension as usize;
     let bit_width = array.bit_width();
@@ -50,7 +58,6 @@ fn decode_mse(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<Ar
     let rotation = RotationMatrix::try_new(seed, dim)?;
     let padded_dim = rotation.padded_dim();
 
-    // Unpack codes — these are padded_dim indices per row.
     let codes_prim = array.codes.clone().execute::<PrimitiveArray>(ctx)?;
     let indices = codes_prim.as_slice::<u8>();
 
@@ -74,7 +81,6 @@ fn decode_mse(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<Ar
 
         rotation.inverse_rotate(&dequantized, &mut unrotated);
 
-        // Scale by norm and take only the first dim elements.
         for idx in 0..dim {
             unrotated[idx] *= norm;
         }
@@ -92,7 +98,7 @@ fn decode_mse(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<Ar
     .into_array())
 }
 
-fn decode_prod(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+fn decode_prod_legacy(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let dimension = array.dimension();
     let dim = dimension as usize;
     let mse_bit_width = array.bit_width() - 1;
@@ -161,7 +167,6 @@ fn decode_prod(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<A
             *val *= norm;
         }
 
-        // QJL decode.
         let bit_offset = row * padded_dim;
         for idx in 0..padded_dim {
             let bit_idx = bit_offset + idx;
@@ -183,6 +188,161 @@ fn decode_prod(array: TurboQuantArray, ctx: &mut ExecutionCtx) -> VortexResult<A
     Ok(FixedSizeListArray::try_new(
         elements.into_array(),
         dimension,
+        Validity::NonNullable,
+        num_rows,
+    )?
+    .into_array())
+}
+
+// ---------------------------------------------------------------------------
+// New decompression for restructured arrays
+// ---------------------------------------------------------------------------
+
+/// Decompress a `TurboQuantMSEArray` into a `FixedSizeListArray` of floats.
+///
+/// Reads stored centroids and rotation signs from the array's children,
+/// avoiding recomputation.
+pub fn execute_decompress_mse(
+    array: TurboQuantMSEArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let dim = array.dimension() as usize;
+    let padded_dim = array.padded_dim() as usize;
+    let num_rows = array.norms.len();
+
+    if num_rows == 0 {
+        let elements = PrimitiveArray::empty::<f32>(array.dtype.nullability());
+        return Ok(FixedSizeListArray::try_new(
+            elements.into_array(),
+            array.dimension(),
+            Validity::NonNullable,
+            0,
+        )?
+        .into_array());
+    }
+
+    // Read stored centroids — no recomputation.
+    let centroids_prim = array.centroids.clone().execute::<PrimitiveArray>(ctx)?;
+    let centroids = centroids_prim.as_slice::<f32>();
+
+    // Read stored rotation signs — no recomputation.
+    let signs_bool = array.rotation_signs.clone().execute::<BoolArray>(ctx)?;
+    let bit_buf = signs_bool.to_bit_buffer();
+    let (_, _, raw_signs) = bit_buf.into_inner();
+    let norm_factor = 1.0 / (padded_dim as f32 * (padded_dim as f32).sqrt());
+
+    // Unpack codes.
+    let codes_prim = array.codes.clone().execute::<PrimitiveArray>(ctx)?;
+    let indices = codes_prim.as_slice::<u8>();
+
+    let norms_prim = array.norms.clone().execute::<PrimitiveArray>(ctx)?;
+    let norms = norms_prim.as_slice::<f32>();
+
+    let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
+    let mut dequantized = vec![0.0f32; padded_dim];
+
+    for row in 0..num_rows {
+        let row_indices = &indices[row * padded_dim..(row + 1) * padded_dim];
+        let norm = norms[row];
+
+        for idx in 0..padded_dim {
+            dequantized[idx] = centroids[row_indices[idx] as usize];
+        }
+
+        // Inverse rotate using stored sign bits (hot path).
+        apply_inverse_srht_from_bits(
+            &mut dequantized,
+            raw_signs.as_ref(),
+            padded_dim,
+            norm_factor,
+        );
+
+        for idx in 0..dim {
+            dequantized[idx] *= norm;
+        }
+
+        output.extend_from_slice(&dequantized[..dim]);
+    }
+
+    let elements = PrimitiveArray::new::<f32>(output.freeze(), Validity::NonNullable);
+    Ok(FixedSizeListArray::try_new(
+        elements.into_array(),
+        array.dimension(),
+        Validity::NonNullable,
+        num_rows,
+    )?
+    .into_array())
+}
+
+/// Decompress a `TurboQuantQJLArray` into a `FixedSizeListArray` of floats.
+///
+/// First decodes the inner MSE array, then applies QJL residual correction.
+pub fn execute_decompress_qjl(
+    array: TurboQuantQJLArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let padded_dim = array.padded_dim() as usize;
+    let num_rows = array.residual_norms.len();
+
+    if num_rows == 0 {
+        return Ok(array
+            .mse_inner
+            .execute::<FixedSizeListArray>(ctx)?
+            .into_array());
+    }
+
+    // Decode MSE inner → FixedSizeListArray.
+    let mse_decoded = array.mse_inner.clone().execute::<FixedSizeListArray>(ctx)?;
+    let mse_elements_prim = mse_decoded.elements().to_canonical()?.into_primitive();
+    let mse_elements = mse_elements_prim.as_slice::<f32>();
+    let dim = mse_decoded.list_size() as usize;
+
+    // Read QJL signs.
+    let qjl_signs_bool = array.qjl_signs.clone().execute::<BoolArray>(ctx)?;
+    let qjl_bit_buf = qjl_signs_bool.to_bit_buffer();
+
+    // Read residual norms.
+    let residual_norms_prim = array
+        .residual_norms
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let residual_norms = residual_norms_prim.as_slice::<f32>();
+
+    // Read QJL rotation signs.
+    let qjl_rot_signs_bool = array.rotation_signs.clone().execute::<BoolArray>(ctx)?;
+    let qjl_rot = RotationMatrix::from_bool_array(&qjl_rot_signs_bool, dim)?;
+
+    let qjl_scale = (std::f32::consts::FRAC_PI_2).sqrt() / (padded_dim as f32);
+
+    let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
+    let mut qjl_signs_vec = vec![0.0f32; padded_dim];
+    let mut qjl_projected = vec![0.0f32; padded_dim];
+
+    for row in 0..num_rows {
+        let mse_row = &mse_elements[row * dim..(row + 1) * dim];
+        let residual_norm = residual_norms[row];
+
+        let bit_offset = row * padded_dim;
+        for idx in 0..padded_dim {
+            qjl_signs_vec[idx] = if qjl_bit_buf.value(bit_offset + idx) {
+                1.0
+            } else {
+                -1.0
+            };
+        }
+
+        qjl_rot.inverse_rotate(&qjl_signs_vec, &mut qjl_projected);
+        let scale = qjl_scale * residual_norm;
+
+        for idx in 0..dim {
+            output.push(mse_row[idx] + scale * qjl_projected[idx]);
+        }
+    }
+
+    let elements = PrimitiveArray::new::<f32>(output.freeze(), Validity::NonNullable);
+    Ok(FixedSizeListArray::try_new(
+        elements.into_array(),
+        mse_decoded.list_size(),
         Validity::NonNullable,
         num_rows,
     )?
