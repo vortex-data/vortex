@@ -139,6 +139,7 @@ class GCSStore(_store.GCSStore):
 
         """
         return super().__new__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
+            cls,
             bucket,
             prefix=prefix,
             config=config,

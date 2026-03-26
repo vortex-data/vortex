@@ -460,6 +460,7 @@ class S3Store(_store.S3Store):
 
         """
         return super().__new__(
+            cls,
             bucket,
             prefix=prefix,
             config=config,

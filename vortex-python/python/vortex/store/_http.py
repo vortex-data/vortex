@@ -38,7 +38,7 @@ class HTTPStore(_store.HTTPStore):
             HTTPStore
 
         """
-        return super().__new__(url, client_options=client_options, retry_config=retry_config)
+        return super().__new__(cls, url, client_options=client_options, retry_config=retry_config)
 
     @override
     @classmethod

@@ -38,7 +38,7 @@ class LocalStore(_store.LocalStore):
                 up, even if ``automatic_cleanup`` is ``True``.
 
         """
-        return super().__new__(prefix, automatic_cleanup=automatic_cleanup, mkdir=mkdir)
+        return super().__new__(cls, prefix, automatic_cleanup=automatic_cleanup, mkdir=mkdir)
 
     @classmethod
     @override

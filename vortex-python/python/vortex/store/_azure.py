@@ -295,6 +295,7 @@ class AzureStore(_store.AzureStore):
 
         """
         return super().__new__(
+            cls,
             container_name,
             prefix=prefix,
             config=config,

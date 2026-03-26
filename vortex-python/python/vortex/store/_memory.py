@@ -10,4 +10,4 @@ class MemoryStore(_store.MemoryStore):
     """
 
     def __new__(cls):
-        return super().__new__()
+        return super().__new__(cls)
