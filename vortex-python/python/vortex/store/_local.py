@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
+
 from pathlib import Path
 from typing import Self
 
