@@ -32,6 +32,16 @@ runs:
         mkdir -p ~/.config/sccache
         echo 'server_startup_timeout_ms = 15000' > ~/.config/sccache/config
 
+    - name: Explicitly configure SCCache for windows
+      if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true' && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+          echo "SCCACHE_GHA_ENABLED=false" >> $env:GITHUB_ENV
+          echo "SCCACHE_BUCKET=${{ env.RUNS_ON_S3_BUCKET_CACHE }}" >> $env:GITHUB_ENV
+          echo "SCCACHE_REGION=${{ env.RUNS_ON_AWS_REGION }}" >> $env:GITHUB_ENV
+          echo "SCCACHE_S3_KEY_PREFIX=cache/sccache" >> $env:GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $env:GITHUB_ENV
+
     - name: Pre-start sccache server
       if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
       shell: bash
