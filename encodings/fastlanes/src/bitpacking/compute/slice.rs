@@ -59,7 +59,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::session::ArraySession;
-    use vortex_array::vtable::VTable;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
