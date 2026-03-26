@@ -3,24 +3,45 @@
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
-apply(plugin = "com.vanniktech.maven.publish")
-
 plugins {
     `java-library`
     `jvm-test-suite`
     id("com.gradleup.shadow") version "9.4.0"
 }
 
+// Derive Scala and Spark versions from the Gradle project name (vortex-spark_2.12 or vortex-spark_2.13)
+val scalaVersion: String = project.name.substringAfterLast("_")
+val sparkVersion: String =
+    when (scalaVersion) {
+        "2.12" -> {
+            libs.versions.spark3.get()
+        }
+
+        "2.13" -> {
+            libs.versions.spark4.get()
+        }
+
+        else -> {
+            throw GradleException(
+                "Unsupported Scala version: $scalaVersion (project name must end with _2.12 or _2.13)",
+            )
+        }
+    }
+
+// Both vortex-spark_2.12 and vortex-spark_2.13 share this projectDir.
+// Give each its own build directory to avoid output conflicts.
+layout.buildDirectory = layout.projectDirectory.dir("build/${project.name}")
+
 dependencies {
-    compileOnly("org.apache.spark:spark-catalyst_2.13")
-    compileOnly("org.apache.spark:spark-sql_2.13")
+    compileOnly("org.apache.spark:spark-catalyst_$scalaVersion:$sparkVersion")
+    compileOnly("org.apache.spark:spark-sql_$scalaVersion:$sparkVersion")
     api(project(":vortex-jni", configuration = "shadow"))
 
-    compileOnly("org.immutables:value")
-    annotationProcessor("org.immutables:value")
+    compileOnly(libs.immutables.value)
+    annotationProcessor(libs.immutables.value)
 
-    implementation("com.google.guava:guava")
-    implementation("org.slf4j:slf4j-api:2.0.17")
+    implementation(libs.guava)
+    implementation(libs.slf4j.api)
 }
 
 testing {
@@ -29,27 +50,30 @@ testing {
             useJUnitJupiter()
 
             dependencies {
-                implementation("org.junit.jupiter:junit-jupiter:6.0.3")
-                implementation("org.apache.spark:spark-core_2.13")
-                implementation("org.apache.spark:spark-sql_2.13")
-                runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
-                // S3Mock Testcontainers for testing S3 integration (avoids classpath conflicts)
-                implementation("com.adobe.testing:s3mock-testcontainers")
-                implementation("org.testcontainers:junit-jupiter")
+                implementation(libs.junit.jupiter)
+                implementation("org.apache.spark:spark-core_$scalaVersion:$sparkVersion")
+                implementation("org.apache.spark:spark-sql_$scalaVersion:$sparkVersion")
+                implementation(libs.s3mock.testcontainers)
+                implementation(libs.testcontainers.juputer)
+                runtimeOnly(libs.slf4j.simple)
+                if (scalaVersion == "2.12") {
+                    // Spark 3.5 marks javax.servlet-api as provided; needed at test runtime for MetricsServlet
+                    runtimeOnly("javax.servlet:javax.servlet-api:4.0.1")
+                }
             }
         }
     }
 }
 
 mavenPublishing {
-    coordinates(groupId = "dev.vortex", artifactId = "vortex-spark", version = "${rootProject.version}")
+    coordinates(groupId = "dev.vortex", artifactId = "vortex-spark_$scalaVersion", version = "${rootProject.version}")
 
     publishToMavenCentral()
 
     signAllPublications()
 
     pom {
-        name = "vortex-spark"
+        name = "vortex-spark_$scalaVersion"
         description = project.description
         url = "https://vortex.dev"
         inceptionYear = "2025"
@@ -92,6 +116,7 @@ tasks.withType<ShadowJar> {
         // Note this class is not used by us, but required when loading the native lib
         exclude("org.apache.arrow.c.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
     }
+    relocate("com.fasterxml.jackson", "dev.vortex.relocated.com.fasterxml.jackson")
 }
 
 tasks.withType<Test>().all {

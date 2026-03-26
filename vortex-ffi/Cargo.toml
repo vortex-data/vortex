@@ -39,7 +39,6 @@ tempfile = { workspace = true }
 cbindgen = { workspace = true }
 
 [features]
-default = ["mimalloc"]
 mimalloc = ["dep:mimalloc"]
 
 [lib]
