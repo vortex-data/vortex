@@ -70,7 +70,7 @@ mavenPublishing {
 
     publishToMavenCentral()
 
-//    signAllPublications()
+    signAllPublications()
 
     pom {
         name = "vortex-spark_$scalaVersion"

@@ -50,7 +50,7 @@ mavenPublishing {
     coordinates(groupId = "dev.vortex", artifactId = "vortex-jni", version = "${rootProject.version}")
     publishToMavenCentral()
 
-//    signAllPublications()
+    signAllPublications()
 
     pom {
         name = "vortex-jni"
