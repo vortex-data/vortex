@@ -7,8 +7,12 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -127,7 +131,10 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         let scalar = self.to_scalar(partial)?;
         let array = ConstantArray::new(scalar, 1).into_array();
         let result = self.finalize(array)?;
-        result.scalar_at(0)
+        vortex_ensure_eq!(result.len(), 1);
+        Ok(result
+            .as_constant()
+            .vortex_expect("we know this is length 1"))
     }
 }
 

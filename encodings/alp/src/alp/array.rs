@@ -52,7 +52,6 @@ impl VTable for ALP {
     type Array = ALPArray;
 
     type Metadata = ProstMetadata<ALPMetadata>;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
     fn vtable(_array: &Self::Array) -> &Self {

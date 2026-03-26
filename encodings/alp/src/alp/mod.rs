@@ -17,7 +17,6 @@ mod array;
 mod compress;
 pub(crate) mod compute;
 mod decompress;
-mod ops;
 mod rules;
 
 #[cfg(test)]

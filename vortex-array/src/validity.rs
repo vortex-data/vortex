@@ -127,8 +127,7 @@ impl Validity {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => a
-                .scalar_at(index)
-                .vortex_expect("Validity array must support scalar_at")
+                .slice(index..index + 1)?
                 .as_bool()
                 .value()
                 .vortex_expect("Validity must be non-nullable"),
