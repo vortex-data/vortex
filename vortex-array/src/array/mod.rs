@@ -58,6 +58,7 @@ use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::DynVTable;
 use crate::vtable::OperationsVTable;
@@ -306,22 +307,30 @@ impl dyn DynArray + '_ {
         M::try_match(self)
     }
 
-    /// Returns the array downcast to the given `A` as an owned object.
+    /// Returns the array downcast to the given `V::Array` as an owned object.
+    ///
+    /// Tries `Array<V>` (new path) first, then falls back to `ArrayAdapter<V>` (legacy).
     pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<V::Array, Arc<Self>> {
-        match self.is::<V>() {
-            true => {
-                let arc = self
-                    .as_any_arc()
-                    .downcast::<ArrayAdapter<V>>()
-                    .map_err(|_| vortex_err!("failed to downcast"))
-                    .vortex_expect("Failed to downcast");
-                Ok(match Arc::try_unwrap(arc) {
-                    Ok(array) => array.0,
-                    Err(arc) => arc.deref().0.clone(),
-                })
-            }
-            false => Err(self),
+        if !self.is::<V>() {
+            return Err(self);
         }
+        let any_arc = self.as_any_arc();
+        // Try new path: Array<V>
+        if let Ok(typed) = any_arc.clone().downcast::<Array<V>>() {
+            return Ok(match Arc::try_unwrap(typed) {
+                Ok(array) => array.into_inner(),
+                Err(arc) => arc.deref().inner().clone(),
+            });
+        }
+        // Legacy path: ArrayAdapter<V>
+        let arc = any_arc
+            .downcast::<ArrayAdapter<V>>()
+            .map_err(|_| vortex_err!("failed to downcast"))
+            .vortex_expect("Failed to downcast");
+        Ok(match Arc::try_unwrap(arc) {
+            Ok(array) => array.into_inner(),
+            Err(arc) => arc.deref().as_inner().clone(),
+        })
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
@@ -383,9 +392,241 @@ mod private {
 
     pub trait Sealed {}
 
+    impl<V: VTable> Sealed for Array<V> {}
     impl<V: VTable> Sealed for ArrayAdapter<V> {}
     impl Sealed for Arc<dyn DynArray> {}
 }
+
+// =============================================================================
+// New path: DynArray and supporting trait impls for Array<V>
+// =============================================================================
+
+/// DynArray implementation for [`Array<V>`].
+///
+/// Identity methods (as_any, to_array, vtable, encoding_id) use the Array<V> wrapper.
+/// All other methods delegate to the inner `V::Array`'s DynArray impl (accessed through
+/// its `Deref<Target = dyn DynArray>` provided by the `vtable!` macro).
+impl<V: VTable> DynArray for Array<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
+
+    fn to_array(&self) -> ArrayRef {
+        Arc::new(self.clone())
+    }
+
+    fn len(&self) -> usize {
+        V::len(&self.array)
+    }
+
+    fn dtype(&self) -> &DType {
+        V::dtype(&self.array)
+    }
+
+    fn vtable(&self) -> &dyn DynVTable {
+        self.typed_vtable()
+    }
+
+    fn encoding_id(&self) -> ArrayId {
+        self.typed_vtable().id()
+    }
+
+    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
+        // Delegate to inner's DynArray impl (through V::Array's Deref to dyn DynArray).
+        DynArray::slice(&*self.array, range)
+    }
+
+    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        DynArray::filter(&*self.array, mask)
+    }
+
+    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        DynArray::take(&*self.array, indices)
+    }
+
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        DynArray::scalar_at(&*self.array, index)
+    }
+
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        DynArray::is_valid(&*self.array, index)
+    }
+
+    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        DynArray::is_invalid(&*self.array, index)
+    }
+
+    fn all_valid(&self) -> VortexResult<bool> {
+        DynArray::all_valid(&*self.array)
+    }
+
+    fn all_invalid(&self) -> VortexResult<bool> {
+        DynArray::all_invalid(&*self.array)
+    }
+
+    fn valid_count(&self) -> VortexResult<usize> {
+        DynArray::valid_count(&*self.array)
+    }
+
+    fn invalid_count(&self) -> VortexResult<usize> {
+        DynArray::invalid_count(&*self.array)
+    }
+
+    fn validity(&self) -> VortexResult<Validity> {
+        DynArray::validity(&*self.array)
+    }
+
+    fn validity_mask(&self) -> VortexResult<Mask> {
+        DynArray::validity_mask(&*self.array)
+    }
+
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        DynArray::to_canonical(&*self.array)
+    }
+
+    fn append_to_builder(
+        &self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        DynArray::append_to_builder(&*self.array, builder, ctx)
+    }
+
+    fn statistics(&self) -> StatsSetRef<'_> {
+        V::stats(&self.array)
+    }
+
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        let mut inner = self.array.clone();
+        V::with_children(&mut inner, children)?;
+        Ok(Array::new(self.typed_vtable().clone(), inner).into_array())
+    }
+}
+
+impl<V: VTable> ArrayHash for Array<V> {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
+        self.encoding_id().hash(state);
+        V::array_hash(&self.array, state, precision);
+    }
+}
+
+impl<V: VTable> ArrayEq for Array<V> {
+    fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
+        V::array_eq(&self.array, &other.array, precision)
+    }
+}
+
+impl<V: VTable> ArrayVisitor for Array<V> {
+    fn children(&self) -> Vec<ArrayRef> {
+        (0..V::nchildren(&self.array))
+            .map(|i| V::child(&self.array, i))
+            .collect()
+    }
+
+    fn nchildren(&self) -> usize {
+        V::nchildren(&self.array)
+    }
+
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        (idx < V::nchildren(&self.array)).then(|| V::child(&self.array, idx))
+    }
+
+    fn children_names(&self) -> Vec<String> {
+        (0..V::nchildren(&self.array))
+            .map(|i| V::child_name(&self.array, i))
+            .collect()
+    }
+
+    fn named_children(&self) -> Vec<(String, ArrayRef)> {
+        (0..V::nchildren(&self.array))
+            .map(|i| (V::child_name(&self.array, i), V::child(&self.array, i)))
+            .collect()
+    }
+
+    fn buffers(&self) -> Vec<ByteBuffer> {
+        (0..V::nbuffers(&self.array))
+            .map(|i| V::buffer(&self.array, i).to_host_sync())
+            .collect()
+    }
+
+    fn buffer_handles(&self) -> Vec<BufferHandle> {
+        (0..V::nbuffers(&self.array))
+            .map(|i| V::buffer(&self.array, i))
+            .collect()
+    }
+
+    fn buffer_names(&self) -> Vec<String> {
+        (0..V::nbuffers(&self.array))
+            .filter_map(|i| V::buffer_name(&self.array, i))
+            .collect()
+    }
+
+    fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
+        (0..V::nbuffers(&self.array))
+            .filter_map(|i| {
+                V::buffer_name(&self.array, i).map(|name| (name, V::buffer(&self.array, i)))
+            })
+            .collect()
+    }
+
+    fn nbuffers(&self) -> usize {
+        V::nbuffers(&self.array)
+    }
+
+    fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
+        V::serialize(V::metadata(&self.array)?)
+    }
+
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match V::metadata(&self.array) {
+            Err(e) => write!(f, "<serde error: {e}>"),
+            Ok(metadata) => Debug::fmt(&metadata, f),
+        }
+    }
+
+    fn is_host(&self) -> bool {
+        for array in self.depth_first_traversal() {
+            if !array.buffer_handles().iter().all(BufferHandle::is_on_host) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl<V: VTable> ReduceNode for Array<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(V::dtype(&self.array).clone())
+    }
+
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        // Access as_opt via inner's Deref to dyn DynArray.
+        (*self.array)
+            .as_opt::<ScalarFnVTable>()
+            .map(|a| a.scalar_fn())
+    }
+
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        ArrayVisitor::nth_child(self, idx)
+            .unwrap_or_else(|| vortex_panic!("Child index out of bounds: {}", idx))
+    }
+
+    fn child_count(&self) -> usize {
+        ArrayVisitor::nchildren(self)
+    }
+}
+
+// =============================================================================
+// Legacy path: ArrayAdapter<V>
+// =============================================================================
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynArray`]
 /// implementation.
@@ -759,17 +1000,25 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
     }
 }
 
-/// Implement a matcher for a specific VTable type
+/// Implement a matcher for a specific VTable type.
+///
+/// During the migration, this tries both `Array<V>` (new path) and `ArrayAdapter<V>`
+/// (legacy path). Returns `&V::Array` for backward compatibility.
 impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
     fn matches(array: &dyn DynArray) -> bool {
-        DynArray::as_any(array).is::<ArrayAdapter<V>>()
+        DynArray::as_any(array).is::<Array<V>>() || DynArray::as_any(array).is::<ArrayAdapter<V>>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
+        // Try new Array<V> first.
+        if let Some(typed) = DynArray::as_any(array).downcast_ref::<Array<V>>() {
+            return Some(typed.inner());
+        }
+        // Fall back to legacy ArrayAdapter<V>.
         DynArray::as_any(array)
             .downcast_ref::<ArrayAdapter<V>>()
-            .map(|array_adapter| &array_adapter.0)
+            .map(|adapter| adapter.as_inner())
     }
 }
