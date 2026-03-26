@@ -58,7 +58,7 @@ testing {
                 runtimeOnly(libs.slf4j.simple)
                 if (scalaVersion == "2.12") {
                     // Spark 3.5 marks javax.servlet-api as provided; needed at test runtime for MetricsServlet
-                    runtimeOnly("jakarta.servlet:jakarta.servlet-api:6.1.0")
+                    runtimeOnly("javax.servlet:javax.servlet-api:4.0.1")
                 }
             }
         }
