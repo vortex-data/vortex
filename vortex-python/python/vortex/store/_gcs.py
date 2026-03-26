@@ -108,8 +108,8 @@ class GCSStore(_store.GCSStore):
     `here <https://cloud.google.com/docs/authentication/application-default-credentials>`_.
     """
 
-    def __init__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
-        self,
+    def __new__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
+        cls,
         bucket: str | None = None,
         *,
         prefix: str | None = None,
@@ -118,7 +118,7 @@ class GCSStore(_store.GCSStore):
         retry_config: RetryConfig | None = None,
         credential_provider: GCSCredentialProvider | None = None,
         **kwargs: Unpack[GCSConfig],  # pyright: ignore[reportGeneralTypeIssues]
-    ) -> None:
+    ):
         """Construct a new GCSStore.
 
         Args:
@@ -138,7 +138,7 @@ class GCSStore(_store.GCSStore):
             GCSStore
 
         """
-        super().__init__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
+        return super().__new__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
             bucket,
             prefix=prefix,
             config=config,

@@ -9,5 +9,5 @@ class MemoryStore(_store.MemoryStore):
         store = MemoryStore()
     """
 
-    def __init__(self) -> None:
-        return super().__init__()
+    def __new__(cls):
+        return super().__new__()

@@ -13,13 +13,13 @@ from ._retry import RetryConfig
 class HTTPStore(_store.HTTPStore):
     """Configure a connection to a generic HTTP server."""
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         url: str,
         *,
         client_options: ClientConfig | None = None,
         retry_config: RetryConfig | None = None,
-    ) -> None:
+    ):
         """Construct a new HTTPStore from a URL.
 
         Any path on the URL will be assigned as the ``prefix`` for the store. So if you
@@ -38,7 +38,7 @@ class HTTPStore(_store.HTTPStore):
             HTTPStore
 
         """
-        return super().__init__(url, client_options=client_options, retry_config=retry_config)
+        return super().__new__(url, client_options=client_options, retry_config=retry_config)
 
     @override
     @classmethod

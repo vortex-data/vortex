@@ -18,13 +18,13 @@ class LocalStore(_store.LocalStore):
         store = LocalStore(prefix=Path("."))
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         prefix: str | Path | None = None,
         *,
         automatic_cleanup: bool = False,
         mkdir: bool = False,
-    ) -> None:
+    ):
         """Create a new LocalStore.
 
         Args:
@@ -38,7 +38,7 @@ class LocalStore(_store.LocalStore):
                 up, even if ``automatic_cleanup`` is ``True``.
 
         """
-        return super().__init__(prefix, automatic_cleanup=automatic_cleanup, mkdir=mkdir)
+        return super().__new__(prefix, automatic_cleanup=automatic_cleanup, mkdir=mkdir)
 
     @classmethod
     @override

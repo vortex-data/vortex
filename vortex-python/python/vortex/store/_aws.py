@@ -429,8 +429,8 @@ class S3Store(_store.S3Store):
     """
 
     @override
-    def __init__(
-        self,
+    def __new__(
+        cls,
         bucket: str | None = None,
         *,
         prefix: str | None = None,
@@ -439,7 +439,7 @@ class S3Store(_store.S3Store):
         retry_config: RetryConfig | None = None,
         credential_provider: S3CredentialProvider | None = None,
         **kwargs: Unpack[S3Config],  # pyright: ignore[reportGeneralTypeIssues]
-    ) -> None:
+    ):
         """Create a new S3Store.
 
         Args:
@@ -459,7 +459,7 @@ class S3Store(_store.S3Store):
             S3Store
 
         """
-        super().__init__(
+        return super().__new__(
             bucket,
             prefix=prefix,
             config=config,
