@@ -20414,6 +20414,8 @@ pub fn vortex_array::stats::StatsSetRef<'_>::inherit_from(&self, stats: vortex_a
 
 pub fn vortex_array::stats::StatsSetRef<'_>::set_iter(&self, iter: vortex_array::stats::StatsSetIntoIter)
 
+pub fn vortex_array::stats::StatsSetRef<'_>::to_array_stats(&self) -> vortex_array::stats::ArrayStats
+
 pub fn vortex_array::stats::StatsSetRef<'_>::to_owned(&self) -> vortex_array::stats::StatsSet
 
 pub fn vortex_array::stats::StatsSetRef<'_>::with_iter<F: for<'a> core::ops::function::FnOnce(&mut dyn core::iter::traits::iterator::Iterator<Item = &'a (vortex_array::expr::stats::Stat, vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>)>) -> R, R>(&self, f: F) -> R
@@ -20686,11 +20688,25 @@ pub struct vortex_array::vtable::Array<V: vortex_array::vtable::VTable>
 
 impl<V: vortex_array::vtable::VTable> vortex_array::vtable::Array<V>
 
+pub fn vortex_array::vtable::Array<V>::array_stats(&self) -> &vortex_array::stats::ArrayStats
+
+pub fn vortex_array::vtable::Array<V>::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_array::vtable::Array<V>::encoding_id(&self) -> vortex_array::vtable::ArrayId
+
 pub fn vortex_array::vtable::Array<V>::inner(&self) -> &<V as vortex_array::vtable::VTable>::Array
 
 pub fn vortex_array::vtable::Array<V>::into_inner(self) -> <V as vortex_array::vtable::VTable>::Array
 
-pub fn vortex_array::vtable::Array<V>::new(vtable: V, array: <V as vortex_array::vtable::VTable>::Array) -> Self
+pub fn vortex_array::vtable::Array<V>::is_empty(&self) -> bool
+
+pub fn vortex_array::vtable::Array<V>::len(&self) -> usize
+
+pub unsafe fn vortex_array::vtable::Array<V>::new_unchecked(vtable: V, dtype: vortex_array::dtype::DType, len: usize, array: <V as vortex_array::vtable::VTable>::Array, stats: vortex_array::stats::ArrayStats) -> Self
+
+pub fn vortex_array::vtable::Array<V>::statistics(&self) -> vortex_array::stats::StatsSetRef<'_>
+
+pub fn vortex_array::vtable::Array<V>::to_array_ref(&self) -> vortex_array::ArrayRef
 
 pub fn vortex_array::vtable::Array<V>::typed_vtable(&self) -> &V
 

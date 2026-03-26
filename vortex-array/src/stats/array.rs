@@ -132,6 +132,13 @@ impl StatsSetRef<'_> {
         self.array_stats.inner.read().clone()
     }
 
+    /// Returns a clone of the underlying [`ArrayStats`].
+    ///
+    /// Since [`ArrayStats`] uses `Arc` internally, this is a cheap reference-count increment.
+    pub fn to_array_stats(&self) -> ArrayStats {
+        self.array_stats.clone()
+    }
+
     pub fn with_iter<
         F: for<'a> FnOnce(&mut dyn Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) -> R,
         R,
