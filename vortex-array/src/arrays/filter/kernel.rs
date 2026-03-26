@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Reduce and execute adaptors for filter operations.
+//!
+//! Encodings that know how to filter themselves implement [`FilterReduce`] (metadata-only)
+//! or [`FilterKernel`] (buffer-reading). The adaptors [`FilterReduceAdaptor`] and
+//! [`FilterExecuteAdaptor`] bridge these into the execution model as
+//! [`ArrayParentReduceRule`] and [`ExecuteParentKernel`] respectively.
+
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -70,6 +77,7 @@ fn precondition<V: VTable>(array: &V::Array, mask: &Mask) -> Option<ArrayRef> {
     None
 }
 
+/// Adaptor that wraps a [`FilterReduce`] impl as an [`ArrayParentReduceRule`].
 #[derive(Default, Debug)]
 pub struct FilterReduceAdaptor<V>(pub V);
 
@@ -93,6 +101,7 @@ where
     }
 }
 
+/// Adaptor that wraps a [`FilterKernel`] impl as an [`ExecuteParentKernel`].
 #[derive(Default, Debug)]
 pub struct FilterExecuteAdaptor<V>(pub V);
 

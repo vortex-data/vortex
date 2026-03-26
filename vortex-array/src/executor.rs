@@ -1,6 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! The execution engine: iteratively transforms arrays toward canonical form.
+//!
+//! Execution proceeds through four layers tried in order on each iteration:
+//!
+//! 1. **`reduce`** -- metadata-only self-rewrite (cheapest).
+//! 2. **`reduce_parent`** -- metadata-only child-driven parent rewrite.
+//! 3. **`execute_parent`** -- child-driven fused execution (may read buffers).
+//! 4. **`execute`** -- the encoding's own decode step (most expensive).
+//!
+//! The main entry point is [`DynArray::execute_until`], which uses an explicit work stack
+//! to drive execution iteratively without recursion. Between steps, the optimizer runs
+//! reduce/reduce_parent rules to fixpoint.
+//!
+//! See <https://docs.vortex.dev/developer-guide/internals/execution> for a full description
+//! of the model.
+
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
