@@ -53,8 +53,8 @@ testing {
                 implementation(libs.junit.jupiter)
                 implementation("org.apache.spark:spark-core_$scalaVersion:$sparkVersion")
                 implementation("org.apache.spark:spark-sql_$scalaVersion:$sparkVersion")
-                implementation("com.adobe.testing:s3mock-testcontainers")
-                implementation("org.testcontainers:junit-jupiter")
+                implementation(libs.s3mock.testcontainers)
+                implementation(libs.testcontainers.juputer)
                 runtimeOnly(libs.slf4j.simple)
                 if (scalaVersion == "2.12") {
                     // Spark 3.5 marks javax.servlet-api as provided; needed at test runtime for MetricsServlet

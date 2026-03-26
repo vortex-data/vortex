@@ -14,6 +14,8 @@ protobuf = "4.33.5"
 slf4j = "2.0.17"
 spark3 = "3.5.8"
 spark4 = "4.1.1"
+s3mock = "4.11.0"
+testcontainers-jupiter = "1.20.4"
 
 [libraries]
 arrow-c-data = { module = "org.apache.arrow:arrow-c-data", version.ref = "arrow" }
@@ -32,3 +34,5 @@ nopen-checker = { module = "com.jakewharton.nopen:nopen-checker", version.ref = 
 protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+s3mock-testcontainers = { module = "com.adobe.testing:s3mock-testcontainers", version.ref = "s3mock" }
+testcontainers-juputer = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers-jupiter" }
