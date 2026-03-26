@@ -6,298 +6,6 @@ pub fn vortex_turboquant::centroids::find_nearest_centroid(value: f32, centroids
 
 pub fn vortex_turboquant::centroids::get_centroids(dimension: u32, bit_width: u8) -> vortex_error::VortexResult<alloc::vec::Vec<f32>>
 
-pub mod vortex_turboquant::mse_array
-
-pub struct vortex_turboquant::mse_array::TurboQuantMSE
-
-impl vortex_turboquant::mse_array::TurboQuantMSE
-
-pub const vortex_turboquant::mse_array::TurboQuantMSE::ID: vortex_array::vtable::dyn_::ArrayId
-
-impl core::clone::Clone for vortex_turboquant::mse_array::TurboQuantMSE
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::clone(&self) -> vortex_turboquant::mse_array::TurboQuantMSE
-
-impl core::fmt::Debug for vortex_turboquant::mse_array::TurboQuantMSE
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::vtable::VTable for vortex_turboquant::mse_array::TurboQuantMSE
-
-pub type vortex_turboquant::mse_array::TurboQuantMSE::Array = vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub type vortex_turboquant::mse_array::TurboQuantMSE::Metadata = vortex_array::metadata::ProstMetadata<vortex_turboquant::mse_array::TurboQuantMSEMetadata>
-
-pub type vortex_turboquant::mse_array::TurboQuantMSE::OperationsVTable = vortex_array::vtable::NotSupported
-
-pub type vortex_turboquant::mse_array::TurboQuantMSE::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::array_eq(array: &vortex_turboquant::mse_array::TurboQuantMSEArray, other: &vortex_turboquant::mse_array::TurboQuantMSEArray, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::array_hash<H: core::hash::Hasher>(array: &vortex_turboquant::mse_array::TurboQuantMSEArray, state: &mut H, precision: vortex_array::hash::Precision)
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::buffer(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray, idx: usize) -> vortex_array::buffer::BufferHandle
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::buffer_name(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray, _idx: usize) -> core::option::Option<alloc::string::String>
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::mse_array::TurboQuantMSEArray>
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::child(array: &vortex_turboquant::mse_array::TurboQuantMSEArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::child_name(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray, idx: usize) -> alloc::string::String
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::dtype(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> &vortex_array::dtype::DType
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::id(&self) -> vortex_array::vtable::dyn_::ArrayId
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::len(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> usize
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::metadata(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::nbuffers(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> usize
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::nchildren(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> usize
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::stats(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> vortex_array::stats::array::StatsSetRef<'_>
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::vtable(_array: &Self::Array) -> &Self
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
-
-impl vortex_array::vtable::validity::ValidityChild<vortex_turboquant::mse_array::TurboQuantMSE> for vortex_turboquant::mse_array::TurboQuantMSE
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::validity_child(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> &vortex_array::array::ArrayRef
-
-pub struct vortex_turboquant::mse_array::TurboQuantMSEArray
-
-impl vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::bit_width(&self) -> u8
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::centroids(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::codes(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::dimension(&self) -> u32
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::norms(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::padded_dim(&self) -> u32
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::rotation_seed(&self) -> u64
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::try_new(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, centroids: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, dimension: u32, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
-
-impl vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::to_array(&self) -> vortex_array::array::ArrayRef
-
-impl core::clone::Clone for vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::clone(&self) -> vortex_turboquant::mse_array::TurboQuantMSEArray
-
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
-
-impl core::convert::From<vortex_turboquant::mse_array::TurboQuantMSEArray> for vortex_array::array::ArrayRef
-
-pub fn vortex_array::array::ArrayRef::from(value: vortex_turboquant::mse_array::TurboQuantMSEArray) -> vortex_array::array::ArrayRef
-
-impl core::fmt::Debug for vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::ops::deref::Deref for vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub type vortex_turboquant::mse_array::TurboQuantMSEArray::Target = dyn vortex_array::array::DynArray
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::deref(&self) -> &Self::Target
-
-impl vortex_array::array::IntoArray for vortex_turboquant::mse_array::TurboQuantMSEArray
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::into_array(self) -> vortex_array::array::ArrayRef
-
-pub struct vortex_turboquant::mse_array::TurboQuantMSEMetadata
-
-pub vortex_turboquant::mse_array::TurboQuantMSEMetadata::bit_width: u32
-
-pub vortex_turboquant::mse_array::TurboQuantMSEMetadata::dimension: u32
-
-pub vortex_turboquant::mse_array::TurboQuantMSEMetadata::padded_dim: u32
-
-pub vortex_turboquant::mse_array::TurboQuantMSEMetadata::rotation_seed: u64
-
-impl core::clone::Clone for vortex_turboquant::mse_array::TurboQuantMSEMetadata
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEMetadata::clone(&self) -> vortex_turboquant::mse_array::TurboQuantMSEMetadata
-
-impl core::default::Default for vortex_turboquant::mse_array::TurboQuantMSEMetadata
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEMetadata::default() -> Self
-
-impl core::fmt::Debug for vortex_turboquant::mse_array::TurboQuantMSEMetadata
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl prost::message::Message for vortex_turboquant::mse_array::TurboQuantMSEMetadata
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEMetadata::clear(&mut self)
-
-pub fn vortex_turboquant::mse_array::TurboQuantMSEMetadata::encoded_len(&self) -> usize
-
-pub mod vortex_turboquant::qjl_array
-
-pub struct vortex_turboquant::qjl_array::TurboQuantQJL
-
-impl vortex_turboquant::qjl_array::TurboQuantQJL
-
-pub const vortex_turboquant::qjl_array::TurboQuantQJL::ID: vortex_array::vtable::dyn_::ArrayId
-
-impl core::clone::Clone for vortex_turboquant::qjl_array::TurboQuantQJL
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::clone(&self) -> vortex_turboquant::qjl_array::TurboQuantQJL
-
-impl core::fmt::Debug for vortex_turboquant::qjl_array::TurboQuantQJL
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::vtable::VTable for vortex_turboquant::qjl_array::TurboQuantQJL
-
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::Array = vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::Metadata = vortex_array::metadata::ProstMetadata<vortex_turboquant::qjl_array::TurboQuantQJLMetadata>
-
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::OperationsVTable = vortex_array::vtable::NotSupported
-
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::array_eq(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, other: &vortex_turboquant::qjl_array::TurboQuantQJLArray, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::array_hash<H: core::hash::Hasher>(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, state: &mut H, precision: vortex_array::hash::Precision)
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::buffer(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, idx: usize) -> vortex_array::buffer::BufferHandle
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::buffer_name(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, _idx: usize) -> core::option::Option<alloc::string::String>
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::qjl_array::TurboQuantQJLArray>
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::child(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::child_name(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, idx: usize) -> alloc::string::String
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::dtype(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> &vortex_array::dtype::DType
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::id(&self) -> vortex_array::vtable::dyn_::ArrayId
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::len(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> usize
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::metadata(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::nbuffers(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> usize
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::nchildren(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> usize
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::stats(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> vortex_array::stats::array::StatsSetRef<'_>
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::vtable(_array: &Self::Array) -> &Self
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
-
-impl vortex_array::vtable::validity::ValidityChild<vortex_turboquant::qjl_array::TurboQuantQJL> for vortex_turboquant::qjl_array::TurboQuantQJL
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::validity_child(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> &vortex_array::array::ArrayRef
-
-pub struct vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-impl vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::bit_width(&self) -> u8
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::mse_inner(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::padded_dim(&self) -> u32
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::qjl_signs(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::residual_norms(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::rotation_seed(&self) -> u64
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::try_new(dtype: vortex_array::dtype::DType, mse_inner: vortex_array::array::ArrayRef, qjl_signs: vortex_array::array::ArrayRef, residual_norms: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
-
-impl vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::to_array(&self) -> vortex_array::array::ArrayRef
-
-impl core::clone::Clone for vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::clone(&self) -> vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
-
-impl core::convert::From<vortex_turboquant::qjl_array::TurboQuantQJLArray> for vortex_array::array::ArrayRef
-
-pub fn vortex_array::array::ArrayRef::from(value: vortex_turboquant::qjl_array::TurboQuantQJLArray) -> vortex_array::array::ArrayRef
-
-impl core::fmt::Debug for vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::ops::deref::Deref for vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub type vortex_turboquant::qjl_array::TurboQuantQJLArray::Target = dyn vortex_array::array::DynArray
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::deref(&self) -> &Self::Target
-
-impl vortex_array::array::IntoArray for vortex_turboquant::qjl_array::TurboQuantQJLArray
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::into_array(self) -> vortex_array::array::ArrayRef
-
-pub struct vortex_turboquant::qjl_array::TurboQuantQJLMetadata
-
-pub vortex_turboquant::qjl_array::TurboQuantQJLMetadata::bit_width: u32
-
-pub vortex_turboquant::qjl_array::TurboQuantQJLMetadata::padded_dim: u32
-
-pub vortex_turboquant::qjl_array::TurboQuantQJLMetadata::rotation_seed: u64
-
-impl core::clone::Clone for vortex_turboquant::qjl_array::TurboQuantQJLMetadata
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLMetadata::clone(&self) -> vortex_turboquant::qjl_array::TurboQuantQJLMetadata
-
-impl core::default::Default for vortex_turboquant::qjl_array::TurboQuantQJLMetadata
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLMetadata::default() -> Self
-
-impl core::fmt::Debug for vortex_turboquant::qjl_array::TurboQuantQJLMetadata
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl prost::message::Message for vortex_turboquant::qjl_array::TurboQuantQJLMetadata
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLMetadata::clear(&mut self)
-
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLMetadata::encoded_len(&self) -> usize
-
 pub mod vortex_turboquant::rotation
 
 pub struct vortex_turboquant::rotation::RotationMatrix
@@ -322,161 +30,11 @@ pub fn vortex_turboquant::rotation::RotationMatrix::try_new(seed: u64, dimension
 
 pub fn vortex_turboquant::rotation::apply_inverse_srht_from_bits(buf: &mut [f32], signs_bytes: &[u8], padded_dim: usize, norm_factor: f32)
 
-#[repr(u8)] pub enum vortex_turboquant::TurboQuantVariant
-
-pub vortex_turboquant::TurboQuantVariant::Mse = 0
-
-pub vortex_turboquant::TurboQuantVariant::Prod = 1
-
-impl core::clone::Clone for vortex_turboquant::TurboQuantVariant
-
-pub fn vortex_turboquant::TurboQuantVariant::clone(&self) -> vortex_turboquant::TurboQuantVariant
-
-impl core::cmp::Eq for vortex_turboquant::TurboQuantVariant
-
-impl core::cmp::PartialEq for vortex_turboquant::TurboQuantVariant
-
-pub fn vortex_turboquant::TurboQuantVariant::eq(&self, other: &vortex_turboquant::TurboQuantVariant) -> bool
-
-impl core::fmt::Debug for vortex_turboquant::TurboQuantVariant
-
-pub fn vortex_turboquant::TurboQuantVariant::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_turboquant::TurboQuantVariant
-
-pub fn vortex_turboquant::TurboQuantVariant::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_turboquant::TurboQuantVariant
-
-impl core::marker::StructuralPartialEq for vortex_turboquant::TurboQuantVariant
-
-pub struct vortex_turboquant::TurboQuant
-
-impl vortex_turboquant::TurboQuant
-
-pub const vortex_turboquant::TurboQuant::ID: vortex_array::vtable::dyn_::ArrayId
-
-impl core::clone::Clone for vortex_turboquant::TurboQuant
-
-pub fn vortex_turboquant::TurboQuant::clone(&self) -> vortex_turboquant::TurboQuant
-
-impl core::fmt::Debug for vortex_turboquant::TurboQuant
-
-pub fn vortex_turboquant::TurboQuant::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::vtable::VTable for vortex_turboquant::TurboQuant
-
-pub type vortex_turboquant::TurboQuant::Array = vortex_turboquant::TurboQuantArray
-
-pub type vortex_turboquant::TurboQuant::Metadata = vortex_array::metadata::ProstMetadata<vortex_turboquant::array::TurboQuantMetadata>
-
-pub type vortex_turboquant::TurboQuant::OperationsVTable = vortex_array::vtable::NotSupported
-
-pub type vortex_turboquant::TurboQuant::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
-
-pub fn vortex_turboquant::TurboQuant::array_eq(array: &vortex_turboquant::TurboQuantArray, other: &vortex_turboquant::TurboQuantArray, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_turboquant::TurboQuant::array_hash<H: core::hash::Hasher>(array: &vortex_turboquant::TurboQuantArray, state: &mut H, precision: vortex_array::hash::Precision)
-
-pub fn vortex_turboquant::TurboQuant::buffer(_array: &vortex_turboquant::TurboQuantArray, idx: usize) -> vortex_array::buffer::BufferHandle
-
-pub fn vortex_turboquant::TurboQuant::buffer_name(_array: &vortex_turboquant::TurboQuantArray, _idx: usize) -> core::option::Option<alloc::string::String>
-
-pub fn vortex_turboquant::TurboQuant::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantArray>
-
-pub fn vortex_turboquant::TurboQuant::child(array: &vortex_turboquant::TurboQuantArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::TurboQuant::child_name(_array: &vortex_turboquant::TurboQuantArray, idx: usize) -> alloc::string::String
-
-pub fn vortex_turboquant::TurboQuant::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_turboquant::TurboQuant::dtype(array: &vortex_turboquant::TurboQuantArray) -> &vortex_array::dtype::DType
-
-pub fn vortex_turboquant::TurboQuant::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
-
-pub fn vortex_turboquant::TurboQuant::id(&self) -> vortex_array::vtable::dyn_::ArrayId
-
-pub fn vortex_turboquant::TurboQuant::len(array: &vortex_turboquant::TurboQuantArray) -> usize
-
-pub fn vortex_turboquant::TurboQuant::metadata(array: &vortex_turboquant::TurboQuantArray) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_turboquant::TurboQuant::nbuffers(_array: &vortex_turboquant::TurboQuantArray) -> usize
-
-pub fn vortex_turboquant::TurboQuant::nchildren(array: &vortex_turboquant::TurboQuantArray) -> usize
-
-pub fn vortex_turboquant::TurboQuant::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-pub fn vortex_turboquant::TurboQuant::stats(array: &vortex_turboquant::TurboQuantArray) -> vortex_array::stats::array::StatsSetRef<'_>
-
-pub fn vortex_turboquant::TurboQuant::vtable(_array: &Self::Array) -> &Self
-
-pub fn vortex_turboquant::TurboQuant::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
-
-impl vortex_array::vtable::validity::ValidityChild<vortex_turboquant::TurboQuant> for vortex_turboquant::TurboQuant
-
-pub fn vortex_turboquant::TurboQuant::validity_child(array: &vortex_turboquant::TurboQuantArray) -> &vortex_array::array::ArrayRef
-
-pub struct vortex_turboquant::TurboQuantArray
-
-impl vortex_turboquant::TurboQuantArray
-
-pub fn vortex_turboquant::TurboQuantArray::bit_width(&self) -> u8
-
-pub fn vortex_turboquant::TurboQuantArray::codes(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::TurboQuantArray::dimension(&self) -> u32
-
-pub fn vortex_turboquant::TurboQuantArray::norms(&self) -> &vortex_array::array::ArrayRef
-
-pub fn vortex_turboquant::TurboQuantArray::qjl_signs(&self) -> core::option::Option<&vortex_array::array::ArrayRef>
-
-pub fn vortex_turboquant::TurboQuantArray::residual_norms(&self) -> core::option::Option<&vortex_array::array::ArrayRef>
-
-pub fn vortex_turboquant::TurboQuantArray::rotation_seed(&self) -> u64
-
-pub fn vortex_turboquant::TurboQuantArray::try_new_mse(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, dimension: u32, bit_width: u8, rotation_seed: u64) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_turboquant::TurboQuantArray::try_new_prod(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, qjl_signs: vortex_array::array::ArrayRef, residual_norms: vortex_array::array::ArrayRef, dimension: u32, bit_width: u8, rotation_seed: u64) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_turboquant::TurboQuantArray::variant(&self) -> vortex_turboquant::TurboQuantVariant
-
-impl vortex_turboquant::TurboQuantArray
-
-pub fn vortex_turboquant::TurboQuantArray::to_array(&self) -> vortex_array::array::ArrayRef
-
-impl core::clone::Clone for vortex_turboquant::TurboQuantArray
-
-pub fn vortex_turboquant::TurboQuantArray::clone(&self) -> vortex_turboquant::TurboQuantArray
-
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_turboquant::TurboQuantArray
-
-pub fn vortex_turboquant::TurboQuantArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
-
-impl core::convert::From<vortex_turboquant::TurboQuantArray> for vortex_array::array::ArrayRef
-
-pub fn vortex_array::array::ArrayRef::from(value: vortex_turboquant::TurboQuantArray) -> vortex_array::array::ArrayRef
-
-impl core::fmt::Debug for vortex_turboquant::TurboQuantArray
-
-pub fn vortex_turboquant::TurboQuantArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::ops::deref::Deref for vortex_turboquant::TurboQuantArray
-
-pub type vortex_turboquant::TurboQuantArray::Target = dyn vortex_array::array::DynArray
-
-pub fn vortex_turboquant::TurboQuantArray::deref(&self) -> &Self::Target
-
-impl vortex_array::array::IntoArray for vortex_turboquant::TurboQuantArray
-
-pub fn vortex_turboquant::TurboQuantArray::into_array(self) -> vortex_array::array::ArrayRef
-
 pub struct vortex_turboquant::TurboQuantConfig
 
 pub vortex_turboquant::TurboQuantConfig::bit_width: u8
 
 pub vortex_turboquant::TurboQuantConfig::seed: core::option::Option<u64>
-
-pub vortex_turboquant::TurboQuantConfig::variant: vortex_turboquant::TurboQuantVariant
 
 impl core::clone::Clone for vortex_turboquant::TurboQuantConfig
 
@@ -488,242 +46,294 @@ pub fn vortex_turboquant::TurboQuantConfig::fmt(&self, f: &mut core::fmt::Format
 
 pub struct vortex_turboquant::TurboQuantMSE
 
-impl vortex_turboquant::mse_array::TurboQuantMSE
+impl vortex_turboquant::TurboQuantMSE
 
-pub const vortex_turboquant::mse_array::TurboQuantMSE::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_turboquant::TurboQuantMSE::ID: vortex_array::vtable::dyn_::ArrayId
 
-impl core::clone::Clone for vortex_turboquant::mse_array::TurboQuantMSE
+impl core::clone::Clone for vortex_turboquant::TurboQuantMSE
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::clone(&self) -> vortex_turboquant::mse_array::TurboQuantMSE
+pub fn vortex_turboquant::TurboQuantMSE::clone(&self) -> vortex_turboquant::TurboQuantMSE
 
-impl core::fmt::Debug for vortex_turboquant::mse_array::TurboQuantMSE
+impl core::fmt::Debug for vortex_turboquant::TurboQuantMSE
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_turboquant::TurboQuantMSE::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::vtable::VTable for vortex_turboquant::mse_array::TurboQuantMSE
+impl vortex_array::vtable::VTable for vortex_turboquant::TurboQuantMSE
 
-pub type vortex_turboquant::mse_array::TurboQuantMSE::Array = vortex_turboquant::mse_array::TurboQuantMSEArray
+pub type vortex_turboquant::TurboQuantMSE::Array = vortex_turboquant::TurboQuantMSEArray
 
-pub type vortex_turboquant::mse_array::TurboQuantMSE::Metadata = vortex_array::metadata::ProstMetadata<vortex_turboquant::mse_array::TurboQuantMSEMetadata>
+pub type vortex_turboquant::TurboQuantMSE::Metadata = vortex_array::metadata::ProstMetadata<vortex_turboquant::TurboQuantMSEMetadata>
 
-pub type vortex_turboquant::mse_array::TurboQuantMSE::OperationsVTable = vortex_array::vtable::NotSupported
+pub type vortex_turboquant::TurboQuantMSE::OperationsVTable = vortex_array::vtable::NotSupported
 
-pub type vortex_turboquant::mse_array::TurboQuantMSE::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
+pub type vortex_turboquant::TurboQuantMSE::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::array_eq(array: &vortex_turboquant::mse_array::TurboQuantMSEArray, other: &vortex_turboquant::mse_array::TurboQuantMSEArray, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_turboquant::TurboQuantMSE::array_eq(array: &vortex_turboquant::TurboQuantMSEArray, other: &vortex_turboquant::TurboQuantMSEArray, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::array_hash<H: core::hash::Hasher>(array: &vortex_turboquant::mse_array::TurboQuantMSEArray, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_turboquant::TurboQuantMSE::array_hash<H: core::hash::Hasher>(array: &vortex_turboquant::TurboQuantMSEArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::buffer(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_turboquant::TurboQuantMSE::buffer(_array: &vortex_turboquant::TurboQuantMSEArray, idx: usize) -> vortex_array::buffer::BufferHandle
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::buffer_name(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray, _idx: usize) -> core::option::Option<alloc::string::String>
+pub fn vortex_turboquant::TurboQuantMSE::buffer_name(_array: &vortex_turboquant::TurboQuantMSEArray, _idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::mse_array::TurboQuantMSEArray>
+pub fn vortex_turboquant::TurboQuantMSE::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantMSEArray>
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::child(array: &vortex_turboquant::mse_array::TurboQuantMSEArray, idx: usize) -> vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSE::child(array: &vortex_turboquant::TurboQuantMSEArray, idx: usize) -> vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::child_name(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray, idx: usize) -> alloc::string::String
+pub fn vortex_turboquant::TurboQuantMSE::child_name(_array: &vortex_turboquant::TurboQuantMSEArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_turboquant::TurboQuantMSE::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::dtype(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> &vortex_array::dtype::DType
+pub fn vortex_turboquant::TurboQuantMSE::dtype(array: &vortex_turboquant::TurboQuantMSEArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_turboquant::TurboQuantMSE::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::id(&self) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_turboquant::TurboQuantMSE::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::len(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> usize
+pub fn vortex_turboquant::TurboQuantMSE::len(array: &vortex_turboquant::TurboQuantMSEArray) -> usize
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::metadata(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_turboquant::TurboQuantMSE::metadata(array: &vortex_turboquant::TurboQuantMSEArray) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::nbuffers(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> usize
+pub fn vortex_turboquant::TurboQuantMSE::nbuffers(_array: &vortex_turboquant::TurboQuantMSEArray) -> usize
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::nchildren(_array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> usize
+pub fn vortex_turboquant::TurboQuantMSE::nchildren(_array: &vortex_turboquant::TurboQuantMSEArray) -> usize
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_turboquant::TurboQuantMSE::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::stats(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_turboquant::TurboQuantMSE::stats(array: &vortex_turboquant::TurboQuantMSEArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_turboquant::TurboQuantMSE::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_turboquant::TurboQuantMSE::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_array::vtable::validity::ValidityChild<vortex_turboquant::mse_array::TurboQuantMSE> for vortex_turboquant::mse_array::TurboQuantMSE
+impl vortex_array::vtable::validity::ValidityChild<vortex_turboquant::TurboQuantMSE> for vortex_turboquant::TurboQuantMSE
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSE::validity_child(array: &vortex_turboquant::mse_array::TurboQuantMSEArray) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSE::validity_child(array: &vortex_turboquant::TurboQuantMSEArray) -> &vortex_array::array::ArrayRef
 
 pub struct vortex_turboquant::TurboQuantMSEArray
 
-impl vortex_turboquant::mse_array::TurboQuantMSEArray
+impl vortex_turboquant::TurboQuantMSEArray
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::bit_width(&self) -> u8
+pub fn vortex_turboquant::TurboQuantMSEArray::bit_width(&self) -> u8
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::centroids(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSEArray::centroids(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::codes(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSEArray::codes(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::dimension(&self) -> u32
+pub fn vortex_turboquant::TurboQuantMSEArray::dimension(&self) -> u32
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::norms(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSEArray::norms(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::padded_dim(&self) -> u32
+pub fn vortex_turboquant::TurboQuantMSEArray::padded_dim(&self) -> u32
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::rotation_seed(&self) -> u64
+pub fn vortex_turboquant::TurboQuantMSEArray::rotation_seed(&self) -> u64
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSEArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::try_new(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, centroids: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, dimension: u32, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
+pub fn vortex_turboquant::TurboQuantMSEArray::try_new(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, centroids: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, dimension: u32, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
 
-impl vortex_turboquant::mse_array::TurboQuantMSEArray
+impl vortex_turboquant::TurboQuantMSEArray
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::to_array(&self) -> vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSEArray::to_array(&self) -> vortex_array::array::ArrayRef
 
-impl core::clone::Clone for vortex_turboquant::mse_array::TurboQuantMSEArray
+impl core::clone::Clone for vortex_turboquant::TurboQuantMSEArray
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::clone(&self) -> vortex_turboquant::mse_array::TurboQuantMSEArray
+pub fn vortex_turboquant::TurboQuantMSEArray::clone(&self) -> vortex_turboquant::TurboQuantMSEArray
 
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_turboquant::mse_array::TurboQuantMSEArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_turboquant::TurboQuantMSEArray
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
+pub fn vortex_turboquant::TurboQuantMSEArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
-impl core::convert::From<vortex_turboquant::mse_array::TurboQuantMSEArray> for vortex_array::array::ArrayRef
+impl core::convert::From<vortex_turboquant::TurboQuantMSEArray> for vortex_array::array::ArrayRef
 
-pub fn vortex_array::array::ArrayRef::from(value: vortex_turboquant::mse_array::TurboQuantMSEArray) -> vortex_array::array::ArrayRef
+pub fn vortex_array::array::ArrayRef::from(value: vortex_turboquant::TurboQuantMSEArray) -> vortex_array::array::ArrayRef
 
-impl core::fmt::Debug for vortex_turboquant::mse_array::TurboQuantMSEArray
+impl core::fmt::Debug for vortex_turboquant::TurboQuantMSEArray
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_turboquant::TurboQuantMSEArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl core::ops::deref::Deref for vortex_turboquant::mse_array::TurboQuantMSEArray
+impl core::ops::deref::Deref for vortex_turboquant::TurboQuantMSEArray
 
-pub type vortex_turboquant::mse_array::TurboQuantMSEArray::Target = dyn vortex_array::array::DynArray
+pub type vortex_turboquant::TurboQuantMSEArray::Target = dyn vortex_array::array::DynArray
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::deref(&self) -> &Self::Target
+pub fn vortex_turboquant::TurboQuantMSEArray::deref(&self) -> &Self::Target
 
-impl vortex_array::array::IntoArray for vortex_turboquant::mse_array::TurboQuantMSEArray
+impl vortex_array::array::IntoArray for vortex_turboquant::TurboQuantMSEArray
 
-pub fn vortex_turboquant::mse_array::TurboQuantMSEArray::into_array(self) -> vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantMSEArray::into_array(self) -> vortex_array::array::ArrayRef
+
+pub struct vortex_turboquant::TurboQuantMSEMetadata
+
+pub vortex_turboquant::TurboQuantMSEMetadata::bit_width: u32
+
+pub vortex_turboquant::TurboQuantMSEMetadata::dimension: u32
+
+pub vortex_turboquant::TurboQuantMSEMetadata::padded_dim: u32
+
+pub vortex_turboquant::TurboQuantMSEMetadata::rotation_seed: u64
+
+impl core::clone::Clone for vortex_turboquant::TurboQuantMSEMetadata
+
+pub fn vortex_turboquant::TurboQuantMSEMetadata::clone(&self) -> vortex_turboquant::TurboQuantMSEMetadata
+
+impl core::default::Default for vortex_turboquant::TurboQuantMSEMetadata
+
+pub fn vortex_turboquant::TurboQuantMSEMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_turboquant::TurboQuantMSEMetadata
+
+pub fn vortex_turboquant::TurboQuantMSEMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_turboquant::TurboQuantMSEMetadata
+
+pub fn vortex_turboquant::TurboQuantMSEMetadata::clear(&mut self)
+
+pub fn vortex_turboquant::TurboQuantMSEMetadata::encoded_len(&self) -> usize
 
 pub struct vortex_turboquant::TurboQuantQJL
 
-impl vortex_turboquant::qjl_array::TurboQuantQJL
+impl vortex_turboquant::TurboQuantQJL
 
-pub const vortex_turboquant::qjl_array::TurboQuantQJL::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_turboquant::TurboQuantQJL::ID: vortex_array::vtable::dyn_::ArrayId
 
-impl core::clone::Clone for vortex_turboquant::qjl_array::TurboQuantQJL
+impl core::clone::Clone for vortex_turboquant::TurboQuantQJL
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::clone(&self) -> vortex_turboquant::qjl_array::TurboQuantQJL
+pub fn vortex_turboquant::TurboQuantQJL::clone(&self) -> vortex_turboquant::TurboQuantQJL
 
-impl core::fmt::Debug for vortex_turboquant::qjl_array::TurboQuantQJL
+impl core::fmt::Debug for vortex_turboquant::TurboQuantQJL
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_turboquant::TurboQuantQJL::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::vtable::VTable for vortex_turboquant::qjl_array::TurboQuantQJL
+impl vortex_array::vtable::VTable for vortex_turboquant::TurboQuantQJL
 
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::Array = vortex_turboquant::qjl_array::TurboQuantQJLArray
+pub type vortex_turboquant::TurboQuantQJL::Array = vortex_turboquant::TurboQuantQJLArray
 
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::Metadata = vortex_array::metadata::ProstMetadata<vortex_turboquant::qjl_array::TurboQuantQJLMetadata>
+pub type vortex_turboquant::TurboQuantQJL::Metadata = vortex_array::metadata::ProstMetadata<vortex_turboquant::TurboQuantQJLMetadata>
 
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::OperationsVTable = vortex_array::vtable::NotSupported
+pub type vortex_turboquant::TurboQuantQJL::OperationsVTable = vortex_array::vtable::NotSupported
 
-pub type vortex_turboquant::qjl_array::TurboQuantQJL::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
+pub type vortex_turboquant::TurboQuantQJL::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::array_eq(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, other: &vortex_turboquant::qjl_array::TurboQuantQJLArray, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_turboquant::TurboQuantQJL::array_eq(array: &vortex_turboquant::TurboQuantQJLArray, other: &vortex_turboquant::TurboQuantQJLArray, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::array_hash<H: core::hash::Hasher>(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_turboquant::TurboQuantQJL::array_hash<H: core::hash::Hasher>(array: &vortex_turboquant::TurboQuantQJLArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::buffer(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_turboquant::TurboQuantQJL::buffer(_array: &vortex_turboquant::TurboQuantQJLArray, idx: usize) -> vortex_array::buffer::BufferHandle
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::buffer_name(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, _idx: usize) -> core::option::Option<alloc::string::String>
+pub fn vortex_turboquant::TurboQuantQJL::buffer_name(_array: &vortex_turboquant::TurboQuantQJLArray, _idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::qjl_array::TurboQuantQJLArray>
+pub fn vortex_turboquant::TurboQuantQJL::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantQJLArray>
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::child(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, idx: usize) -> vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJL::child(array: &vortex_turboquant::TurboQuantQJLArray, idx: usize) -> vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::child_name(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray, idx: usize) -> alloc::string::String
+pub fn vortex_turboquant::TurboQuantQJL::child_name(_array: &vortex_turboquant::TurboQuantQJLArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_turboquant::TurboQuantQJL::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::dtype(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> &vortex_array::dtype::DType
+pub fn vortex_turboquant::TurboQuantQJL::dtype(array: &vortex_turboquant::TurboQuantQJLArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_turboquant::TurboQuantQJL::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::id(&self) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_turboquant::TurboQuantQJL::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::len(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> usize
+pub fn vortex_turboquant::TurboQuantQJL::len(array: &vortex_turboquant::TurboQuantQJLArray) -> usize
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::metadata(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_turboquant::TurboQuantQJL::metadata(array: &vortex_turboquant::TurboQuantQJLArray) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::nbuffers(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> usize
+pub fn vortex_turboquant::TurboQuantQJL::nbuffers(_array: &vortex_turboquant::TurboQuantQJLArray) -> usize
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::nchildren(_array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> usize
+pub fn vortex_turboquant::TurboQuantQJL::nchildren(_array: &vortex_turboquant::TurboQuantQJLArray) -> usize
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_turboquant::TurboQuantQJL::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::stats(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_turboquant::TurboQuantQJL::stats(array: &vortex_turboquant::TurboQuantQJLArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_turboquant::TurboQuantQJL::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_turboquant::TurboQuantQJL::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_array::vtable::validity::ValidityChild<vortex_turboquant::qjl_array::TurboQuantQJL> for vortex_turboquant::qjl_array::TurboQuantQJL
+impl vortex_array::vtable::validity::ValidityChild<vortex_turboquant::TurboQuantQJL> for vortex_turboquant::TurboQuantQJL
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJL::validity_child(array: &vortex_turboquant::qjl_array::TurboQuantQJLArray) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJL::validity_child(array: &vortex_turboquant::TurboQuantQJLArray) -> &vortex_array::array::ArrayRef
 
 pub struct vortex_turboquant::TurboQuantQJLArray
 
-impl vortex_turboquant::qjl_array::TurboQuantQJLArray
+impl vortex_turboquant::TurboQuantQJLArray
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::bit_width(&self) -> u8
+pub fn vortex_turboquant::TurboQuantQJLArray::bit_width(&self) -> u8
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::mse_inner(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJLArray::mse_inner(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::padded_dim(&self) -> u32
+pub fn vortex_turboquant::TurboQuantQJLArray::padded_dim(&self) -> u32
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::qjl_signs(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJLArray::qjl_signs(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::residual_norms(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJLArray::residual_norms(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::rotation_seed(&self) -> u64
+pub fn vortex_turboquant::TurboQuantQJLArray::rotation_seed(&self) -> u64
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJLArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::try_new(dtype: vortex_array::dtype::DType, mse_inner: vortex_array::array::ArrayRef, qjl_signs: vortex_array::array::ArrayRef, residual_norms: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
+pub fn vortex_turboquant::TurboQuantQJLArray::try_new(dtype: vortex_array::dtype::DType, mse_inner: vortex_array::array::ArrayRef, qjl_signs: vortex_array::array::ArrayRef, residual_norms: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
 
-impl vortex_turboquant::qjl_array::TurboQuantQJLArray
+impl vortex_turboquant::TurboQuantQJLArray
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::to_array(&self) -> vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJLArray::to_array(&self) -> vortex_array::array::ArrayRef
 
-impl core::clone::Clone for vortex_turboquant::qjl_array::TurboQuantQJLArray
+impl core::clone::Clone for vortex_turboquant::TurboQuantQJLArray
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::clone(&self) -> vortex_turboquant::qjl_array::TurboQuantQJLArray
+pub fn vortex_turboquant::TurboQuantQJLArray::clone(&self) -> vortex_turboquant::TurboQuantQJLArray
 
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_turboquant::qjl_array::TurboQuantQJLArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_turboquant::TurboQuantQJLArray
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
+pub fn vortex_turboquant::TurboQuantQJLArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
-impl core::convert::From<vortex_turboquant::qjl_array::TurboQuantQJLArray> for vortex_array::array::ArrayRef
+impl core::convert::From<vortex_turboquant::TurboQuantQJLArray> for vortex_array::array::ArrayRef
 
-pub fn vortex_array::array::ArrayRef::from(value: vortex_turboquant::qjl_array::TurboQuantQJLArray) -> vortex_array::array::ArrayRef
+pub fn vortex_array::array::ArrayRef::from(value: vortex_turboquant::TurboQuantQJLArray) -> vortex_array::array::ArrayRef
 
-impl core::fmt::Debug for vortex_turboquant::qjl_array::TurboQuantQJLArray
+impl core::fmt::Debug for vortex_turboquant::TurboQuantQJLArray
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_turboquant::TurboQuantQJLArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl core::ops::deref::Deref for vortex_turboquant::qjl_array::TurboQuantQJLArray
+impl core::ops::deref::Deref for vortex_turboquant::TurboQuantQJLArray
 
-pub type vortex_turboquant::qjl_array::TurboQuantQJLArray::Target = dyn vortex_array::array::DynArray
+pub type vortex_turboquant::TurboQuantQJLArray::Target = dyn vortex_array::array::DynArray
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::deref(&self) -> &Self::Target
+pub fn vortex_turboquant::TurboQuantQJLArray::deref(&self) -> &Self::Target
 
-impl vortex_array::array::IntoArray for vortex_turboquant::qjl_array::TurboQuantQJLArray
+impl vortex_array::array::IntoArray for vortex_turboquant::TurboQuantQJLArray
 
-pub fn vortex_turboquant::qjl_array::TurboQuantQJLArray::into_array(self) -> vortex_array::array::ArrayRef
+pub fn vortex_turboquant::TurboQuantQJLArray::into_array(self) -> vortex_array::array::ArrayRef
+
+pub struct vortex_turboquant::TurboQuantQJLMetadata
+
+pub vortex_turboquant::TurboQuantQJLMetadata::bit_width: u32
+
+pub vortex_turboquant::TurboQuantQJLMetadata::padded_dim: u32
+
+pub vortex_turboquant::TurboQuantQJLMetadata::rotation_seed: u64
+
+impl core::clone::Clone for vortex_turboquant::TurboQuantQJLMetadata
+
+pub fn vortex_turboquant::TurboQuantQJLMetadata::clone(&self) -> vortex_turboquant::TurboQuantQJLMetadata
+
+impl core::default::Default for vortex_turboquant::TurboQuantQJLMetadata
+
+pub fn vortex_turboquant::TurboQuantQJLMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_turboquant::TurboQuantQJLMetadata
+
+pub fn vortex_turboquant::TurboQuantQJLMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_turboquant::TurboQuantQJLMetadata
+
+pub fn vortex_turboquant::TurboQuantQJLMetadata::clear(&mut self)
+
+pub fn vortex_turboquant::TurboQuantQJLMetadata::encoded_len(&self) -> usize
 
 pub fn vortex_turboquant::initialize(session: &mut vortex_session::VortexSession)
 
-pub fn vortex_turboquant::turboquant_encode(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantArray>
+pub fn vortex_turboquant::turboquant_encode_mse(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantMSEArray>
 
-pub fn vortex_turboquant::turboquant_encode_mse(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::mse_array::TurboQuantMSEArray>
-
-pub fn vortex_turboquant::turboquant_encode_qjl(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::qjl_array::TurboQuantQJLArray>
+pub fn vortex_turboquant::turboquant_encode_qjl(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantQJLArray>

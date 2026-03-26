@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant MSE array: MSE-optimal scalar quantization of rotated unit vectors.
+//! VTable implementation for TurboQuant MSE encoding.
 
-use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -22,9 +21,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
-use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -36,17 +33,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use super::TurboQuantMSE;
+use super::array::TurboQuantMSEArray;
+use super::array::TurboQuantMSEMetadata;
 use crate::decompress::execute_decompress_mse;
-
-vtable!(TurboQuantMSE);
-
-/// Encoding marker type for TurboQuant MSE.
-#[derive(Clone, Debug)]
-pub struct TurboQuantMSE;
-
-impl TurboQuantMSE {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.turboquant.mse");
-}
 
 impl VTable for TurboQuantMSE {
     type Array = TurboQuantMSEArray;
@@ -180,18 +170,14 @@ impl VTable for TurboQuantMSE {
         let padded_dim = metadata.padded_dim as usize;
         let num_centroids = 1usize << bit_width;
 
-        // Child 0: codes (bitpacked u8 indices, num_rows * padded_dim elements).
         let codes_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let codes = children.get(0, &codes_dtype, len * padded_dim)?;
 
-        // Child 1: norms (f32, one per row).
         let norms_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let norms = children.get(1, &norms_dtype, len)?;
 
-        // Child 2: centroids (f32, length 2^bit_width).
         let centroids = children.get(2, &norms_dtype, num_centroids)?;
 
-        // Child 3: rotation_signs (BoolArray, length 3 * padded_dim).
         let signs_dtype = DType::Bool(Nullability::NonNullable);
         let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
 
@@ -226,121 +212,6 @@ impl VTable for TurboQuantMSE {
     fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = Arc::try_unwrap(array).unwrap_or_else(|arc| (*arc).clone());
         Ok(ExecutionResult::done(execute_decompress_mse(array, ctx)?))
-    }
-}
-
-/// Protobuf metadata for TurboQuant MSE encoding.
-#[derive(Clone, prost::Message)]
-pub struct TurboQuantMSEMetadata {
-    /// Vector dimension d.
-    #[prost(uint32, tag = "1")]
-    pub dimension: u32,
-    /// Bits per coordinate (1-8).
-    #[prost(uint32, tag = "2")]
-    pub bit_width: u32,
-    /// Padded dimension (next power of 2 >= dimension).
-    #[prost(uint32, tag = "3")]
-    pub padded_dim: u32,
-    /// Deterministic seed for rotation matrix (kept for reproducibility).
-    #[prost(uint64, tag = "4")]
-    pub rotation_seed: u64,
-}
-
-/// TurboQuant MSE array: stores quantized coordinate codes, norms, centroids,
-/// and rotation signs.
-#[derive(Clone, Debug)]
-pub struct TurboQuantMSEArray {
-    /// The original dtype (FixedSizeList of floats).
-    pub(crate) dtype: DType,
-    /// Child 0: bit-packed quantized indices (BitPackedArray or PrimitiveArray<u8>).
-    pub(crate) codes: ArrayRef,
-    /// Child 1: f32 norms, one per vector row.
-    pub(crate) norms: ArrayRef,
-    /// Child 2: f32 centroids (codebook), length 2^bit_width.
-    pub(crate) centroids: ArrayRef,
-    /// Child 3: BoolArray of rotation signs, length 3 * padded_dim, in inverse order.
-    pub(crate) rotation_signs: ArrayRef,
-    /// Vector dimension.
-    pub(crate) dimension: u32,
-    /// Bits per coordinate.
-    pub(crate) bit_width: u8,
-    /// Padded dimension (next power of 2 >= dimension).
-    pub(crate) padded_dim: u32,
-    /// Rotation matrix seed (for reproducibility/debugging).
-    pub(crate) rotation_seed: u64,
-    pub(crate) stats_set: ArrayStats,
-}
-
-impl TurboQuantMSEArray {
-    /// Build a new TurboQuantMSEArray.
-    #[allow(clippy::too_many_arguments)]
-    pub fn try_new(
-        dtype: DType,
-        codes: ArrayRef,
-        norms: ArrayRef,
-        centroids: ArrayRef,
-        rotation_signs: ArrayRef,
-        dimension: u32,
-        bit_width: u8,
-        padded_dim: u32,
-        rotation_seed: u64,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(
-            (1..=8).contains(&bit_width),
-            "MSE bit_width must be 1-8, got {bit_width}"
-        );
-        Ok(Self {
-            dtype,
-            codes,
-            norms,
-            centroids,
-            rotation_signs,
-            dimension,
-            bit_width,
-            padded_dim,
-            rotation_seed,
-            stats_set: Default::default(),
-        })
-    }
-
-    /// The vector dimension d.
-    pub fn dimension(&self) -> u32 {
-        self.dimension
-    }
-
-    /// Bits per coordinate.
-    pub fn bit_width(&self) -> u8 {
-        self.bit_width
-    }
-
-    /// Padded dimension (next power of 2 >= dimension).
-    pub fn padded_dim(&self) -> u32 {
-        self.padded_dim
-    }
-
-    /// The rotation matrix seed.
-    pub fn rotation_seed(&self) -> u64 {
-        self.rotation_seed
-    }
-
-    /// The bit-packed codes child.
-    pub fn codes(&self) -> &ArrayRef {
-        &self.codes
-    }
-
-    /// The norms child.
-    pub fn norms(&self) -> &ArrayRef {
-        &self.norms
-    }
-
-    /// The centroids (codebook) child.
-    pub fn centroids(&self) -> &ArrayRef {
-        &self.centroids
-    }
-
-    /// The rotation signs child (BoolArray, length 3 * padded_dim).
-    pub fn rotation_signs(&self) -> &ArrayRef {
-        &self.rotation_signs
     }
 }
 

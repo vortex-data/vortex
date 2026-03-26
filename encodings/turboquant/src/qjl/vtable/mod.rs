@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant QJL array: inner-product-preserving quantization (MSE + QJL residual).
-//!
-//! Wraps a [`TurboQuantMSEArray`] (at `bit_width - 1`) and adds a 1-bit QJL
-//! residual correction for unbiased inner product estimation.
+//! VTable implementation for TurboQuant QJL encoding.
 
-use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -25,9 +21,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
-use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -39,17 +33,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use super::TurboQuantQJL;
+use super::array::TurboQuantQJLArray;
+use super::array::TurboQuantQJLMetadata;
 use crate::decompress::execute_decompress_qjl;
-
-vtable!(TurboQuantQJL);
-
-/// Encoding marker type for TurboQuant QJL.
-#[derive(Clone, Debug)]
-pub struct TurboQuantQJL;
-
-impl TurboQuantQJL {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.turboquant.qjl");
-}
 
 impl VTable for TurboQuantQJL {
     type Array = TurboQuantQJLArray;
@@ -180,19 +167,14 @@ impl VTable for TurboQuantQJL {
     ) -> VortexResult<TurboQuantQJLArray> {
         let padded_dim = metadata.padded_dim as usize;
 
-        // Child 0: mse_inner (TurboQuantMSEArray, opaque ArrayRef).
-        // We pass the parent dtype and len — the MSE array has the same logical shape.
         let mse_inner = children.get(0, dtype, len)?;
 
-        // Child 1: qjl_signs (BoolArray, length num_rows * padded_dim).
         let signs_dtype = DType::Bool(Nullability::NonNullable);
         let qjl_signs = children.get(1, &signs_dtype, len * padded_dim)?;
 
-        // Child 2: residual_norms (f32, one per row).
         let norms_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let residual_norms = children.get(2, &norms_dtype, len)?;
 
-        // Child 3: rotation_signs (BoolArray, length 3 * padded_dim).
         let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
 
         Ok(TurboQuantQJLArray {
@@ -225,108 +207,6 @@ impl VTable for TurboQuantQJL {
     fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = Arc::try_unwrap(array).unwrap_or_else(|arc| (*arc).clone());
         Ok(ExecutionResult::done(execute_decompress_qjl(array, ctx)?))
-    }
-}
-
-/// Protobuf metadata for TurboQuant QJL encoding.
-#[derive(Clone, prost::Message)]
-pub struct TurboQuantQJLMetadata {
-    /// Total bit width (2-9, including QJL bit; MSE child uses bit_width - 1).
-    #[prost(uint32, tag = "1")]
-    pub bit_width: u32,
-    /// Padded dimension (next power of 2 >= dimension).
-    #[prost(uint32, tag = "2")]
-    pub padded_dim: u32,
-    /// QJL rotation seed (for debugging/reproducibility).
-    #[prost(uint64, tag = "3")]
-    pub rotation_seed: u64,
-}
-
-/// TurboQuant QJL array: wraps a TurboQuantMSEArray with QJL residual correction.
-#[derive(Clone, Debug)]
-pub struct TurboQuantQJLArray {
-    /// The original dtype (FixedSizeList of floats).
-    pub(crate) dtype: DType,
-    /// Child 0: inner TurboQuantMSEArray (at bit_width - 1).
-    pub(crate) mse_inner: ArrayRef,
-    /// Child 1: QJL sign bits (BoolArray, length num_rows * padded_dim).
-    pub(crate) qjl_signs: ArrayRef,
-    /// Child 2: f32 residual norms, one per row.
-    pub(crate) residual_norms: ArrayRef,
-    /// Child 3: QJL rotation signs (BoolArray, length 3 * padded_dim, inverse order).
-    pub(crate) rotation_signs: ArrayRef,
-    /// Total bit width (including QJL bit).
-    pub(crate) bit_width: u8,
-    /// Padded dimension.
-    pub(crate) padded_dim: u32,
-    /// QJL rotation seed.
-    pub(crate) rotation_seed: u64,
-    pub(crate) stats_set: ArrayStats,
-}
-
-impl TurboQuantQJLArray {
-    /// Build a new TurboQuantQJLArray.
-    #[allow(clippy::too_many_arguments)]
-    pub fn try_new(
-        dtype: DType,
-        mse_inner: ArrayRef,
-        qjl_signs: ArrayRef,
-        residual_norms: ArrayRef,
-        rotation_signs: ArrayRef,
-        bit_width: u8,
-        padded_dim: u32,
-        rotation_seed: u64,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(
-            (2..=9).contains(&bit_width),
-            "QJL bit_width must be 2-9, got {bit_width}"
-        );
-        Ok(Self {
-            dtype,
-            mse_inner,
-            qjl_signs,
-            residual_norms,
-            rotation_signs,
-            bit_width,
-            padded_dim,
-            rotation_seed,
-            stats_set: Default::default(),
-        })
-    }
-
-    /// Total bit width (including QJL bit).
-    pub fn bit_width(&self) -> u8 {
-        self.bit_width
-    }
-
-    /// Padded dimension.
-    pub fn padded_dim(&self) -> u32 {
-        self.padded_dim
-    }
-
-    /// QJL rotation seed.
-    pub fn rotation_seed(&self) -> u64 {
-        self.rotation_seed
-    }
-
-    /// The inner MSE array child.
-    pub fn mse_inner(&self) -> &ArrayRef {
-        &self.mse_inner
-    }
-
-    /// The QJL sign bits child (BoolArray).
-    pub fn qjl_signs(&self) -> &ArrayRef {
-        &self.qjl_signs
-    }
-
-    /// The residual norms child.
-    pub fn residual_norms(&self) -> &ArrayRef {
-        &self.residual_norms
-    }
-
-    /// The QJL rotation signs child (BoolArray).
-    pub fn rotation_signs(&self) -> &ArrayRef {
-        &self.rotation_signs
     }
 }
 

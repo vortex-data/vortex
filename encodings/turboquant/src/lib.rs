@@ -59,7 +59,7 @@
 //! use vortex_array::arrays::PrimitiveArray;
 //! use vortex_array::validity::Validity;
 //! use vortex_buffer::BufferMut;
-//! use vortex_turboquant::{TurboQuantConfig, TurboQuantVariant, turboquant_encode};
+//! use vortex_turboquant::{TurboQuantConfig, turboquant_encode_mse};
 //!
 //! // Create a FixedSizeListArray of 100 random 128-d vectors.
 //! let num_rows = 100;
@@ -73,49 +73,32 @@
 //!     elements.into_array(), dim as u32, Validity::NonNullable, num_rows,
 //! ).unwrap();
 //!
-//! // Quantize at 2 bits per coordinate.
-//! let config = TurboQuantConfig {
-//!     bit_width: 2,
-//!     variant: TurboQuantVariant::Mse,
-//!     seed: Some(42),
-//! };
-//! let encoded = turboquant_encode(&fsl, &config).unwrap();
+//! // Quantize at 2 bits per coordinate using MSE-optimal encoding.
+//! let config = TurboQuantConfig { bit_width: 2, seed: Some(42) };
+//! let encoded = turboquant_encode_mse(&fsl, &config).unwrap();
 //!
 //! // Verify compression: 100 vectors × 128 dims × 4 bytes = 51200 bytes input.
-//! // Output: 100 × (128 padded × 2 bits / 8 + 4 norm bytes) = 100 × 36 = 3600 bytes.
 //! assert!(encoded.codes().nbytes() + encoded.norms().nbytes() < 51200);
-//!
-//! // Verify the theoretical MSE bound holds.
-//! // For 2-bit quantization: bound = sqrt(3)*pi/2 / 4^2 ≈ 0.170.
-//! // (Full roundtrip decoding requires an ExecutionCtx from a VortexSession.)
 //! ```
 
-pub use array::TurboQuant;
-pub use array::TurboQuantArray;
-pub use array::TurboQuantVariant;
 pub use compress::TurboQuantConfig;
-pub use compress::turboquant_encode;
 pub use compress::turboquant_encode_mse;
 pub use compress::turboquant_encode_qjl;
-pub use mse_array::TurboQuantMSE;
-pub use mse_array::TurboQuantMSEArray;
-pub use qjl_array::TurboQuantQJL;
-pub use qjl_array::TurboQuantQJLArray;
-mod array;
+pub use mse::*;
+pub use qjl::*;
+
 pub mod centroids;
 mod compress;
-mod decompress;
-pub mod mse_array;
-pub mod qjl_array;
+pub(crate) mod decompress;
+mod mse;
+mod qjl;
 pub mod rotation;
-mod rules;
 
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize the TurboQuant encodings in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(TurboQuant);
     session.arrays().register(TurboQuantMSE);
     session.arrays().register(TurboQuantQJL);
 }
@@ -137,13 +120,13 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::TurboQuantConfig;
-    use crate::TurboQuantVariant;
-    use crate::turboquant_encode;
+    use crate::turboquant_encode_mse;
+    use crate::turboquant_encode_qjl;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-    /// Create a FixedSizeListArray of random f32 vectors.
+    /// Create a FixedSizeListArray of random f32 vectors (i.i.d. standard normal).
     fn make_fsl(num_rows: usize, dim: usize, seed: u64) -> FixedSizeListArray {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -168,20 +151,11 @@ mod tests {
         .unwrap()
     }
 
-    /// Theoretical MSE distortion bound from the TurboQuant paper (Theorem 1):
-    ///   D_mse <= (sqrt(3) * pi / 2) * (1 / 4^b)
-    ///
-    /// This is the per-coordinate normalized MSE for a unit-norm vector after
-    /// quantization with b bits using optimal scalar quantizers on a random rotation.
-    ///
-    /// The paper's bound is an upper bound; with fixed seeds our results are
-    /// deterministic and empirically 0.5x-0.9x of the theoretical limit.
     fn theoretical_mse_bound(bit_width: u8) -> f32 {
         let sqrt3_pi_over_2 = (3.0f32).sqrt() * std::f32::consts::PI / 2.0;
         sqrt3_pi_over_2 / (4.0f32).powi(bit_width as i32)
     }
 
-    /// Compute per-vector normalized MSE: average over vectors of ||x - x_hat||^2 / ||x||^2.
     fn per_vector_normalized_mse(
         original: &[f32],
         reconstructed: &[f32],
@@ -206,8 +180,8 @@ mod tests {
         total / num_rows as f32
     }
 
-    /// Helper to encode and decode, returning (original_elements, decoded_elements).
-    fn encode_decode(
+    /// Encode via MSE and decode, returning (original, decoded) flat f32 slices.
+    fn encode_decode_mse(
         fsl: &FixedSizeListArray,
         config: &TurboQuantConfig,
     ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
@@ -215,7 +189,7 @@ mod tests {
             let prim = fsl.elements().to_canonical().unwrap().into_primitive();
             prim.as_slice::<f32>().to_vec()
         };
-        let encoded = turboquant_encode(fsl, config)?;
+        let encoded = turboquant_encode_mse(fsl, config)?;
         let mut ctx = SESSION.create_execution_ctx();
         let decoded = encoded
             .into_array()
@@ -226,6 +200,31 @@ mod tests {
         };
         Ok((original, decoded_elements))
     }
+
+    /// Encode via QJL and decode, returning (original, decoded) flat f32 slices.
+    fn encode_decode_qjl(
+        fsl: &FixedSizeListArray,
+        config: &TurboQuantConfig,
+    ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
+        let original: Vec<f32> = {
+            let prim = fsl.elements().to_canonical().unwrap().into_primitive();
+            prim.as_slice::<f32>().to_vec()
+        };
+        let encoded = turboquant_encode_qjl(fsl, config)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = encoded
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let decoded_elements: Vec<f32> = {
+            let prim = decoded.elements().to_canonical().unwrap().into_primitive();
+            prim.as_slice::<f32>().to_vec()
+        };
+        Ok((original, decoded_elements))
+    }
+
+    // -----------------------------------------------------------------------
+    // MSE encoding tests
+    // -----------------------------------------------------------------------
 
     #[rstest]
     #[case(32, 1)]
@@ -238,25 +237,16 @@ mod tests {
     #[case(128, 8)]
     #[case(256, 2)]
     fn roundtrip_mse(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
-        let num_rows = 10;
-        let fsl = make_fsl(num_rows, dim, 42);
+        let fsl = make_fsl(10, dim, 42);
         let config = TurboQuantConfig {
             bit_width,
-            variant: TurboQuantVariant::Mse,
             seed: Some(123),
         };
-        let (original, decoded) = encode_decode(&fsl, &config)?;
+        let (original, decoded) = encode_decode_mse(&fsl, &config)?;
         assert_eq!(decoded.len(), original.len());
         Ok(())
     }
 
-    /// Verify that MSE distortion is within theoretical bounds (Theorem 1).
-    ///
-    /// Paper Theorem 1: D_mse <= (sqrt(3)*pi/2) / 4^b for the normalized
-    /// per-coordinate MSE of unit-norm vectors. This bound holds tightly for
-    /// 1-4 bits; at higher bit widths the SRHT finite-dimension effects
-    /// dominate the vanishingly small quantization error, so we test those
-    /// separately in `high_bitwidth_mse_is_small`.
     #[rstest]
     #[case(128, 1)]
     #[case(128, 2)]
@@ -269,29 +259,20 @@ mod tests {
         let fsl = make_fsl(num_rows, dim, 42);
         let config = TurboQuantConfig {
             bit_width,
-            variant: TurboQuantVariant::Mse,
             seed: Some(123),
         };
-        let (original, decoded) = encode_decode(&fsl, &config)?;
+        let (original, decoded) = encode_decode_mse(&fsl, &config)?;
 
         let normalized_mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
         let bound = theoretical_mse_bound(bit_width);
 
         assert!(
             normalized_mse < bound,
-            "Normalized MSE {normalized_mse:.6} exceeds theoretical bound {bound:.6} \
-             for dim={dim}, bits={bit_width}",
+            "Normalized MSE {normalized_mse:.6} exceeds bound {bound:.6} for dim={dim}, bits={bit_width}",
         );
-
         Ok(())
     }
 
-    /// Verify that high bit-width quantization (5-8) achieves very low distortion.
-    ///
-    /// At these bit widths the theoretical bound is extremely tight and the actual
-    /// distortion is dominated by the SRHT finite-dimension approximation rather
-    /// than quantization error. We just verify the MSE is well below 1% and
-    /// strictly less than the 4-bit MSE.
     #[rstest]
     #[case(128, 6)]
     #[case(128, 8)]
@@ -301,35 +282,54 @@ mod tests {
         let num_rows = 200;
         let fsl = make_fsl(num_rows, dim, 42);
 
-        // Get the 4-bit MSE as a reference ceiling.
         let config_4bit = TurboQuantConfig {
             bit_width: 4,
-            variant: TurboQuantVariant::Mse,
             seed: Some(123),
         };
-        let (original_4, decoded_4) = encode_decode(&fsl, &config_4bit)?;
+        let (original_4, decoded_4) = encode_decode_mse(&fsl, &config_4bit)?;
         let mse_4bit = per_vector_normalized_mse(&original_4, &decoded_4, dim, num_rows);
 
         let config = TurboQuantConfig {
             bit_width,
-            variant: TurboQuantVariant::Mse,
             seed: Some(123),
         };
-        let (original, decoded) = encode_decode(&fsl, &config)?;
+        let (original, decoded) = encode_decode_mse(&fsl, &config)?;
         let mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
 
         assert!(
             mse < mse_4bit,
-            "{bit_width}-bit MSE ({mse:.6}) should be less than 4-bit MSE ({mse_4bit:.6}) \
-             for dim={dim}",
+            "{bit_width}-bit MSE ({mse:.6}) should be < 4-bit MSE ({mse_4bit:.6})"
         );
-        assert!(
-            mse < 0.01,
-            "{bit_width}-bit MSE ({mse:.6}) should be well below 1% for dim={dim}",
-        );
-
+        assert!(mse < 0.01, "{bit_width}-bit MSE ({mse:.6}) should be < 1%");
         Ok(())
     }
+
+    #[test]
+    fn mse_decreases_with_bits() -> VortexResult<()> {
+        let dim = 128;
+        let num_rows = 50;
+        let fsl = make_fsl(num_rows, dim, 99);
+
+        let mut prev_mse = f32::MAX;
+        for bit_width in 1..=8u8 {
+            let config = TurboQuantConfig {
+                bit_width,
+                seed: Some(123),
+            };
+            let (original, decoded) = encode_decode_mse(&fsl, &config)?;
+            let mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
+            assert!(
+                mse <= prev_mse * 1.01,
+                "MSE should decrease: {bit_width}-bit={mse:.6} > prev={prev_mse:.6}"
+            );
+            prev_mse = mse;
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // QJL encoding tests
+    // -----------------------------------------------------------------------
 
     #[rstest]
     #[case(32, 2)]
@@ -339,26 +339,17 @@ mod tests {
     #[case(128, 6)]
     #[case(128, 8)]
     #[case(128, 9)]
-    fn roundtrip_prod(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
-        let num_rows = 10;
-        let fsl = make_fsl(num_rows, dim, 42);
+    fn roundtrip_qjl(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+        let fsl = make_fsl(10, dim, 42);
         let config = TurboQuantConfig {
             bit_width,
-            variant: TurboQuantVariant::Prod,
             seed: Some(456),
         };
-        let (original, decoded) = encode_decode(&fsl, &config)?;
+        let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
         assert_eq!(decoded.len(), original.len());
         Ok(())
     }
 
-    /// Verify that the Prod variant produces approximately unbiased inner products.
-    ///
-    /// For random query y and quantized x_hat, the paper guarantees:
-    ///   E[<y, x_hat>] = <y, x>
-    ///
-    /// We test by computing inner products between all pairs of original and
-    /// reconstructed vectors and checking that the mean relative error is small.
     #[rstest]
     #[case(128, 2)]
     #[case(128, 3)]
@@ -366,18 +357,15 @@ mod tests {
     #[case(128, 6)]
     #[case(128, 8)]
     #[case(128, 9)]
-    fn prod_inner_product_bias(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+    fn qjl_inner_product_bias(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let num_rows = 100;
         let fsl = make_fsl(num_rows, dim, 42);
         let config = TurboQuantConfig {
             bit_width,
-            variant: TurboQuantVariant::Prod,
             seed: Some(789),
         };
-        let (original, decoded) = encode_decode(&fsl, &config)?;
+        let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
 
-        // Compute inner products between pairs of vectors: <x_i, x_hat_j> vs <x_i, x_j>
-        // for i != j. Check that the mean signed error is close to zero (unbiased).
         let num_pairs = 500;
         let mut rng = {
             use rand::SeedableRng;
@@ -410,94 +398,73 @@ mod tests {
         }
 
         let mean_rel_error: f32 = signed_errors.iter().sum::<f32>() / signed_errors.len() as f32;
-
-        // The mean relative error should be close to zero for an unbiased estimator.
-        // We allow up to 0.3 absolute mean relative error (generous for finite samples).
         assert!(
             mean_rel_error.abs() < 0.3,
-            "Prod inner product bias too high: mean relative error = {mean_rel_error:.4} \
-             for dim={dim}, bits={bit_width} ({} pairs)",
-            signed_errors.len()
+            "QJL inner product bias too high: {mean_rel_error:.4} for dim={dim}, bits={bit_width}"
         );
-
         Ok(())
     }
 
-    /// Verify that MSE distortion decreases with more bits (Prod variant too).
-    #[rstest]
-    #[case(TurboQuantVariant::Mse)]
-    #[case(TurboQuantVariant::Prod)]
-    fn mse_decreases_with_bits(#[case] variant: TurboQuantVariant) -> VortexResult<()> {
+    #[test]
+    fn qjl_mse_decreases_with_bits() -> VortexResult<()> {
         let dim = 128;
         let num_rows = 50;
         let fsl = make_fsl(num_rows, dim, 99);
 
-        let (min_bits, max_bits) = match variant {
-            TurboQuantVariant::Mse => (1, 8),
-            TurboQuantVariant::Prod => (2, 9),
-        };
-
         let mut prev_mse = f32::MAX;
-        for bit_width in min_bits..=max_bits {
+        for bit_width in 2..=9u8 {
             let config = TurboQuantConfig {
                 bit_width,
-                variant,
                 seed: Some(123),
             };
-            let (original, decoded) = encode_decode(&fsl, &config)?;
+            let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
             let mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
-
             assert!(
-                mse <= prev_mse * 1.01, // allow tiny floating point noise
-                "MSE should decrease with more bits ({variant:?}): \
-                 {bit_width}-bit MSE={mse:.6} > previous={prev_mse:.6}"
+                mse <= prev_mse * 1.01,
+                "QJL MSE should decrease: {bit_width}-bit={mse:.6} > prev={prev_mse:.6}"
             );
             prev_mse = mse;
         }
-
         Ok(())
     }
 
-    #[rstest]
-    #[case(TurboQuantVariant::Mse, 2)]
-    #[case(TurboQuantVariant::Prod, 2)]
-    fn roundtrip_empty(
-        #[case] variant: TurboQuantVariant,
-        #[case] bit_width: u8,
-    ) -> VortexResult<()> {
-        let fsl = make_fsl(0, 128, 0);
-        let config = TurboQuantConfig {
-            bit_width,
-            variant,
-            seed: Some(0),
-        };
+    // -----------------------------------------------------------------------
+    // Edge cases
+    // -----------------------------------------------------------------------
 
-        let encoded = turboquant_encode(&fsl, &config)?;
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    fn roundtrip_mse_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
+        let fsl = make_fsl(num_rows, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 2,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
         let mut ctx = SESSION.create_execution_ctx();
         let decoded = encoded
             .into_array()
             .execute::<FixedSizeListArray>(&mut ctx)?;
-        assert_eq!(decoded.len(), 0);
-
+        assert_eq!(decoded.len(), num_rows);
         Ok(())
     }
 
     #[rstest]
-    #[case(TurboQuantVariant::Mse, 2)]
-    #[case(TurboQuantVariant::Prod, 3)]
-    fn roundtrip_single_row(
-        #[case] variant: TurboQuantVariant,
-        #[case] bit_width: u8,
-    ) -> VortexResult<()> {
-        let fsl = make_fsl(1, 128, 42);
+    #[case(0)]
+    #[case(1)]
+    fn roundtrip_qjl_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
+        let fsl = make_fsl(num_rows, 128, 42);
         let config = TurboQuantConfig {
-            bit_width,
-            variant,
-            seed: Some(123),
+            bit_width: 3,
+            seed: Some(456),
         };
-
-        let (original, decoded) = encode_decode(&fsl, &config)?;
-        assert_eq!(original.len(), decoded.len());
+        let encoded = turboquant_encode_qjl(&fsl, &config)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = encoded
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        assert_eq!(decoded.len(), num_rows);
         Ok(())
     }
 
@@ -510,137 +477,8 @@ mod tests {
             .unwrap();
         let config = TurboQuantConfig {
             bit_width: 2,
-            variant: TurboQuantVariant::Mse,
             seed: Some(0),
         };
-        assert!(turboquant_encode(&fsl, &config).is_err());
-    }
-
-    // -----------------------------------------------------------------------
-    // Tests for new cascaded MSE/QJL array types
-    // -----------------------------------------------------------------------
-
-    #[rstest]
-    #[case(32, 2)]
-    #[case(128, 2)]
-    #[case(128, 4)]
-    #[case(128, 8)]
-    fn roundtrip_new_mse(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
-        use crate::turboquant_encode_mse;
-
-        let fsl = make_fsl(10, dim, 42);
-        let config = TurboQuantConfig {
-            bit_width,
-            variant: TurboQuantVariant::Mse,
-            seed: Some(123),
-        };
-        let encoded = turboquant_encode_mse(&fsl, &config)?;
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        assert_eq!(decoded.len(), 10);
-        Ok(())
-    }
-
-    #[rstest]
-    #[case(32, 2)]
-    #[case(128, 3)]
-    #[case(128, 4)]
-    #[case(128, 9)]
-    fn roundtrip_new_qjl(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
-        use crate::turboquant_encode_qjl;
-
-        let fsl = make_fsl(10, dim, 42);
-        let config = TurboQuantConfig {
-            bit_width,
-            variant: TurboQuantVariant::Prod,
-            seed: Some(456),
-        };
-        let encoded = turboquant_encode_qjl(&fsl, &config)?;
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        assert_eq!(decoded.len(), 10);
-        Ok(())
-    }
-
-    /// Verify that the new MSE path produces the same reconstruction as the old path.
-    #[test]
-    fn new_mse_matches_legacy() -> VortexResult<()> {
-        use crate::turboquant_encode_mse;
-
-        let fsl = make_fsl(50, 128, 42);
-        let config = TurboQuantConfig {
-            bit_width: 3,
-            variant: TurboQuantVariant::Mse,
-            seed: Some(123),
-        };
-
-        let (_, legacy_decoded) = encode_decode(&fsl, &config)?;
-
-        let new_encoded = turboquant_encode_mse(&fsl, &config)?;
-        let mut ctx = SESSION.create_execution_ctx();
-        let new_decoded_fsl = new_encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        let new_decoded_prim = new_decoded_fsl.elements().to_canonical()?.into_primitive();
-        let new_decoded = new_decoded_prim.as_slice::<f32>();
-
-        assert_eq!(legacy_decoded.len(), new_decoded.len());
-        for i in 0..legacy_decoded.len() {
-            assert!(
-                (legacy_decoded[i] - new_decoded[i]).abs() < 1e-6,
-                "Mismatch at {i}: legacy={} new={}",
-                legacy_decoded[i],
-                new_decoded[i]
-            );
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    #[case(0)]
-    #[case(1)]
-    fn roundtrip_new_mse_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
-        use crate::turboquant_encode_mse;
-
-        let fsl = make_fsl(num_rows, 128, 42);
-        let config = TurboQuantConfig {
-            bit_width: 2,
-            variant: TurboQuantVariant::Mse,
-            seed: Some(123),
-        };
-        let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        assert_eq!(decoded.len(), num_rows);
-        Ok(())
-    }
-
-    #[rstest]
-    #[case(0)]
-    #[case(1)]
-    fn roundtrip_new_qjl_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
-        use crate::turboquant_encode_qjl;
-
-        let fsl = make_fsl(num_rows, 128, 42);
-        let config = TurboQuantConfig {
-            bit_width: 3,
-            variant: TurboQuantVariant::Prod,
-            seed: Some(456),
-        };
-        let encoded = turboquant_encode_qjl(&fsl, &config)?;
-        let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        assert_eq!(decoded.len(), num_rows);
-        Ok(())
+        assert!(turboquant_encode_mse(&fsl, &config).is_err());
     }
 }
