@@ -132,6 +132,10 @@ pub fn execute_decompress_qjl(
     let qjl_rot_signs_bool = array.rotation_signs.clone().execute::<BoolArray>(ctx)?;
     let qjl_rot = RotationMatrix::from_bool_array(&qjl_rot_signs_bool, dim)?;
 
+    // QJL correction scale: sqrt(π/2) / padded_dim.
+    // This accounts for the SRHT normalization (1/padded_dim^{3/2} per transform)
+    // combined with the E[|z|] = sqrt(2/π) expectation of half-normal signs.
+    // Verified empirically via the `qjl_inner_product_bias` test suite.
     let qjl_scale = (std::f32::consts::FRAC_PI_2).sqrt() / (padded_dim as f32);
 
     let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);

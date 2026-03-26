@@ -186,6 +186,8 @@ pub fn turboquant_encode_qjl(
     #[allow(clippy::cast_possible_truncation)]
     let centroids = get_centroids(padded_dim as u32, mse_bit_width)?;
 
+    // QJL uses a different rotation than the MSE stage to ensure statistical
+    // independence between the quantization noise and the sign projection.
     let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), dim)?;
 
     let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);

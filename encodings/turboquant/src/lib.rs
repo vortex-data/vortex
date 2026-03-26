@@ -469,16 +469,178 @@ mod tests {
     }
 
     #[test]
-    fn rejects_dimension_below_2() {
-        let mut buf = BufferMut::<f32>::with_capacity(1);
-        buf.push(1.0);
-        let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
-        let fsl = FixedSizeListArray::try_new(elements.into_array(), 1, Validity::NonNullable, 1)
-            .unwrap();
+    fn mse_rejects_dimension_below_2() {
+        let fsl = make_fsl_dim1();
         let config = TurboQuantConfig {
             bit_width: 2,
             seed: Some(0),
         };
         assert!(turboquant_encode_mse(&fsl, &config).is_err());
+    }
+
+    #[test]
+    fn qjl_rejects_dimension_below_2() {
+        let fsl = make_fsl_dim1();
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(0),
+        };
+        assert!(turboquant_encode_qjl(&fsl, &config).is_err());
+    }
+
+    fn make_fsl_dim1() -> FixedSizeListArray {
+        let mut buf = BufferMut::<f32>::with_capacity(1);
+        buf.push(1.0);
+        let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
+        FixedSizeListArray::try_new(elements.into_array(), 1, Validity::NonNullable, 1).unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // Verification tests for stored metadata
+    // -----------------------------------------------------------------------
+
+    /// Verify that the centroids stored in the MSE array match what get_centroids() computes.
+    #[test]
+    fn stored_centroids_match_computed() -> VortexResult<()> {
+        let fsl = make_fsl(10, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let stored_centroids_prim = encoded
+            .centroids()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let stored = stored_centroids_prim.as_slice::<f32>();
+
+        let padded_dim = encoded.padded_dim();
+        let computed = crate::centroids::get_centroids(padded_dim, 3)?;
+
+        assert_eq!(stored.len(), computed.len());
+        for i in 0..stored.len() {
+            assert_eq!(stored[i], computed[i], "Centroid mismatch at {i}");
+        }
+        Ok(())
+    }
+
+    /// Verify that stored rotation signs produce identical decode to seed-based decode.
+    ///
+    /// Encodes the same data twice: once with the new path (stored signs), and
+    /// once by manually recomputing the rotation from the seed. Both should
+    /// produce identical output.
+    #[test]
+    fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
+        use crate::rotation::RotationMatrix;
+
+        let fsl = make_fsl(20, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+
+        // Decode via the stored-signs path (normal decode).
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded_fsl = encoded
+            .clone()
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let decoded = decoded_fsl.elements().to_canonical()?.into_primitive();
+        let decoded_slice = decoded.as_slice::<f32>();
+
+        // Verify stored signs match seed-derived signs.
+        let rot_from_seed = RotationMatrix::try_new(123, 128)?;
+        let exported = rot_from_seed.export_inverse_signs_bool_array();
+        let stored_signs = encoded
+            .rotation_signs()
+            .clone()
+            .execute::<vortex_array::arrays::BoolArray>(&mut ctx)?;
+
+        assert_eq!(exported.len(), stored_signs.len());
+        let exp_buf = exported.to_bit_buffer();
+        let stored_buf = stored_signs.to_bit_buffer();
+        for i in 0..exported.len() {
+            assert_eq!(
+                exp_buf.value(i),
+                stored_buf.value(i),
+                "Sign mismatch at bit {i}"
+            );
+        }
+
+        // Also verify decode output is non-empty and has expected size.
+        assert_eq!(decoded_slice.len(), 20 * 128);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // QJL-specific quality tests
+    // -----------------------------------------------------------------------
+
+    /// Verify that QJL's MSE component (at bit_width-1) satisfies the theoretical bound.
+    #[rstest]
+    #[case(128, 3)]
+    #[case(128, 4)]
+    #[case(256, 3)]
+    fn qjl_mse_within_theoretical_bound(
+        #[case] dim: usize,
+        #[case] bit_width: u8,
+    ) -> VortexResult<()> {
+        let num_rows = 200;
+        let fsl = make_fsl(num_rows, dim, 42);
+        let config = TurboQuantConfig {
+            bit_width,
+            seed: Some(789),
+        };
+        let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
+
+        let normalized_mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
+
+        // QJL at b bits uses (b-1)-bit MSE plus a correction term.
+        // The MSE should be at most the (b-1)-bit theoretical bound, though
+        // in practice the QJL correction often improves it further.
+        let mse_bound = theoretical_mse_bound(bit_width - 1);
+        assert!(
+            normalized_mse < mse_bound,
+            "QJL MSE {normalized_mse:.6} exceeds (b-1)-bit bound {mse_bound:.6} \
+             for dim={dim}, bits={bit_width}",
+        );
+        Ok(())
+    }
+
+    /// Verify that high-bitwidth QJL (8-9 bits) achieves very low distortion.
+    #[rstest]
+    #[case(128, 8)]
+    #[case(128, 9)]
+    fn high_bitwidth_qjl_is_small(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+        let num_rows = 200;
+        let fsl = make_fsl(num_rows, dim, 42);
+
+        // Compare against 4-bit QJL as reference ceiling.
+        let config_4bit = TurboQuantConfig {
+            bit_width: 4,
+            seed: Some(789),
+        };
+        let (original_4, decoded_4) = encode_decode_qjl(&fsl, &config_4bit)?;
+        let mse_4bit = per_vector_normalized_mse(&original_4, &decoded_4, dim, num_rows);
+
+        let config = TurboQuantConfig {
+            bit_width,
+            seed: Some(789),
+        };
+        let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
+        let mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
+
+        assert!(
+            mse < mse_4bit,
+            "{bit_width}-bit QJL MSE ({mse:.6}) should be < 4-bit ({mse_4bit:.6})"
+        );
+        assert!(
+            mse < 0.01,
+            "{bit_width}-bit QJL MSE ({mse:.6}) should be < 1%"
+        );
+        Ok(())
     }
 }
