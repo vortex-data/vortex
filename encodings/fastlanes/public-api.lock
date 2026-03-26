@@ -234,8 +234,6 @@ pub fn vortex_fastlanes::BitPackedArray::unpacked_chunks<T: vortex_fastlanes::un
 
 impl vortex_fastlanes::BitPackedArray
 
-pub fn vortex_fastlanes::BitPackedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
-
 pub fn vortex_fastlanes::BitPackedArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_fastlanes::BitPackedArray
@@ -384,8 +382,6 @@ pub fn vortex_fastlanes::DeltaArray::try_new(bases: vortex_array::array::ArrayRe
 
 impl vortex_fastlanes::DeltaArray
 
-pub fn vortex_fastlanes::DeltaArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
-
 pub fn vortex_fastlanes::DeltaArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_fastlanes::DeltaArray
@@ -526,8 +522,6 @@ pub fn vortex_fastlanes::FoRArray::try_new(encoded: vortex_array::array::ArrayRe
 
 impl vortex_fastlanes::FoRArray
 
-pub fn vortex_fastlanes::FoRArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
-
 pub fn vortex_fastlanes::FoRArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_fastlanes::FoRArray
@@ -665,8 +659,6 @@ impl vortex_fastlanes::RLEArray
 pub fn vortex_fastlanes::RLEArray::encode(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<Self>
 
 impl vortex_fastlanes::RLEArray
-
-pub fn vortex_fastlanes::RLEArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
 
 pub fn vortex_fastlanes::RLEArray::to_array(&self) -> vortex_array::array::ArrayRef
 

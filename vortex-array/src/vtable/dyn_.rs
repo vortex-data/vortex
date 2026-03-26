@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -11,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionResult;
@@ -222,50 +220,31 @@ impl<V: VTable> DynVTable for V {
 }
 
 /// Borrow-downcast an `ArrayRef` to `&V::Array`.
-///
-/// Tries `Array<V>` (new path) first, then falls back to `ArrayAdapter<V>` (legacy path).
 fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
-    // New path: Array<V>
-    if let Some(typed) = array.as_any().downcast_ref::<Array<V>>() {
-        return typed.inner();
-    }
-    // Legacy path: ArrayAdapter<V>
     array
         .as_any()
-        .downcast_ref::<ArrayAdapter<V>>()
+        .downcast_ref::<Array<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
-        .as_inner()
+        .inner()
 }
 
-/// Downcast an `ArrayRef` into an `Arc<V::Array>` without cloning.
-///
-/// Tries `Array<V>` (new path) first, then falls back to `ArrayAdapter<V>` (legacy path).
+/// Downcast an `ArrayRef` into an `Arc<V::Array>`.
 fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
-    // Try new path: Array<V>
     let any_arc = array.as_any_arc();
-    if let Ok(typed) = any_arc.clone().downcast::<Array<V>>() {
-        // Need to clone the inner array since Array<V> owns it alongside the vtable.
-        return Arc::new(match Arc::try_unwrap(typed) {
-            Ok(array) => array.into_inner(),
-            Err(arc) => arc.inner().clone(),
-        });
-    }
-    // Legacy path: ArrayAdapter<V> — zero-cost via #[repr(transparent)]
-    let adapter: Arc<ArrayAdapter<V>> = any_arc
-        .downcast::<ArrayAdapter<V>>()
+    let typed: Arc<Array<V>> = any_arc
+        .downcast::<Array<V>>()
         .ok()
         .vortex_expect("Failed to downcast array to expected encoding type");
-    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
-    // so Arc<ArrayAdapter<V>> and Arc<V::Array> have identical layout.
-    unsafe { transmute::<Arc<ArrayAdapter<V>>, Arc<V::Array>>(adapter) }
+    Arc::new(match Arc::try_unwrap(typed) {
+        Ok(array) => array.into_inner(),
+        Err(arc) => arc.inner().clone(),
+    })
 }
 
-/// Upcast an `Arc<V::Array>` into an `ArrayRef` without cloning.
-///
-/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
-/// [`ArrayAdapter`]. It is the reverse of `downcast_owned`.
+/// Upcast an `Arc<V::Array>` into an `ArrayRef`.
 pub(crate) fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
-    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
-    // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
-    unsafe { transmute::<Arc<V::Array>, Arc<ArrayAdapter<V>>>(array) }
+    match Arc::try_unwrap(array) {
+        Ok(inner) => inner.into_array(),
+        Err(arc) => (*arc).clone().into_array(),
+    }
 }

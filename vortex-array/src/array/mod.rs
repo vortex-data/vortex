@@ -308,28 +308,18 @@ impl dyn DynArray + '_ {
     }
 
     /// Returns the array downcast to the given `V::Array` as an owned object.
-    ///
-    /// Tries `Array<V>` (new path) first, then falls back to `ArrayAdapter<V>` (legacy).
     pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<V::Array, Arc<Self>> {
         if !self.is::<V>() {
             return Err(self);
         }
         let any_arc = self.as_any_arc();
-        // Try new path: Array<V>
-        if let Ok(typed) = any_arc.clone().downcast::<Array<V>>() {
-            return Ok(match Arc::try_unwrap(typed) {
-                Ok(array) => array.into_inner(),
-                Err(arc) => arc.deref().inner().clone(),
-            });
-        }
-        // Legacy path: ArrayAdapter<V>
-        let arc = any_arc
-            .downcast::<ArrayAdapter<V>>()
+        let typed: Arc<Array<V>> = any_arc
+            .downcast::<Array<V>>()
             .map_err(|_| vortex_err!("failed to downcast"))
             .vortex_expect("Failed to downcast");
-        Ok(match Arc::try_unwrap(arc) {
+        Ok(match Arc::try_unwrap(typed) {
             Ok(array) => array.into_inner(),
-            Err(arc) => arc.deref().as_inner().clone(),
+            Err(arc) => arc.deref().inner().clone(),
         })
     }
 
@@ -827,7 +817,7 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
     }
 
     fn to_array(&self) -> ArrayRef {
-        Arc::new(ArrayAdapter::<V>(self.0.clone()))
+        self.0.clone().into_array()
     }
 
     fn len(&self) -> usize {
