@@ -298,7 +298,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 if let Some(tq_config) = &self.turboquant_config
                     && is_tensor_extension(&ext_array)
                 {
-                    return compress_turboquant(self, &ext_array, tq_config);
+                    return compress_turboquant(&ext_array, tq_config);
                 }
 
                 // Compress the underlying storage array.
