@@ -176,7 +176,6 @@ mod tests {
     use vortex::array::dtype::NativePType;
     use vortex::array::session::ArraySession;
     use vortex::array::validity::Validity::NonNullable;
-    use vortex::array::vtable::VTable;
     use vortex::buffer::Buffer;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
