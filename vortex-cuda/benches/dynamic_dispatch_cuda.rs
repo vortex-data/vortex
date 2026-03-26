@@ -59,7 +59,7 @@ fn run_timed(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
     output_buf: &CudaDeviceBuffer,
-    device_plan: &Arc<cudarc::driver::CudaSlice<CudaDispatchPlan>>,
+    device_plan: &Arc<cudarc::driver::CudaSlice<u8>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[PType::U32])?;
@@ -115,8 +115,7 @@ struct BenchRunner {
     _plan: CudaDispatchPlan,
     smem_bytes: u32,
     len: usize,
-    // Keep alive
-    device_plan: Arc<cudarc::driver::CudaSlice<CudaDispatchPlan>>,
+    device_plan: Arc<cudarc::driver::CudaSlice<u8>>,
     output_buf: CudaDeviceBuffer,
     _plan_buffers: Vec<vortex::array::buffer::BufferHandle>,
 }
@@ -134,7 +133,7 @@ impl BenchRunner {
         let device_plan = Arc::new(
             cuda_ctx
                 .stream()
-                .clone_htod(std::slice::from_ref(&dispatch_plan))
+                .clone_htod(dispatch_plan.as_bytes())
                 .expect("htod plan"),
         );
 
