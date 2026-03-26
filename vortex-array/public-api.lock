@@ -20702,7 +20702,7 @@ pub fn vortex_array::vtable::Array<V>::is_empty(&self) -> bool
 
 pub fn vortex_array::vtable::Array<V>::len(&self) -> usize
 
-pub fn vortex_array::vtable::Array<V>::new(vtable: V, dtype: vortex_array::dtype::DType, len: usize, array: <V as vortex_array::vtable::VTable>::Array, stats: vortex_array::stats::ArrayStats) -> Self
+pub unsafe fn vortex_array::vtable::Array<V>::new_unchecked(vtable: V, dtype: vortex_array::dtype::DType, len: usize, array: <V as vortex_array::vtable::VTable>::Array, stats: vortex_array::stats::ArrayStats) -> Self
 
 pub fn vortex_array::vtable::Array<V>::statistics(&self) -> vortex_array::stats::StatsSetRef<'_>
 
