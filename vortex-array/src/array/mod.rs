@@ -403,9 +403,8 @@ mod private {
 
 /// DynArray implementation for [`Array<V>`].
 ///
-/// Identity methods (as_any, to_array, vtable, encoding_id) use the `Array<V>` wrapper.
-/// All other methods delegate to the inner `V::Array`'s DynArray impl (accessed through
-/// its `Deref<Target = dyn DynArray>` provided by the `vtable!` macro).
+/// This is self-contained: identity methods use `Array<V>`'s own fields (dtype, len, stats),
+/// while data-access methods delegate to VTable methods on the inner `V::Array`.
 impl<V: VTable> DynArray for Array<V> {
     fn as_any(&self) -> &dyn Any {
         self
@@ -420,11 +419,11 @@ impl<V: VTable> DynArray for Array<V> {
     }
 
     fn len(&self) -> usize {
-        V::len(&self.array)
+        self.len
     }
 
     fn dtype(&self) -> &DType {
-        V::dtype(&self.array)
+        &self.dtype
     }
 
     fn vtable(&self) -> &dyn DynVTable {
@@ -436,56 +435,169 @@ impl<V: VTable> DynArray for Array<V> {
     }
 
     fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
-        // Delegate to inner's DynArray impl (through V::Array's Deref to dyn DynArray).
-        DynArray::slice(&*self.array, range)
+        let start = range.start;
+        let stop = range.end;
+
+        if start == 0 && stop == self.len {
+            return Ok(self.to_array());
+        }
+
+        vortex_ensure!(
+            start <= self.len,
+            "OutOfBounds: start {start} > length {}",
+            self.len
+        );
+        vortex_ensure!(
+            stop <= self.len,
+            "OutOfBounds: stop {stop} > length {}",
+            self.len
+        );
+
+        vortex_ensure!(start <= stop, "start ({start}) must be <= stop ({stop})");
+
+        if start == stop {
+            return Ok(Canonical::empty(&self.dtype).into_array());
+        }
+
+        let sliced = SliceArray::try_new(self.to_array(), range)?
+            .into_array()
+            .optimize()?;
+
+        // Propagate some stats from the original array to the sliced array.
+        if !sliced.is::<Constant>() {
+            self.statistics().with_iter(|iter| {
+                sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                    matches!(
+                        stat,
+                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                    ) && value.as_ref().as_exact().is_some_and(|v| {
+                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
+                            .vortex_expect("A stat that was expected to be a boolean stat was not")
+                            .as_bool()
+                            .value()
+                            .unwrap_or_default()
+                    })
+                }));
+            });
+        }
+
+        Ok(sliced)
     }
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        DynArray::filter(&*self.array, mask)
+        FilterArray::try_new(self.to_array(), mask)?
+            .into_array()
+            .optimize()
     }
 
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DynArray::take(&*self.array, indices)
+        DictArray::try_new(indices, self.to_array())?
+            .into_array()
+            .optimize()
     }
 
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        DynArray::scalar_at(&*self.array, index)
+        vortex_ensure!(index < self.len, OutOfBounds: index, 0, self.len);
+        if self.is_invalid(index)? {
+            return Ok(Scalar::null(self.dtype.clone()));
+        }
+        let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.array, index)?;
+        vortex_ensure!(&self.dtype == scalar.dtype(), "Scalar dtype mismatch");
+        Ok(scalar)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        DynArray::is_valid(&*self.array, index)
+        vortex_ensure!(index < self.len, OutOfBounds: index, 0, self.len);
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(true),
+            Validity::AllInvalid => Ok(false),
+            Validity::Array(a) => a
+                .scalar_at(index)?
+                .as_bool()
+                .value()
+                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
+        }
     }
 
     fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        DynArray::is_invalid(&*self.array, index)
+        Ok(!self.is_valid(index)?)
     }
 
     fn all_valid(&self) -> VortexResult<bool> {
-        DynArray::all_valid(&*self.array)
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(true),
+            Validity::AllInvalid => Ok(false),
+            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>().unwrap_or(false)),
+        }
     }
 
     fn all_invalid(&self) -> VortexResult<bool> {
-        DynArray::all_invalid(&*self.array)
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(false),
+            Validity::AllInvalid => Ok(true),
+            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>().unwrap_or(true)),
+        }
     }
 
     fn valid_count(&self) -> VortexResult<usize> {
-        DynArray::valid_count(&*self.array)
+        if let Some(Precision::Exact(invalid_count)) =
+            self.statistics().get_as::<usize>(Stat::NullCount)
+        {
+            return Ok(self.len - invalid_count);
+        }
+
+        let count = match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => self.len,
+            Validity::AllInvalid => 0,
+            Validity::Array(a) => {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let array_sum = sum(&a, &mut ctx)?;
+                array_sum
+                    .as_primitive()
+                    .as_::<usize>()
+                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
+            }
+        };
+        vortex_ensure!(count <= self.len, "Valid count exceeds array length");
+
+        self.statistics()
+            .set(Stat::NullCount, Precision::exact(self.len - count));
+
+        Ok(count)
     }
 
     fn invalid_count(&self) -> VortexResult<usize> {
-        DynArray::invalid_count(&*self.array)
+        Ok(self.len - self.valid_count()?)
     }
 
     fn validity(&self) -> VortexResult<Validity> {
-        DynArray::validity(&*self.array)
+        if self.dtype.is_nullable() {
+            let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(&self.array)?;
+            if let Validity::Array(array) = &validity {
+                vortex_ensure!(array.len() == self.len, "Validity array length mismatch");
+                vortex_ensure!(
+                    matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
+                    "Validity array is not non-nullable boolean: {}",
+                    self.typed_vtable().id(),
+                );
+            }
+            Ok(validity)
+        } else {
+            Ok(Validity::NonNullable)
+        }
     }
 
     fn validity_mask(&self) -> VortexResult<Mask> {
-        DynArray::validity_mask(&*self.array)
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len)),
+            Validity::AllInvalid => Ok(Mask::new_false(self.len)),
+            Validity::Array(a) => Ok(a.to_bool().to_mask()),
+        }
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        DynArray::to_canonical(&*self.array)
+        self.to_array()
+            .execute(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
     fn append_to_builder(
@@ -493,23 +605,47 @@ impl<V: VTable> DynArray for Array<V> {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        DynArray::append_to_builder(&*self.array, builder, ctx)
+        if builder.dtype() != &self.dtype {
+            vortex_panic!(
+                "Builder dtype mismatch: expected {}, got {}",
+                self.dtype,
+                builder.dtype(),
+            );
+        }
+        let len = builder.len();
+
+        V::append_to_builder(&self.array, builder, ctx)?;
+
+        assert_eq!(
+            len + self.len,
+            builder.len(),
+            "Builder length mismatch after writing array for encoding {}",
+            self.typed_vtable().id(),
+        );
+        Ok(())
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
-        V::stats(&self.array)
+        self.stats.to_ref(self)
     }
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         let mut inner = self.array.clone();
         V::with_children(&mut inner, children)?;
-        Ok(Array::new(self.typed_vtable().clone(), inner).into_array())
+        Ok(Array::new(
+            self.typed_vtable().clone(),
+            self.dtype.clone(),
+            self.len,
+            inner,
+            self.stats.clone(),
+        )
+        .into_array())
     }
 }
 
 impl<V: VTable> ArrayHash for Array<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
-        self.encoding_id().hash(state);
+        self.typed_vtable().id().hash(state);
         V::array_hash(&self.array, state, precision);
     }
 }
@@ -604,7 +740,7 @@ impl<V: VTable> ReduceNode for Array<V> {
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(V::dtype(&self.array).clone())
+        Ok(self.dtype.clone())
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {

@@ -109,9 +109,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn child_name(array: &Self::Array, idx: usize) -> String;
 
     /// Exports metadata for an array.
-    ///
-    /// * If the array does not contain metadata, it should return
-    ///   [`crate::metadata::EmptyMetadata`].
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata>;
 
     /// Serialize metadata into a byte buffer for IPC or file storage.
@@ -119,10 +116,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>>;
 
     /// Deserialize array metadata from a byte buffer.
-    ///
-    /// To reduce the serialized form, arrays do not store their own DType and length. Instead,
-    /// this is passed down from the parent array during deserialization. These properties are
-    /// exposed here for use during deserialization.
     fn deserialize(
         bytes: &[u8],
         _dtype: &DType,
@@ -132,9 +125,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ) -> VortexResult<Self::Metadata>;
 
     /// Writes the array into a canonical builder.
-    ///
-    /// ## Post-conditions
-    /// - The length of the builder is incremented by the length of the input array.
     fn append_to_builder(
         array: &Self::Array,
         builder: &mut dyn ArrayBuilder,
@@ -146,37 +136,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Build an array from components.
-    ///
-    /// This is called on the file and IPC deserialization pathways, to reconstruct the array from
-    /// type-erased components.
-    ///
-    /// Encoding implementers should take note that all validation necessary to ensure the encoding
-    /// is safe to read should happen inside of this method.
-    ///
-    /// # Safety and correctness
-    ///
-    /// This method should *never* panic, it must always return an error or else it returns a
-    /// valid `Array` that meets all the encoding's preconditions.
-    ///
-    /// For example, the `build` implementation for a dictionary encoding should ensure that all
-    /// codes lie in the valid range. For a UTF-8 array, it should check the bytes to ensure they
-    /// are all valid string data bytes. Any corrupt files or malformed data buffers should be
-    /// caught here, before returning the deserialized array.
-    ///
-    /// # Validation
-    ///
-    /// Validation is mainly meant to ensure that all internal pointers in the encoding reference
-    /// valid ranges of data, and that all data conforms to its DType constraints. These ensure
-    /// that no array operations will panic at runtime, or yield undefined behavior when unsafe
-    /// operations like `get_unchecked` use indices in the array buffer.
-    ///
-    /// Examples of the kinds of validation that should be part of the `build` step:
-    ///
-    /// * Checking that any offsets buffers point to valid offsets in some other child array
-    /// * Checking that any buffers for data or validity have the appropriate size for the
-    ///   encoding
-    /// * Running UTF-8 validation for any buffers that are expected to hold flat UTF-8 data
-    // TODO(ngates): take the parts by ownership, since most arrays need them anyway
     fn build(
         dtype: &DType,
         len: usize,
@@ -185,35 +144,13 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
-    /// Replaces the children in `array` with `children`. The count must be the same and types
-    /// of children must be expected.
+    /// Replaces the children in `array` with `children`.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array by returning an [`ExecutionResult`] that tells the scheduler what to
-    /// do next.
-    ///
-    /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionResult::execute_child`] to request that the scheduler execute a child first,
-    /// or [`ExecutionResult::done`] when the encoding can produce a result directly.
-    ///
-    /// Array execution is designed such that repeated execution of an array will eventually
-    /// converge to a canonical representation. Implementations of this function should therefore
-    /// ensure they make progress towards that goal.
-    ///
-    /// The returned array (in `Done`) must be logically equivalent to the input array. In other
-    /// words, the recursively canonicalized forms of both arrays must be equal.
-    ///
-    /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
-    /// incorrectly contains null values.
+    /// Execute this array by returning an [`ExecutionResult`].
     fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
-    ///
-    /// This function allows arrays to plug in specialized execution logic for their parent. For
-    /// example, strings compressed as FSST arrays can implement a custom equality comparison when
-    /// the comparing against a scalar string.
-    ///
-    /// Returns `Ok(None)` if no specialized execution is possible.
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -224,20 +161,13 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         Ok(None)
     }
 
-    /// Attempt to reduce the array to a more simple representation.
-    ///
-    /// Returns `Ok(None)` if no reduction is possible.
+    /// Attempt to reduce the array to a simpler representation.
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         _ = array;
         Ok(None)
     }
 
     /// Attempt to perform a reduction of the parent of this array.
-    ///
-    /// This function allows arrays to plug in reduction rules to their parents, for example
-    /// run-end arrays can pull-down scalar functions and apply them only over their values.
-    ///
-    /// Returns `Ok(None)` if no reduction is possible.
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -248,14 +178,13 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 }
 
+/// Alias for migration — downstream code can start using `ArrayVTable`.
+pub use VTable as ArrayVTable;
+
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.
 pub struct NotSupported;
 
 /// Returns the validity as a child array if it produces one.
-///
-/// - `NonNullable` and `AllValid` produce no child (returns `None`)
-/// - `AllInvalid` produces a `ConstantArray` of `false` values
-/// - `Array` returns the validity array
 #[inline]
 pub fn validity_to_child(validity: &Validity, len: usize) -> Option<ArrayRef> {
     match validity {
@@ -281,8 +210,6 @@ pub fn patches_nchildren(patches: &Patches) -> usize {
 }
 
 /// Returns the child at the given index within a patches component.
-///
-/// Index 0 = patch_indices, 1 = patch_values, 2 = patch_chunk_offsets (if present).
 #[inline]
 pub fn patches_child(patches: &Patches, idx: usize) -> ArrayRef {
     match idx {
@@ -308,10 +235,10 @@ pub fn patches_child_name(idx: usize) -> &'static str {
     }
 }
 
-/// Alias for migration — downstream code can start using `ArrayVTable` while `VTable` remains
-/// the canonical name until Phase 1b renames it.
-pub use VTable as ArrayVTable;
-
+/// vtable! macro — generates IntoArray, From, Deref, AsRef for inner array types.
+///
+/// During the migration, IntoArray creates [`Array<V>`] (the new typed wrapper) while
+/// Deref/AsRef go through [`ArrayAdapter`] for backward-compatible DynArray access.
 #[macro_export]
 macro_rules! vtable {
     ($V:ident) => {
@@ -337,8 +264,12 @@ macro_rules! vtable {
 
             impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
-                    // We can unsafe transmute ourselves to an ArrayAdapter.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$Base Array>], $crate::ArrayAdapter::<$VT>>(self) })
+                    use $crate::vtable::VTable;
+                    let vtable = $VT::vtable(&self).clone();
+                    let dtype = $VT::dtype(&self).clone();
+                    let len = $VT::len(&self);
+                    let stats = $VT::stats(&self).to_array_stats();
+                    std::sync::Arc::new($crate::vtable::Array::new(vtable, dtype, len, self, stats))
                 }
             }
 

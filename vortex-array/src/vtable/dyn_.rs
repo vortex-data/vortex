@@ -21,6 +21,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 use crate::vtable::Array;
 use crate::vtable::VTable;
 
@@ -92,10 +93,21 @@ impl<V: VTable> DynVTable for V {
     ) -> VortexResult<ArrayRef> {
         let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
         let inner = V::build(dtype, len, &metadata, buffers, children)?;
-        // Wrap in Array<V> for safe downcasting (new path).
-        let array = Array::new(self.clone(), inner);
-        assert_eq!(array.len(), len, "Array length mismatch after building");
-        assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
+        // Validate the inner array's properties before wrapping.
+        assert_eq!(V::len(&inner), len, "Array length mismatch after building");
+        assert_eq!(
+            V::dtype(&inner),
+            dtype,
+            "Array dtype mismatch after building"
+        );
+        // Wrap in Array<V> for safe downcasting.
+        let array = Array::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            inner,
+            ArrayStats::default(),
+        );
         Ok(array.into_array())
     }
 
