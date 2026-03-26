@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
@@ -14,7 +15,11 @@ use crate::RunEnd;
 use crate::RunEndArray;
 
 impl OperationsVTable<RunEnd> for RunEnd {
-    fn scalar_at(array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &RunEndArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         array.values().scalar_at(array.find_physical_index(index)?)
     }
 }

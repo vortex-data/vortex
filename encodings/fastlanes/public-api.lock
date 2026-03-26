@@ -176,9 +176,9 @@ pub fn vortex_fastlanes::BitPacked::deserialize(bytes: &[u8], _dtype: &vortex_ar
 
 pub fn vortex_fastlanes::BitPacked::dtype(array: &vortex_fastlanes::BitPackedArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_fastlanes::BitPacked::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_fastlanes::BitPacked::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_fastlanes::BitPacked::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::BitPacked::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::BitPacked::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -190,7 +190,7 @@ pub fn vortex_fastlanes::BitPacked::nbuffers(_array: &vortex_fastlanes::BitPacke
 
 pub fn vortex_fastlanes::BitPacked::nchildren(array: &vortex_fastlanes::BitPackedArray) -> usize
 
-pub fn vortex_fastlanes::BitPacked::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::BitPacked::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::BitPacked::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -202,7 +202,7 @@ pub fn vortex_fastlanes::BitPacked::with_children(array: &mut Self::Array, child
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::BitPacked> for vortex_fastlanes::BitPacked
 
-pub fn vortex_fastlanes::BitPacked::scalar_at(array: &vortex_fastlanes::BitPackedArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fastlanes::BitPacked::scalar_at(array: &vortex_fastlanes::BitPackedArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub struct vortex_fastlanes::BitPackedArray
 
@@ -233,8 +233,6 @@ pub fn vortex_fastlanes::BitPackedArray::try_new(packed: vortex_array::buffer::B
 pub fn vortex_fastlanes::BitPackedArray::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>
 
 impl vortex_fastlanes::BitPackedArray
-
-pub fn vortex_fastlanes::BitPackedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
 
 pub fn vortex_fastlanes::BitPackedArray::to_array(&self) -> vortex_array::array::ArrayRef
 
@@ -332,7 +330,7 @@ pub fn vortex_fastlanes::Delta::deserialize(bytes: &[u8], _dtype: &vortex_array:
 
 pub fn vortex_fastlanes::Delta::dtype(array: &vortex_fastlanes::DeltaArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_fastlanes::Delta::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_fastlanes::Delta::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_fastlanes::Delta::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -344,7 +342,7 @@ pub fn vortex_fastlanes::Delta::nbuffers(_array: &vortex_fastlanes::DeltaArray) 
 
 pub fn vortex_fastlanes::Delta::nchildren(_array: &vortex_fastlanes::DeltaArray) -> usize
 
-pub fn vortex_fastlanes::Delta::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::Delta::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::Delta::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -356,7 +354,7 @@ pub fn vortex_fastlanes::Delta::with_children(array: &mut Self::Array, children:
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::Delta> for vortex_fastlanes::Delta
 
-pub fn vortex_fastlanes::Delta::scalar_at(array: &vortex_fastlanes::DeltaArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fastlanes::Delta::scalar_at(array: &vortex_fastlanes::DeltaArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_fastlanes::Delta> for vortex_fastlanes::Delta
 
@@ -383,8 +381,6 @@ pub fn vortex_fastlanes::DeltaArray::try_from_primitive_array(array: &vortex_arr
 pub fn vortex_fastlanes::DeltaArray::try_new(bases: vortex_array::array::ArrayRef, deltas: vortex_array::array::ArrayRef, offset: usize, len: usize) -> vortex_error::VortexResult<Self>
 
 impl vortex_fastlanes::DeltaArray
-
-pub fn vortex_fastlanes::DeltaArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
 
 pub fn vortex_fastlanes::DeltaArray::to_array(&self) -> vortex_array::array::ArrayRef
 
@@ -476,9 +472,9 @@ pub fn vortex_fastlanes::FoR::deserialize(bytes: &[u8], dtype: &vortex_array::dt
 
 pub fn vortex_fastlanes::FoR::dtype(array: &vortex_fastlanes::FoRArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_fastlanes::FoR::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_fastlanes::FoR::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_fastlanes::FoR::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::FoR::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::FoR::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -490,7 +486,7 @@ pub fn vortex_fastlanes::FoR::nbuffers(_array: &vortex_fastlanes::FoRArray) -> u
 
 pub fn vortex_fastlanes::FoR::nchildren(_array: &vortex_fastlanes::FoRArray) -> usize
 
-pub fn vortex_fastlanes::FoR::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::FoR::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::FoR::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -502,7 +498,7 @@ pub fn vortex_fastlanes::FoR::with_children(array: &mut Self::Array, children: a
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::FoR> for vortex_fastlanes::FoR
 
-pub fn vortex_fastlanes::FoR::scalar_at(array: &vortex_fastlanes::FoRArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fastlanes::FoR::scalar_at(array: &vortex_fastlanes::FoRArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_fastlanes::FoR> for vortex_fastlanes::FoR
 
@@ -525,8 +521,6 @@ pub fn vortex_fastlanes::FoRArray::reference_scalar(&self) -> &vortex_array::sca
 pub fn vortex_fastlanes::FoRArray::try_new(encoded: vortex_array::array::ArrayRef, reference: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
 
 impl vortex_fastlanes::FoRArray
-
-pub fn vortex_fastlanes::FoRArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
 
 pub fn vortex_fastlanes::FoRArray::to_array(&self) -> vortex_array::array::ArrayRef
 
@@ -606,9 +600,9 @@ pub fn vortex_fastlanes::RLE::deserialize(bytes: &[u8], _dtype: &vortex_array::d
 
 pub fn vortex_fastlanes::RLE::dtype(array: &vortex_fastlanes::RLEArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_fastlanes::RLE::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_fastlanes::RLE::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_fastlanes::RLE::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::RLE::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::RLE::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -620,7 +614,7 @@ pub fn vortex_fastlanes::RLE::nbuffers(_array: &vortex_fastlanes::RLEArray) -> u
 
 pub fn vortex_fastlanes::RLE::nchildren(_array: &vortex_fastlanes::RLEArray) -> usize
 
-pub fn vortex_fastlanes::RLE::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::RLE::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fastlanes::RLE::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -632,7 +626,7 @@ pub fn vortex_fastlanes::RLE::with_children(array: &mut Self::Array, children: a
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::RLE> for vortex_fastlanes::RLE
 
-pub fn vortex_fastlanes::RLE::scalar_at(array: &vortex_fastlanes::RLEArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fastlanes::RLE::scalar_at(array: &vortex_fastlanes::RLEArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_fastlanes::RLE> for vortex_fastlanes::RLE
 
@@ -665,8 +659,6 @@ impl vortex_fastlanes::RLEArray
 pub fn vortex_fastlanes::RLEArray::encode(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<Self>
 
 impl vortex_fastlanes::RLEArray
-
-pub fn vortex_fastlanes::RLEArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
 
 pub fn vortex_fastlanes::RLEArray::to_array(&self) -> vortex_array::array::ArrayRef
 

@@ -21,6 +21,7 @@ use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
+use vortex::array::vtable::Array;
 use vortex::array::vtable::VTable;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPRD;
@@ -251,10 +252,12 @@ pub trait AsArrayRef<T> {
 
 impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_, V> {
     fn as_array_ref(&self) -> &<V::VTable as VTable>::Array {
-        self.as_super()
-            .inner()
-            .as_any()
-            .downcast_ref::<ArrayAdapter<V::VTable>>()
+        let any = self.as_super().inner().as_any();
+        // Try new Array<V> path first, then fall back to legacy ArrayAdapter<V>.
+        if let Some(typed) = any.downcast_ref::<Array<V::VTable>>() {
+            return typed.inner();
+        }
+        any.downcast_ref::<ArrayAdapter<V::VTable>>()
             .vortex_expect("Failed to downcast array")
             .as_inner()
     }

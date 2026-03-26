@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -21,6 +23,7 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
@@ -31,7 +34,6 @@ mod operations;
 mod validity;
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use crate::Precision;
 use crate::arrays::bool::compute::rules::RULES;
@@ -189,12 +191,12 @@ impl VTable for Bool {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done_upcast::<Self>(array))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -203,7 +205,7 @@ impl VTable for Bool {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

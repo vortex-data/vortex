@@ -18,6 +18,7 @@ use vortex::array::serde::ArrayChildren;
 use vortex::array::stats::StatsSetRef;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
+use vortex::array::vtable::Array;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
@@ -161,13 +162,17 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(_array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         todo!()
     }
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        _array: &PythonArray,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         todo!()
     }
 }

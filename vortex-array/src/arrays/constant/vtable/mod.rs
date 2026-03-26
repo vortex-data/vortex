@@ -37,6 +37,7 @@ use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
@@ -176,14 +177,14 @@ impl VTable for Constant {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             constant_canonicalize(&array)?.into_array(),
         ))

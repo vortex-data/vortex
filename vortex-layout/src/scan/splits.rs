@@ -4,8 +4,9 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use crate::IDEAL_SPLIT_SIZE;
-use crate::selection::Selection;
+use vortex_scan::selection::Selection;
+
+use crate::scan::IDEAL_SPLIT_SIZE;
 
 /// The maximum number of rows in a single range. This is somewhat arbitrarily chosen.
 const MAX_RANGE_SIZE: u64 = IDEAL_SPLIT_SIZE / 25;
@@ -14,7 +15,7 @@ const MAX_RANGE_SIZE: u64 = IDEAL_SPLIT_SIZE / 25;
 const MIN_GAP_BETWEEN_RANGES: u64 = IDEAL_SPLIT_SIZE / 2;
 
 /// The way in which we compute splits for a file.
-pub(super) enum Splits {
+pub enum Splits {
     /// Natural splits computed by the layout reader (e.g., computing splits across different-sized
     /// column chunks).
     Natural(BTreeSet<u64>),
@@ -27,7 +28,7 @@ pub(super) enum Splits {
 }
 
 /// Attempts to compute split ranges from the given selection.
-pub(super) fn attempt_split_ranges(
+pub fn attempt_split_ranges(
     selection: &Selection,
     row_range: Option<&Range<u64>>,
 ) -> Option<Vec<Range<u64>>> {

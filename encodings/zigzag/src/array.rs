@@ -22,6 +22,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -154,14 +155,14 @@ impl VTable for ZigZag {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
         ))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -169,7 +170,7 @@ impl VTable for ZigZag {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -223,7 +224,11 @@ impl ZigZagArray {
 }
 
 impl OperationsVTable<ZigZag> for ZigZag {
-    fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &ZigZagArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
             return scalar.primitive_reinterpret_cast(array.ptype());

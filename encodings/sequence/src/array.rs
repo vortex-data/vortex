@@ -32,6 +32,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -386,12 +387,12 @@ impl VTable for Sequence {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         sequence_decompress(&array).map(ExecutionResult::done)
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -400,7 +401,7 @@ impl VTable for Sequence {
     }
 
     fn reduce_parent(
-        array: &SequenceArray,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -409,7 +410,11 @@ impl VTable for Sequence {
 }
 
 impl OperationsVTable<Sequence> for Sequence {
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SequenceArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Scalar::try_new(
             array.dtype().clone(),
             Some(ScalarValue::Primitive(array.index_value(index))),

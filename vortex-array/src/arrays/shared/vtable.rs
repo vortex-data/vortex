@@ -24,6 +24,7 @@ use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -150,14 +151,18 @@ impl VTable for Shared {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
             .map(ExecutionResult::done)
     }
 }
 impl OperationsVTable<Shared> for Shared {
-    fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SharedArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         array.current_array_ref().scalar_at(index)
     }
 }

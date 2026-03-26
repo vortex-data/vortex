@@ -33,6 +33,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -160,7 +161,7 @@ impl VTable for Slice {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it
         let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
             // If the child is not canonical, recurse.
@@ -180,7 +181,7 @@ impl VTable for Slice {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -188,7 +189,11 @@ impl VTable for Slice {
     }
 }
 impl OperationsVTable<Slice> for Slice {
-    fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SliceArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         array.child.scalar_at(array.range.start + index)
     }
 }

@@ -34,6 +34,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -166,7 +167,7 @@ impl VTable for Masked {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
@@ -190,7 +191,7 @@ impl VTable for Masked {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

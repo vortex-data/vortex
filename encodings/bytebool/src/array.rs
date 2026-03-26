@@ -22,6 +22,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -181,14 +182,14 @@ impl VTable for ByteBool {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
         Ok(ExecutionResult::done(
@@ -197,7 +198,7 @@ impl VTable for ByteBool {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -266,7 +267,11 @@ impl ValidityHelper for ByteBoolArray {
 }
 
 impl OperationsVTable<ByteBool> for ByteBool {
-    fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &ByteBoolArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             array.buffer.as_host()[index] == 1,
             array.dtype().nullability(),

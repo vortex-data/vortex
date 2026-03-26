@@ -21,6 +21,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -471,7 +472,7 @@ impl VTable for ZstdBuffers {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
         inner_array
@@ -481,7 +482,11 @@ impl VTable for ZstdBuffers {
 }
 
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
-    fn scalar_at(array: &ZstdBuffersArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &ZstdBuffersArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical

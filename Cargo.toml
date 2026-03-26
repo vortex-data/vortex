@@ -88,16 +88,16 @@ arbitrary = "1.3.2"
 arc-swap = "1.8"
 arcref = "0.2.0"
 arrayref = "0.3.7"
-arrow-arith = "57.1"
-arrow-array = "57.1"
-arrow-buffer = "57.1"
-arrow-cast = "57.1"
-arrow-data = "57.1"
-arrow-ipc = "57.1"
-arrow-ord = "57.1"
-arrow-schema = "57.1"
-arrow-select = "57.1"
-arrow-string = "57.1"
+arrow-arith = "58"
+arrow-array = "58"
+arrow-buffer = "58"
+arrow-cast = "58"
+arrow-data = "58"
+arrow-ipc = "58"
+arrow-ord = "58"
+arrow-schema = "58"
+arrow-select = "58"
+arrow-string = "58"
 async-fs = "2.2.0"
 async-lock = "3.4"
 async-stream = "0.3.6"
@@ -125,20 +125,20 @@ cudarc = { version = "0.18.2", features = [
 custom-labels = "0.4.4"
 daachorse = "1.0.0"
 dashmap = "6.1.0"
-datafusion = { version = "52", default-features = false, features = ["sql"] }
-datafusion-catalog = { version = "52" }
-datafusion-common = { version = "52" }
-datafusion-common-runtime = { version = "52" }
-datafusion-datasource = { version = "52", default-features = false }
-datafusion-execution = { version = "52" }
-datafusion-expr = { version = "52" }
-datafusion-functions = { version = "52" }
-datafusion-physical-expr = { version = "52" }
-datafusion-physical-expr-adapter = { version = "52" }
-datafusion-physical-expr-common = { version = "52" }
-datafusion-physical-plan = { version = "52" }
-datafusion-pruning = { version = "52" }
-datafusion-sqllogictest = { version = "52" }
+datafusion = { version = "53", default-features = false, features = ["sql"] }
+datafusion-catalog = { version = "53" }
+datafusion-common = { version = "53" }
+datafusion-common-runtime = { version = "53" }
+datafusion-datasource = { version = "53", default-features = false }
+datafusion-execution = { version = "53" }
+datafusion-expr = { version = "53" }
+datafusion-functions = { version = "53" }
+datafusion-physical-expr = { version = "53" }
+datafusion-physical-expr-adapter = { version = "53" }
+datafusion-physical-expr-common = { version = "53" }
+datafusion-physical-plan = { version = "53" }
+datafusion-pruning = { version = "53" }
+datafusion-sqllogictest = { version = "53" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
@@ -176,14 +176,14 @@ noodles-bgzf = "0.46.0"
 noodles-vcf = { version = "0.86.0", features = ["async"] }
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
-object_store = { version = "0.12.4", default-features = false }
+object_store = { version = "0.13.1", default-features = false }
 once_cell = "1.21"
 oneshot = { version = "0.2.0", features = ["async"] }
 opentelemetry = "0.31.0"
 opentelemetry-otlp = "0.31.0"
 opentelemetry_sdk = "0.31.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
-parquet = "57.1"
+parquet = "58"
 paste = "1.0.15"
 pco = "1.0.1"
 pin-project-lite = "0.2.15"
@@ -196,8 +196,8 @@ public-api = "0.51"
 pyo3 = { version = "0.28.0" }
 pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
-pyo3-object_store = "0.10.0"
-quote = "1.0.41"
+pyo3-object_store = "0.9.0"
+quote = "1.0.44"
 rand = "0.10.0"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
@@ -224,7 +224,7 @@ sketches-ddsketch = "0.4.0"
 smol = "2.0.2"
 static_assertions = "1.1"
 strum = "0.28"
-syn = { version = "2.0.113", features = ["full"] }
+syn = { version = "2.0.117", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.20.0", default-features = false }
 taffy = "0.9.0"
@@ -238,13 +238,14 @@ thiserror = "2.0.3"
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
-tpchgen = { version = "2.0.2" }
-tpchgen-arrow = { version = "2.0.2" }
+# Pull these into non-public crates to support DF 58
+tpchgen = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
+tpchgen-arrow = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
 tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
 url = "2.5.7"
-uuid = { version = "1.19", features = ["js"] }
+uuid = { version = "1.21", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
 xshell = "0.2.6"
 zigzag = "0.1.0"

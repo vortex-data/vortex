@@ -17,9 +17,9 @@ use vortex_error::vortex_err;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_layout::LayoutReaderRef;
-use vortex_scan::api::DataSource;
-use vortex_scan::multi::LayoutReaderFactory;
-use vortex_scan::multi::MultiLayoutDataSource;
+use vortex_layout::scan::multi::LayoutReaderFactory;
+use vortex_layout::scan::multi::MultiLayoutDataSource;
+use vortex_scan::DataSource;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;

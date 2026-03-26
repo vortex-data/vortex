@@ -21,6 +21,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
@@ -125,7 +126,7 @@ impl VTable for Delta {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -194,7 +195,7 @@ impl VTable for Delta {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             delta_decompress(&array, ctx)?.into_array(),
         ))

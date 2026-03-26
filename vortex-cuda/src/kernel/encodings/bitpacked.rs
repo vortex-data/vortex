@@ -176,7 +176,6 @@ mod tests {
     use vortex::array::dtype::NativePType;
     use vortex::array::session::ArraySession;
     use vortex::array::validity::Validity::NonNullable;
-    use vortex::array::vtable::VTable;
     use vortex::buffer::Buffer;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
@@ -521,10 +520,12 @@ mod tests {
         let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let slice_ref = bitpacked_array.clone().into_array().slice(67..3969)?;
+        let bitpacked_ref = bitpacked_array.into_array();
         let mut exec_ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
-        let sliced_array =
-            <BitPacked as VTable>::execute_parent(&bitpacked_array, &slice_ref, 0, &mut exec_ctx)?
-                .expect("expected slice kernel to execute");
+        let sliced_array = bitpacked_ref
+            .vtable()
+            .execute_parent(&bitpacked_ref, &slice_ref, 0, &mut exec_ctx)?
+            .expect("expected slice kernel to execute");
         let cpu_result = sliced_array.to_canonical()?;
         let gpu_result = block_on(async {
             BitPackedExecutor

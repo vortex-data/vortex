@@ -25,6 +25,7 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
@@ -153,7 +154,7 @@ impl VTable for Variant {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done_upcast::<Self>(array))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 }

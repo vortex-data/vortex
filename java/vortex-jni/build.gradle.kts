@@ -12,24 +12,27 @@ plugins {
 }
 
 dependencies {
-    implementation("org.apache.arrow:arrow-c-data")
-    implementation("org.apache.arrow:arrow-memory-core")
-    implementation("org.apache.arrow:arrow-memory-netty")
+    // Align Netty versions across Arrow and Spark
+    implementation(platform(libs.netty.bom))
 
-    compileOnly("org.immutables:value")
-    annotationProcessor("org.immutables:value")
+    implementation(libs.arrow.c.data)
+    implementation(libs.arrow.memory.core)
+    implementation(libs.arrow.memory.netty)
 
-    errorprone("com.google.errorprone:error_prone_core")
-    errorprone("com.jakewharton.nopen:nopen-checker")
+    compileOnly(libs.immutables.value)
+    annotationProcessor(libs.immutables.value)
 
-    implementation("com.google.guava:guava")
-    implementation("com.google.protobuf:protobuf-java")
-    compileOnly("com.google.errorprone:error_prone_annotations")
-    compileOnly("com.jakewharton.nopen:nopen-annotations")
+    errorprone(libs.errorprone.core)
+    errorprone(libs.nopen.checker)
+
+    implementation(libs.guava)
+    implementation(libs.protobuf.java)
+    compileOnly(libs.errorprone.annotations)
+    compileOnly(libs.nopen.annotations)
 
     // Logging
-    implementation("org.slf4j:slf4j-api:2.0.17")
-    testRuntimeOnly("ch.qos.logback:logback-classic:1.5.32")
+    implementation(libs.slf4j.api)
+    testRuntimeOnly(libs.logback.classic)
 }
 
 testing {
@@ -37,7 +40,7 @@ testing {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
             dependencies {
-                implementation("org.junit.jupiter:junit-jupiter-params")
+                implementation(libs.junit.jupiter.params)
             }
         }
     }
@@ -90,7 +93,7 @@ tasks.withType<Test>().all {
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:4.33.5"
+        artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
     }
 }
 
@@ -107,6 +110,7 @@ tasks.withType<ShadowJar> {
         // Note this class is not used by us, but required when loading the native lib
         exclude("org.apache.arrow.c.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
     }
+    relocate("com.fasterxml.jackson", "dev.vortex.relocated.com.fasterxml.jackson")
 }
 
 tasks.build {

@@ -40,6 +40,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -270,12 +271,12 @@ impl VTable for Pco {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array.decompress(ctx)?.into_array()))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -573,7 +574,7 @@ impl ValiditySliceHelper for PcoArray {
 }
 
 impl OperationsVTable<Pco> for Pco {
-    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &PcoArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array
             ._slice(index, index + 1)

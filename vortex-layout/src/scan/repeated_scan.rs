@@ -20,14 +20,14 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::LayoutReaderRef;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
-use crate::filter::FilterExpr;
-use crate::selection::Selection;
-use crate::splits::Splits;
-use crate::tasks::TaskContext;
-use crate::tasks::split_exec;
+use crate::LayoutReaderRef;
+use crate::scan::filter::FilterExpr;
+use crate::scan::splits::Splits;
+use crate::scan::tasks::TaskContext;
+use crate::scan::tasks::split_exec;
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
 ///
@@ -87,7 +87,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         clippy::too_many_arguments,
         reason = "all arguments are needed for scan construction"
     )]
-    pub(super) fn new(
+    pub fn new(
         session: VortexSession,
         layout_reader: LayoutReaderRef,
         projection: Expression,

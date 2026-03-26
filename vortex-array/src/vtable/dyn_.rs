@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -11,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionResult;
@@ -21,6 +19,8 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
@@ -90,9 +90,25 @@ impl<V: VTable> DynVTable for V {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
-        let array = V::build(dtype, len, &metadata, buffers, children)?;
-        assert_eq!(array.len(), len, "Array length mismatch after building");
-        assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
+        let inner = V::build(dtype, len, &metadata, buffers, children)?;
+        // Validate the inner array's properties before wrapping.
+        assert_eq!(V::len(&inner), len, "Array length mismatch after building");
+        assert_eq!(
+            V::dtype(&inner),
+            dtype,
+            "Array dtype mismatch after building"
+        );
+        // Wrap in Array<V> for safe downcasting.
+        // SAFETY: We just validated that V::len(&inner) == len and V::dtype(&inner) == dtype.
+        let array = unsafe {
+            Array::new_unchecked(
+                self.clone(),
+                dtype.clone(),
+                len,
+                inner,
+                ArrayStats::default(),
+            )
+        };
         Ok(array.into_array())
     }
 
@@ -203,35 +219,19 @@ impl<V: VTable> DynVTable for V {
     }
 }
 
-fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
+/// Borrow-downcast an `ArrayRef` to `&Array<V>`.
+fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
     array
         .as_any()
-        .downcast_ref::<ArrayAdapter<V>>()
+        .downcast_ref::<Array<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
-        .as_inner()
 }
 
-/// Downcast an `ArrayRef` into an `Arc<V::Array>` without cloning.
-///
-/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
-/// [`ArrayAdapter`].
-fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
-    let adapter: Arc<ArrayAdapter<V>> = array
-        .as_any_arc()
-        .downcast::<ArrayAdapter<V>>()
+/// Downcast an `ArrayRef` into an `Arc<Array<V>>`.
+fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<Array<V>> {
+    let any_arc = array.as_any_arc();
+    any_arc
+        .downcast::<Array<V>>()
         .ok()
-        .vortex_expect("Failed to downcast array to expected encoding type");
-    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
-    // so Arc<ArrayAdapter<V>> and Arc<V::Array> have identical layout.
-    unsafe { transmute::<Arc<ArrayAdapter<V>>, Arc<V::Array>>(adapter) }
-}
-
-/// Upcast an `Arc<V::Array>` into an `ArrayRef` without cloning.
-///
-/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
-/// [`ArrayAdapter`]. It is the reverse of `downcast_owned`.
-pub(crate) fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
-    // SAFETY: ArrayAdapter<V> is #[repr(transparent)] over V::Array,
-    // so Arc<V::Array> and Arc<ArrayAdapter<V>> have identical layout.
-    unsafe { transmute::<Arc<V::Array>, Arc<ArrayAdapter<V>>>(array) }
+        .vortex_expect("Failed to downcast array to expected encoding type")
 }

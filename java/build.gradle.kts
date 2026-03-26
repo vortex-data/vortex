@@ -5,7 +5,6 @@ import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
     id("com.diffplug.spotless") version "8.4.0"
-    id("com.palantir.consistent-versions") version "3.15.0"
     id("com.palantir.git-version") version "5.0.0"
     id("net.ltgt.errorprone") version "5.1.0" apply false
     id("com.google.protobuf") version "0.9.6" apply false
@@ -33,9 +32,9 @@ allprojects {
         apply(plugin = "net.ltgt.errorprone")
 
         dependencies {
-            "errorprone"("com.google.errorprone:error_prone_core")
-            "errorprone"("com.jakewharton.nopen:nopen-checker")
-            "compileOnly"("com.jakewharton.nopen:nopen-annotations")
+            "errorprone"("com.google.errorprone:error_prone_core:2.36.0")
+            "errorprone"("com.jakewharton.nopen:nopen-checker:1.0.1")
+            "compileOnly"("com.jakewharton.nopen:nopen-annotations:1.0.1")
         }
 
         spotless {

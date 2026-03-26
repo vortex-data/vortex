@@ -31,6 +31,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -303,9 +304,9 @@ impl VTable for ALPRD {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(Self, array, array.left_parts(), 0 => Primitive);
-        let array = require_child!(Self, array, array.right_parts(), 1 => Primitive);
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.left_parts(), 0 => Primitive);
+        let array = require_child!(array, array.right_parts(), 1 => Primitive);
 
         let right_bit_width = array.right_bit_width();
         let ALPRDArrayParts {
@@ -315,7 +316,7 @@ impl VTable for ALPRD {
             left_parts_patches,
             dtype,
             ..
-        } = Arc::unwrap_or_clone(array).into_parts();
+        } = Arc::unwrap_or_clone(array).into_inner().into_parts();
         let ptype = dtype.as_ptype();
 
         let left_parts = left_parts
@@ -362,7 +363,7 @@ impl VTable for ALPRD {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -370,7 +371,7 @@ impl VTable for ALPRD {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

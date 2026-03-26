@@ -5,17 +5,38 @@ cmake_minimum_required(VERSION 3.10)
 project(VortexFFI
     VERSION 0.0.1
     LANGUAGES C)
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror -Wextra -Wpedantic")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -Wextra -Wpedantic")
 
-option(BUILD_TESTING "Build tests" ON)
+option(BUILD_TESTS "Build tests" OFF)
+
+set(SANITIZER "" CACHE STRING "Build with sanitizers")
+set(TARGET_TRIPLE "" CACHE STRING "Rust target triple for FFI library")
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+if (NOT SANITIZER STREQUAL "")
+    message(NOTICE "Sanitizer: ${SANITIZER}")
+    if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        message(FATAL_ERROR "Only debug build is supported for sanitizer builds")
+    endif()
+
+    if (SANITIZER STREQUAL "asan")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address,undefined,leak")
+        if (BUILD_TESTS)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined,leak")
+        endif()
+    elseif (SANITIZER STREQUAL "tsan")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
+        if (BUILD_TESTS)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
+        endif()
+    else()
+        message(FATAL_ERROR "Unknown sanitizer ${SANITIZER}")
+    endif()
 endif()
 
 message(NOTICE "Build type: ${CMAKE_BUILD_TYPE}")
@@ -26,11 +47,11 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" AND
 endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    set(LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../target/release_debug")
+    set(CMAKE_BUILD_TYPE_LOWER "release_debug")
 else()
     string(TOLOWER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE_LOWER)
-    set(LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../target/${CMAKE_BUILD_TYPE_LOWER}")
 endif()
+set(LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../target/${TARGET_TRIPLE}/${CMAKE_BUILD_TYPE_LOWER}")
 
 if(WIN32)
     set(LIBRARY_PATH "${LIBRARY_DIR}/libvortex_ffi.lib")
@@ -71,8 +92,12 @@ set_target_properties(vortex_ffi_shared PROPERTIES
     INTERFACE_LINK_OPTIONS "LINKER:-rpath,${LIBRARY_DIR}"
 )
 
-if (BUILD_TESTING)
+if (BUILD_TESTS)
     enable_language(CXX)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -Wextra -Wpedantic")
+
     enable_testing()
     add_subdirectory(test)
 endif()

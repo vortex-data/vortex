@@ -36,7 +36,7 @@ pub(crate) fn make_object_store(
     let (scheme, _) = ObjectStoreScheme::parse(url)
         .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
 
-    let cache_key = url_cache_key(url);
+    let cache_key = url_cache_key(url, properties);
 
     {
         if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
@@ -57,7 +57,10 @@ pub(crate) fn make_object_store(
                 .with_url(url.to_string())
                 // Use generic S3 endpoint to avoid DNS resolution issues with region-specific endpoints
                 .with_endpoint("https://s3.amazonaws.com")
-                .with_virtual_hosted_style_request(false); // Use path-style URLs
+                // Use path-style URLs
+                .with_virtual_hosted_style_request(false)
+                // Allow user to override endpoint to HTTP endpoints, e.g. LocalStack, Minio
+                .with_allow_http(true);
 
             // Try to load credentials from environment if not provided in properties
             if !properties.contains_key("access_key_id")
@@ -136,10 +139,19 @@ pub(crate) fn make_object_store(
     Ok((store, scheme))
 }
 
-fn url_cache_key(url: &Url) -> String {
+fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
+    let mut sorted_props: Vec<_> = properties.iter().collect();
+    sorted_props.sort_by_key(|(k, _)| *k);
+
+    let props_str: String = sorted_props
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
-        "{}://{}",
+        "{}://{};{}",
         url.scheme(),
         &url[url::Position::BeforeHost..url::Position::AfterPort],
+        props_str,
     )
 }
