@@ -4,7 +4,13 @@ name: PR Benchmarks
 
 concurrency:
   # The group causes runs to queue instead of running in parallel.
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  # Use a unique group for non-benchmark label events so they don't interfere with in-progress benchmark runs.
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event.label.name == 'action/benchmark'
+      && github.head_ref
+      || github.run_id
+    }}
   # Don't cancel benchmarks that are already running, instead just queue them up.
   cancel-in-progress: false
 

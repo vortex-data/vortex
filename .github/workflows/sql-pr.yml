@@ -3,7 +3,13 @@
 name: PR SQL Benchmarks
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  # Use a unique group for non-benchmark label events so they don't interfere with in-progress benchmark runs.
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event.label.name == 'action/benchmark-sql'
+      && github.head_ref
+      || github.run_id
+    }}
   cancel-in-progress: true
 
 on:
