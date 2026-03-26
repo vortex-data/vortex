@@ -58,7 +58,7 @@ on:
               "id": "tpch-nvme-100-df",
               "subcommand": "tpch",
               "name": "TPC-H SF=100 on NVME with DataFusion",
-              "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
               "scale_factor": "100.0"
             },
             {
