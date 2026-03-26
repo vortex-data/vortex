@@ -50,7 +50,7 @@ pub fn vortex_pco::Pco::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::
 
 pub fn vortex_pco::Pco::dtype(array: &vortex_pco::PcoArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_pco::Pco::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_pco::Pco::execute(array: vortex_array::vtable::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_pco::Pco::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -62,7 +62,7 @@ pub fn vortex_pco::Pco::nbuffers(array: &vortex_pco::PcoArray) -> usize
 
 pub fn vortex_pco::Pco::nchildren(array: &vortex_pco::PcoArray) -> usize
 
-pub fn vortex_pco::Pco::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_pco::Pco::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_pco::Pco::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 

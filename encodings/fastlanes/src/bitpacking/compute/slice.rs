@@ -77,13 +77,11 @@ mod tests {
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 
         let mut ctx = SESSION.create_execution_ctx();
-        let reduced = <BitPacked as VTable>::execute_parent(
-            &bitpacked,
-            &slice_array.into_array(),
-            0,
-            &mut ctx,
-        )?
-        .expect("expected slice kernel to execute");
+        let bitpacked_ref = bitpacked.into_array();
+        let reduced = bitpacked_ref
+            .vtable()
+            .execute_parent(&bitpacked_ref, &slice_array.into_array(), 0, &mut ctx)?
+            .expect("expected slice kernel to execute");
 
         assert!(reduced.is::<BitPacked>());
         let reduced_bp = reduced.as_::<BitPacked>();

@@ -11,7 +11,6 @@ mod validity;
 use std::fmt::Debug;
 use std::hash::Hasher;
 use std::ops::Deref;
-use std::sync::Arc;
 
 pub use dyn_::*;
 pub use operations::*;
@@ -148,11 +147,11 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -162,14 +161,14 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Attempt to reduce the array to a simpler representation.
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
         Ok(None)
     }
 
     /// Attempt to perform a reduction of the parent of this array.
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

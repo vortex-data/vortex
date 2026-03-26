@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -36,6 +35,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 mod canonical;
@@ -245,13 +245,13 @@ impl VTable for Chunked {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             _canonicalize(&array, ctx)?.into_array(),
         ))
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.chunks.len() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunks[0].clone()),
@@ -260,7 +260,7 @@ impl VTable for Chunked {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -268,7 +268,7 @@ impl VTable for Chunked {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

@@ -37,8 +37,6 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
-use crate::vtable::VTable;
-use crate::vtable::upcast_array;
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error.
@@ -422,31 +420,12 @@ impl ExecutionResult {
         }
     }
 
-    pub fn done_upcast<V: VTable>(arr: Arc<V::Array>) -> Self {
-        Self {
-            array: upcast_array::<V>(arr),
-            step: ExecutionStep::Done,
-        }
-    }
-
     /// Request execution of child at `child_idx` until it matches the given [`Matcher`].
     ///
     /// The provided array is the (possibly modified) parent that still needs its child executed.
     pub fn execute_child<M: Matcher>(array: impl IntoArray, child_idx: usize) -> Self {
         Self {
             array: array.into_array(),
-            step: ExecutionStep::ExecuteChild(child_idx, M::matches),
-        }
-    }
-
-    /// Like [`execute_child`](Self::execute_child), but accepts an `Arc<V::Array>` directly,
-    /// upcasting it to an [`ArrayRef`].
-    pub fn execute_child_upcast<V: VTable, M: Matcher>(
-        array: Arc<V::Array>,
-        child_idx: usize,
-    ) -> Self {
-        Self {
-            array: upcast_array::<V>(array),
             step: ExecutionStep::ExecuteChild(child_idx, M::matches),
         }
     }
@@ -481,15 +460,15 @@ impl fmt::Debug for ExecutionResult {
 /// child `$idx` until it matches `$M`.
 ///
 /// ```ignore
-/// let codes = require_child!(Self, array, array.codes(), 0 => Primitive);
-/// let values = require_child!(Self, array, array.values(), 1 => AnyCanonical);
+/// let array = require_child!(array, array.codes(), 0 => Primitive);
+/// let array = require_child!(array, array.values(), 1 => AnyCanonical);
 /// ```
 #[macro_export]
 macro_rules! require_child {
-    ($V:ty, $parent:expr, $child:expr, $idx:expr => $M:ty) => {{
+    ($parent:expr, $child:expr, $idx:expr => $M:ty) => {{
         if !$child.is::<$M>() {
-            return Ok($crate::ExecutionResult::execute_child_upcast::<$V, $M>(
-                std::sync::Arc::clone(&$parent),
+            return Ok($crate::ExecutionResult::execute_child::<$M>(
+                $parent.clone(),
                 $idx,
             ));
         }

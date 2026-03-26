@@ -219,32 +219,23 @@ impl<V: VTable> DynVTable for V {
     }
 }
 
-/// Borrow-downcast an `ArrayRef` to `&V::Array`.
-fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
+/// Borrow-downcast an `ArrayRef` to `&Array<V>`.
+fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
     array
         .as_any()
         .downcast_ref::<Array<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
-        .inner()
 }
 
-/// Downcast an `ArrayRef` into an `Arc<V::Array>`.
-fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
+/// Downcast an `ArrayRef` into an `Array<V>`.
+fn downcast_owned<V: VTable>(array: ArrayRef) -> Array<V> {
     let any_arc = array.as_any_arc();
     let typed: Arc<Array<V>> = any_arc
         .downcast::<Array<V>>()
         .ok()
         .vortex_expect("Failed to downcast array to expected encoding type");
-    Arc::new(match Arc::try_unwrap(typed) {
-        Ok(array) => array.into_inner(),
-        Err(arc) => arc.inner().clone(),
-    })
-}
-
-/// Upcast an `Arc<V::Array>` into an `ArrayRef`.
-pub(crate) fn upcast_array<V: VTable>(array: Arc<V::Array>) -> ArrayRef {
-    match Arc::try_unwrap(array) {
-        Ok(inner) => inner.into_array(),
-        Err(arc) => (*arc).clone().into_array(),
+    match Arc::try_unwrap(typed) {
+        Ok(array) => array,
+        Err(arc) => (*arc).clone(),
     }
 }

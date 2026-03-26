@@ -22,6 +22,7 @@ use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -32,7 +33,6 @@ mod kernel;
 mod operations;
 mod validity;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use canonical::varbin_to_canonical;
 use kernel::PARENT_KERNELS;
@@ -208,7 +208,7 @@ impl VTable for VarBin {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -216,7 +216,7 @@ impl VTable for VarBin {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -224,7 +224,7 @@ impl VTable for VarBin {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             varbin_to_canonical(&array, ctx)?.into_array(),
         ))

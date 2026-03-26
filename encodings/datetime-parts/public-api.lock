@@ -66,9 +66,9 @@ pub fn vortex_datetime_parts::DateTimeParts::deserialize(bytes: &[u8], _dtype: &
 
 pub fn vortex_datetime_parts::DateTimeParts::dtype(array: &vortex_datetime_parts::DateTimePartsArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_datetime_parts::DateTimeParts::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_datetime_parts::DateTimeParts::execute(array: vortex_array::vtable::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_datetime_parts::DateTimeParts::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_datetime_parts::DateTimeParts::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_datetime_parts::DateTimeParts::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -80,7 +80,7 @@ pub fn vortex_datetime_parts::DateTimeParts::nbuffers(_array: &vortex_datetime_p
 
 pub fn vortex_datetime_parts::DateTimeParts::nchildren(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
 
-pub fn vortex_datetime_parts::DateTimeParts::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_datetime_parts::DateTimeParts::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_datetime_parts::DateTimeParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -42,6 +41,7 @@ use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 mod kernel;
@@ -201,7 +201,7 @@ impl VTable for Dict {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if array.is_empty() {
             let result_dtype = array
                 .dtype()
@@ -209,7 +209,7 @@ impl VTable for Dict {
             return Ok(ExecutionResult::done(Canonical::empty(&result_dtype)));
         }
 
-        let array = require_child!(Self, array, array.codes(), 0 => Primitive);
+        let array = require_child!(array, array.codes(), 0 => Primitive);
 
         // TODO(joe): use stat get instead computing.
         // Also not the check to do here it take value validity using code validity, but this approx
@@ -221,9 +221,9 @@ impl VTable for Dict {
             ));
         }
 
-        let array = require_child!(Self, array, array.values(), 1 => AnyCanonical);
+        let array = require_child!(array, array.values(), 1 => AnyCanonical);
 
-        let DictArrayParts { codes, values, .. } = Arc::unwrap_or_clone(array).into_parts();
+        let DictArrayParts { codes, values, .. } = array.into_inner().into_parts();
 
         let codes = codes
             .try_into::<Primitive>()
@@ -239,7 +239,7 @@ impl VTable for Dict {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -247,7 +247,7 @@ impl VTable for Dict {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

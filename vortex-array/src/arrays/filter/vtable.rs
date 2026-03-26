@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -34,6 +33,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -160,7 +160,7 @@ impl VTable for Filter {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if let Some(canonical) = execute_filter_fast_paths(&array, ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }
@@ -176,14 +176,14 @@ impl VTable for Filter {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
     }
 }

@@ -50,7 +50,7 @@ pub fn vortex_zstd::Zstd::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype
 
 pub fn vortex_zstd::Zstd::dtype(array: &vortex_zstd::ZstdArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_zstd::Zstd::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_zstd::Zstd::execute(array: vortex_array::vtable::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_zstd::Zstd::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -62,7 +62,7 @@ pub fn vortex_zstd::Zstd::nbuffers(array: &vortex_zstd::ZstdArray) -> usize
 
 pub fn vortex_zstd::Zstd::nchildren(array: &vortex_zstd::ZstdArray) -> usize
 
-pub fn vortex_zstd::Zstd::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zstd::Zstd::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_zstd::Zstd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
