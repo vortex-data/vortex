@@ -21,6 +21,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
@@ -90,7 +91,9 @@ impl<V: VTable> DynVTable for V {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
-        let array = V::build(dtype, len, &metadata, buffers, children)?;
+        let inner = V::build(dtype, len, &metadata, buffers, children)?;
+        // Wrap in Array<V> for safe downcasting (new path).
+        let array = Array::new(self.clone(), inner);
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
         Ok(array.into_array())
@@ -203,7 +206,15 @@ impl<V: VTable> DynVTable for V {
     }
 }
 
+/// Borrow-downcast an `ArrayRef` to `&V::Array`.
+///
+/// Tries `Array<V>` (new path) first, then falls back to `ArrayAdapter<V>` (legacy path).
 fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
+    // New path: Array<V>
+    if let Some(typed) = array.as_any().downcast_ref::<Array<V>>() {
+        return typed.inner();
+    }
+    // Legacy path: ArrayAdapter<V>
     array
         .as_any()
         .downcast_ref::<ArrayAdapter<V>>()
@@ -213,11 +224,19 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
 
 /// Downcast an `ArrayRef` into an `Arc<V::Array>` without cloning.
 ///
-/// This is a zero-cost pointer cast leveraging the `#[repr(transparent)]` layout of
-/// [`ArrayAdapter`].
+/// Tries `Array<V>` (new path) first, then falls back to `ArrayAdapter<V>` (legacy path).
 fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<V::Array> {
-    let adapter: Arc<ArrayAdapter<V>> = array
-        .as_any_arc()
+    // Try new path: Array<V>
+    let any_arc = array.as_any_arc();
+    if let Ok(typed) = any_arc.clone().downcast::<Array<V>>() {
+        // Need to clone the inner array since Array<V> owns it alongside the vtable.
+        return Arc::new(match Arc::try_unwrap(typed) {
+            Ok(array) => array.into_inner(),
+            Err(arc) => arc.inner().clone(),
+        });
+    }
+    // Legacy path: ArrayAdapter<V> — zero-cost via #[repr(transparent)]
+    let adapter: Arc<ArrayAdapter<V>> = any_arc
         .downcast::<ArrayAdapter<V>>()
         .ok()
         .vortex_expect("Failed to downcast array to expected encoding type");

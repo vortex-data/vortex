@@ -5,6 +5,7 @@
 
 mod dyn_;
 mod operations;
+mod typed;
 mod validity;
 
 use std::fmt::Debug;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 
 pub use dyn_::*;
 pub use operations::*;
+pub use typed::*;
 pub use validity::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -305,6 +307,10 @@ pub fn patches_child_name(idx: usize) -> &'static str {
         _ => vortex_panic!("patches child name index {idx} out of bounds"),
     }
 }
+
+/// Alias for migration — downstream code can start using `ArrayVTable` while `VTable` remains
+/// the canonical name until Phase 1b renames it.
+pub use VTable as ArrayVTable;
 
 #[macro_export]
 macro_rules! vtable {
