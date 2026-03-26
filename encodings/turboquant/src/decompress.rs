@@ -16,7 +16,6 @@ use vortex_error::VortexResult;
 use crate::mse::array::TurboQuantMSEArray;
 use crate::qjl::array::TurboQuantQJLArray;
 use crate::rotation::RotationMatrix;
-use crate::rotation::apply_inverse_srht_from_bits;
 
 /// Decompress a `TurboQuantMSEArray` into a `FixedSizeListArray` of floats.
 ///
@@ -45,11 +44,11 @@ pub fn execute_decompress_mse(
     let centroids_prim = array.centroids.clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
-    // Read stored rotation signs — no recomputation.
+    // Expand stored rotation signs into f32 ±1.0 vectors once (amortized over all rows).
+    // This costs 3 × padded_dim × 4 bytes of temporary memory (e.g. 12KB for dim=1024)
+    // but enables autovectorized f32 multiply in the per-row SRHT hot loop.
     let signs_bool = array.rotation_signs.clone().execute::<BoolArray>(ctx)?;
-    let bit_buf = signs_bool.to_bit_buffer();
-    let (_, _, raw_signs) = bit_buf.into_inner();
-    let norm_factor = 1.0 / (padded_dim as f32 * (padded_dim as f32).sqrt());
+    let rotation = RotationMatrix::from_bool_array(&signs_bool, dim)?;
 
     // Unpack codes.
     let codes_prim = array.codes.clone().execute::<PrimitiveArray>(ctx)?;
@@ -60,6 +59,7 @@ pub fn execute_decompress_mse(
 
     let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
     let mut dequantized = vec![0.0f32; padded_dim];
+    let mut unrotated = vec![0.0f32; padded_dim];
 
     for row in 0..num_rows {
         let row_indices = &indices[row * padded_dim..(row + 1) * padded_dim];
@@ -69,19 +69,13 @@ pub fn execute_decompress_mse(
             dequantized[idx] = centroids[row_indices[idx] as usize];
         }
 
-        // Inverse rotate using stored sign bits (hot path).
-        apply_inverse_srht_from_bits(
-            &mut dequantized,
-            raw_signs.as_ref(),
-            padded_dim,
-            norm_factor,
-        );
+        rotation.inverse_rotate(&dequantized, &mut unrotated);
 
         for idx in 0..dim {
-            dequantized[idx] *= norm;
+            unrotated[idx] *= norm;
         }
 
-        output.extend_from_slice(&dequantized[..dim]);
+        output.extend_from_slice(&unrotated[..dim]);
     }
 
     let elements = PrimitiveArray::new::<f32>(output.freeze(), Validity::NonNullable);
