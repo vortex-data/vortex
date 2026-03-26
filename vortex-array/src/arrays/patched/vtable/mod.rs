@@ -39,6 +39,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
@@ -64,6 +65,8 @@ impl ValidityChild<Patched> for Patched {
 pub struct PatchedMetadata {
     #[prost(uint32, tag = "1")]
     pub(crate) offset: u32,
+    #[prost(uint32, tag = "2")]
+    pub(crate) n_patches: u32,
 }
 
 impl VTable for Patched {
@@ -111,13 +114,12 @@ impl VTable for Patched {
     }
 
     fn nbuffers(_array: &Self::Array) -> usize {
-        3
+        1
     }
 
     fn buffer(array: &Self::Array, idx: usize) -> BufferHandle {
         match idx {
             0 => array.lane_offsets.clone(),
-            1 => array.indices.clone(),
             _ => vortex_panic!("invalid buffer index for PatchedArray: {idx}"),
         }
     }
@@ -125,19 +127,19 @@ impl VTable for Patched {
     fn buffer_name(_array: &Self::Array, idx: usize) -> Option<String> {
         match idx {
             0 => Some("lane_offsets".to_string()),
-            1 => Some("patch_indices".to_string()),
             _ => vortex_panic!("invalid buffer index for PatchedArray: {idx}"),
         }
     }
 
     fn nchildren(_array: &Self::Array) -> usize {
-        2
+        3
     }
 
     fn child(array: &Self::Array, idx: usize) -> ArrayRef {
         match idx {
             0 => array.inner.clone(),
-            1 => array.values.clone(),
+            1 => array.indices.clone(),
+            2 => array.values.clone(),
             _ => vortex_panic!("invalid buffer index for PatchedArray: {idx}"),
         }
     }
@@ -145,7 +147,8 @@ impl VTable for Patched {
     fn child_name(_array: &Self::Array, idx: usize) -> String {
         match idx {
             0 => "inner".to_string(),
-            1 => "patch_values".to_string(),
+            1 => "patch_indices".to_string(),
+            2 => "patch_values".to_string(),
             _ => vortex_panic!("invalid buffer index for PatchedArray: {idx}"),
         }
     }
@@ -154,6 +157,7 @@ impl VTable for Patched {
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(PatchedMetadata {
             offset: array.offset as u32,
+            n_patches: array.indices.len() as u32,
         }))
     }
 
@@ -198,7 +202,7 @@ impl VTable for Patched {
         let offset = array.offset;
         let lane_offsets: Buffer<u32> =
             Buffer::from_byte_buffer(array.lane_offsets.clone().unwrap_host());
-        let indices: Buffer<u16> = Buffer::from_byte_buffer(array.indices.clone().unwrap_host());
+        let indices = array.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
 
         match_each_native_ptype!(ptype, |V| {
@@ -219,7 +223,7 @@ impl VTable for Patched {
                 array.n_chunks,
                 array.n_lanes,
                 &lane_offsets,
-                &indices,
+                indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
             );
         });
@@ -234,19 +238,16 @@ impl VTable for Patched {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PatchedArray> {
-        let inner = children.get(0, dtype, len)?;
-
         let n_chunks = len.div_ceil(1024);
-
         let n_lanes = match_each_native_ptype!(dtype.as_ptype(), |P| { patch_lanes::<P>() });
 
-        let &[lane_offsets, indices] = &buffers else {
+        let &[lane_offsets] = &buffers else {
             vortex_bail!("invalid buffer count for PatchedArray");
         };
 
-        // values and indices should have same len.
-        let expected_len = indices.as_host().reinterpret::<u16>().len();
-        let values = children.get(1, dtype, expected_len)?;
+        let inner = children.get(0, dtype, len)?;
+        let indices = children.get(1, PType::U16.into(), metadata.n_patches as usize)?;
+        let values = children.get(1, dtype, metadata.n_patches as usize)?;
 
         Ok(PatchedArray {
             inner,
@@ -255,7 +256,7 @@ impl VTable for Patched {
             offset: metadata.offset as usize,
             len,
             lane_offsets: lane_offsets.clone(),
-            indices: indices.clone(),
+            indices,
             values,
             stats_set: ArrayStats::default(),
         })
@@ -288,10 +289,10 @@ impl VTable for Patched {
 
         let lane_offsets: Buffer<u32> =
             Buffer::from_byte_buffer(array.lane_offsets.clone().unwrap_host());
-        let indices: Buffer<u16> = Buffer::from_byte_buffer(array.indices.clone().unwrap_host());
-        let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
+        let indices = array.indices.clone().execute::<PrimitiveArray>(ctx)?;
 
-        // TODO(aduffy): add support for non-primitive PatchedArray patches application.
+        // TODO(aduffy): add support for non-primitive PatchedArray patches application (?)
+        let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
@@ -306,7 +307,7 @@ impl VTable for Patched {
                 array.n_chunks,
                 array.n_lanes,
                 &lane_offsets,
-                &indices,
+                indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
             );
 

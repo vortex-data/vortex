@@ -14,12 +14,12 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::patched::PatchAccessor;
 use crate::arrays::patched::TransposedPatches;
 use crate::arrays::patched::patch_lanes;
 use crate::buffer::BufferHandle;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
@@ -48,7 +48,7 @@ pub struct PatchedArray {
     /// lane offsets. The PType of these MUST be u32
     pub(super) lane_offsets: BufferHandle,
     /// indices within a 1024-element chunk. The PType of these MUST be u16
-    pub(super) indices: BufferHandle,
+    pub(super) indices: ArrayRef,
     /// patch values corresponding to the indices. The ptype is specified by `values_ptype`.
     pub(super) values: ArrayRef,
 
@@ -86,6 +86,12 @@ impl PatchedArray {
             values,
         } = transpose_patches(patches, ctx)?;
 
+        let indices = PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_host(indices),
+            PType::U16,
+            Validity::NonNullable,
+        )
+        .into_array();
         let values = PrimitiveArray::from_buffer_handle(
             BufferHandle::new_host(values),
             values_ptype,
@@ -102,19 +108,24 @@ impl PatchedArray {
             offset: 0,
             len,
             lane_offsets: BufferHandle::new_host(lane_offsets),
-            indices: BufferHandle::new_host(indices),
+            indices,
             values,
             stats_set: ArrayStats::default(),
         })
     }
+}
 
-    /// Get an accessor, which allows ranged access to patches by chunk/lane.
-    pub fn accessor(&self) -> PatchAccessor<'_> {
-        PatchAccessor {
-            n_lanes: self.n_lanes,
-            lane_offsets: self.lane_offsets.as_host().reinterpret::<u32>(),
-            indices: self.indices.as_host().reinterpret::<u16>(),
-        }
+impl PatchedArray {
+    pub(crate) fn seek_to_lane(&self, chunk: usize, lane: usize) -> Range<usize> {
+        assert!(chunk < self.n_chunks);
+        assert!(lane < self.n_lanes);
+
+        let lane_offsets = self.lane_offsets.as_host().reinterpret::<u32>();
+
+        let start = lane_offsets[chunk * self.n_lanes + lane] as usize;
+        let stop = lane_offsets[chunk * self.n_lanes + lane + 1] as usize;
+
+        start..stop
     }
 
     /// Slice the array to just the patches and inner values that are within the chunk range.

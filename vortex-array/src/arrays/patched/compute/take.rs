@@ -46,7 +46,8 @@ impl TakeExecute for Patched {
         match_each_unsigned_integer_ptype!(indices_ptype, |I| {
             match_each_native_ptype!(ptype, |V| {
                 let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-                let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
+                let patch_indices = array.indices.clone().execute::<PrimitiveArray>(ctx)?;
+                let patch_values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
                 let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
                 take_map(
                     output.as_mut(),
@@ -56,8 +57,8 @@ impl TakeExecute for Patched {
                     array.n_chunks,
                     array.n_lanes,
                     array.lane_offsets.as_host().reinterpret::<u32>(),
-                    array.indices.as_host().reinterpret::<u16>(),
-                    values.as_slice::<V>(),
+                    patch_indices.as_slice::<u16>(),
+                    patch_values.as_slice::<V>(),
                 );
 
                 // SAFETY: output and validity still have same length after take_map returns.

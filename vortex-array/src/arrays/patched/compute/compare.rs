@@ -93,10 +93,11 @@ impl CompareKernel for Patched {
         }
 
         let lane_offsets = lhs.lane_offsets.as_host().reinterpret::<u32>();
-        let indices = lhs.indices.as_host().reinterpret::<u16>();
+        let indices = lhs.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let values = lhs.values.clone().execute::<PrimitiveArray>(ctx)?;
 
         match_each_native_ptype!(values.ptype(), |V| {
+            let indices = indices.as_slice::<u16>();
             let values = values.as_slice::<V>();
             let constant = constant
                 .as_primitive()
