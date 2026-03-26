@@ -978,13 +978,11 @@ pub fn vortex_array::arrays::BoolArray::validate(bits: &vortex_buffer::bit::buf:
 
 impl vortex_array::arrays::BoolArray
 
-pub fn vortex_array::arrays::BoolArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::BoolArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::BoolArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::BoolArray
 
-pub fn vortex_array::arrays::BoolArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::BoolArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::BoolArray
 
@@ -1194,8 +1192,6 @@ pub fn vortex_array::arrays::ChunkedArray::validate(chunks: &[vortex_array::Arra
 
 impl vortex_array::arrays::ChunkedArray
 
-pub fn vortex_array::arrays::ChunkedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::ChunkedArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ChunkedArray
@@ -1344,17 +1340,15 @@ pub struct vortex_array::arrays::constant::ConstantArray
 
 impl vortex_array::arrays::ConstantArray
 
-pub fn vortex_array::arrays::ConstantArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::ConstantArray::to_array(&self) -> vortex_array::ArrayRef
-
-impl vortex_array::arrays::ConstantArray
-
 pub fn vortex_array::arrays::ConstantArray::into_parts(self) -> vortex_array::scalar::Scalar
 
 pub fn vortex_array::arrays::ConstantArray::new<S>(scalar: S, len: usize) -> Self where S: core::convert::Into<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::arrays::ConstantArray::scalar(&self) -> &vortex_array::scalar::Scalar
+
+impl vortex_array::arrays::ConstantArray
+
+pub fn vortex_array::arrays::ConstantArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ConstantArray
 
@@ -1589,8 +1583,6 @@ pub fn vortex_array::arrays::DecimalArray::try_new_handle(values: vortex_array::
 pub fn vortex_array::arrays::DecimalArray::values_type(&self) -> vortex_array::dtype::DecimalType
 
 impl vortex_array::arrays::DecimalArray
-
-pub fn vortex_array::arrays::DecimalArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::DecimalArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -1906,8 +1898,6 @@ pub fn vortex_array::arrays::dict::DictArray::values(&self) -> &vortex_array::Ar
 
 impl vortex_array::arrays::dict::DictArray
 
-pub fn vortex_array::arrays::dict::DictArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::dict::DictArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::dict::DictArray
@@ -2200,8 +2190,6 @@ pub fn vortex_array::arrays::ExtensionArray::try_new(ext_dtype: vortex_array::dt
 
 impl vortex_array::arrays::ExtensionArray
 
-pub fn vortex_array::arrays::ExtensionArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::ExtensionArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ExtensionArray
@@ -2343,8 +2331,6 @@ pub fn vortex_array::arrays::FilterArray::new(array: vortex_array::ArrayRef, mas
 pub fn vortex_array::arrays::FilterArray::try_new(array: vortex_array::ArrayRef, mask: vortex_mask::Mask) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::FilterArray
-
-pub fn vortex_array::arrays::FilterArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::FilterArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -2570,8 +2556,6 @@ pub fn vortex_array::arrays::FixedSizeListArray::validate(elements: &vortex_arra
 
 impl vortex_array::arrays::FixedSizeListArray
 
-pub fn vortex_array::arrays::FixedSizeListArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::FixedSizeListArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::FixedSizeListArray
@@ -2733,8 +2717,6 @@ pub fn vortex_array::arrays::ListArray::try_new(elements: vortex_array::ArrayRef
 pub fn vortex_array::arrays::ListArray::validate(elements: &vortex_array::ArrayRef, offsets: &vortex_array::ArrayRef, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
 impl vortex_array::arrays::ListArray
-
-pub fn vortex_array::arrays::ListArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::ListArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -2914,13 +2896,11 @@ pub unsafe fn vortex_array::arrays::ListViewArray::with_zero_copy_to_list(self, 
 
 impl vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::ListViewArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::ListViewArray::rebuild(&self, mode: vortex_array::arrays::listview::ListViewRebuildMode) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
 
 impl vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::rebuild(&self, mode: vortex_array::arrays::listview::ListViewRebuildMode) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
+pub fn vortex_array::arrays::ListViewArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ListViewArray
 
@@ -3076,8 +3056,6 @@ pub fn vortex_array::arrays::MaskedArray::try_new(child: vortex_array::ArrayRef,
 
 impl vortex_array::arrays::MaskedArray
 
-pub fn vortex_array::arrays::MaskedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::MaskedArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::MaskedArray
@@ -3220,13 +3198,11 @@ pub struct vortex_array::arrays::null::NullArray
 
 impl vortex_array::arrays::null::NullArray
 
-pub fn vortex_array::arrays::null::NullArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::null::NullArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::null::NullArray::new(len: usize) -> Self
 
 impl vortex_array::arrays::null::NullArray
 
-pub fn vortex_array::arrays::null::NullArray::new(len: usize) -> Self
+pub fn vortex_array::arrays::null::NullArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::null::NullArray
 
@@ -3484,17 +3460,15 @@ pub fn vortex_array::arrays::PrimitiveArray::try_into_buffer_mut<T: vortex_array
 
 impl vortex_array::arrays::PrimitiveArray
 
-pub fn vortex_array::arrays::PrimitiveArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::PrimitiveArray::to_array(&self) -> vortex_array::ArrayRef
-
-impl vortex_array::arrays::PrimitiveArray
-
 pub fn vortex_array::arrays::PrimitiveArray::into_parts(self) -> vortex_array::arrays::primitive::PrimitiveArrayParts
 
 impl vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
+impl vortex_array::arrays::PrimitiveArray
+
+pub fn vortex_array::arrays::PrimitiveArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl vortex_array::arrays::PrimitiveArray
 
@@ -3615,8 +3589,6 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::scalar_fn(&self) -> &vort
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::try_new(scalar_fn: vortex_array::scalar_fn::ScalarFnRef, children: alloc::vec::Vec<vortex_array::ArrayRef>, len: usize) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::scalar_fn::ScalarFnArray
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -3844,8 +3816,6 @@ pub fn vortex_array::arrays::SharedArray::new(source: vortex_array::ArrayRef) ->
 
 impl vortex_array::arrays::SharedArray
 
-pub fn vortex_array::arrays::SharedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::SharedArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::SharedArray
@@ -3973,8 +3943,6 @@ pub fn vortex_array::arrays::slice::SliceArray::slice_range(&self) -> &core::ops
 pub fn vortex_array::arrays::slice::SliceArray::try_new(child: vortex_array::ArrayRef, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::slice::SliceArray
-
-pub fn vortex_array::arrays::slice::SliceArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::slice::SliceArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -4260,13 +4228,11 @@ pub fn vortex_array::arrays::StructArray::with_column(&self, name: impl core::co
 
 impl vortex_array::arrays::StructArray
 
-pub fn vortex_array::arrays::StructArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::StructArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::StructArray::into_record_batch_with_schema(self, schema: impl core::convert::AsRef<arrow_schema::schema::Schema>) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
 
 impl vortex_array::arrays::StructArray
 
-pub fn vortex_array::arrays::StructArray::into_record_batch_with_schema(self, schema: impl core::convert::AsRef<arrow_schema::schema::Schema>) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
+pub fn vortex_array::arrays::StructArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::StructArray
 
@@ -4479,8 +4445,6 @@ pub fn vortex_array::arrays::VarBinArray::try_new_from_handle(offsets: vortex_ar
 pub fn vortex_array::arrays::VarBinArray::validate(offsets: &vortex_array::ArrayRef, bytes: &vortex_array::buffer::BufferHandle, dtype: &vortex_array::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
 impl vortex_array::arrays::VarBinArray
-
-pub fn vortex_array::arrays::VarBinArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::VarBinArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -4900,8 +4864,6 @@ pub fn vortex_array::arrays::VarBinViewArray::compact_with_threshold(&self, buff
 
 impl vortex_array::arrays::VarBinViewArray
 
-pub fn vortex_array::arrays::VarBinViewArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::VarBinViewArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::VarBinViewArray
@@ -5061,8 +5023,6 @@ pub fn vortex_array::arrays::variant::VariantArray::child(&self) -> &vortex_arra
 pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef) -> Self
 
 impl vortex_array::arrays::variant::VariantArray
-
-pub fn vortex_array::arrays::variant::VariantArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::variant::VariantArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -5228,13 +5188,11 @@ pub fn vortex_array::arrays::BoolArray::validate(bits: &vortex_buffer::bit::buf:
 
 impl vortex_array::arrays::BoolArray
 
-pub fn vortex_array::arrays::BoolArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::BoolArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::BoolArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::BoolArray
 
-pub fn vortex_array::arrays::BoolArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::BoolArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::BoolArray
 
@@ -5416,8 +5374,6 @@ pub fn vortex_array::arrays::ChunkedArray::validate(chunks: &[vortex_array::Arra
 
 impl vortex_array::arrays::ChunkedArray
 
-pub fn vortex_array::arrays::ChunkedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::ChunkedArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ChunkedArray
@@ -5564,17 +5520,15 @@ pub struct vortex_array::arrays::ConstantArray
 
 impl vortex_array::arrays::ConstantArray
 
-pub fn vortex_array::arrays::ConstantArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::ConstantArray::to_array(&self) -> vortex_array::ArrayRef
-
-impl vortex_array::arrays::ConstantArray
-
 pub fn vortex_array::arrays::ConstantArray::into_parts(self) -> vortex_array::scalar::Scalar
 
 pub fn vortex_array::arrays::ConstantArray::new<S>(scalar: S, len: usize) -> Self where S: core::convert::Into<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::arrays::ConstantArray::scalar(&self) -> &vortex_array::scalar::Scalar
+
+impl vortex_array::arrays::ConstantArray
+
+pub fn vortex_array::arrays::ConstantArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ConstantArray
 
@@ -5745,8 +5699,6 @@ pub fn vortex_array::arrays::DecimalArray::try_new_handle(values: vortex_array::
 pub fn vortex_array::arrays::DecimalArray::values_type(&self) -> vortex_array::dtype::DecimalType
 
 impl vortex_array::arrays::DecimalArray
-
-pub fn vortex_array::arrays::DecimalArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::DecimalArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -5920,8 +5872,6 @@ pub fn vortex_array::arrays::dict::DictArray::values(&self) -> &vortex_array::Ar
 
 impl vortex_array::arrays::dict::DictArray
 
-pub fn vortex_array::arrays::dict::DictArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::dict::DictArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::dict::DictArray
@@ -6072,8 +6022,6 @@ pub fn vortex_array::arrays::ExtensionArray::try_new(ext_dtype: vortex_array::dt
 
 impl vortex_array::arrays::ExtensionArray
 
-pub fn vortex_array::arrays::ExtensionArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::ExtensionArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ExtensionArray
@@ -6214,8 +6162,6 @@ pub fn vortex_array::arrays::FilterArray::try_new(array: vortex_array::ArrayRef,
 
 impl vortex_array::arrays::FilterArray
 
-pub fn vortex_array::arrays::FilterArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::FilterArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::FilterArray
@@ -6355,8 +6301,6 @@ pub fn vortex_array::arrays::FixedSizeListArray::try_new(elements: vortex_array:
 pub fn vortex_array::arrays::FixedSizeListArray::validate(elements: &vortex_array::ArrayRef, len: usize, list_size: u32, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
 impl vortex_array::arrays::FixedSizeListArray
-
-pub fn vortex_array::arrays::FixedSizeListArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::FixedSizeListArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -6518,8 +6462,6 @@ pub fn vortex_array::arrays::ListArray::validate(elements: &vortex_array::ArrayR
 
 impl vortex_array::arrays::ListArray
 
-pub fn vortex_array::arrays::ListArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::ListArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ListArray
@@ -6676,13 +6618,11 @@ pub unsafe fn vortex_array::arrays::ListViewArray::with_zero_copy_to_list(self, 
 
 impl vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::ListViewArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::ListViewArray::rebuild(&self, mode: vortex_array::arrays::listview::ListViewRebuildMode) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
 
 impl vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::rebuild(&self, mode: vortex_array::arrays::listview::ListViewRebuildMode) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
+pub fn vortex_array::arrays::ListViewArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::ListViewArray
 
@@ -6817,8 +6757,6 @@ pub fn vortex_array::arrays::MaskedArray::child(&self) -> &vortex_array::ArrayRe
 pub fn vortex_array::arrays::MaskedArray::try_new(child: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::MaskedArray
-
-pub fn vortex_array::arrays::MaskedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::MaskedArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -6958,13 +6896,11 @@ pub struct vortex_array::arrays::NullArray
 
 impl vortex_array::arrays::null::NullArray
 
-pub fn vortex_array::arrays::null::NullArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::null::NullArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::null::NullArray::new(len: usize) -> Self
 
 impl vortex_array::arrays::null::NullArray
 
-pub fn vortex_array::arrays::null::NullArray::new(len: usize) -> Self
+pub fn vortex_array::arrays::null::NullArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::null::NullArray
 
@@ -7154,17 +7090,15 @@ pub fn vortex_array::arrays::PrimitiveArray::try_into_buffer_mut<T: vortex_array
 
 impl vortex_array::arrays::PrimitiveArray
 
-pub fn vortex_array::arrays::PrimitiveArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::PrimitiveArray::to_array(&self) -> vortex_array::ArrayRef
-
-impl vortex_array::arrays::PrimitiveArray
-
 pub fn vortex_array::arrays::PrimitiveArray::into_parts(self) -> vortex_array::arrays::primitive::PrimitiveArrayParts
 
 impl vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
+impl vortex_array::arrays::PrimitiveArray
+
+pub fn vortex_array::arrays::PrimitiveArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl vortex_array::arrays::PrimitiveArray
 
@@ -7223,8 +7157,6 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::scalar_fn(&self) -> &vort
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::try_new(scalar_fn: vortex_array::scalar_fn::ScalarFnRef, children: alloc::vec::Vec<vortex_array::ArrayRef>, len: usize) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::scalar_fn::ScalarFnArray
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -7430,8 +7362,6 @@ pub fn vortex_array::arrays::SharedArray::new(source: vortex_array::ArrayRef) ->
 
 impl vortex_array::arrays::SharedArray
 
-pub fn vortex_array::arrays::SharedArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::SharedArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::SharedArray
@@ -7557,8 +7487,6 @@ pub fn vortex_array::arrays::slice::SliceArray::slice_range(&self) -> &core::ops
 pub fn vortex_array::arrays::slice::SliceArray::try_new(child: vortex_array::ArrayRef, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::slice::SliceArray
-
-pub fn vortex_array::arrays::slice::SliceArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::slice::SliceArray::to_array(&self) -> vortex_array::ArrayRef
 
@@ -7726,13 +7654,11 @@ pub fn vortex_array::arrays::StructArray::with_column(&self, name: impl core::co
 
 impl vortex_array::arrays::StructArray
 
-pub fn vortex_array::arrays::StructArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::StructArray::to_array(&self) -> vortex_array::ArrayRef
+pub fn vortex_array::arrays::StructArray::into_record_batch_with_schema(self, schema: impl core::convert::AsRef<arrow_schema::schema::Schema>) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
 
 impl vortex_array::arrays::StructArray
 
-pub fn vortex_array::arrays::StructArray::into_record_batch_with_schema(self, schema: impl core::convert::AsRef<arrow_schema::schema::Schema>) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
+pub fn vortex_array::arrays::StructArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::StructArray
 
@@ -7970,8 +7896,6 @@ pub fn vortex_array::arrays::VarBinArray::validate(offsets: &vortex_array::Array
 
 impl vortex_array::arrays::VarBinArray
 
-pub fn vortex_array::arrays::VarBinArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::VarBinArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::VarBinArray
@@ -8204,8 +8128,6 @@ pub fn vortex_array::arrays::VarBinViewArray::compact_with_threshold(&self, buff
 
 impl vortex_array::arrays::VarBinViewArray
 
-pub fn vortex_array::arrays::VarBinViewArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::VarBinViewArray::to_array(&self) -> vortex_array::ArrayRef
 
 impl core::clone::Clone for vortex_array::arrays::VarBinViewArray
@@ -8353,8 +8275,6 @@ pub fn vortex_array::arrays::variant::VariantArray::child(&self) -> &vortex_arra
 pub fn vortex_array::arrays::variant::VariantArray::new(child: vortex_array::ArrayRef) -> Self
 
 impl vortex_array::arrays::variant::VariantArray
-
-pub fn vortex_array::arrays::variant::VariantArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::variant::VariantArray::to_array(&self) -> vortex_array::ArrayRef
 

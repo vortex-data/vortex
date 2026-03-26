@@ -128,8 +128,6 @@ pub fn vortex_alp::ALPArray::try_new(encoded: vortex_array::array::ArrayRef, exp
 
 impl vortex_alp::ALPArray
 
-pub fn vortex_alp::ALPArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
-
 pub fn vortex_alp::ALPArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_alp::ALPArray
@@ -276,12 +274,6 @@ pub struct vortex_alp::ALPRDArray
 
 impl vortex_alp::ALPRDArray
 
-pub fn vortex_alp::ALPRDArray::into_array_ref(self: alloc::sync::Arc<Self>) -> vortex_array::array::ArrayRef
-
-pub fn vortex_alp::ALPRDArray::to_array(&self) -> vortex_array::array::ArrayRef
-
-impl vortex_alp::ALPRDArray
-
 pub fn vortex_alp::ALPRDArray::into_parts(self) -> vortex_alp::ALPRDArrayParts
 
 pub fn vortex_alp::ALPRDArray::is_f32(&self) -> bool
@@ -299,6 +291,10 @@ pub fn vortex_alp::ALPRDArray::right_bit_width(&self) -> u8
 pub fn vortex_alp::ALPRDArray::right_parts(&self) -> &vortex_array::array::ArrayRef
 
 pub fn vortex_alp::ALPRDArray::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
+
+impl vortex_alp::ALPRDArray
+
+pub fn vortex_alp::ALPRDArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_alp::ALPRDArray
 
