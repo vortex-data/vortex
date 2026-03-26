@@ -417,18 +417,18 @@ use vortex_buffer::BufferMut;
 
 const NUM_VECTORS: usize = 1_000;
 
+/// Generate `num_vectors` random f32 vectors of the given dimension using i.i.d.
+/// standard normal components. This is a conservative test distribution: real
+/// neural network embeddings typically have structure (clustered, anisotropic)
+/// that the SRHT exploits for better quantization, so Gaussian i.i.d. is a
+/// worst-case baseline for TurboQuant.
 fn setup_vector_fsl(dim: usize) -> FixedSizeListArray {
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
-    use rand_distr::Distribution;
-    use rand_distr::Normal;
-
     let mut rng = StdRng::seed_from_u64(42);
-    let normal = Normal::new(0.0f32, 1.0).unwrap();
+    let normal = rand_distr::Normal::new(0.0f32, 1.0).unwrap();
 
     let mut buf = BufferMut::<f32>::with_capacity(NUM_VECTORS * dim);
     for _ in 0..(NUM_VECTORS * dim) {
-        buf.push(normal.sample(&mut rng));
+        buf.push(rand_distr::Distribution::sample(&normal, &mut rng));
     }
 
     let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
@@ -441,17 +441,22 @@ fn setup_vector_fsl(dim: usize) -> FixedSizeListArray {
     .unwrap()
 }
 
+fn turboquant_config(bit_width: u8) -> TurboQuantConfig {
+    TurboQuantConfig {
+        bit_width,
+        variant: TurboQuantVariant::Mse,
+        seed: Some(123),
+    }
+}
+
+// dim=128 benchmarks
+
 #[divan::bench(name = "turboquant_compress_dim128_2bit")]
 fn bench_turboquant_compress_dim128_2bit(bencher: Bencher) {
     let fsl = setup_vector_fsl(128);
-    let config = TurboQuantConfig {
-        bit_width: 2,
-        variant: TurboQuantVariant::Mse,
-        seed: Some(123),
-    };
-    let nbytes = (NUM_VECTORS * 128 * 4) as u64;
+    let config = turboquant_config(2);
 
-    with_byte_counter(bencher, nbytes)
+    with_byte_counter(bencher, (NUM_VECTORS * 128 * 4) as u64)
         .with_inputs(|| &fsl)
         .bench_refs(|a| turboquant_encode(a, &config).unwrap());
 }
@@ -459,15 +464,10 @@ fn bench_turboquant_compress_dim128_2bit(bencher: Bencher) {
 #[divan::bench(name = "turboquant_decompress_dim128_2bit")]
 fn bench_turboquant_decompress_dim128_2bit(bencher: Bencher) {
     let fsl = setup_vector_fsl(128);
-    let config = TurboQuantConfig {
-        bit_width: 2,
-        variant: TurboQuantVariant::Mse,
-        seed: Some(123),
-    };
+    let config = turboquant_config(2);
     let compressed = turboquant_encode(&fsl, &config).unwrap();
-    let nbytes = (NUM_VECTORS * 128 * 4) as u64;
 
-    with_byte_counter(bencher, nbytes)
+    with_byte_counter(bencher, (NUM_VECTORS * 128 * 4) as u64)
         .with_inputs(|| &compressed)
         .bench_refs(|a| {
             let mut ctx = SESSION.create_execution_ctx();
@@ -481,14 +481,9 @@ fn bench_turboquant_decompress_dim128_2bit(bencher: Bencher) {
 #[divan::bench(name = "turboquant_compress_dim128_4bit")]
 fn bench_turboquant_compress_dim128_4bit(bencher: Bencher) {
     let fsl = setup_vector_fsl(128);
-    let config = TurboQuantConfig {
-        bit_width: 4,
-        variant: TurboQuantVariant::Mse,
-        seed: Some(123),
-    };
-    let nbytes = (NUM_VECTORS * 128 * 4) as u64;
+    let config = turboquant_config(4);
 
-    with_byte_counter(bencher, nbytes)
+    with_byte_counter(bencher, (NUM_VECTORS * 128 * 4) as u64)
         .with_inputs(|| &fsl)
         .bench_refs(|a| turboquant_encode(a, &config).unwrap());
 }
@@ -496,15 +491,10 @@ fn bench_turboquant_compress_dim128_4bit(bencher: Bencher) {
 #[divan::bench(name = "turboquant_decompress_dim128_4bit")]
 fn bench_turboquant_decompress_dim128_4bit(bencher: Bencher) {
     let fsl = setup_vector_fsl(128);
-    let config = TurboQuantConfig {
-        bit_width: 4,
-        variant: TurboQuantVariant::Mse,
-        seed: Some(123),
-    };
+    let config = turboquant_config(4);
     let compressed = turboquant_encode(&fsl, &config).unwrap();
-    let nbytes = (NUM_VECTORS * 128 * 4) as u64;
 
-    with_byte_counter(bencher, nbytes)
+    with_byte_counter(bencher, (NUM_VECTORS * 128 * 4) as u64)
         .with_inputs(|| &compressed)
         .bench_refs(|a| {
             let mut ctx = SESSION.create_execution_ctx();
@@ -515,17 +505,14 @@ fn bench_turboquant_decompress_dim128_4bit(bencher: Bencher) {
         });
 }
 
+// dim=768 benchmarks (common for BERT/sentence-transformers)
+
 #[divan::bench(name = "turboquant_compress_dim768_2bit")]
 fn bench_turboquant_compress_dim768_2bit(bencher: Bencher) {
     let fsl = setup_vector_fsl(768);
-    let config = TurboQuantConfig {
-        bit_width: 2,
-        variant: TurboQuantVariant::Mse,
-        seed: Some(123),
-    };
-    let nbytes = (NUM_VECTORS * 768 * 4) as u64;
+    let config = turboquant_config(2);
 
-    with_byte_counter(bencher, nbytes)
+    with_byte_counter(bencher, (NUM_VECTORS * 768 * 4) as u64)
         .with_inputs(|| &fsl)
         .bench_refs(|a| turboquant_encode(a, &config).unwrap());
 }
@@ -533,15 +520,122 @@ fn bench_turboquant_compress_dim768_2bit(bencher: Bencher) {
 #[divan::bench(name = "turboquant_decompress_dim768_2bit")]
 fn bench_turboquant_decompress_dim768_2bit(bencher: Bencher) {
     let fsl = setup_vector_fsl(768);
-    let config = TurboQuantConfig {
-        bit_width: 2,
-        variant: TurboQuantVariant::Mse,
-        seed: Some(123),
-    };
+    let config = turboquant_config(2);
     let compressed = turboquant_encode(&fsl, &config).unwrap();
-    let nbytes = (NUM_VECTORS * 768 * 4) as u64;
 
-    with_byte_counter(bencher, nbytes)
+    with_byte_counter(bencher, (NUM_VECTORS * 768 * 4) as u64)
+        .with_inputs(|| &compressed)
+        .bench_refs(|a| {
+            let mut ctx = SESSION.create_execution_ctx();
+            a.clone()
+                .into_array()
+                .execute::<FixedSizeListArray>(&mut ctx)
+                .unwrap()
+        });
+}
+
+// dim=1024 benchmarks (common for larger embedding models)
+
+#[divan::bench(name = "turboquant_compress_dim1024_2bit")]
+fn bench_turboquant_compress_dim1024_2bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1024);
+    let config = turboquant_config(2);
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1024 * 4) as u64)
+        .with_inputs(|| &fsl)
+        .bench_refs(|a| turboquant_encode(a, &config).unwrap());
+}
+
+#[divan::bench(name = "turboquant_decompress_dim1024_2bit")]
+fn bench_turboquant_decompress_dim1024_2bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1024);
+    let config = turboquant_config(2);
+    let compressed = turboquant_encode(&fsl, &config).unwrap();
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1024 * 4) as u64)
+        .with_inputs(|| &compressed)
+        .bench_refs(|a| {
+            let mut ctx = SESSION.create_execution_ctx();
+            a.clone()
+                .into_array()
+                .execute::<FixedSizeListArray>(&mut ctx)
+                .unwrap()
+        });
+}
+
+#[divan::bench(name = "turboquant_compress_dim1024_4bit")]
+fn bench_turboquant_compress_dim1024_4bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1024);
+    let config = turboquant_config(4);
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1024 * 4) as u64)
+        .with_inputs(|| &fsl)
+        .bench_refs(|a| turboquant_encode(a, &config).unwrap());
+}
+
+#[divan::bench(name = "turboquant_decompress_dim1024_4bit")]
+fn bench_turboquant_decompress_dim1024_4bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1024);
+    let config = turboquant_config(4);
+    let compressed = turboquant_encode(&fsl, &config).unwrap();
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1024 * 4) as u64)
+        .with_inputs(|| &compressed)
+        .bench_refs(|a| {
+            let mut ctx = SESSION.create_execution_ctx();
+            a.clone()
+                .into_array()
+                .execute::<FixedSizeListArray>(&mut ctx)
+                .unwrap()
+        });
+}
+
+// dim=1536 benchmarks (OpenAI ada-002, non-power-of-2 exercises padding)
+
+#[divan::bench(name = "turboquant_compress_dim1536_2bit")]
+fn bench_turboquant_compress_dim1536_2bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1536);
+    let config = turboquant_config(2);
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1536 * 4) as u64)
+        .with_inputs(|| &fsl)
+        .bench_refs(|a| turboquant_encode(a, &config).unwrap());
+}
+
+#[divan::bench(name = "turboquant_decompress_dim1536_2bit")]
+fn bench_turboquant_decompress_dim1536_2bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1536);
+    let config = turboquant_config(2);
+    let compressed = turboquant_encode(&fsl, &config).unwrap();
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1536 * 4) as u64)
+        .with_inputs(|| &compressed)
+        .bench_refs(|a| {
+            let mut ctx = SESSION.create_execution_ctx();
+            a.clone()
+                .into_array()
+                .execute::<FixedSizeListArray>(&mut ctx)
+                .unwrap()
+        });
+}
+
+#[divan::bench(name = "turboquant_compress_dim1536_4bit")]
+fn bench_turboquant_compress_dim1536_4bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1536);
+    let config = turboquant_config(4);
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1536 * 4) as u64)
+        .with_inputs(|| &fsl)
+        .bench_refs(|a| turboquant_encode(a, &config).unwrap());
+}
+
+#[divan::bench(name = "turboquant_decompress_dim1536_4bit")]
+fn bench_turboquant_decompress_dim1536_4bit(bencher: Bencher) {
+    let fsl = setup_vector_fsl(1536);
+    let config = turboquant_config(4);
+    let compressed = turboquant_encode(&fsl, &config).unwrap();
+
+    with_byte_counter(bencher, (NUM_VECTORS * 1536 * 4) as u64)
         .with_inputs(|| &compressed)
         .bench_refs(|a| {
             let mut ctx = SESSION.create_execution_ctx();
