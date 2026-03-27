@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LayoutTreeNode } from '../swimlane/types';
 import { formatBytes, parseArrayNodeId } from '../swimlane/utils';
 import { useVortexFile } from '../../contexts/VortexFileContext';
@@ -99,51 +99,89 @@ export function BuffersPane({ node }: BuffersPaneProps) {
   );
 }
 
+const BYTES_PER_ROW = 16;
+const MAX_ROWS = 1024;
+
+interface HexRow {
+  offset: number;
+  bytes: { value: number; absIndex: number }[];
+}
+
 function HexView({ data }: { data: Uint8Array }) {
-  const bytesPerRow = 16;
-  const rows: { offset: number; hex: string[]; ascii: string }[] = [];
+  const [hovered, setHovered] = useState<number | null>(null);
 
-  for (let i = 0; i < data.length; i += bytesPerRow) {
-    const slice = data.subarray(i, Math.min(i + bytesPerRow, data.length));
-    const hex: string[] = [];
-    let ascii = '';
-    for (let j = 0; j < bytesPerRow; j++) {
-      if (j < slice.length) {
-        hex.push(slice[j].toString(16).padStart(2, '0'));
-        ascii += slice[j] >= 0x20 && slice[j] < 0x7f ? String.fromCharCode(slice[j]) : '.';
-      } else {
-        hex.push('  ');
-        ascii += ' ';
+  const { rows, truncated } = useMemo(() => {
+    const result: HexRow[] = [];
+    for (let i = 0; i < data.length; i += BYTES_PER_ROW) {
+      const bytes: HexRow['bytes'] = [];
+      const end = Math.min(i + BYTES_PER_ROW, data.length);
+      for (let j = i; j < end; j++) {
+        bytes.push({ value: data[j], absIndex: j });
       }
+      result.push({ offset: i, bytes });
     }
-    rows.push({ offset: i, hex, ascii });
-  }
+    const isTruncated = result.length > MAX_ROWS;
+    return { rows: isTruncated ? result.slice(0, MAX_ROWS) : result, truncated: isTruncated };
+  }, [data]);
 
-  // Limit display to first 1024 rows to avoid freezing
-  const maxRows = 1024;
-  const truncated = rows.length > maxRows;
-  const visibleRows = truncated ? rows.slice(0, maxRows) : rows;
+  const hlClass = 'bg-vortex-light-blue/20 rounded-sm';
 
   return (
     <div className="font-mono text-[10px] leading-[16px]">
-      {visibleRows.map((row) => (
+      {rows.map((row) => (
         <div key={row.offset} className="flex gap-2 whitespace-pre">
-          <span className="text-vortex-grey-dark w-[60px] text-right flex-shrink-0">
+          {/* Offset */}
+          <span className="text-vortex-grey-dark w-[60px] text-right flex-shrink-0 select-none">
             {row.offset.toString(16).padStart(8, '0')}
           </span>
-          <span className="text-vortex-fg-light dark:text-vortex-fg flex-shrink-0">
-            {row.hex.slice(0, 8).join(' ')}
-            {'  '}
-            {row.hex.slice(8).join(' ')}
+
+          {/* Hex bytes */}
+          <span className="flex-shrink-0">
+            {Array.from({ length: BYTES_PER_ROW }, (_, j) => {
+              const b = row.bytes[j];
+              if (!b) return <span key={j} className="inline-block w-[22px]">   </span>;
+              const isHl = hovered === b.absIndex;
+              const gap = j === 8 ? ' ' : '';
+              return (
+                <span key={j}>
+                  {gap}
+                  <span
+                    className={`inline-block w-[22px] text-center text-vortex-fg-light dark:text-vortex-fg cursor-default ${isHl ? hlClass : ''}`}
+                    onMouseEnter={() => setHovered(b.absIndex)}
+                    onMouseLeave={() => setHovered(null)}
+                  >
+                    {b.value.toString(16).padStart(2, '0')}
+                  </span>
+                </span>
+              );
+            })}
           </span>
-          <span className="text-vortex-light-blue flex-shrink-0">
-            {row.ascii}
+
+          {/* ASCII */}
+          <span className="flex-shrink-0">
+            {Array.from({ length: BYTES_PER_ROW }, (_, j) => {
+              const b = row.bytes[j];
+              if (!b) return <span key={j}> </span>;
+              const isHl = hovered === b.absIndex;
+              const ch = b.value >= 0x20 && b.value < 0x7f ? String.fromCharCode(b.value) : '.';
+              const color = ch === '.' ? 'text-vortex-grey-dark' : 'text-vortex-light-blue';
+              return (
+                <span
+                  key={j}
+                  className={`cursor-default ${color} ${isHl ? hlClass : ''}`}
+                  onMouseEnter={() => setHovered(b.absIndex)}
+                  onMouseLeave={() => setHovered(null)}
+                >
+                  {ch}
+                </span>
+              );
+            })}
           </span>
         </div>
       ))}
       {truncated && (
         <div className="text-vortex-grey-dark mt-1">
-          … {rows.length - maxRows} more rows ({formatBytes(data.length)} total)
+          … {Math.ceil(data.length / BYTES_PER_ROW) - MAX_ROWS} more rows ({formatBytes(data.length)} total)
         </div>
       )}
     </div>

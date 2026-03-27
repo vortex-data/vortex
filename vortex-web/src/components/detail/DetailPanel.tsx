@@ -35,8 +35,8 @@ export function DetailPanel() {
           result.push({ id: 'buffers', label: 'Buffers' });
         }
       } else {
-        result.push({ id: 'segments', label: 'Segments' });
         result.push({ id: 'treemap', label: 'Treemap' });
+        result.push({ id: 'segments', label: 'Segments' });
         if (selection.selectedNode.children.length === 0) {
           result.push({ id: 'encoding', label: 'Encoding' });
         }

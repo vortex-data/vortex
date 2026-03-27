@@ -460,7 +460,22 @@ export function filterTreeBySearch(
   }
   collectAncestors(root, []);
 
-  const visibleIds = new Set([...matchingIds, ...ancestorIds]);
+  // Collect descendants of matching nodes so expanded children are visible.
+  const descendantIds = new Set<string>();
+  function collectDescendants(node: LayoutTreeNode) {
+    descendantIds.add(node.id);
+    for (const child of node.children) collectDescendants(child);
+  }
+  function findDescendantsOfMatches(node: LayoutTreeNode) {
+    if (matchingIds.has(node.id)) {
+      collectDescendants(node);
+    } else {
+      for (const child of node.children) findDescendantsOfMatches(child);
+    }
+  }
+  findDescendantsOfMatches(root);
+
+  const visibleIds = new Set([...matchingIds, ...ancestorIds, ...descendantIds]);
   return rows.filter((row) => visibleIds.has(row.node.id));
 }
 
@@ -534,12 +549,8 @@ export function arrayTreeToLayoutChildren(
     };
   }
 
-  // The root ArrayEncodingNode IS the flat layout's encoding.
-  // Its children become children of the flat layout node.
-  return arrayTree.children.map((child, i) => {
-    const childName = arrayTree.childNames[i] ?? `child ${i}`;
-    return convert(child, parentNode.id, childName);
-  });
+  // Wrap the entire array tree as a single "array" child of the flat layout.
+  return [convert(arrayTree, parentNode.id, 'array')];
 }
 
 /**
@@ -551,8 +562,9 @@ export function isFlatLayout(node: LayoutTreeNode): boolean {
 
 /**
  * Parse an array node ID into its layout node ID and array child path.
- * Array node IDs use `$`-prefixed segments: "root.col.$values.$encoded"
- * → layoutNodeId: "root.col", arrayPath: ["values", "encoded"]
+ * Array node IDs look like "root.col.$array.$values.$encoded".
+ * The first `$array` segment represents the root of the decoded array tree,
+ * so the WASM-side path skips it: → layoutNodeId: "root.col", arrayPath: ["values", "encoded"]
  */
 export function parseArrayNodeId(nodeId: string): { layoutNodeId: string; arrayPath: string[] } {
   const parts = nodeId.split('.');
@@ -560,8 +572,10 @@ export function parseArrayNodeId(nodeId: string): { layoutNodeId: string; arrayP
   if (firstArrayIdx === -1) {
     return { layoutNodeId: nodeId, arrayPath: [] };
   }
+  // Skip the first $array segment — it represents the decoded root, not a child to navigate to.
+  const arraySegments = parts.slice(firstArrayIdx).map((p) => p.slice(1));
   return {
     layoutNodeId: parts.slice(0, firstArrayIdx).join('.'),
-    arrayPath: parts.slice(firstArrayIdx).map((p) => p.slice(1)),
+    arrayPath: arraySegments.slice(1),
   };
 }
