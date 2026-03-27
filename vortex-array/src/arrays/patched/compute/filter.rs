@@ -18,15 +18,15 @@ impl FilterReduce for Patched {
         //
         // This is helpful when we have a very selective filter that is clustered to a small
         // range.
-        let (chunk_start, chunk_stop) = match mask.indices() {
+        let (chunk_start, chunk_stop) = match mask.slices() {
             AllOr::All | AllOr::None => {
                 // This is handled as the precondition to this method, see the FilterReduce
                 // documentation.
                 unreachable!("mask must be a MaskValues here")
             }
-            AllOr::Some(indices) => {
-                let first = indices[0];
-                let last = indices[indices.len() - 1];
+            AllOr::Some(slices) => {
+                let (first, _) = slices[0];
+                let (_, last) = slices[slices.len() - 1];
 
                 (first / 1024, last.div_ceil(1024))
             }
