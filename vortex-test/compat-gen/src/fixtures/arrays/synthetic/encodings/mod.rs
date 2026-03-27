@@ -38,11 +38,12 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(bytebool::ByteBoolFixture),
         Box::new(datetimeparts::DateTimePartsFixture),
         Box::new(decimal_byte_parts::DecimalBytePartsFixture),
-        // Reenable this once delta is stable
+        // Re-enable this once delta is stable
         // Box::new(delta::DeltaFixture),
         Box::new(dict::DictFixture),
         Box::new(fsst::FsstFixture),
         Box::new(for_::FoRFixture),
+        Box::new(patched::PatchedFixture),
         Box::new(pco::PcoFixture),
         Box::new(rle::RleFixture),
         Box::new(runend::RunEndFixture),
