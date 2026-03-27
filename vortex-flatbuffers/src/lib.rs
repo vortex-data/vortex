@@ -12,7 +12,9 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[allow(clippy::many_single_char_names)]
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_in_result)]
 #[allow(clippy::borrow_as_ptr)]
+#[allow(clippy::cast_possible_truncation)]
 #[allow(dead_code)]
 #[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
@@ -37,6 +39,7 @@ pub mod array;
 #[allow(clippy::many_single_char_names)]
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
+#[allow(clippy::cast_possible_truncation)]
 #[allow(dead_code)]
 #[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
@@ -60,7 +63,9 @@ pub mod dtype;
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[allow(clippy::many_single_char_names)]
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_in_result)]
 #[allow(clippy::borrow_as_ptr)]
+#[allow(clippy::cast_possible_truncation)]
 #[allow(dead_code)]
 #[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
@@ -85,6 +90,7 @@ pub mod footer;
 #[allow(clippy::many_single_char_names)]
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
+#[allow(clippy::cast_possible_truncation)]
 #[allow(dead_code)]
 #[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
@@ -108,7 +114,9 @@ pub mod layout;
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[allow(clippy::many_single_char_names)]
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_in_result)]
 #[allow(clippy::borrow_as_ptr)]
+#[allow(clippy::cast_possible_truncation)]
 #[allow(dead_code)]
 #[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
@@ -127,12 +135,11 @@ pub mod layout;
 /// ```
 pub mod message;
 
-use flatbuffers::FlatBufferBuilder;
-use flatbuffers::Follow;
-use flatbuffers::InvalidFlatbuffer;
-use flatbuffers::Verifiable;
-use flatbuffers::WIPOffset;
-use flatbuffers::root;
+pub use planus;
+pub use planus::Builder as FlatBufferBuilder;
+pub use planus::Offset as WIPOffset;
+pub use planus::ReadAsRoot;
+pub use planus::UnionOffset as UnionWIPOffset;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ConstByteBuffer;
 use vortex_error::VortexResult;
@@ -146,17 +153,23 @@ pub type FlatBuffer = ConstByteBuffer<8>;
 /// Marker trait for types that can be the root of a FlatBuffer.
 pub trait FlatBufferRoot {}
 
+/// Reads a FlatBuffer root value from bytes.
+pub fn root<'buf, T>(bytes: &'buf [u8]) -> Result<T, planus::Error>
+where
+    T: ReadAsRoot<'buf>,
+{
+    T::read_as_root(bytes)
+}
+
 /// Trait for reading a type from a FlatBuffer.
 pub trait ReadFlatBuffer: Sized {
     /// The FlatBuffer type that this type can be read from.
-    type Source<'a>: Verifiable + Follow<'a>;
+    type Source<'a>: ReadAsRoot<'a>;
     /// The error type returned when reading fails.
-    type Error: From<InvalidFlatbuffer>;
+    type Error: From<planus::Error>;
 
     /// Reads this type from a FlatBuffer source.
-    fn read_flatbuffer<'buf>(
-        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
-    ) -> Result<Self, Self::Error>;
+    fn read_flatbuffer<'buf>(fb: &Self::Source<'buf>) -> Result<Self, Self::Error>;
 
     /// Reads this type from bytes representing a FlatBuffer source.
     fn read_flatbuffer_bytes<'buf>(bytes: &'buf [u8]) -> Result<Self, Self::Error>
@@ -171,13 +184,13 @@ pub trait ReadFlatBuffer: Sized {
 /// Trait for writing a type to a FlatBuffer.
 pub trait WriteFlatBuffer {
     /// The FlatBuffer type that this type can be written to.
-    type Target<'a>;
+    type Target;
 
     /// Writes this type to a FlatBuffer builder.
-    fn write_flatbuffer<'fb>(
+    fn write_flatbuffer(
         &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> VortexResult<WIPOffset<Self::Target<'fb>>>;
+        fbb: &mut FlatBufferBuilder,
+    ) -> VortexResult<WIPOffset<Self::Target>>;
 }
 
 /// Extension trait for types that can be written as FlatBuffer root objects.
@@ -190,11 +203,7 @@ impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
     fn write_flatbuffer_bytes(&self) -> VortexResult<FlatBuffer> {
         let mut fbb = FlatBufferBuilder::new();
         let root_offset = self.write_flatbuffer(&mut fbb)?;
-        fbb.finish_minimal(root_offset);
-        let (vec, start) = fbb.collapse();
-        let end = vec.len();
-        Ok(FlatBuffer::align_from(
-            ByteBuffer::from(vec).slice(start..end),
-        ))
+        let bytes = fbb.finish(root_offset, None);
+        Ok(FlatBuffer::align_from(ByteBuffer::from(bytes.to_vec())))
     }
 }

@@ -238,6 +238,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28f6098a1e8ab66ff91324cce8fea6643101882cf7d09c85acdb1485ecf61e29"
 
 [[package]]
+name = "array-init-cursor"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed51fe0f224d1d4ea768be38c51f9f831dee9d05c163c11fba0b8c44387b1fc3"
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6962,6 +6968,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "planus"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1a36d3b20196d397b17582b55c493ce9c3be8de1cf0e352df5fcb909626e24a"
+dependencies = [
+ "array-init-cursor",
+ "hashbrown 0.16.1",
+]
+
+[[package]]
 name = "plotters"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10098,7 +10114,6 @@ dependencies = [
  "codspeed-divan-compat",
  "cudarc",
  "enum-iterator",
- "flatbuffers",
  "futures",
  "getrandom 0.4.2",
  "goldenfile",
@@ -10434,9 +10449,9 @@ name = "vortex-error"
 version = "0.1.0"
 dependencies = [
  "arrow-schema 58.0.0",
- "flatbuffers",
  "jiff",
  "object_store 0.13.1",
+ "planus",
  "prost 0.14.3",
  "serial_test",
  "temp-env",
@@ -10490,7 +10505,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "flatbuffers",
  "futures",
  "getrandom 0.4.2",
  "itertools 0.14.0",
@@ -10533,7 +10547,8 @@ dependencies = [
 name = "vortex-flatbuffers"
 version = "0.1.0"
 dependencies = [
- "flatbuffers",
+ "planus",
+ "serde",
  "vortex-buffer",
  "vortex-error",
 ]
@@ -10618,7 +10633,6 @@ name = "vortex-ipc"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "flatbuffers",
  "futures",
  "itertools 0.14.0",
  "pin-project-lite",
@@ -10660,7 +10674,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bit-vec",
- "flatbuffers",
  "futures",
  "itertools 0.14.0",
  "kanal",
@@ -10902,7 +10915,6 @@ dependencies = [
  "crossterm",
  "datafusion 53.0.0",
  "env_logger",
- "flatbuffers",
  "futures",
  "fuzzy-matcher",
  "humansize",

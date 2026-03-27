@@ -5,21 +5,19 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use bytes::Buf;
-use flatbuffers::root;
-use flatbuffers::root_unchecked;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::message as fb;
-use vortex_flatbuffers::message::MessageHeader;
+use vortex_flatbuffers::message::MessageHeaderRef;
 use vortex_flatbuffers::message::MessageVersion;
+use vortex_flatbuffers::root;
 use vortex_session::registry::ReadContext;
 
 /// A message decoded from an IPC stream.
@@ -92,70 +90,69 @@ impl MessageDecoder {
                     }
 
                     let msg_bytes = bytes.copy_to_const_aligned(*msg_length);
-                    let msg = root::<fb::Message>(msg_bytes.as_ref())?;
-                    if msg.version() != MessageVersion::V0 {
-                        vortex_bail!("Unsupported message version {:?}", msg.version());
+                    let msg = root::<fb::MessageRef<'_>>(msg_bytes.as_ref())?;
+                    let version = msg.version()?;
+                    if version != MessageVersion::V0 {
+                        vortex_bail!("Unsupported message version {:?}", version);
                     }
 
                     self.state = State::Reading(msg_bytes);
                 }
                 State::Reading(msg_bytes) => {
-                    // SAFETY: we've already validated the header in the previous state
-                    let msg = unsafe { root_unchecked::<fb::Message>(msg_bytes.as_ref()) };
+                    let msg = root::<fb::MessageRef<'_>>(msg_bytes.as_ref())?;
 
                     // Now we read the body
-                    let body_length = usize::try_from(msg.body_size()).map_err(|_| {
-                        vortex_err!("body size {} is too large for usize", msg.body_size())
-                    })?;
+                    let body_size = msg.body_size()?;
+                    let body_length = usize::try_from(body_size)
+                        .map_err(|_| vortex_err!("body size {body_size} is too large for usize"))?;
                     if bytes.remaining() < body_length {
                         return Ok(PollRead::NeedMore(body_length));
                     }
 
-                    match msg.header_type() {
-                        MessageHeader::ArrayMessage => {
+                    let header = msg
+                        .header()?
+                        .ok_or_else(|| vortex_err!("IPC message missing header"))?;
+
+                    match header {
+                        MessageHeaderRef::ArrayMessage(header) => {
                             // We don't care about alignment here since ArrayParts will handle it.
                             let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
                             let parts = ArrayParts::try_from(body)?;
 
-                            let header = msg
-                                .header_as_array_message()
-                                .vortex_expect("header is array");
-
-                            let encoding_ids: Arc<_> = header
-                                .encodings()
-                                .iter()
-                                .flat_map(|e| e.iter())
-                                .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
-                                .collect();
+                            let encoding_ids: Arc<[ArrayId]> = header
+                                .encodings()?
+                                .map(|encodings| {
+                                    encodings
+                                        .iter()
+                                        .map(|id| id.map(|id| ArrayId::new_arc(Arc::from(id))))
+                                        .collect::<Result<Vec<_>, vortex_flatbuffers::planus::Error>>()
+                                })
+                                .transpose()?
+                                .unwrap_or_default()
+                                .into();
 
                             let ctx = ReadContext::new(encoding_ids);
-                            let row_count = header.row_count() as usize;
+                            let row_count = usize::try_from(header.row_count()?)
+                                .map_err(|_| vortex_err!("row count does not fit into usize"))?;
 
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::Array((
                                 parts, ctx, row_count,
                             ))));
                         }
-                        MessageHeader::BufferMessage => {
+                        MessageHeaderRef::BufferMessage(header) => {
                             let body = bytes.copy_to_aligned(
                                 body_length,
-                                Alignment::from_exponent(
-                                    msg.header_as_buffer_message()
-                                        .vortex_expect("header is buffer")
-                                        .alignment_exponent(),
-                                ),
+                                Alignment::from_exponent(header.alignment_exponent()?),
                             );
 
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::Buffer(body)));
                         }
-                        MessageHeader::DTypeMessage => {
+                        MessageHeaderRef::DTypeMessage(_) => {
                             let dtype: FlatBuffer = bytes.copy_to_const_aligned::<8>(body_length);
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::DType(dtype)));
-                        }
-                        _ => {
-                            vortex_bail!("Unsupported message header {:?}", msg.header_type());
                         }
                     }
                 }

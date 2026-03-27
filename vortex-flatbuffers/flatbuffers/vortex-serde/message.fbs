@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-include "vortex-array/array.fbs";
-include "vortex-dtype/dtype.fbs";
+include "../vortex-array/array.fbs";
+include "../vortex-dtype/dtype.fbs";
 
 enum MessageVersion: uint8 {
     V0 = 0,
@@ -35,5 +35,3 @@ table Message {
     header: MessageHeader;
     body_size: uint64;
 }
-
-root_type Message;

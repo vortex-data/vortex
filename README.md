@@ -102,8 +102,8 @@ vx browse <file>
 
 ```bash
 # Optional but recommended dependencies
-brew install flatbuffers protobuf  # For .fbs and .proto files
-brew install duckdb               # For benchmarks
+brew install protobuf  # For .proto files
+brew install duckdb    # For benchmarks
 
 # Install Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

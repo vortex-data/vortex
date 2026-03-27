@@ -881,6 +881,7 @@ jobs:
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN
       - name: "regenerate all .fbs/.proto Rust code"
         run: |
+          cargo install planus-cli --locked
           cargo xtask generate-fbs
           cargo xtask generate-proto
       - name: "regenerate FFI header file"

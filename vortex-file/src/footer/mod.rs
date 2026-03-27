@@ -21,8 +21,6 @@ pub use serializer::*;
 mod deserializer;
 pub use deserializer::*;
 pub use file_statistics::FileStatistics;
-use flatbuffers::root;
-use itertools::Itertools;
 pub use segment::*;
 use vortex_array::dtype::DType;
 use vortex_array::vtable::ArrayId;
@@ -32,6 +30,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::footer as fb;
+use vortex_flatbuffers::root;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer;
@@ -81,24 +80,44 @@ impl Footer {
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let approx_byte_size = footer_bytes.len() + layout_bytes.len();
-        let fb_footer = root::<fb::Footer>(&footer_bytes)?;
+        let fb_footer = root::<fb::FooterRef<'_>>(&footer_bytes)?;
 
         // Create a LayoutContext from the registry.
-        let layout_specs = fb_footer.layout_specs();
-        let layout_ids: Arc<[_]> = layout_specs
-            .iter()
-            .flat_map(|e| e.iter())
-            .map(|encoding| LayoutEncodingId::new_arc(Arc::from(encoding.id())))
-            .collect();
+        let layout_ids: Arc<[_]> = fb_footer
+            .layout_specs()?
+            .map(|layout_specs| {
+                layout_specs
+                    .iter()
+                    .map(|encoding| {
+                        encoding.and_then(|encoding| {
+                            encoding
+                                .id()
+                                .map(|id| LayoutEncodingId::new_arc(Arc::from(id)))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, vortex_flatbuffers::planus::Error>>()
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into();
         let layout_read_ctx = ReadContext::new(layout_ids);
 
         // Create an ArrayContext from the registry.
-        let array_specs = fb_footer.array_specs();
-        let array_ids: Arc<[_]> = array_specs
-            .iter()
-            .flat_map(|e| e.iter())
-            .map(|encoding| ArrayId::new_arc(Arc::from(encoding.id())))
-            .collect();
+        let array_ids: Arc<[_]> = fb_footer
+            .array_specs()?
+            .map(|array_specs| {
+                array_specs
+                    .iter()
+                    .map(|encoding| {
+                        encoding.and_then(|encoding| {
+                            encoding.id().map(|id| ArrayId::new_arc(Arc::from(id)))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, vortex_flatbuffers::planus::Error>>()
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into();
         let array_read_ctx = ReadContext::new(array_ids);
 
         let root_layout = layout_from_flatbuffer(
@@ -110,11 +129,11 @@ impl Footer {
         )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
-            .segment_specs()
+            .segment_specs()?
             .ok_or_else(|| vortex_err!("FileLayout missing segment specs"))?
             .iter()
-            .map(SegmentSpec::try_from)
-            .try_collect()?;
+            .map(SegmentSpec::from)
+            .collect();
 
         // Note this assertion is `<=` since we allow zero-length segments
         if !segments.is_sorted_by_key(|segment| segment.offset) {

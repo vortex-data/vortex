@@ -5,13 +5,11 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
-use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
 use vortex_session::registry::ReadContext;
 
@@ -98,41 +96,25 @@ impl LayoutChildren for OwnedLayoutChildren {
 
 #[derive(Clone)]
 pub(crate) struct ViewedLayoutChildren {
-    flatbuffer: FlatBuffer,
-    flatbuffer_loc: usize,
+    children: Arc<[fbl::Layout]>,
     array_read_ctx: ReadContext,
     layout_read_ctx: ReadContext,
     layouts: LayoutRegistry,
 }
 
 impl ViewedLayoutChildren {
-    /// Create a new [`ViewedLayoutChildren`] from the given parameters.
-    ///
-    /// # Safety
-    ///
-    /// Assumes the flatbuffer is validated and that the `flatbuffer_loc` is the correct offset
-    pub(super) unsafe fn new_unchecked(
-        flatbuffer: FlatBuffer,
-        flatbuffer_loc: usize,
+    pub(super) fn new(
+        children: Arc<[fbl::Layout]>,
         array_read_ctx: ReadContext,
         layout_read_ctx: ReadContext,
         layouts: LayoutRegistry,
     ) -> Self {
         Self {
-            flatbuffer,
-            flatbuffer_loc,
+            children,
             array_read_ctx,
             layout_read_ctx,
             layouts,
         }
-    }
-
-    /// Return the flatbuffer layout message.
-    fn flatbuffer(&self) -> fbl::Layout<'_> {
-        // SAFETY: flatbuffer_loc is guaranteed to be a valid offset into the flatbuffer
-        // as it was constructed from a validated flatbuffer in ViewedLayoutChildren::try_new.
-        // The lifetime of the returned Layout is tied to self, ensuring the buffer remains valid.
-        unsafe { fbl::Layout::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 }
 
@@ -145,35 +127,34 @@ impl LayoutChildren for ViewedLayoutChildren {
         if idx >= self.nchildren() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.nchildren());
         }
-        let fb_child = self.flatbuffer().children().unwrap_or_default().get(idx);
+        let fb_child = &self.children[idx];
 
-        let viewed_children = ViewedLayoutChildren {
-            flatbuffer: self.flatbuffer.clone(),
-            flatbuffer_loc: fb_child._tab.loc(),
-            array_read_ctx: self.array_read_ctx.clone(),
-            layout_read_ctx: self.layout_read_ctx.clone(),
-            layouts: self.layouts.clone(),
-        };
+        let viewed_children = ViewedLayoutChildren::new(
+            fb_child.children.clone().unwrap_or_default().into(),
+            self.array_read_ctx.clone(),
+            self.layout_read_ctx.clone(),
+            self.layouts.clone(),
+        );
 
         let encoding_id = self
             .layout_read_ctx
-            .resolve(fb_child.encoding())
-            .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
-        let encoding = self.layouts.find(&encoding_id).ok_or_else(|| {
-            vortex_err!("Encoding not found in registry: {}", fb_child.encoding())
-        })?;
+            .resolve(fb_child.encoding)
+            .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding))?;
+        let encoding = self
+            .layouts
+            .find(&encoding_id)
+            .ok_or_else(|| vortex_err!("Encoding not found in registry: {}", fb_child.encoding))?;
 
         encoding.build(
             dtype,
-            fb_child.row_count(),
+            fb_child.row_count,
+            fb_child.metadata.as_deref().unwrap_or(&[]),
             fb_child
-                .metadata()
-                .map(|m| m.bytes())
-                .unwrap_or_else(|| &[]),
-            fb_child
-                .segments()
-                .unwrap_or_default()
+                .segments
+                .as_deref()
+                .unwrap_or(&[])
                 .iter()
+                .copied()
                 .map(SegmentId::from)
                 .collect_vec(),
             &viewed_children,
@@ -182,16 +163,10 @@ impl LayoutChildren for ViewedLayoutChildren {
     }
 
     fn child_row_count(&self, idx: usize) -> u64 {
-        // Efficiently get the row count of the child at the given index, without a full
-        // deserialization.
-        self.flatbuffer()
-            .children()
-            .unwrap_or_default()
-            .get(idx)
-            .row_count()
+        self.children[idx].row_count
     }
 
     fn nchildren(&self) -> usize {
-        self.flatbuffer().children().unwrap_or_default().len()
+        self.children.len()
     }
 }

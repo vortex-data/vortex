@@ -9,10 +9,10 @@
 //! - Specifications for array and layout encodings used in the file
 use std::sync::Arc;
 
-use flatbuffers::FlatBufferBuilder;
-use flatbuffers::WIPOffset;
 use vortex_error::VortexResult;
+use vortex_flatbuffers::FlatBufferBuilder;
 use vortex_flatbuffers::FlatBufferRoot;
+use vortex_flatbuffers::WIPOffset;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
 use vortex_session::registry::ReadContext;
@@ -35,14 +35,18 @@ pub(crate) struct FooterFlatBufferWriter {
 impl FlatBufferRoot for FooterFlatBufferWriter {}
 
 impl WriteFlatBuffer for FooterFlatBufferWriter {
-    type Target<'a> = fb::Footer<'a>;
+    type Target = fb::Footer;
 
-    fn write_flatbuffer<'fb>(
+    fn write_flatbuffer(
         &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
-        let segment_specs =
-            fbb.create_vector_from_iter(self.segment_specs.iter().map(fb::SegmentSpec::from));
+        fbb: &mut FlatBufferBuilder,
+    ) -> VortexResult<WIPOffset<Self::Target>> {
+        let segment_specs = fbb.create_vector(
+            self.segment_specs
+                .iter()
+                .map(fb::SegmentSpec::from)
+                .collect::<Vec<_>>(),
+        );
 
         let array_specs = self
             .ctx
@@ -50,7 +54,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             .iter()
             .map(|e| {
                 let id = fbb.create_string(e.as_ref());
-                fb::ArraySpec::create(fbb, &fb::ArraySpecArgs { id: Some(id) })
+                fb::ArraySpec::create(fbb, id)
             })
             .collect::<Vec<_>>();
         let array_specs = fbb.create_vector(array_specs.as_slice());
@@ -61,20 +65,18 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             .iter()
             .map(|e| {
                 let id = fbb.create_string(e.as_ref());
-                fb::LayoutSpec::create(fbb, &fb::LayoutSpecArgs { id: Some(id) })
+                fb::LayoutSpec::create(fbb, id)
             })
             .collect::<Vec<_>>();
         let layout_specs = fbb.create_vector(layout_specs.as_slice());
 
         Ok(fb::Footer::create(
             fbb,
-            &fb::FooterArgs {
-                segment_specs: Some(segment_specs),
-                array_specs: Some(array_specs),
-                layout_specs: Some(layout_specs),
-                compression_specs: None,
-                encryption_specs: None,
-            },
+            Some(array_specs),
+            Some(layout_specs),
+            Some(segment_specs),
+            None::<Vec<fb::CompressionSpec>>,
+            None::<Vec<fb::EncryptionSpec>>,
         ))
     }
 }

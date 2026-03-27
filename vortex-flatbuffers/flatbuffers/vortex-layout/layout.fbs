@@ -28,5 +28,3 @@ table Layout {
     /// Identifiers for each `SegmentSpec` of data required by this layout.
     segments: [uint32];
 }
-
-root_type Layout;

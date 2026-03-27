@@ -56,5 +56,3 @@ table ArrayStats {
     uncompressed_size_in_bytes: uint64 = null;
     nan_count: uint64 = null;
 }
-
-root_type Array;

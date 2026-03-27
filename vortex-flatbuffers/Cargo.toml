@@ -27,7 +27,8 @@ ipc = ["array"]
 layout = ["array"]
 
 [dependencies]
-flatbuffers = { workspace = true }
+planus = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 

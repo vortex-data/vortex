@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use flatbuffers::FlatBufferBuilder;
-use flatbuffers::Follow;
-use flatbuffers::WIPOffset;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_flatbuffers::FlatBufferBuilder;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::ReadFlatBuffer;
+use vortex_flatbuffers::WIPOffset;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
 
@@ -25,12 +24,12 @@ pub(crate) struct Postscript {
 impl FlatBufferRoot for Postscript {}
 
 impl WriteFlatBuffer for Postscript {
-    type Target<'a> = fb::Postscript<'a>;
+    type Target = fb::Postscript;
 
-    fn write_flatbuffer<'fb>(
+    fn write_flatbuffer(
         &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        fbb: &mut FlatBufferBuilder,
+    ) -> VortexResult<WIPOffset<Self::Target>> {
         let dtype = self
             .dtype
             .as_ref()
@@ -45,38 +44,34 @@ impl WriteFlatBuffer for Postscript {
         let footer = self.footer.write_flatbuffer(fbb)?;
         Ok(fb::Postscript::create(
             fbb,
-            &fb::PostscriptArgs {
-                dtype,
-                layout: Some(layout),
-                statistics,
-                footer: Some(footer),
-            },
+            dtype,
+            Some(layout),
+            statistics,
+            Some(footer),
         ))
     }
 }
 
 impl ReadFlatBuffer for Postscript {
-    type Source<'a> = fb::Postscript<'a>;
+    type Source<'a> = fb::PostscriptRef<'a>;
     type Error = VortexError;
 
-    fn read_flatbuffer<'buf>(
-        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
-    ) -> Result<Self, Self::Error> {
+    fn read_flatbuffer<'buf>(fb: &Self::Source<'buf>) -> Result<Self, Self::Error> {
         Ok(Self {
             dtype: fb
-                .dtype()
+                .dtype()?
                 .map(|ps| PostscriptSegment::read_flatbuffer(&ps))
                 .transpose()?,
             layout: PostscriptSegment::read_flatbuffer(
-                &fb.layout()
+                &fb.layout()?
                     .ok_or_else(|| vortex_err!("Postscript missing layout segment"))?,
             )?,
             statistics: fb
-                .statistics()
+                .statistics()?
                 .map(|ps| PostscriptSegment::read_flatbuffer(&ps))
                 .transpose()?,
             footer: PostscriptSegment::read_flatbuffer(
-                &fb.footer()
+                &fb.footer()?
                     .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?,
             )?,
         })
@@ -92,36 +87,32 @@ pub struct PostscriptSegment {
 impl FlatBufferRoot for PostscriptSegment {}
 
 impl WriteFlatBuffer for PostscriptSegment {
-    type Target<'a> = fb::PostscriptSegment<'a>;
+    type Target = fb::PostscriptSegment;
 
-    fn write_flatbuffer<'fb>(
+    fn write_flatbuffer(
         &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        fbb: &mut FlatBufferBuilder,
+    ) -> VortexResult<WIPOffset<Self::Target>> {
         Ok(fb::PostscriptSegment::create(
             fbb,
-            &fb::PostscriptSegmentArgs {
-                offset: self.offset,
-                length: self.length,
-                alignment_exponent: self.alignment.exponent(),
-                _compression: None,
-                _encryption: None,
-            },
+            self.offset,
+            self.length,
+            self.alignment.exponent(),
+            None::<fb::CompressionSpec>,
+            None::<fb::EncryptionSpec>,
         ))
     }
 }
 
 impl ReadFlatBuffer for PostscriptSegment {
-    type Source<'a> = fb::PostscriptSegment<'a>;
+    type Source<'a> = fb::PostscriptSegmentRef<'a>;
     type Error = VortexError;
 
-    fn read_flatbuffer<'buf>(
-        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
-    ) -> Result<Self, Self::Error> {
+    fn read_flatbuffer<'buf>(fb: &Self::Source<'buf>) -> Result<Self, Self::Error> {
         Ok(PostscriptSegment {
-            offset: fb.offset(),
-            length: fb.length(),
-            alignment: Alignment::from_exponent(fb.alignment_exponent()),
+            offset: fb.offset()?,
+            length: fb.length()?,
+            alignment: Alignment::from_exponent(fb.alignment_exponent()?),
         })
     }
 }

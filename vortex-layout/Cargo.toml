@@ -23,7 +23,6 @@ arrow-schema = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
-flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 itertools = { workspace = true }
 kanal = { workspace = true }

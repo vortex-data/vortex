@@ -12,7 +12,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use flatbuffers::root;
 use itertools::Itertools;
 use serde::Serialize;
 use vortex::buffer::Alignment;
@@ -28,6 +27,7 @@ use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VERSION;
 use vortex::flatbuffers::footer as fb;
+use vortex::flatbuffers::root;
 use vortex::layout::LayoutRef;
 use vortex::session::VortexSession;
 
@@ -399,37 +399,30 @@ impl<'a> VortexInspector<'a> {
             .map_err(|e| vortex_err!("Failed to read postscript: {}", e))?;
 
         let postscript_buffer = ByteBuffer::from(postscript_bytes);
-        let fb_postscript = root::<fb::Postscript>(&postscript_buffer)
+        let fb_postscript = root::<fb::PostscriptRef<'_>>(&postscript_buffer)
             .map_err(|e| vortex_err!("Failed to parse postscript flatbuffer: {}", e))?;
+        let segment_info = |s: fb::PostscriptSegmentRef<'_>| -> VortexResult<SegmentInfo> {
+            Ok(SegmentInfo {
+                offset: s.offset()?,
+                length: s.length()?,
+                alignment: Alignment::from_exponent(s.alignment_exponent()?),
+            })
+        };
 
-        let dtype = fb_postscript.dtype().map(|s| SegmentInfo {
-            offset: s.offset(),
-            length: s.length(),
-            alignment: Alignment::from_exponent(s.alignment_exponent()),
-        });
+        let dtype = fb_postscript.dtype()?.map(segment_info).transpose()?;
 
         let layout = fb_postscript
-            .layout()
-            .map(|s| SegmentInfo {
-                offset: s.offset(),
-                length: s.length(),
-                alignment: Alignment::from_exponent(s.alignment_exponent()),
-            })
+            .layout()?
+            .map(segment_info)
+            .transpose()?
             .ok_or_else(|| vortex_err!("Postscript missing layout segment"))?;
 
-        let statistics = fb_postscript.statistics().map(|s| SegmentInfo {
-            offset: s.offset(),
-            length: s.length(),
-            alignment: Alignment::from_exponent(s.alignment_exponent()),
-        });
+        let statistics = fb_postscript.statistics()?.map(segment_info).transpose()?;
 
         let footer = fb_postscript
-            .footer()
-            .map(|s| SegmentInfo {
-                offset: s.offset(),
-                length: s.length(),
-                alignment: Alignment::from_exponent(s.alignment_exponent()),
-            })
+            .footer()?
+            .map(segment_info)
+            .transpose()?
             .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?;
 
         Ok(PostscriptInfo {

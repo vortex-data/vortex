@@ -15,7 +15,6 @@ version = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
-flatbuffers = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 pin-project-lite = { workspace = true }

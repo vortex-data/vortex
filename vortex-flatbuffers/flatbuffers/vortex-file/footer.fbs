@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-include "vortex-array/array.fbs";
-include "vortex-layout/layout.fbs";
+include "../vortex-array/array.fbs";
+include "../vortex-layout/layout.fbs";
 
 // [postscript]
 /// The `Postscript` is guaranteed by the file format to never exceed
@@ -111,7 +111,3 @@ table CompressionSpec {
 table EncryptionSpec {
 }
 // [footer]
-
-root_type FileStatistics;
-root_type Footer;
-root_type Postscript;

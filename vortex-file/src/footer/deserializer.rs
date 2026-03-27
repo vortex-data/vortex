@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use flatbuffers::root;
 use vortex_array::dtype::DType;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -11,6 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::ReadFlatBuffer;
+use vortex_flatbuffers::root;
 use vortex_session::VortexSession;
 
 use crate::EOF_SIZE;
@@ -234,7 +234,7 @@ impl FooterDeserializer {
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
 
-        let fb = root::<vortex_flatbuffers::footer::FileStatistics>(&sliced_buffer)?;
+        let fb = root::<vortex_flatbuffers::footer::FileStatisticsRef<'_>>(&sliced_buffer)?;
         FileStatistics::from_flatbuffer(&fb, dtype, session)
     }
 

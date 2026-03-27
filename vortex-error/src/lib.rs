@@ -105,7 +105,7 @@ pub enum VortexError {
     Arrow(arrow_schema::ArrowError, Box<Backtrace>),
     /// A wrapper for errors from the FlatBuffers library.
     #[cfg(feature = "flatbuffers")]
-    FlatBuffers(flatbuffers::InvalidFlatbuffer, Box<Backtrace>),
+    FlatBuffers(planus::Error, Box<Backtrace>),
     /// A wrapper for formatting errors.
     Fmt(fmt::Error, Box<Backtrace>),
     /// A wrapper for IO errors.
@@ -508,8 +508,8 @@ impl From<arrow_schema::ArrowError> for VortexError {
 }
 
 #[cfg(feature = "flatbuffers")]
-impl From<flatbuffers::InvalidFlatbuffer> for VortexError {
-    fn from(value: flatbuffers::InvalidFlatbuffer) -> Self {
+impl From<planus::Error> for VortexError {
+    fn from(value: planus::Error) -> Self {
         VortexError::FlatBuffers(value, Box::new(Backtrace::capture()))
     }
 }

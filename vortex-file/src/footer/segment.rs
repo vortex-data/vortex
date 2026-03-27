@@ -32,7 +32,13 @@ impl SegmentSpec {
 
 impl From<&SegmentSpec> for fb::SegmentSpec {
     fn from(value: &SegmentSpec) -> Self {
-        fb::SegmentSpec::new(value.offset, value.length, value.alignment.exponent(), 0, 0)
+        fb::SegmentSpec {
+            offset: value.offset,
+            length: value.length,
+            alignment_exponent: value.alignment.exponent(),
+            compression: 0,
+            encryption: 0,
+        }
     }
 }
 
@@ -41,9 +47,19 @@ impl TryFrom<&fb::SegmentSpec> for SegmentSpec {
 
     fn try_from(value: &fb::SegmentSpec) -> Result<Self, Self::Error> {
         Ok(Self {
+            offset: value.offset,
+            length: value.length,
+            alignment: Alignment::from_exponent(value.alignment_exponent),
+        })
+    }
+}
+
+impl<'a> From<fb::SegmentSpecRef<'a>> for SegmentSpec {
+    fn from(value: fb::SegmentSpecRef<'a>) -> Self {
+        Self {
             offset: value.offset(),
             length: value.length(),
             alignment: Alignment::from_exponent(value.alignment_exponent()),
-        })
+        }
     }
 }

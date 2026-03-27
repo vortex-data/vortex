@@ -17,13 +17,13 @@ version = { workspace = true }
 all-features = true
 
 [features]
-flatbuffers = ["dep:flatbuffers"]
+flatbuffers = ["dep:planus"]
 
 [dependencies]
 arrow-schema = { workspace = true }
-flatbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }
 object_store = { workspace = true, optional = true }
+planus = { workspace = true, optional = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 

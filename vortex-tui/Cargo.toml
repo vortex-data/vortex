@@ -42,7 +42,6 @@ required-features = ["native"]
 [dependencies]
 # Shared dependencies
 anyhow = { workspace = true }
-flatbuffers = { workspace = true }
 futures = { workspace = true }
 fuzzy-matcher = { workspace = true }
 humansize = { workspace = true }
