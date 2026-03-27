@@ -28,6 +28,7 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
+use crate::SerializeMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
@@ -45,10 +46,10 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::vtable;
-use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityChild;
 use crate::vtable::ValidityVTableFromChild;
+use crate::vtable::{Array, ArrayId};
 
 vtable!(Patched);
 
@@ -140,7 +141,7 @@ impl VTable for Patched {
             0 => array.inner.clone(),
             1 => array.indices.clone(),
             2 => array.values.clone(),
-            _ => vortex_panic!("invalid buffer index for PatchedArray: {idx}"),
+            _ => vortex_panic!("invalid child index for PatchedArray: {idx}"),
         }
     }
 
@@ -149,7 +150,7 @@ impl VTable for Patched {
             0 => "inner".to_string(),
             1 => "patch_indices".to_string(),
             2 => "patch_values".to_string(),
-            _ => vortex_panic!("invalid buffer index for PatchedArray: {idx}"),
+            _ => vortex_panic!("invalid child index for PatchedArray: {idx}"),
         }
     }
 
@@ -161,8 +162,8 @@ impl VTable for Patched {
         }))
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
     }
 
     fn deserialize(
@@ -247,7 +248,7 @@ impl VTable for Patched {
 
         let inner = children.get(0, dtype, len)?;
         let indices = children.get(1, PType::U16.into(), metadata.n_patches as usize)?;
-        let values = children.get(1, dtype, metadata.n_patches as usize)?;
+        let values = children.get(2, dtype, metadata.n_patches as usize)?;
 
         Ok(PatchedArray {
             inner,
@@ -269,12 +270,13 @@ impl VTable for Patched {
         );
 
         array.inner = children.remove(0);
+        array.indices = children.remove(0);
         array.values = children.remove(0);
 
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let inner = array
             .inner
             .clone()
@@ -311,9 +313,6 @@ impl VTable for Patched {
                 values.as_slice::<V>(),
             );
 
-            // The output will always be aligned to a chunk boundary, we apply the offset/len
-            // at the end to slice to only the in-bounds values.
-            let _output = output.as_slice();
             let output = output.freeze().slice(offset..offset + len);
 
             PrimitiveArray::from_byte_buffer(output.into_byte_buffer(), ptype, validity)
@@ -323,7 +322,7 @@ impl VTable for Patched {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -332,7 +331,7 @@ impl VTable for Patched {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
