@@ -11,6 +11,10 @@ import {
   shortEncoding,
 } from '../swimlane/utils';
 
+function formatNum(n: number): string {
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '_');
+}
+
 interface SummaryPaneProps {
   node: LayoutTreeNode | null;
   file: VortexFileState;
@@ -56,11 +60,11 @@ export function SummaryPane({ node, file }: SummaryPaneProps) {
         <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>{shortEncoding(node.encoding)}</span>
         <span>Rows</span>
         <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {node.rowCount.toLocaleString()}
+          {formatNum(node.rowCount)}
         </span>
         <span>Row offset</span>
         <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {node.rowOffset.toLocaleString()}
+          {formatNum(node.rowOffset)}
         </span>
         <span>Metadata</span>
         <span className="text-vortex-fg-light dark:text-vortex-fg">

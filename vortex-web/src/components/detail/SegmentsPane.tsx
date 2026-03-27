@@ -14,27 +14,22 @@ interface SegmentsPaneProps {
 
 type SortKey = 'index' | 'byteOffset' | 'byteLength' | 'alignment';
 
-/** Format a number with thin-space digit grouping (e.g. 1 234 567). */
-function spaceGroup(n: number): string {
-  const s = String(n);
-  const result: string[] = [];
-  for (let i = s.length; i > 0; i -= 3) {
-    result.unshift(s.slice(Math.max(0, i - 3), i));
-  }
-  return result.join('\u2009');
+/** Format a number with underscore digit grouping (e.g. 1_234_567). */
+function formatNum(n: number): string {
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '_');
 }
 
-/** Format a byte offset with space-separated digit groups. */
+/** Format a byte offset with underscore-separated digit groups. */
 function formatOffset(bytes: number): string {
-  return spaceGroup(bytes);
+  return formatNum(bytes);
 }
 
-/** Format a relative offset like +1 234 or −5 678. */
+/** Format a relative offset like +1_234 or −5_678. */
 function formatRelativeOffset(bytes: number, anchor: number): string {
   const diff = bytes - anchor;
   if (diff === 0) return '0';
   const sign = diff > 0 ? '+' : '\u2212';
-  return `${sign}${spaceGroup(Math.abs(diff))}`;
+  return `${sign}${formatNum(Math.abs(diff))}`;
 }
 
 export function SegmentsPane({ node, segments }: SegmentsPaneProps) {
