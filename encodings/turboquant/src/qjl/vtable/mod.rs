@@ -4,6 +4,7 @@
 //! VTable implementation for TurboQuant QJL encoding.
 
 use std::hash::Hash;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_array::ArrayEq;
@@ -22,6 +23,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -204,9 +206,11 @@ impl VTable for TurboQuantQJL {
         Ok(())
     }
 
-    fn execute(array: Arc<Self::Array>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = Arc::try_unwrap(array).unwrap_or_else(|arc| (*arc).clone());
-        Ok(ExecutionResult::done(execute_decompress_qjl(array, ctx)?))
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let inner = Arc::try_unwrap(array)
+            .map(|a| a.into_inner())
+            .unwrap_or_else(|arc| arc.as_ref().deref().clone());
+        Ok(ExecutionResult::done(execute_decompress_qjl(inner, ctx)?))
     }
 }
 

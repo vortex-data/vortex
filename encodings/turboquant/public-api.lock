@@ -28,8 +28,6 @@ pub fn vortex_turboquant::rotation::RotationMatrix::rotate(&self, input: &[f32],
 
 pub fn vortex_turboquant::rotation::RotationMatrix::try_new(seed: u64, dimension: usize) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_turboquant::rotation::apply_inverse_srht_from_bits(buf: &mut [f32], signs_bytes: &[u8], padded_dim: usize, norm_factor: f32)
-
 pub struct vortex_turboquant::TurboQuantConfig
 
 pub vortex_turboquant::TurboQuantConfig::bit_width: u8
@@ -86,7 +84,7 @@ pub fn vortex_turboquant::TurboQuantMSE::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_turboquant::TurboQuantMSE::dtype(array: &vortex_turboquant::TurboQuantMSEArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_turboquant::TurboQuantMSE::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_turboquant::TurboQuantMSE::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_turboquant::TurboQuantMSE::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -232,7 +230,7 @@ pub fn vortex_turboquant::TurboQuantQJL::deserialize(bytes: &[u8], _dtype: &vort
 
 pub fn vortex_turboquant::TurboQuantQJL::dtype(array: &vortex_turboquant::TurboQuantQJLArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_turboquant::TurboQuantQJL::execute(array: alloc::sync::Arc<Self::Array>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_turboquant::TurboQuantQJL::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_turboquant::TurboQuantQJL::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 

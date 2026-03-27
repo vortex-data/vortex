@@ -18,7 +18,11 @@ pub(crate) fn is_tensor_extension(ext_array: &ExtensionArray) -> bool {
     ext_id.as_ref() == VECTOR_EXT_ID || ext_id.as_ref() == FIXED_SHAPE_TENSOR_EXT_ID
 }
 
-/// Compress a tensor extension array using TurboQuant.
+/// Try to compress a tensor extension array using TurboQuant.
+///
+/// Returns `Ok(Some(...))` on success, or `Ok(None)` if the storage is nullable
+/// (TurboQuant requires non-nullable input). The caller should fall through to
+/// default compression when `None` is returned.
 ///
 /// Produces a `TurboQuantQJLArray` wrapping a `TurboQuantMSEArray`, stored inside
 /// the Extension wrapper. All children (codes, norms, centroids, rotation signs,
@@ -27,13 +31,19 @@ pub(crate) fn is_tensor_extension(ext_array: &ExtensionArray) -> bool {
 pub(crate) fn compress_turboquant(
     ext_array: &ExtensionArray,
     config: &TurboQuantConfig,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<Option<ArrayRef>> {
     let storage = ext_array.storage_array();
     let fsl = storage.to_canonical()?.into_fixed_size_list();
+
+    if fsl.dtype().is_nullable() {
+        return Ok(None);
+    }
 
     // Produce the cascaded QJL(MSE) structure. The layout writer will
     // recursively descend into children and compress each one.
     let qjl_array = turboquant_encode_qjl(&fsl, config)?;
 
-    Ok(ExtensionArray::new(ext_array.ext_dtype().clone(), qjl_array.into_array()).into_array())
+    Ok(Some(
+        ExtensionArray::new(ext_array.ext_dtype().clone(), qjl_array.into_array()).into_array(),
+    ))
 }

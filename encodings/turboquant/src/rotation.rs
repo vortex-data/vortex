@@ -12,6 +12,7 @@
 //! For dimensions that are not powers of 2, the input is zero-padded to the
 //! next power of 2 before the transform and truncated afterward.
 
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::arrays::BoolArray;
@@ -212,42 +213,8 @@ impl RotationMatrix {
 /// contains `3 * padded_dim` bits in inverse-application order `[D₃ | D₂ | D₁]`.
 /// Convention: bit set (1) = +1, bit unset (0) = -1 (negate).
 ///
-/// Applies: H → D₃ → H → D₂ → H → D₁ → scale
-#[inline]
-pub fn apply_inverse_srht_from_bits(
-    buf: &mut [f32],
-    signs_bytes: &[u8],
-    padded_dim: usize,
-    norm_factor: f32,
-) {
-    debug_assert!(padded_dim.is_power_of_two());
-    debug_assert_eq!(buf.len(), padded_dim);
-
-    for round in 0..3 {
-        walsh_hadamard_transform(buf);
-        apply_signs_from_bits(buf, signs_bytes, round * padded_dim);
-    }
-
-    for val in buf.iter_mut() {
-        *val *= norm_factor;
-    }
-}
-
-/// Element-wise negate coordinates where the sign bit is unset (0 = -1).
-#[inline]
-fn apply_signs_from_bits(buf: &mut [f32], signs_bytes: &[u8], bit_offset: usize) {
-    for (j, val) in buf.iter_mut().enumerate() {
-        let idx = bit_offset + j;
-        let is_positive = (signs_bytes[idx / 8] >> (idx % 8)) & 1 == 1;
-        if !is_positive {
-            *val = -*val;
-        }
-    }
-}
-
 /// Generate a vector of random ±1 signs.
 fn gen_random_signs(rng: &mut StdRng, len: usize) -> Vec<f32> {
-    use rand::RngExt;
     (0..len)
         .map(|_| {
             if rng.random_bool(0.5) {
@@ -412,48 +379,6 @@ mod tests {
         let mut out3 = vec![0.0f32; padded_dim];
         rot2.inverse_rotate(&out1, &mut out3);
         assert_eq!(out2, out3, "Inverse rotation mismatch after export/import");
-
-        Ok(())
-    }
-
-    /// Verify that the hot-path `apply_inverse_srht_from_bits` matches `inverse_rotate`.
-    #[rstest]
-    #[case(64)]
-    #[case(128)]
-    #[case(768)]
-    fn hot_path_matches_inverse_rotate(#[case] dim: usize) -> VortexResult<()> {
-        let rot = RotationMatrix::try_new(99, dim)?;
-        let padded_dim = rot.padded_dim();
-        let norm_factor = rot.norm_factor();
-
-        let signs_array = rot.export_inverse_signs_bool_array();
-        let bit_buf = signs_array.to_bit_buffer();
-        let (_, _, raw_buf) = bit_buf.into_inner();
-
-        // Create some rotated input.
-        let mut input = vec![0.0f32; padded_dim];
-        for i in 0..dim {
-            input[i] = (i as f32 + 1.0) * 0.01;
-        }
-        let mut rotated = vec![0.0f32; padded_dim];
-        rot.rotate(&input, &mut rotated);
-
-        // Inverse via the struct method.
-        let mut recovered1 = vec![0.0f32; padded_dim];
-        rot.inverse_rotate(&rotated, &mut recovered1);
-
-        // Inverse via the hot-path function.
-        let mut recovered2 = rotated.clone();
-        apply_inverse_srht_from_bits(&mut recovered2, raw_buf.as_ref(), padded_dim, norm_factor);
-
-        for i in 0..padded_dim {
-            assert!(
-                (recovered1[i] - recovered2[i]).abs() < 1e-10,
-                "Hot-path mismatch at {i}: {} vs {}",
-                recovered1[i],
-                recovered2[i]
-            );
-        }
 
         Ok(())
     }

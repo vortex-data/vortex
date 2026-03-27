@@ -60,6 +60,8 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
+use vortex_turboquant::TurboQuantMSE;
+use vortex_turboquant::TurboQuantQJL;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
@@ -109,6 +111,8 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     session.register(Sequence);
     session.register(Sparse);
     session.register(ZigZag);
+    session.register(TurboQuantMSE);
+    session.register(TurboQuantQJL);
 
     #[cfg(feature = "zstd")]
     session.register(Zstd);

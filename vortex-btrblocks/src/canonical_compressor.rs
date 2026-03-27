@@ -295,10 +295,12 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 }
 
                 // Compress tensor extension types with TurboQuant if configured.
+                // Falls through to default compression for nullable storage.
                 if let Some(tq_config) = &self.turboquant_config
                     && is_tensor_extension(&ext_array)
+                    && let Some(compressed) = compress_turboquant(&ext_array, tq_config)?
                 {
-                    return compress_turboquant(&ext_array, tq_config);
+                    return Ok(compressed);
                 }
 
                 // Compress the underlying storage array.

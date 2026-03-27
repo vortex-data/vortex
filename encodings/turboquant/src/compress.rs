@@ -39,8 +39,8 @@ pub struct TurboQuantConfig {
 #[allow(clippy::cast_possible_truncation)]
 fn extract_f32_elements(fsl: &FixedSizeListArray) -> VortexResult<Vec<f32>> {
     let elements = fsl.elements();
-    let ptype = elements.dtype().as_ptype();
     let primitive = elements.to_canonical()?.into_primitive();
+    let ptype = primitive.ptype();
 
     match ptype {
         PType::F32 => Ok(primitive.as_slice::<f32>().to_vec()),
@@ -196,6 +196,8 @@ pub fn turboquant_encode_qjl(
         return build_empty_qjl_array(fsl, config.bit_width, padded_dim, seed);
     }
 
+    // TODO(perf): `turboquant_encode_mse` above already extracts f32 elements
+    // internally. Refactor to share the buffer to avoid double materialization.
     let f32_elements = extract_f32_elements(fsl)?;
     #[allow(clippy::cast_possible_truncation)]
     let centroids = get_centroids(padded_dim as u32, mse_bit_width)?;
