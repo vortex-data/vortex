@@ -23,6 +23,16 @@ export interface LayoutTreeNode {
   childType: LayoutChildKind;
   /** Child layout nodes */
   children: LayoutTreeNode[];
+  /** For flat layouts: the array encoding tree inside this layout */
+  arrayEncodingTree?: ArrayEncodingNode;
+}
+
+export interface ArrayEncodingNode {
+  encoding: string;
+  metadataBytes: number;
+  numBuffers: number;
+  bufferLengths: number[];
+  children: ArrayEncodingNode[];
 }
 
 export type LayoutChildKind =

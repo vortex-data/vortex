@@ -29,7 +29,7 @@ export function SplitRegion({
 
   return (
     <div
-      className="absolute top-0 bottom-0 cursor-pointer border-r border-vortex-grey-light/50 dark:border-vortex-grey-dark/20"
+      className="absolute top-0 bottom-0 cursor-pointer border-r border-vortex-grey-light/40 dark:border-white/[0.06]"
       style={{
         left: `${left}%`,
         width: `${width}%`,

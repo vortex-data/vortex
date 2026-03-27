@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import type { LayoutTreeNode } from './types';
-import { getDtypeCategory, formatBytes, getNodeDisplayName, getNodeRowRange } from './utils';
+import { getDtypeCategory, formatBytes, getNodeDisplayName, getNodeRowRange, shortEncoding } from './utils';
 import { DTYPE_COLORS } from './styles';
 
 interface TooltipProps {
@@ -19,11 +19,11 @@ export function Tooltip({ node, position }: TooltipProps) {
 
   return (
     <div
-      className="fixed z-[1000] pointer-events-none max-w-[220px] rounded-lg border border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-white dark:bg-vortex-black shadow-lg p-2 text-xs"
+      className="fixed z-[1000] pointer-events-none max-w-[220px] rounded-lg border border-vortex-grey-light/60 dark:border-white/[0.1] bg-vortex-white dark:bg-[#252528] shadow-lg p-2 text-xs"
       style={{ left: position.x + 12, top: position.y - 10 }}
     >
       <div className="flex items-center gap-1.5 mb-1">
-        <span className="font-medium text-vortex-black dark:text-vortex-white">{name}</span>
+        <span className="font-medium text-vortex-fg-light dark:text-vortex-fg">{name}</span>
         <span
           className="text-[9px] px-1.5 py-0.5 rounded"
           style={{ color: dtypeColor, backgroundColor: `${dtypeColor}20` }}
@@ -33,23 +33,23 @@ export function Tooltip({ node, position }: TooltipProps) {
       </div>
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-vortex-grey-dark">
         <span>rows</span>
-        <span className="text-vortex-black dark:text-vortex-white">{rows.toLocaleString()}</span>
+        <span className="text-vortex-fg-light dark:text-vortex-fg">{rows.toLocaleString()}</span>
         {node.dtype && (
           <>
             <span>dtype</span>
-            <span className="text-vortex-black dark:text-vortex-white">{node.dtype}</span>
+            <span className="text-vortex-fg-light dark:text-vortex-fg">{node.dtype}</span>
           </>
         )}
         {node.encoding && (
           <>
             <span>encoding</span>
-            <span className="text-vortex-black dark:text-vortex-white">{node.encoding}</span>
+            <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>{shortEncoding(node.encoding)}</span>
           </>
         )}
         {node.metadataBytes > 0 && (
           <>
             <span>metadata</span>
-            <span className="text-vortex-black dark:text-vortex-white">
+            <span className="text-vortex-fg-light dark:text-vortex-fg">
               {formatBytes(node.metadataBytes)}
             </span>
           </>

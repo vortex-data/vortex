@@ -12,7 +12,7 @@ type TreeMode = 'schema' | 'layout';
 
 export function TreePanel() {
   const file = useVortexFile();
-  const { state: selection, selectNode } = useSelection();
+  const { state: selection, selectNode, hoverNode } = useSelection();
   const [mode, setMode] = useState<TreeMode>('schema');
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['root']));
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,9 +44,9 @@ export function TreePanel() {
   );
 
   return (
-    <div className="flex flex-col h-full border-r border-vortex-grey-light dark:border-vortex-grey-dark">
+    <div className="flex flex-col h-full border-r border-vortex-grey-light/60 dark:border-white/[0.08]">
       {/* Header: mode toggle + search */}
-      <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0 border-b border-vortex-grey-lightest dark:border-vortex-grey-dark/30">
+      <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0 border-b border-vortex-grey-light/40 dark:border-white/[0.06]">
         <ModeToggle mode={mode} onChange={setMode} />
         <div className="flex-1">
           <TreeSearch onSearch={setSearchQuery} />
@@ -64,6 +64,7 @@ export function TreePanel() {
             mode={mode}
             onToggle={() => toggleExpanded(row.node.id)}
             onSelect={() => handleNodeClick(row.node.id)}
+            onHover={hoverNode}
           />
         ))}
       </div>
@@ -74,14 +75,14 @@ export function TreePanel() {
 /** Subtle segmented toggle for Schema / Layout mode */
 function ModeToggle({ mode, onChange }: { mode: TreeMode; onChange: (m: TreeMode) => void }) {
   return (
-    <div className="flex rounded bg-vortex-grey-lightest dark:bg-vortex-grey-dark/30 p-0.5 flex-shrink-0">
+    <div className="flex rounded-md bg-vortex-grey-lightest dark:bg-white/[0.06] p-0.5 flex-shrink-0">
       {(['schema', 'layout'] as const).map((m) => (
         <button
           key={m}
-          className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
+          className={`px-2 py-0.5 text-[10px] rounded-[3px] transition-colors ${
             mode === m
-              ? 'bg-vortex-white dark:bg-vortex-grey-dark text-vortex-black dark:text-vortex-white shadow-sm'
-              : 'text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white'
+              ? 'bg-white dark:bg-white/[0.1] text-vortex-fg-light dark:text-vortex-fg shadow-sm'
+              : 'text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg'
           }`}
           onClick={() => onChange(m)}
         >

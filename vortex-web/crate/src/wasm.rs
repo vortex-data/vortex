@@ -8,11 +8,25 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
+use arrow_ipc::writer::StreamWriter;
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::Schema;
 use futures::FutureExt;
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::dtype::DType;
+use vortex::array::serde::ArrayParts;
+use vortex::array::stream::ArrayStream;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
@@ -25,7 +39,11 @@ use vortex::io::runtime::wasm::WasmRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutRef;
+use vortex::layout::layouts::flat::Flat;
+use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::segments::SegmentId;
 use vortex::session::VortexSession;
+use vortex::session::registry::ReadContext;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
@@ -121,14 +139,39 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    Ok(VortexFileHandle { vxf, file_size })
+    // Extract the array ReadContext from any FlatLayout in the tree.
+    let array_read_ctx = find_array_read_ctx(vxf.footer().layout());
+
+    Ok(VortexFileHandle {
+        vxf,
+        session,
+        file_size,
+        array_read_ctx,
+    })
+}
+
+/// Walk the layout tree to find the first FlatLayout and extract its ReadContext.
+fn find_array_read_ctx(layout: &LayoutRef) -> Option<ReadContext> {
+    if let Some(flat) = layout.as_opt::<Flat>() {
+        return Some(flat.array_ctx().clone());
+    }
+    if let Ok(children) = layout.children() {
+        for child in children {
+            if let Some(ctx) = find_array_read_ctx(&child) {
+                return Some(ctx);
+            }
+        }
+    }
+    None
 }
 
 /// A handle to an opened Vortex file, exposing metadata to JavaScript.
 #[wasm_bindgen]
 pub struct VortexFileHandle {
     vxf: VortexFile,
+    session: VortexSession,
     file_size: usize,
+    array_read_ctx: Option<ReadContext>,
 }
 
 #[wasm_bindgen]
@@ -237,6 +280,83 @@ impl VortexFileHandle {
         serde_json::to_string(&info)
             .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {e}")))
     }
+
+    /// Preview data from a specific layout node, returning Arrow IPC stream bytes.
+    ///
+    /// Navigates to the layout node identified by `node_id` (e.g. "root.customer_id.[0]"),
+    /// creates a layout reader, scans up to `row_limit` rows, and returns Arrow IPC bytes.
+    pub async fn preview_data(
+        &self,
+        node_id: &str,
+        row_limit: u32,
+    ) -> Result<js_sys::Uint8Array, JsValue> {
+        let layout = find_layout_by_id(self.vxf.footer().layout(), node_id)
+            .ok_or_else(|| JsValue::from_str(&format!("Layout node not found: {node_id}")))?;
+
+        let segment_source = self.vxf.segment_source();
+        let reader = layout
+            .new_reader(node_id.into(), segment_source, &self.session)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let stream = ScanBuilder::new(self.session.clone(), reader)
+            .with_limit(row_limit as u64)
+            .into_array_stream()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let dtype = stream.dtype().clone();
+        let chunks: Vec<ArrayRef> = stream
+            .try_collect()
+            .await
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let schema = dtype_to_schema(&dtype, "value")
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let arrow_schema = Arc::new(schema);
+
+        let mut buf = Vec::new();
+        {
+            let mut writer = StreamWriter::try_new(&mut buf, &arrow_schema)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+            for chunk in chunks {
+                let batch = array_to_record_batch(chunk, &dtype, &arrow_schema)
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+                writer
+                    .write(&batch)
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            }
+
+            writer
+                .finish()
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        }
+
+        Ok(js_sys::Uint8Array::from(buf.as_slice()))
+    }
+
+    /// Fetch the array encoding tree for a flat layout segment.
+    ///
+    /// Reads the segment data asynchronously and parses the encoding tree from it.
+    pub async fn fetch_encoding_tree(&self, segment_id: u32) -> Result<String, JsValue> {
+        let ctx = self
+            .array_read_ctx
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("No array ReadContext available"))?;
+
+        let buf = self
+            .vxf
+            .segment_source()
+            .request(SegmentId::from(segment_id))
+            .await
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let parts = ArrayParts::try_from(buf)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let tree = build_array_encoding_tree(&parts, ctx);
+        serde_json::to_string(&tree)
+            .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {e}")))
+    }
 }
 
 /// Recursively build the layout tree JSON structure.
@@ -287,6 +407,14 @@ fn build_layout_tree(
         }
     }
 
+    // For flat layouts, extract the array encoding tree if available.
+    let array_encoding_tree = layout.as_opt::<Flat>().and_then(|flat| {
+        let tree_buf = flat.array_tree()?;
+        let ctx = flat.array_ctx();
+        let parts = ArrayParts::from_array_tree(tree_buf.as_ref().to_vec()).ok()?;
+        Some(build_array_encoding_tree(&parts, ctx))
+    });
+
     Ok(LayoutTreeNodeJson {
         id,
         encoding: layout.encoding().id().to_string(),
@@ -297,6 +425,7 @@ fn build_layout_tree(
         segment_ids: layout.segment_ids().iter().map(|s| **s).collect(),
         child_type: child_type.clone(),
         children: children_json,
+        array_encoding_tree,
     })
 }
 
@@ -307,6 +436,136 @@ fn sum_metadata_bytes(layout: &LayoutRef) -> VortexResult<u64> {
         total += node?.metadata().len() as u64;
     }
     Ok(total)
+}
+
+/// Recursively build the array encoding tree from `ArrayParts`.
+fn build_array_encoding_tree(parts: &ArrayParts, ctx: &ReadContext) -> ArrayEncodingNodeJson {
+    let encoding = ctx
+        .resolve(parts.encoding_id())
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| format!("unknown({})", parts.encoding_id()));
+
+    let children: Vec<ArrayEncodingNodeJson> = (0..parts.nchildren())
+        .map(|i| build_array_encoding_tree(&parts.child(i), ctx))
+        .collect();
+
+    ArrayEncodingNodeJson {
+        encoding,
+        metadata_bytes: parts.metadata().len(),
+        num_buffers: parts.nbuffers(),
+        buffer_lengths: parts.buffer_lengths(),
+        children,
+    }
+}
+
+/// Navigate the layout tree to find a node by its dot-separated ID path.
+///
+/// IDs match the format: "root.field_name.chunked.[0]" where each segment
+/// corresponds to a `LayoutChildType::name()`.
+fn find_layout_by_id(root: &LayoutRef, node_id: &str) -> Option<LayoutRef> {
+    let segments: Vec<&str> = node_id.split('.').collect();
+    if segments.is_empty() || segments[0] != "root" {
+        return None;
+    }
+    if segments.len() == 1 {
+        return Some(root.clone());
+    }
+
+    let mut current = root.clone();
+    for seg in &segments[1..] {
+        let children = current.children().ok()?;
+        let mut found = false;
+        for (i, child) in children.into_iter().enumerate() {
+            let name = current.child_type(i).name();
+            if name.as_ref() == *seg {
+                current = child;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return None;
+        }
+    }
+    Some(current)
+}
+
+/// Downgrade Arrow `*View` types to their non-view equivalents so the JS
+/// `apache-arrow` library can decode them.
+fn downgrade_arrow_type(dt: DataType) -> DataType {
+    match dt {
+        DataType::Utf8View => DataType::LargeUtf8,
+        DataType::BinaryView => DataType::LargeBinary,
+        DataType::Struct(fields) => DataType::Struct(
+            fields
+                .iter()
+                .map(|f| {
+                    Arc::new(Field::new(
+                        f.name(),
+                        downgrade_arrow_type(f.data_type().clone()),
+                        f.is_nullable(),
+                    ))
+                })
+                .collect(),
+        ),
+        DataType::List(f) => DataType::List(Arc::new(Field::new(
+            f.name(),
+            downgrade_arrow_type(f.data_type().clone()),
+            f.is_nullable(),
+        ))),
+        DataType::LargeList(f) => DataType::LargeList(Arc::new(Field::new(
+            f.name(),
+            downgrade_arrow_type(f.data_type().clone()),
+            f.is_nullable(),
+        ))),
+        other => other,
+    }
+}
+
+/// Create an Arrow Schema from a Vortex DType, with view types downgraded.
+fn dtype_to_schema(dtype: &DType, default_name: &str) -> VortexResult<Schema> {
+    let schema = match dtype {
+        DType::Struct(..) => dtype.to_arrow_schema()?,
+        other => {
+            let arrow_dt = other.to_arrow_dtype()?;
+            let nullable = other.is_nullable();
+            Schema::new(vec![Field::new(default_name, arrow_dt, nullable)])
+        }
+    };
+    // Downgrade view types in all fields.
+    Ok(Schema::new(
+        schema
+            .fields()
+            .iter()
+            .map(|f| {
+                Field::new(
+                    f.name(),
+                    downgrade_arrow_type(f.data_type().clone()),
+                    f.is_nullable(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    ))
+}
+
+/// Convert a Vortex ArrayRef into an Arrow RecordBatch using the given schema.
+///
+/// Always uses `execute_arrow` with explicit types to ensure view types are avoided.
+fn array_to_record_batch(
+    array: ArrayRef,
+    dtype: &DType,
+    schema: &Arc<Schema>,
+) -> VortexResult<RecordBatch> {
+    let data_type = match dtype {
+        DType::Struct(..) => DataType::Struct(schema.fields().clone()),
+        _ => schema.field(0).data_type().clone(),
+    };
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let arrow = array.execute_arrow(Some(&data_type), &mut ctx)?;
+    match dtype {
+        DType::Struct(..) => Ok(RecordBatch::from(arrow.as_struct().clone())),
+        _ => Ok(RecordBatch::try_new(schema.clone(), vec![arrow])?),
+    }
 }
 
 // --- JSON serialization types ---
@@ -323,6 +582,18 @@ struct LayoutTreeNodeJson {
     segment_ids: Vec<u32>,
     child_type: ChildKindJson,
     children: Vec<LayoutTreeNodeJson>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    array_encoding_tree: Option<ArrayEncodingNodeJson>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArrayEncodingNodeJson {
+    encoding: String,
+    metadata_bytes: usize,
+    num_buffers: usize,
+    buffer_lengths: Vec<usize>,
+    children: Vec<ArrayEncodingNodeJson>,
 }
 
 #[derive(Serialize, Clone)]

@@ -8,6 +8,7 @@ import {
   getNodeDisplayName,
   hasExpandableChildren,
   formatRowRange,
+  getDtypeCategory,
 } from './utils';
 
 interface TreeRowProps {
@@ -17,9 +18,10 @@ interface TreeRowProps {
   mode: 'schema' | 'layout';
   onToggle: () => void;
   onSelect: () => void;
+  onHover?: (nodeId: string | null) => void;
 }
 
-export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect }: TreeRowProps) {
+export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect, onHover }: TreeRowProps) {
   const { node, depth, displayKind } = row;
 
   if (displayKind === 'hiddenIndicator') {
@@ -44,7 +46,8 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect 
   if (isGroup) {
     badgeText = '···';
   } else if (mode === 'schema') {
-    badgeText = node.dtype.length > 20 ? node.dtype.slice(0, 18) + '…' : node.dtype;
+    const dtypeCat = getDtypeCategory(node.dtype);
+    badgeText = dtypeCat === 'struct' ? 'struct' : node.dtype.length > 20 ? node.dtype.slice(0, 18) + '…' : node.dtype;
   } else {
     const ct = node.childType;
     if (ct.kind === 'chunk') {
@@ -63,9 +66,11 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect 
 
   return (
     <div
-      className={`flex items-center gap-1.5 text-[11px] whitespace-nowrap hover:bg-vortex-grey-lightest dark:hover:bg-vortex-grey-dark/20 cursor-default ${opacity} ${fontStyle} ${selectedBg}`}
+      className={`flex items-center gap-1.5 text-[11px] whitespace-nowrap hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.04] cursor-default ${opacity} ${fontStyle} ${selectedBg}`}
       style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 10, paddingRight: 8 }}
       onClick={onSelect}
+      onMouseEnter={() => onHover?.(node.id)}
+      onMouseLeave={() => onHover?.(null)}
     >
       <span
         className={`text-[8px] w-3 text-vortex-grey-dark ${expandable ? 'cursor-pointer' : ''}`}
@@ -77,7 +82,7 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect 
       >
         {isExpanded ? '▼' : '▶'}
       </span>
-      <span className="flex-1 overflow-hidden text-ellipsis text-vortex-black dark:text-vortex-white">
+      <span className="flex-1 overflow-hidden text-ellipsis text-vortex-fg-light dark:text-vortex-fg">
         {name}
       </span>
       <span

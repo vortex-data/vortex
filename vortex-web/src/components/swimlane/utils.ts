@@ -65,12 +65,13 @@ export function getDtypeCategory(dtype?: string): DtypeCategory {
   if (!dtype) return 'other';
   const d = dtype.toLowerCase();
   if (d === 'bool' || d === 'boolean') return 'bool';
+  // Struct/list checks first — composite dtypes contain field names that would false-match int/float.
+  if (d.startsWith('{') || d === 'struct') return 'struct';
+  if (d.includes('list') || d.includes('array')) return 'list';
   if (d.includes('int') || d.includes('uint') || d.startsWith('i') || d.startsWith('u'))
     return 'int';
   if (d.includes('float') || d.includes('double') || d.includes('decimal') || d.startsWith('f'))
     return 'float';
-  if (d.startsWith('{') || d.includes('struct')) return 'struct';
-  if (d.includes('list') || d.includes('array')) return 'list';
   return 'other';
 }
 
@@ -131,7 +132,7 @@ export function getNodeDisplayName(node: LayoutTreeNode): string {
     case 'field':
       return ct.fieldName;
     case 'chunk':
-      return `chunk ${ct.chunkIndex}`;
+      return `[${ct.chunkIndex}]`;
     case 'transparent':
       return ct.name;
     case 'auxiliary':
@@ -455,6 +456,13 @@ export function filterTreeBySearch(
 
   const visibleIds = new Set([...matchingIds, ...ancestorIds]);
   return rows.filter((row) => visibleIds.has(row.node.id));
+}
+
+/**
+ * Strip the `vortex.` prefix from an encoding name for display.
+ */
+export function shortEncoding(encoding: string): string {
+  return encoding.startsWith('vortex.') ? encoding.slice(7) : encoding;
 }
 
 /**

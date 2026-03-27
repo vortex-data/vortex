@@ -8,6 +8,7 @@ import {
   formatRowCount,
   getNodeDisplayName,
   collectSubtreeSegments,
+  shortEncoding,
 } from '../swimlane/utils';
 
 interface SummaryPaneProps {
@@ -20,26 +21,22 @@ export function SummaryPane({ node, file }: SummaryPaneProps) {
     // File-level summary
     return (
       <div className="text-xs space-y-2">
-        <h3 className="font-medium text-vortex-black dark:text-vortex-white">File Summary</h3>
+        <h3 className="font-medium text-vortex-fg-light dark:text-vortex-fg">File Summary</h3>
         <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
           <span>File</span>
-          <span className="text-vortex-black dark:text-vortex-white">{file.fileName}</span>
+          <span className="text-vortex-fg-light dark:text-vortex-fg">{file.fileName}</span>
           <span>Size</span>
-          <span className="text-vortex-black dark:text-vortex-white">
+          <span className="text-vortex-fg-light dark:text-vortex-fg">
             {formatBytes(file.fileSize)}
           </span>
           <span>Rows</span>
-          <span className="text-vortex-black dark:text-vortex-white">
+          <span className="text-vortex-fg-light dark:text-vortex-fg">
             {formatRowCount(file.rowCount)}
           </span>
           <span>Segments</span>
-          <span className="text-vortex-black dark:text-vortex-white">{file.segments.length}</span>
+          <span className="text-vortex-fg-light dark:text-vortex-fg">{file.segments.length}</span>
           <span>Version</span>
-          <span className="text-vortex-black dark:text-vortex-white">v{file.version}</span>
-          <span>DType</span>
-          <span className="text-vortex-black dark:text-vortex-white font-mono text-[10px]">
-            {file.dtype}
-          </span>
+          <span className="text-vortex-fg-light dark:text-vortex-fg">v{file.version}</span>
         </div>
       </div>
     );
@@ -53,32 +50,32 @@ export function SummaryPane({ node, file }: SummaryPaneProps) {
 
   return (
     <div className="text-xs space-y-2">
-      <h3 className="font-medium text-vortex-black dark:text-vortex-white">{name}</h3>
+      <h3 className="font-medium text-vortex-fg-light dark:text-vortex-fg">{name}</h3>
       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
         <span>Encoding</span>
-        <span className="text-vortex-black dark:text-vortex-white">{node.encoding}</span>
+        <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>{shortEncoding(node.encoding)}</span>
         <span>DType</span>
-        <span className="text-vortex-black dark:text-vortex-white font-mono text-[10px]">
+        <span className="text-vortex-fg-light dark:text-vortex-fg font-mono text-[10px]">
           {node.dtype}
         </span>
         <span>Rows</span>
-        <span className="text-vortex-black dark:text-vortex-white">
+        <span className="text-vortex-fg-light dark:text-vortex-fg">
           {node.rowCount.toLocaleString()}
         </span>
         <span>Row offset</span>
-        <span className="text-vortex-black dark:text-vortex-white">
+        <span className="text-vortex-fg-light dark:text-vortex-fg">
           {node.rowOffset.toLocaleString()}
         </span>
         <span>Metadata</span>
-        <span className="text-vortex-black dark:text-vortex-white">
+        <span className="text-vortex-fg-light dark:text-vortex-fg">
           {formatBytes(node.metadataBytes)}
         </span>
         <span>Data size</span>
-        <span className="text-vortex-black dark:text-vortex-white">{formatBytes(totalBytes)}</span>
+        <span className="text-vortex-fg-light dark:text-vortex-fg">{formatBytes(totalBytes)}</span>
         <span>Segments</span>
-        <span className="text-vortex-black dark:text-vortex-white">{reachableSegments.length}</span>
+        <span className="text-vortex-fg-light dark:text-vortex-fg">{reachableSegments.length}</span>
         <span>Children</span>
-        <span className="text-vortex-black dark:text-vortex-white">{node.children.length}</span>
+        <span className="text-vortex-fg-light dark:text-vortex-fg">{node.children.length}</span>
       </div>
     </div>
   );

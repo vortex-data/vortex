@@ -32,12 +32,12 @@ export function TreeSearch({ onSearch }: TreeSearchProps) {
         value={value}
         onChange={handleChange}
         placeholder="Filter…"
-        className="flex-1 min-w-0 bg-transparent text-[11px] text-vortex-black dark:text-vortex-white outline-none placeholder:text-vortex-grey-dark/50"
+        className="flex-1 min-w-0 bg-transparent text-[11px] text-vortex-fg-light dark:text-vortex-fg outline-none placeholder:text-vortex-grey-dark/50"
       />
       {value && (
         <button
           onClick={handleClear}
-          className="text-[10px] text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white"
+          className="text-[10px] text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg"
         >
           &#x2715;
         </button>

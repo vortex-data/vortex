@@ -14,6 +14,9 @@ crate-type = ["cdylib", "rlib"]
 vortex = { path = "../../vortex", default-features = false, features = [
     "files",
 ] }
+arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 

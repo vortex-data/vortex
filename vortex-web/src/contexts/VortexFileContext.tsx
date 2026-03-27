@@ -6,6 +6,7 @@ import type {
   LayoutTreeNode,
   SegmentMapEntry,
   FileStructureInfo,
+  ArrayEncodingNode,
 } from '../components/swimlane/types';
 
 export interface VortexFileState {
@@ -19,19 +20,24 @@ export interface VortexFileState {
   fileStructure: FileStructureInfo;
 }
 
-const VortexFileContext = createContext<VortexFileState | null>(null);
+export interface VortexFileContextValue extends VortexFileState {
+  fetchEncodingTree: (segmentId: number) => Promise<ArrayEncodingNode>;
+  previewData: (nodeId: string, rowLimit: number) => Promise<Uint8Array>;
+}
+
+const VortexFileContext = createContext<VortexFileContextValue | null>(null);
 
 export function VortexFileProvider({
   value,
   children,
 }: {
-  value: VortexFileState;
+  value: VortexFileContextValue;
   children: React.ReactNode;
 }) {
   return <VortexFileContext.Provider value={value}>{children}</VortexFileContext.Provider>;
 }
 
-export function useVortexFile(): VortexFileState {
+export function useVortexFile(): VortexFileContextValue {
   const ctx = useContext(VortexFileContext);
   if (!ctx) throw new Error('useVortexFile must be used within VortexFileProvider');
   return ctx;

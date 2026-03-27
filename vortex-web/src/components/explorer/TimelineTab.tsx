@@ -19,7 +19,7 @@ export function TimelineTab() {
           className={`px-3 py-1 text-xs rounded ${
             mode === 'schema'
               ? 'bg-vortex-light-blue/15 text-vortex-light-blue font-medium'
-              : 'text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white'
+              : 'text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg'
           }`}
           onClick={() => setMode('schema')}
         >
@@ -29,7 +29,7 @@ export function TimelineTab() {
           className={`px-3 py-1 text-xs rounded ${
             mode === 'layout'
               ? 'bg-vortex-light-blue/15 text-vortex-light-blue font-medium'
-              : 'text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white'
+              : 'text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg'
           }`}
           onClick={() => setMode('layout')}
         >

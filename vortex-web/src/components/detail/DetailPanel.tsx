@@ -42,7 +42,7 @@ export function DetailPanel() {
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full bg-vortex-white dark:bg-vortex-black">
       {/* Breadcrumb + tab bar */}
-      <div className="flex items-center border-b border-vortex-grey-lightest dark:border-vortex-grey-dark/30 px-2 flex-shrink-0">
+      <div className="flex items-center border-b border-vortex-grey-light/40 dark:border-white/[0.06] px-2 flex-shrink-0">
         {/* Tabs */}
         <div className="flex">
           {tabs.map((tab) => (
@@ -51,7 +51,7 @@ export function DetailPanel() {
               className={`px-2.5 py-1 text-[10px] font-medium border-b-2 transition-colors ${
                 currentTab === tab.id
                   ? 'border-vortex-light-blue text-vortex-light-blue'
-                  : 'border-transparent text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white'
+                  : 'border-transparent text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg'
               }`}
               onClick={() => setActiveTab(tab.id)}
             >
@@ -69,7 +69,7 @@ export function DetailPanel() {
                 <span key={node.id} className="flex items-center gap-0.5 min-w-0">
                   {i > 0 && <span className="opacity-40 flex-shrink-0">/</span>}
                   {isLast ? (
-                    <span className="text-vortex-black dark:text-vortex-white truncate">
+                    <span className="text-vortex-fg-light dark:text-vortex-fg truncate">
                       {getNodeDisplayName(node)}
                     </span>
                   ) : (
@@ -88,10 +88,16 @@ export function DetailPanel() {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-auto p-2.5">
-        {currentTab === 'summary' && <SummaryPane node={selection.selectedNode} file={file} />}
+      <div className="flex-1 overflow-auto">
+        {currentTab === 'summary' && (
+          <div className="p-2.5">
+            <SummaryPane node={selection.selectedNode} file={file} />
+          </div>
+        )}
         {currentTab === 'encoding' && selection.selectedNode && (
-          <EncodingPane node={selection.selectedNode} />
+          <div className="p-2.5">
+            <EncodingPane node={selection.selectedNode} />
+          </div>
         )}
         {currentTab === 'segments' && selection.selectedNode && (
           <SegmentsPane node={selection.selectedNode} segments={file.segments} />

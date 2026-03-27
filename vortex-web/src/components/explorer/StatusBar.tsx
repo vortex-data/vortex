@@ -34,7 +34,7 @@ export function StatusBar() {
   }, [selection.selectedNode, file.segments, file.fileStructure.fileSize]);
 
   return (
-    <div className="flex items-center px-3 h-6 flex-shrink-0 border-t border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-grey-lightest/50 dark:bg-vortex-grey-dark/20 text-[10px] text-vortex-grey-dark">
+    <div className="flex items-center px-3 h-6 flex-shrink-0 border-t border-vortex-grey-light/60 dark:border-white/[0.08] bg-vortex-grey-lightest/50 dark:bg-white/[0.02] text-[10px] text-vortex-grey-dark">
       {/* File-level stats — left */}
       <div className="flex items-center gap-3">
         <Stat label="Rows" value={formatRowCount(file.rowCount)} />
@@ -63,7 +63,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <span className="whitespace-nowrap">
       <span className="mr-0.5">{label}:</span>
-      <span className="text-vortex-black dark:text-vortex-white">{value}</span>
+      <span className="text-vortex-fg-light dark:text-vortex-fg">{value}</span>
     </span>
   );
 }

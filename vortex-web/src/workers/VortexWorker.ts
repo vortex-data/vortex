@@ -5,6 +5,7 @@ import type {
   LayoutTreeNode,
   SegmentMapEntry,
   FileStructureInfo,
+  ArrayEncodingNode,
 } from '../components/swimlane/types';
 
 export interface OpenFileResult {
@@ -15,15 +16,15 @@ export interface OpenFileResult {
   fileStructure: FileStructureInfo;
 }
 
-interface PendingRequest {
-  resolve: (value: OpenFileResult) => void;
+interface PendingRequest<T = unknown> {
+  resolve: (value: T) => void;
   reject: (reason: Error) => void;
 }
 
 /** Typed async wrapper around the Vortex WASM Web Worker. */
 export class VortexWorker {
   private worker: Worker;
-  private pending = new Map<number, PendingRequest>();
+  private pending = new Map<number, PendingRequest<any>>();
   private nextId = 0;
 
   constructor() {
@@ -37,7 +38,7 @@ export class VortexWorker {
       if (!req) return;
       this.pending.delete(id);
       if (type === 'result') {
-        req.resolve(data as OpenFileResult);
+        req.resolve(data);
       } else {
         req.reject(new Error(error ?? 'Unknown worker error'));
       }
@@ -50,6 +51,24 @@ export class VortexWorker {
     return new Promise<OpenFileResult>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.worker.postMessage({ type: 'open', id, file });
+    });
+  }
+
+  /** Fetch the array encoding tree for a flat layout segment. */
+  fetchEncodingTree(segmentId: number): Promise<ArrayEncodingNode> {
+    const id = this.nextId++;
+    return new Promise<ArrayEncodingNode>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ type: 'fetchEncodingTree', id, segmentId });
+    });
+  }
+
+  /** Preview data from a specific layout node, returning Arrow IPC bytes. */
+  previewData(nodeId: string, rowLimit: number): Promise<Uint8Array> {
+    const id = this.nextId++;
+    return new Promise<Uint8Array>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ type: 'previewData', id, nodeId, rowLimit });
     });
   }
 

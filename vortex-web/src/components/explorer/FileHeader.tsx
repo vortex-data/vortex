@@ -12,8 +12,8 @@ export function FileHeader({ onClose }: FileHeaderProps) {
   const file = useVortexFile();
 
   return (
-    <div className="flex items-center gap-3 px-4 py-1.5 border-b border-vortex-grey-light dark:border-vortex-grey-dark bg-vortex-white dark:bg-vortex-black flex-shrink-0">
-      <span className="font-medium text-sm text-vortex-black dark:text-vortex-white">
+    <div className="flex items-center gap-3 px-3 py-1.5 border-b border-vortex-grey-light/60 dark:border-white/[0.08] bg-vortex-white dark:bg-vortex-black flex-shrink-0">
+      <span className="font-medium text-sm text-vortex-fg-light dark:text-vortex-fg">
         {file.fileName}
       </span>
       <span
@@ -22,14 +22,18 @@ export function FileHeader({ onClose }: FileHeaderProps) {
       >
         v{file.version}
       </span>
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-1">
         <ThemePicker />
         <button
           onClick={onClose}
-          className="text-xs text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white transition-colors cursor-pointer"
+          className="p-1.5 rounded-md text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg hover:bg-vortex-grey-lightest dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
           title="Close file"
+          aria-label="Close file"
         >
-          Close
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
       </div>
     </div>

@@ -45,8 +45,8 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
   }, [onFileLoaded]);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center text-vortex-black dark:text-vortex-white relative">
-      <div className="absolute top-4 right-4">
+    <div className="flex min-h-screen flex-col items-center justify-center text-vortex-fg-light dark:text-vortex-fg relative">
+      <div className="absolute top-3 right-3">
         <ThemePicker />
       </div>
       <h1 className="mb-8 font-funnel text-4xl font-light tracking-tight md:text-6xl">
@@ -59,21 +59,21 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
         onDrop={handleDrop}
         onClick={handleClick}
         className={`dashed-top dashed-bottom flex h-64 w-full max-w-lg cursor-pointer flex-col items-center justify-center transition-colors ${
-          isDragging ? 'bg-vortex-light-blue/10' : 'hover:bg-white/5'
+          isDragging ? 'bg-vortex-light-blue/10' : 'hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.03]'
         }`}
       >
         {loading ? (
-          <p className="font-mono text-lg text-grey">Loading...</p>
+          <p className="font-mono text-lg text-vortex-grey-dark">Loading...</p>
         ) : (
           <div className="text-center">
-            <p className="font-mono text-lg text-grey">
+            <p className="font-mono text-lg text-vortex-grey-dark">
               Drop a{' '}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 text-vortex-light-blue">
+              <code className="rounded bg-vortex-black/[0.06] dark:bg-white/[0.08] px-1.5 py-0.5 text-vortex-light-blue">
                 .vortex
               </code>{' '}
               file here
             </p>
-            <p className="mt-2 font-mono text-sm text-vortex-grey-dark">or click to browse</p>
+            <p className="mt-2 font-mono text-sm text-vortex-grey-dark/60">or click to browse</p>
           </div>
         )}
       </div>

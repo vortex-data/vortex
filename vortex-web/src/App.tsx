@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
-import type { VortexFileState } from './contexts/VortexFileContext';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import type { VortexFileState, VortexFileContextValue } from './contexts/VortexFileContext';
 import { VortexFileProvider } from './contexts/VortexFileContext';
 import { SelectionProvider } from './contexts/SelectionContext';
 import { FileDropScreen } from './components/explorer/FileDropScreen';
@@ -47,6 +47,21 @@ function App() {
     }
   }, []);
 
+  const fetchEncodingTree = useCallback(
+    (segmentId: number) => workerRef.current!.fetchEncodingTree(segmentId),
+    [],
+  );
+
+  const previewData = useCallback(
+    (nodeId: string, rowLimit: number) => workerRef.current!.previewData(nodeId, rowLimit),
+    [],
+  );
+
+  const fileContextValue = useMemo<VortexFileContextValue | null>(
+    () => fileState ? { ...fileState, fetchEncodingTree, previewData } : null,
+    [fileState, fetchEncodingTree, previewData],
+  );
+
   const closeFile = useCallback(() => setFileState(null), []);
 
   const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {
@@ -76,13 +91,13 @@ function App() {
     [openFile],
   );
 
-  if (!fileState) {
+  if (!fileContextValue) {
     return <FileDropScreen onFileLoaded={openFile} loading={loading} error={error} />;
   }
 
   return (
-    <VortexFileProvider value={fileState}>
-      <SelectionProvider tree={fileState.layoutTree}>
+    <VortexFileProvider value={fileContextValue!}>
+      <SelectionProvider tree={fileContextValue!.layoutTree}>
         <div
           className="flex flex-col h-screen bg-vortex-white dark:bg-vortex-black relative"
           onDragEnter={handleDragEnter}
@@ -94,8 +109,8 @@ function App() {
           <MainArea />
           <StatusBar />
           {isDragging && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
-              <p className="font-mono text-lg text-white">Drop to open file</p>
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-vortex-black/50 dark:bg-black/50 backdrop-blur-sm pointer-events-none">
+              <p className="font-mono text-sm text-white/80">Drop to open file</p>
             </div>
           )}
         </div>
