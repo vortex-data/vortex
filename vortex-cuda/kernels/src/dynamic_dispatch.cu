@@ -262,7 +262,7 @@ __device__ void apply_scalar_ops(const T *__restrict smem_input,
 /// final results to `write_dest` at `write_offset`. Input stages write
 /// back to smem; the output stage writes to global memory.
 template <typename T, StorePolicy S>
-__device__ void execute_stage(const struct Stage &stage,
+__device__ void execute_stage(const Stage &stage,
                               T *__restrict smem_base,
                               uint64_t chunk_start,
                               uint32_t chunk_len,
@@ -293,7 +293,7 @@ __device__ void execute_stage(const struct Stage &stage,
 /// Each tile decodes exactly one FL block == SMEM_TILE_SIZE elements into
 /// shared memory. In case BITUNPACK is sliced, we need to account for the
 /// sub-byte element offset.
-__device__ inline uint32_t output_tile_len(const struct Stage &stage, uint32_t block_len, uint32_t tile_off) {
+__device__ inline uint32_t output_tile_len(const Stage &stage, uint32_t block_len, uint32_t tile_off) {
     const uint32_t element_offset = (tile_off == 0 && stage.source.op_code == SourceOp::BITUNPACK)
                                         ? stage.source.params.bitunpack.element_offset
                                         : 0;
@@ -302,42 +302,33 @@ __device__ inline uint32_t output_tile_len(const struct Stage &stage, uint32_t b
 
 /// Entry point of the dynamic dispatch kernel.
 ///
-/// Executes the plan's stages in order:
-///   1. Input stages populate shared memory with intermediate data
-///      for the output stage to reference.
-///   2. The output stage decodes the root array and writes directly to
-///      global memory.
+/// 1. Input stages populate shared memory (e.g. dict values, run-end
+///    endpoints) for the output stage to reference.
+/// 2. The output stage decodes the root encoding and writes to global
+///    memory.
 ///
-/// @param output    Global memory output buffer
-/// @param array_len Total number of elements to produce
-/// @param plan      Device pointer to the dispatch plan
+/// @param output       Output buffer
+/// @param array_len    Total number of elements to produce
+/// @param packed_plan  Pointer to the packed plan byte buffer
 template <typename T>
-__device__ void dynamic_dispatch(T *__restrict output,
-                                 uint64_t array_len,
-                                 const struct DynamicDispatchPlan *__restrict plan) {
+__device__ void
+dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
 
-    // Dynamically-sized shared memory: The host computes the exact byte count
-    // needed to hold all stage outputs that must coexist simultaneously, and
-    // passes the count at kernel launch (see DynamicDispatchPlan::shared_mem_bytes).
     extern __shared__ char smem_bytes[];
     T *smem_base = reinterpret_cast<T *>(smem_bytes);
 
-    __shared__ struct DynamicDispatchPlan smem_plan;
-    if (threadIdx.x == 0) {
-        smem_plan = *plan;
-    }
-    __syncthreads();
-
-    const uint8_t last = smem_plan.num_stages - 1;
+    const auto *header = reinterpret_cast<const struct PlanHeader *>(packed_plan);
+    const uint8_t *stage_cursor = packed_plan + sizeof(struct PlanHeader);
+    const uint8_t last = header->num_stages - 1;
 
     // Input stages: Decode inputs into smem regions.
-    for (uint8_t i = 0; i < last; ++i) {
-        const struct Stage &stage = smem_plan.stages[i];
+    for (uint8_t idx = 0; idx < last; ++idx) {
+        Stage stage = parse_stage(stage_cursor);
         T *smem_output = &smem_base[stage.smem_offset];
         execute_stage<T, StorePolicy::WRITEBACK>(stage, smem_base, 0, stage.len, smem_output, 0);
     }
 
-    const struct Stage &output_stage = smem_plan.stages[last];
+    Stage output_stage = parse_stage(stage_cursor);
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
     const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
     const uint32_t block_len = static_cast<uint32_t>(block_end - block_start);
@@ -356,11 +347,10 @@ __device__ void dynamic_dispatch(T *__restrict output,
 
 /// Generates a dynamic dispatch kernel entry point for each unsigned integer type.
 #define GENERATE_DYNAMIC_DISPATCH_KERNEL(suffix, Type)                                                       \
-    extern "C" __global__ void dynamic_dispatch_##suffix(                                                    \
-        Type *__restrict output,                                                                             \
-        uint64_t array_len,                                                                                  \
-        const struct DynamicDispatchPlan *__restrict plan) {                                                 \
-        dynamic_dispatch<Type>(output, array_len, plan);                                                     \
+    extern "C" __global__ void dynamic_dispatch_##suffix(Type *__restrict output,                            \
+                                                         uint64_t array_len,                                 \
+                                                         const uint8_t *__restrict packed_plan) {            \
+        dynamic_dispatch<Type>(output, array_len, packed_plan);                                              \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_DYNAMIC_DISPATCH_KERNEL)

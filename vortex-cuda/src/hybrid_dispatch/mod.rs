@@ -84,7 +84,7 @@ pub async fn try_gpu_dispatch(
     if subtrees.is_empty() {
         // Whole tree is dyn-dispatch-compatible.
         if let Ok(plan) = UnmaterializedPlan::new(array).and_then(|p| p.materialize(ctx)) {
-            debug!(encoding = %array.encoding_id(), num_stages = plan.dispatch_plan.num_stages, "fully-fused dyn dispatch");
+            debug!(encoding = %array.encoding_id(), num_stages = plan.dispatch_plan.num_stages(), "fully-fused dyn dispatch");
             return plan.execute(output_ptype, array.len(), ctx);
         }
     } else if let Some(result) =
@@ -138,7 +138,7 @@ async fn try_partial_fuse(
     let n = subtree_inputs.len();
     plan.device_buffers
         .extend(subtree_inputs.into_iter().map(|(_, h)| h));
-    debug!(encoding = %array.encoding_id(), num_stages = plan.dispatch_plan.num_stages, num_subtrees = n, "partially-fused dyn dispatch");
+    debug!(encoding = %array.encoding_id(), num_stages = plan.dispatch_plan.num_stages(), num_subtrees = n, "partially-fused dyn dispatch");
     plan.execute(output_ptype, array.len(), ctx).map(Some)
 }
 
