@@ -24,10 +24,7 @@ impl SliceReduce for Patched {
         let chunk_start = (range.start + array.offset) / 1024;
         let chunk_stop = (range.end + array.offset).div_ceil(1024);
 
-        // Slice the inner to chunk boundaries
-        let inner_start = chunk_start * 1024;
-        let inner_stop = (chunk_stop * 1024).min(array.inner.len());
-        let inner = array.inner.slice(inner_start..inner_stop)?;
+        let inner = array.inner.slice(range.start..range.end)?;
 
         // Slice to only maintain offsets to the sliced chunks
         let sliced_lane_offsets = array
@@ -78,12 +75,11 @@ mod tests {
         let values = buffer![0u16; 512].into_array();
         let patch_indices = buffer![1u32, 8, 30].into_array();
         let patch_values = buffer![u16::MAX; 3].into_array();
-        let patches = Patches::new(512, 0, patch_indices, patch_values, None).unwrap();
+        let patches = Patches::new(512, 0, patch_indices, patch_values, None)?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array =
-            PatchedArray::from_array_and_patches(values, &patches, &mut ctx).unwrap();
+        let patched_array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?;
 
         let sliced = patched_array.slice(1..10)?;
 
@@ -91,7 +87,7 @@ mod tests {
             sliced.display_tree_encodings_only(),
             @r#"
             root: vortex.patched(u16, len=9)
-              inner: vortex.primitive(u16, len=512)
+              inner: vortex.primitive(u16, len=9)
               patch_indices: vortex.primitive(u16, len=3)
               patch_values: vortex.primitive(u16, len=3)
             "#);

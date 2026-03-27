@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -43,7 +42,6 @@ impl CompareKernel for Patched {
         //  We slice the inner before performing the comparison.
         let result = lhs
             .inner
-            .slice(lhs.offset..lhs.offset + lhs.len)?
             .binary(
                 ConstantArray::new(constant.clone(), lhs.len()).into_array(),
                 operator.into(),
@@ -142,6 +140,9 @@ impl<V: NativePType> ApplyPatches<'_, V> {
                     continue;
                 }
                 let bit_index = bit_index - self.offset;
+                if bit_index >= self.bits.len() {
+                    break;
+                }
                 if cmp(patch_value, self.constant) {
                     self.bits.set(bit_index)
                 } else {

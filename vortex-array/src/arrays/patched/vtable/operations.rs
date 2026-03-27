@@ -47,7 +47,7 @@ impl OperationsVTable<Patched> for Patched {
         }
 
         // Otherwise, access the underlying value.
-        array.inner.scalar_at(index + array.offset)
+        array.inner.scalar_at(index)
     }
 }
 

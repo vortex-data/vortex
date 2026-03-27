@@ -33,7 +33,6 @@ use crate::SerializeMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
-use crate::arrays::patched::patch_lanes;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveArrayParts;
 use crate::buffer::BufferHandle;
@@ -222,9 +221,7 @@ impl VTable for Patched {
 
         let len = array.len();
 
-        // Slice the inner by its offset before appending it.
-        let sliced_inner = array.inner.slice(array.offset..array.offset + array.len)?;
-        sliced_inner.append_to_builder(builder, ctx)?;
+        array.inner.append_to_builder(builder, ctx)?;
 
         let offset = array.offset;
         let lane_offsets: Buffer<u32> =
@@ -335,10 +332,6 @@ impl VTable for Patched {
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
             let offset = array.offset;
             let len = array.len;
-
-            // Slice the buffer and validity from the offset.
-            let buffer = buffer.slice_typed::<V>(offset..offset + len);
-            let validity = validity.slice(offset..offset + len)?;
 
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
 
