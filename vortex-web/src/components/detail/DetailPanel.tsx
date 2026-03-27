@@ -8,8 +8,9 @@ import { getNodeDisplayName, findPathToNode } from '../swimlane/utils';
 import { SummaryPane } from './SummaryPane';
 import { EncodingPane } from './EncodingPane';
 import { SegmentsPane } from './SegmentsPane';
+import { TreemapPane } from './TreemapPane';
 
-type TabId = 'summary' | 'encoding' | 'segments';
+type TabId = 'summary' | 'encoding' | 'segments' | 'treemap';
 
 interface TabDef {
   id: TabId;
@@ -18,13 +19,14 @@ interface TabDef {
 
 export function DetailPanel() {
   const file = useVortexFile();
-  const { state: selection, selectNode } = useSelection();
+  const { state: selection, selectNode, hoverNode } = useSelection();
   const [activeTab, setActiveTab] = useState<TabId>('summary');
 
   const tabs = useMemo<TabDef[]>(() => {
     const result: TabDef[] = [{ id: 'summary', label: 'Summary' }];
     if (selection.selectedNode) {
       result.push({ id: 'segments', label: 'Segments' });
+      result.push({ id: 'treemap', label: 'Treemap' });
       if (selection.selectedNode.children.length === 0) {
         result.push({ id: 'encoding', label: 'Encoding' });
       }
@@ -32,10 +34,25 @@ export function DetailPanel() {
     return result;
   }, [selection.selectedNode]);
 
-  const breadcrumb = useMemo(() => {
+  const selectedPath = useMemo(() => {
     if (!selection.selectedNodeId) return [];
     return findPathToNode(file.layoutTree, selection.selectedNodeId);
   }, [file.layoutTree, selection.selectedNodeId]);
+
+  const hoveredPath = useMemo(() => {
+    if (!selection.hoveredNodeId) return [];
+    return findPathToNode(file.layoutTree, selection.hoveredNodeId);
+  }, [file.layoutTree, selection.hoveredNodeId]);
+
+  // Show hovered path when hovering, otherwise the selected path.
+  const breadcrumb = hoveredPath.length > 0 ? hoveredPath : selectedPath;
+
+  // When hovering, the portion of the path that overlaps with the selected path stays bright.
+  const selectedIdSet = useMemo(
+    () => new Set(selectedPath.map((n) => n.id)),
+    [selectedPath],
+  );
+  const isHoverBreadcrumb = hoveredPath.length > 0;
 
   const currentTab = tabs.find((t) => t.id === activeTab) ? activeTab : 'summary';
 
@@ -65,10 +82,14 @@ export function DetailPanel() {
           <div className="flex items-center gap-0.5 ml-auto text-[10px] text-vortex-grey-dark overflow-hidden">
             {breadcrumb.map((node, i) => {
               const isLast = i === breadcrumb.length - 1;
+              // When showing hover path: nodes shared with selected path are bright, others are dim.
+              // When showing selected path: last node is bright, others are clickable.
+              const isShared = isHoverBreadcrumb && selectedIdSet.has(node.id);
+              const dimClass = isHoverBreadcrumb && !isShared ? 'opacity-50' : '';
               return (
-                <span key={node.id} className="flex items-center gap-0.5 min-w-0">
+                <span key={node.id} className={`flex items-center gap-0.5 min-w-0 ${dimClass}`}>
                   {i > 0 && <span className="opacity-40 flex-shrink-0">/</span>}
-                  {isLast ? (
+                  {isLast && !isHoverBreadcrumb ? (
                     <span className="text-vortex-fg-light dark:text-vortex-fg truncate">
                       {getNodeDisplayName(node)}
                     </span>
@@ -101,6 +122,9 @@ export function DetailPanel() {
         )}
         {currentTab === 'segments' && selection.selectedNode && (
           <SegmentsPane node={selection.selectedNode} segments={file.segments} />
+        )}
+        {currentTab === 'treemap' && selection.selectedNode && (
+          <TreemapPane node={selection.selectedNode} segments={file.segments} onSelectNode={selectNode} onHoverNode={hoverNode} />
         )}
       </div>
     </div>

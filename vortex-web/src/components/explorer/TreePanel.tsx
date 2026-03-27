@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContext';
 import { useSelection } from '../../contexts/SelectionContext';
-import { flattenTree, filterTreeBySearch } from '../swimlane/utils';
+import { flattenTree, filterTreeBySearch, findPathToNode } from '../swimlane/utils';
 import { TreeRow } from '../swimlane/TreeRow';
 import { TreeSearch } from '../swimlane/TreeSearch';
 
@@ -16,6 +16,39 @@ export function TreePanel() {
   const [mode, setMode] = useState<TreeMode>('schema');
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['root']));
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Auto-expand ancestors so the selected node is visible, including synthetic group nodes.
+  useEffect(() => {
+    if (!selection.selectedNodeId) return;
+    const path = findPathToNode(file.layoutTree, selection.selectedNodeId);
+    if (path.length === 0) return;
+
+    setExpanded((prev) => {
+      let next = new Set(prev);
+      for (const node of path) next.add(node.id);
+
+      // Iteratively expand group nodes that contain the target until it's visible.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const rows = flattenTree(file.layoutTree, next, null, mode);
+        if (rows.some((r) => r.node.id === selection.selectedNodeId)) break;
+
+        // Find group rows whose grouped children include the target.
+        let changed = false;
+        for (const row of rows) {
+          if (row.displayKind === 'group' && row.groupedChildren) {
+            if (row.groupedChildren.some((c) => c.id === selection.selectedNodeId)) {
+              next = new Set(next);
+              next.add(row.node.id);
+              changed = true;
+            }
+          }
+        }
+        if (!changed) break;
+      }
+
+      return next;
+    });
+  }, [selection.selectedNodeId, file.layoutTree, mode]);
 
   const allRows = useMemo(
     () => flattenTree(file.layoutTree, expanded, null, mode),

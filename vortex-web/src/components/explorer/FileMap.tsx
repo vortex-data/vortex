@@ -149,17 +149,17 @@ export function FileMap() {
       }
 
       let r: number, g: number, b: number, a: number;
-      if (isFocused) {
+      if (isHovered) {
+        // Hover always wins — bright highlight
+        r = hlR; g = hlG; b = hlB; a = 255;
+      } else if (isFocused) {
         r = hlR; g = hlG; b = hlB; a = 255;
       } else if (isSubtree && !focusedSegment) {
         // No segment selected: all subtree segments are bright
-        r = hlR; g = hlG; b = hlB; a = 255;
+        r = hlR; g = hlG; b = hlB; a = dark ? 140 : 160;
       } else if (isSubtree) {
         // A segment is selected: other subtree segments are dimmed
         r = hlR; g = hlG; b = hlB; a = dark ? 90 : 110;
-      } else if (isHovered) {
-        // Hover preview: dim blue
-        r = hlR; g = hlG; b = hlB; a = dark ? 70 : 90;
       } else {
         r = baseR; g = baseG; b = baseB; a = baseA;
       }

@@ -14,11 +14,13 @@ export function StatusBar() {
   const file = useVortexFile();
   const { state: selection } = useSelection();
 
-  const selectionStats = useMemo(() => {
-    const node = selection.selectedNode;
-    if (!node) return null;
+  // Show hovered node stats if hovering, otherwise selected node stats.
+  const activeNode = selection.hoveredNode ?? selection.selectedNode;
 
-    const segIds = new Set(collectSubtreeSegments(node));
+  const selectionStats = useMemo(() => {
+    if (!activeNode) return null;
+
+    const segIds = new Set(collectSubtreeSegments(activeNode));
     const reachable = file.segments.filter((s) => segIds.has(s.index));
     const totalBytes = reachable.reduce((sum, s) => sum + s.byteLength, 0);
     const pct = file.fileStructure.fileSize > 0
@@ -26,12 +28,12 @@ export function StatusBar() {
       : 0;
 
     return {
-      rows: node.rowCount,
+      rows: activeNode.rowCount,
       segments: reachable.length,
       bytes: totalBytes,
       pct,
     };
-  }, [selection.selectedNode, file.segments, file.fileStructure.fileSize]);
+  }, [activeNode, file.segments, file.fileStructure.fileSize]);
 
   return (
     <div className="flex items-center px-3 h-6 flex-shrink-0 border-t border-vortex-grey-light/60 dark:border-white/[0.08] bg-vortex-grey-lightest/50 dark:bg-white/[0.02] text-[10px] text-vortex-grey-dark">

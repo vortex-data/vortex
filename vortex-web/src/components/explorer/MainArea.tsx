@@ -7,8 +7,7 @@ import { FileMap } from './FileMap';
 import { DataPreview } from './DataPreview';
 import { DetailPanel } from '../detail/DetailPanel';
 
-const MIN_PREVIEW_HEIGHT = 80;
-const MAX_PREVIEW_HEIGHT = 600;
+const MIN_PANEL_HEIGHT = 120;
 const DEFAULT_PREVIEW_HEIGHT = 200;
 
 /**
@@ -21,6 +20,7 @@ export function MainArea() {
   const dragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -35,8 +35,10 @@ export function MainArea() {
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
+    const containerHeight = containerRef.current?.clientHeight ?? 600;
+    const maxPreview = containerHeight - MIN_PANEL_HEIGHT;
     const delta = startY.current - e.clientY;
-    const next = Math.min(MAX_PREVIEW_HEIGHT, Math.max(MIN_PREVIEW_HEIGHT, startHeight.current + delta));
+    const next = Math.min(maxPreview, Math.max(MIN_PANEL_HEIGHT, startHeight.current + delta));
     setPreviewHeight(next);
   }, []);
 
@@ -52,7 +54,7 @@ export function MainArea() {
       </div>
 
       {/* Right: detail pane, file map, data preview — stacked vertically */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div ref={containerRef} className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Detail pane — fills available vertical space, scrolls internally */}
         <DetailPanel />
 
