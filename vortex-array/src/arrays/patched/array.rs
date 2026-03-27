@@ -76,6 +76,11 @@ impl PatchedArray {
             "Creating PatchedArray from Patches only supported for primitive arrays"
         );
 
+        vortex_ensure!(
+            patches.num_patches() <= u32::MAX as usize,
+            "PatchedArray does not support > u32::MAX patch values"
+        );
+
         let values_ptype = patches.dtype().as_ptype();
 
         let TransposedPatches {
