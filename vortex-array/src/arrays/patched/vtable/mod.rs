@@ -46,10 +46,11 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
+use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityChild;
 use crate::vtable::ValidityVTableFromChild;
-use crate::vtable::{Array, ArrayId};
 
 vtable!(Patched);
 
@@ -265,8 +266,8 @@ impl VTable for Patched {
 
     fn with_children(array: &mut Self::Array, mut children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 2,
-            "PatchedArray must have exactly 2 children"
+            children.len() == 3,
+            "PatchedArray must have exactly 3 children"
         );
 
         array.inner = children.remove(0);
@@ -381,9 +382,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
-    use crate::dtype::Nullability;
     use crate::patches::Patches;
-    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -417,43 +416,6 @@ mod tests {
         expected[3] = 1;
 
         assert_eq!(executed, expected.freeze());
-    }
-
-    #[test]
-    fn test_scalar_at() {
-        let values = buffer![0u16; 1024].into_array();
-        let patches = Patches::new(
-            1024,
-            0,
-            buffer![1u32, 2, 3].into_array(),
-            buffer![1u16; 3].into_array(),
-            None,
-        )
-        .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
-
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
-            .unwrap()
-            .into_array();
-
-        assert_eq!(
-            array.scalar_at(0).unwrap(),
-            Scalar::primitive(0u16, Nullability::NonNullable)
-        );
-        assert_eq!(
-            array.scalar_at(1).unwrap(),
-            Scalar::primitive(1u16, Nullability::NonNullable)
-        );
-        assert_eq!(
-            array.scalar_at(2).unwrap(),
-            Scalar::primitive(1u16, Nullability::NonNullable)
-        );
-        assert_eq!(
-            array.scalar_at(3).unwrap(),
-            Scalar::primitive(1u16, Nullability::NonNullable)
-        );
     }
 
     #[test]

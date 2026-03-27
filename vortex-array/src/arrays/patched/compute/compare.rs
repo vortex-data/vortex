@@ -74,78 +74,34 @@ impl CompareKernel for Patched {
                 .as_::<V>()
                 .vortex_expect("compare constant not null");
 
+            let apply_patches = ApplyPatches {
+                bits: &mut bits,
+                offset,
+                n_lanes,
+                lane_offsets,
+                indices,
+                values,
+                constant,
+            };
+
             match operator {
                 CompareOperator::Eq => {
-                    apply::<V, _>(
-                        &mut bits,
-                        offset,
-                        n_lanes,
-                        lane_offsets,
-                        indices,
-                        values,
-                        constant,
-                        |l, r| NativeValue(l) == NativeValue(r),
-                    )?;
+                    apply_patches.apply(|l, r| NativeValue(l) == NativeValue(r))?;
                 }
                 CompareOperator::NotEq => {
-                    apply::<V, _>(
-                        &mut bits,
-                        offset,
-                        n_lanes,
-                        lane_offsets,
-                        indices,
-                        values,
-                        constant,
-                        |l, r| NativeValue(l) != NativeValue(r),
-                    )?;
+                    apply_patches.apply(|l, r| NativeValue(l) != NativeValue(r))?;
                 }
                 CompareOperator::Gt => {
-                    apply::<V, _>(
-                        &mut bits,
-                        n_lanes,
-                        offset,
-                        lane_offsets,
-                        indices,
-                        values,
-                        constant,
-                        |l, r| NativeValue(l) > NativeValue(r),
-                    )?;
+                    apply_patches.apply(|l, r| NativeValue(l) > NativeValue(r))?;
                 }
                 CompareOperator::Gte => {
-                    apply::<V, _>(
-                        &mut bits,
-                        n_lanes,
-                        offset,
-                        lane_offsets,
-                        indices,
-                        values,
-                        constant,
-                        |l, r| NativeValue(l) >= NativeValue(r),
-                    )?;
+                    apply_patches.apply(|l, r| NativeValue(l) >= NativeValue(r))?;
                 }
                 CompareOperator::Lt => {
-                    apply::<V, _>(
-                        &mut bits,
-                        n_lanes,
-                        offset,
-                        lane_offsets,
-                        indices,
-                        values,
-                        constant,
-                        |l, r| NativeValue(l) < NativeValue(r),
-                    )?;
+                    apply_patches.apply(|l, r| NativeValue(l) < NativeValue(r))?;
                 }
                 CompareOperator::Lte => {
-                    apply::<V, _>(
-                        &mut bits,
-                        n_lanes,
-                        offset,
-                        lane_offsets,
-                        indices,
-                        values,
-                        constant,
-                        |l, r| NativeValue(l) <= NativeValue(r),
-                    )?;
+                    apply_patches.apply(|l, r| NativeValue(l) <= NativeValue(r))?;
                 }
             }
         });
@@ -155,45 +111,47 @@ impl CompareKernel for Patched {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply<V: NativePType, F>(
-    bits: &mut BitBufferMut,
+struct ApplyPatches<'a, V: NativePType> {
+    bits: &'a mut BitBufferMut,
     offset: usize,
     n_lanes: usize,
-    lane_offsets: &[u32],
-    indices: &[u16],
-    values: &[V],
+    lane_offsets: &'a [u32],
+    indices: &'a [u16],
+    values: &'a [V],
     constant: V,
-    cmp: F,
-) -> VortexResult<()>
-where
-    F: Fn(V, V) -> bool,
-{
-    for index in 0..(lane_offsets.len() - 1) {
-        let chunk = index / n_lanes;
+}
 
-        let lane_start = lane_offsets[index] as usize;
-        let lane_end = lane_offsets[index + 1] as usize;
+impl<V: NativePType> ApplyPatches<'_, V> {
+    fn apply<F>(self, cmp: F) -> VortexResult<()>
+    where
+        F: Fn(V, V) -> bool,
+    {
+        for index in 0..(self.lane_offsets.len() - 1) {
+            let chunk = index / self.n_lanes;
 
-        for (&patch_index, &patch_value) in std::iter::zip(
-            &indices[lane_start..lane_end],
-            &values[lane_start..lane_end],
-        ) {
-            let bit_index = chunk * 1024 + patch_index as usize;
-            // Skip any indices < the offset.
-            if bit_index < offset {
-                continue;
-            }
-            let bit_index = bit_index - offset;
-            if cmp(patch_value, constant) {
-                bits.set(bit_index)
-            } else {
-                bits.unset(bit_index)
+            let lane_start = self.lane_offsets[index] as usize;
+            let lane_end = self.lane_offsets[index + 1] as usize;
+
+            for (&patch_index, &patch_value) in std::iter::zip(
+                &self.indices[lane_start..lane_end],
+                &self.values[lane_start..lane_end],
+            ) {
+                let bit_index = chunk * 1024 + patch_index as usize;
+                // Skip any indices < the offset.
+                if bit_index < self.offset {
+                    continue;
+                }
+                let bit_index = bit_index - self.offset;
+                if cmp(patch_value, self.constant) {
+                    self.bits.set(bit_index)
+                } else {
+                    self.bits.unset(bit_index)
+                }
             }
         }
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 #[cfg(test)]
