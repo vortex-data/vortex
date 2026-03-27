@@ -9,6 +9,7 @@ use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
 use crate::arc_dyn_wrapper;
@@ -16,6 +17,7 @@ use crate::binary::vx_binary;
 use crate::dtype::vx_dtype;
 use crate::error::try_or_default;
 use crate::error::vx_error;
+use crate::expression::vx_expression;
 use crate::string::vx_string;
 
 arc_dyn_wrapper!(
@@ -186,11 +188,30 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     }
 }
 
+/// Apply the expression to the array, wrapping it with a ScalarFnArray.
+/// This operation takes constant time as it doesn't execute the underlying
+/// array. Executing the underlying array still takes O(n) time.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_array_apply(
+    array: *const vx_array,
+    expression: *const vx_expression,
+    error: *mut *mut vx_error,
+) -> *const vx_array {
+    try_or_default(error, || {
+        vortex_ensure!(!array.is_null());
+        vortex_ensure!(!expression.is_null());
+        let array = vx_array::as_ref(array);
+        let expression = vx_expression::as_ref(expression);
+        Ok(vx_array::new(Arc::new(array.apply(expression)?)))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::ptr;
 
     use vortex::array::IntoArray;
+    use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
@@ -199,12 +220,16 @@ mod tests {
     use vortex::buffer::buffer;
     #[cfg(not(miri))]
     use vortex::dtype::half::f16;
+    use vortex::expr::eq;
+    use vortex::expr::lit;
+    use vortex::expr::root;
 
     use crate::array::*;
     use crate::binary::vx_binary_free;
     use crate::dtype::vx_dtype_get_variant;
     use crate::dtype::vx_dtype_variant;
     use crate::error::vx_error_free;
+    use crate::expression::vx_expression_free;
     use crate::string::vx_string_free;
 
     #[test]
@@ -421,6 +446,55 @@ mod tests {
             vx_binary_free(vx_bin3);
 
             vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_apply() {
+        let primitive = PrimitiveArray::new(
+            buffer![1i32, 2i32, 3i32, 3i32],
+            Validity::from_iter([true, false, true, true]),
+        );
+
+        unsafe {
+            let mut error = ptr::null_mut();
+
+            let res = vx_array_apply(ptr::null(), ptr::null(), &raw mut error);
+            assert!(res.is_null());
+            assert!(!error.is_null());
+            vx_error_free(error);
+
+            let array = vx_array::new(primitive.into_array());
+
+            let res = vx_array_apply(array, ptr::null(), &raw mut error);
+            assert!(res.is_null());
+            assert!(!error.is_null());
+            vx_error_free(error);
+
+            // Test with Vortex Rust-side expressions here, test C API for
+            // expressions in src/expressions.rs
+            let expression = eq(root(), lit(3i32));
+            let expression = vx_expression::new(Box::new(expression));
+
+            let res = vx_array_apply(ptr::null(), expression, &raw mut error);
+            assert!(res.is_null());
+            assert!(!error.is_null());
+            vx_error_free(error);
+
+            let res = vx_array_apply(array, expression, &raw mut error);
+            assert!(!res.is_null());
+            assert!(error.is_null());
+            {
+                let res = vx_array::as_ref(res);
+                let buffer = res.to_bool().to_bit_buffer();
+                let expected = BoolArray::from_iter(vec![false, false, true, true]);
+                assert_eq!(buffer, expected.to_bit_buffer());
+            }
+            vx_array_free(res);
+
+            vx_expression_free(expression);
+            vx_array_free(array);
         }
     }
 

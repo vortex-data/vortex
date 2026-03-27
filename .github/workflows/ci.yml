@@ -386,10 +386,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # We don't run memory sanitizer as it provides many false positives
+          # for std
           - sanitizer: asan
-            sanitizer_flags: "-Zsanitizer=address -Zsanitize=leak"
-          - sanitizer: msan
-            sanitizer_flags: "-Zsanitizer=memory"
+            sanitizer_flags: "-Zsanitizer=address,leak"
           - sanitizer: tsan
             sanitizer_flags: "-Zsanitizer=thread"
     name: "Rust tests (${{ matrix.sanitizer }})"
@@ -421,15 +421,16 @@ jobs:
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
           rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
-          export RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}"
       - name: Build tests with sanitizer
         run: |
+          RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
           cargo +$NIGHTLY_TOOLCHAIN build --locked --all-features \
             --target x86_64-unknown-linux-gnu -Zbuild-std \
             -p vortex-buffer -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
       - name: Run tests with sanitizer
         run: |
+          RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
           cargo +$NIGHTLY_TOOLCHAIN nextest run --locked --all-features \
             --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
             -p vortex-buffer -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
@@ -440,6 +441,7 @@ jobs:
         # TODO(myrrc): remove --no-default-features once we make Mimalloc opt-in
       - name: Run vortex-ffi tests with sanitizer
         run: |
+          RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
           cargo +$NIGHTLY_TOOLCHAIN test --locked --no-default-features \
             --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
             -p vortex-ffi -- --no-capture
@@ -452,7 +454,7 @@ jobs:
           # We don't run memory sanitizer as it's clang-only and provides many
           # false positives for Catch2
           - sanitizer: asan
-            sanitizer_flags: "-Zsanitizer=address -Zsanitize=leak"
+            sanitizer_flags: "-Zsanitizer=address,leak"
           - sanitizer: tsan
             sanitizer_flags: "-Zsanitizer=thread"
     name: "Rust/C++ FFI tests (${{ matrix.sanitizer }})"
@@ -486,15 +488,13 @@ jobs:
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
           rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
-
-          # Export flags here so that rustfilt won't be built with sanitizers
-          export RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
-                --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 \
-                -C opt-level=0 -C strip=none -Zexternal-clangrt \
-                ${{ matrix.sanitizer_flags }}"
       - name: Build FFI library
         run: |
           # TODO(myrrc): remove --no-default-features
+          RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
+                --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 \
+                -C opt-level=0 -C strip=none -Zexternal-clangrt \
+                ${{ matrix.sanitizer_flags }}" \
           cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
             --target x86_64-unknown-linux-gnu -Zbuild-std \
             -p vortex-ffi
