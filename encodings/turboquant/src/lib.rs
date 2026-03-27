@@ -132,6 +132,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::TurboQuantConfig;
+    use crate::rotation::RotationMatrix;
     use crate::turboquant_encode_mse;
     use crate::turboquant_encode_qjl;
 
@@ -536,8 +537,6 @@ mod tests {
     /// produce identical output.
     #[test]
     fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
-        use crate::rotation::RotationMatrix;
-
         let fsl = make_fsl(20, 128, 42);
         let config = TurboQuantConfig {
             bit_width: 3,

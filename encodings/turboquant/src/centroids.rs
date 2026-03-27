@@ -11,9 +11,9 @@
 
 use std::sync::LazyLock;
 
-use dashmap::DashMap;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_utils::aliases::dash_map::DashMap;
 
 /// Number of numerical integration points for computing conditional expectations.
 const INTEGRATION_POINTS: usize = 1000;
@@ -25,7 +25,7 @@ const CONVERGENCE_EPSILON: f64 = 1e-12;
 const MAX_ITERATIONS: usize = 200;
 
 /// Global centroid cache keyed by (dimension, bit_width).
-static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(DashMap::new);
+static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(DashMap::default);
 
 /// Get or compute cached centroids for the given dimension and bit width.
 ///

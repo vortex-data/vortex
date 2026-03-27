@@ -109,12 +109,15 @@ pub fn turboquant_encode_mse(
         let norm = l2_norm(x);
         norms_buf.push(norm);
 
-        padded.fill(0.0);
+        // Normalize and write into [..dim]; tail [dim..padded_dim] stays zero
+        // from initialization and is never overwritten.
         if norm > 0.0 {
             let inv_norm = 1.0 / norm;
             for (dst, &src) in padded[..dim].iter_mut().zip(x.iter()) {
                 *dst = src * inv_norm;
             }
+        } else {
+            padded[..dim].fill(0.0);
         }
         rotation.rotate(&padded, &mut rotated);
 
@@ -225,12 +228,13 @@ pub fn turboquant_encode_qjl(
         let norm = l2_norm(x);
 
         // Reproduce the same quantization as MSE encoding.
-        padded.fill(0.0);
         if norm > 0.0 {
             let inv_norm = 1.0 / norm;
             for (dst, &src) in padded[..dim].iter_mut().zip(x.iter()) {
                 *dst = src * inv_norm;
             }
+        } else {
+            padded[..dim].fill(0.0);
         }
         rotation.rotate(&padded, &mut rotated);
 

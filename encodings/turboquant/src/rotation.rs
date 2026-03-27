@@ -207,12 +207,6 @@ impl RotationMatrix {
     }
 }
 
-/// Apply the inverse SRHT using sign bits stored in a raw byte slice.
-///
-/// This is the hot-path function for decompression. The `signs_bytes` buffer
-/// contains `3 * padded_dim` bits in inverse-application order `[D₃ | D₂ | D₁]`.
-/// Convention: bit set (1) = +1, bit unset (0) = -1 (negate).
-///
 /// Generate a vector of random ±1 signs.
 fn gen_random_signs(rng: &mut StdRng, len: usize) -> Vec<f32> {
     (0..len)
