@@ -33,7 +33,6 @@ use crate::SerializeMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
-use crate::arrays::patched::patch_lanes;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveArrayParts;
 use crate::buffer::BufferHandle;
