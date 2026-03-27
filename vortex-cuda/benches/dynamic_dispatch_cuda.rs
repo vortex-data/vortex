@@ -12,6 +12,7 @@ use std::time::Duration;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
+use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
@@ -59,7 +60,7 @@ fn run_timed(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
     output_buf: &CudaDeviceBuffer,
-    device_plan: &Arc<cudarc::driver::CudaSlice<u8>>,
+    device_plan: &Arc<CudaSlice<u8>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[PType::U32])?;
@@ -115,7 +116,7 @@ struct BenchRunner {
     _plan: CudaDispatchPlan,
     smem_bytes: u32,
     len: usize,
-    device_plan: Arc<cudarc::driver::CudaSlice<u8>>,
+    device_plan: Arc<CudaSlice<u8>>,
     output_buf: CudaDeviceBuffer,
     _plan_buffers: Vec<vortex::array::buffer::BufferHandle>,
 }

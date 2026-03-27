@@ -311,7 +311,7 @@ impl UnmaterializedPlan {
             .collect();
 
         Ok(MaterializedPlan {
-            dispatch_plan: CudaDispatchPlan::new(&stages),
+            dispatch_plan: CudaDispatchPlan::new(stages),
             device_buffers,
             shared_mem_bytes,
         })

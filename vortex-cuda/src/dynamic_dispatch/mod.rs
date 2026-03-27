@@ -20,7 +20,8 @@
 #![allow(non_snake_case)]
 #![allow(clippy::cast_possible_truncation)]
 
-use std::ptr::read_unaligned;
+use std::borrow::Borrow;
+use std::mem::size_of;
 use std::slice::from_raw_parts;
 use std::sync::Arc;
 
@@ -33,6 +34,9 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::validity::Validity;
+use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
+use vortex::buffer::ByteBufferMut;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
@@ -59,7 +63,7 @@ include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
 /// `#[repr(C)]` structs whose padding bytes are always written before
 /// serialisation.
 fn as_bytes<T: Sized>(val: &T) -> &[u8] {
-    unsafe { from_raw_parts(val as *const T as *const u8, size_of::<T>()) }
+    unsafe { from_raw_parts(std::ptr::addr_of!(*val).cast(), size_of::<T>()) }
 }
 
 /// A stage used to build a [`CudaDispatchPlan`] on the host side.
@@ -122,7 +126,7 @@ pub struct ParsedStage {
 /// by the kernel.
 #[derive(Clone)]
 pub struct CudaDispatchPlan {
-    bytes: Vec<u8>,
+    buffer: ByteBuffer,
 }
 
 impl CudaDispatchPlan {
@@ -133,15 +137,21 @@ impl CudaDispatchPlan {
     /// # Panics
     ///
     /// Panics if `stages` is empty or the serialized plan exceeds 65535 bytes.
-    pub fn new(stages: &[Stage]) -> Self {
+    pub fn new<I>(stages: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Stage>,
+    {
+        let stages: Vec<Stage> = stages.into_iter().map(|s| s.borrow().clone()).collect();
         assert!(!stages.is_empty());
 
         let header_size = size_of::<PlanHeader>();
         let stage_header_size = size_of::<PackedStage>();
         let scalar_op_size = size_of::<ScalarOp>();
 
+        // Calculate total size and validate.
         let mut total_size = header_size;
-        for stage in stages {
+        for stage in &stages {
             total_size += stage_header_size;
             total_size += stage.scalar_ops.len() * scalar_op_size;
         }
@@ -150,17 +160,17 @@ impl CudaDispatchPlan {
             "packed plan size {total_size} exceeds u16::MAX"
         );
 
-        let mut bytes = Vec::with_capacity(total_size);
+        let mut buffer = ByteBufferMut::with_capacity_aligned(total_size, Alignment::of::<u32>());
 
         // Write header.
         let header = PlanHeader {
             num_stages: stages.len() as u8,
             plan_size_bytes: total_size as u16,
         };
-        bytes.extend_from_slice(as_bytes(&header));
+        buffer.extend_from_slice(as_bytes(&header));
 
         // Write each stage header followed by its scalar ops.
-        for stage in stages {
+        for stage in &stages {
             let packed_stage = PackedStage {
                 input_ptr: stage.input_ptr,
                 smem_offset: stage.smem_offset,
@@ -168,25 +178,26 @@ impl CudaDispatchPlan {
                 source: stage.source,
                 num_scalar_ops: stage.scalar_ops.len() as u8,
             };
-            bytes.extend_from_slice(as_bytes(&packed_stage));
+            buffer.extend_from_slice(as_bytes(&packed_stage));
             for op in &stage.scalar_ops {
-                bytes.extend_from_slice(as_bytes(op));
+                buffer.extend_from_slice(as_bytes(op));
             }
         }
 
-        assert_eq!(bytes.len(), total_size);
-        Self { bytes }
+        assert_eq!(buffer.len(), total_size);
+        Self {
+            buffer: buffer.freeze(),
+        }
     }
 
     /// The raw packed plan bytes, ready for upload to the device.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
+        self.buffer.as_ref()
     }
 
     /// Number of stages in the plan.
     pub fn num_stages(&self) -> u8 {
-        let header: PlanHeader =
-            unsafe { read_unaligned(self.bytes.as_ptr() as *const PlanHeader) };
+        let header: PlanHeader = unsafe { *self.buffer.as_ptr().cast() };
         header.num_stages
     }
 
@@ -204,22 +215,19 @@ impl CudaDispatchPlan {
 
         // Skip past stages before `index`.
         for _ in 0..index {
-            assert!(offset + stage_header_size <= self.bytes.len());
-            let ps: PackedStage =
-                unsafe { read_unaligned(self.bytes[offset..].as_ptr() as *const PackedStage) };
+            assert!(offset + stage_header_size <= self.buffer.len());
+            let ps: PackedStage = unsafe { *self.buffer.as_ptr().add(offset).cast() };
             offset += stage_header_size + ps.num_scalar_ops as usize * scalar_op_size;
         }
 
-        assert!(offset + stage_header_size <= self.bytes.len());
-        let ps: PackedStage =
-            unsafe { read_unaligned(self.bytes[offset..].as_ptr() as *const PackedStage) };
+        assert!(offset + stage_header_size <= self.buffer.len());
+        let ps: PackedStage = unsafe { *self.buffer.as_ptr().add(offset).cast() };
         offset += stage_header_size;
 
         let mut scalar_ops = Vec::with_capacity(ps.num_scalar_ops as usize);
         for _ in 0..ps.num_scalar_ops {
-            assert!(offset + scalar_op_size <= self.bytes.len());
-            let op: ScalarOp =
-                unsafe { read_unaligned(self.bytes[offset..].as_ptr() as *const ScalarOp) };
+            assert!(offset + scalar_op_size <= self.buffer.len());
+            let op: ScalarOp = unsafe { *self.buffer.as_ptr().add(offset).cast() };
             scalar_ops.push(op);
             offset += scalar_op_size;
         }
@@ -263,11 +271,18 @@ impl SourceOp {
     }
 
     /// Decode run-end encoding.
+    ///
+    /// # Arguments
+    ///
+    /// * `ends_smem_offset` - smem region holding run-end endpoints
+    /// * `values_smem_offset` - smem region holding per-run values
+    /// * `num_runs` - number of runs (length of ends/values)
+    /// * `offset` - logical offset for sliced arrays
     pub fn runend(
-        ends_smem_offset: u32,   // smem region holding run-end endpoints
-        values_smem_offset: u32, // smem region holding per-run values
-        num_runs: u64,           // number of runs (length of ends/values)
-        offset: u64,             // logical offset for sliced arrays
+        ends_smem_offset: u32,
+        values_smem_offset: u32,
+        num_runs: u64,
+        offset: u64,
     ) -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_RUNEND,
@@ -477,7 +492,7 @@ mod tests {
             .map(|&r| ScalarOp::frame_of_ref(r as u64))
             .collect();
 
-        let plan = CudaDispatchPlan::new(&[Stage::new(
+        let plan = CudaDispatchPlan::new([Stage::new(
             input_ptr,
             0,
             len as u32,
@@ -496,7 +511,7 @@ mod tests {
     fn test_plan_structure() {
         // Stage 0: input dict values (BP→FoR) into smem[0..256)
         // Stage 1: output codes (BP→FoR→DICT) into smem[256..2304), gather from smem[0]
-        let plan = CudaDispatchPlan::new(&[
+        let plan = CudaDispatchPlan::new([
             Stage::new(
                 0xAAAA,
                 0,
@@ -566,7 +581,7 @@ mod tests {
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (input_ptr, _di) = copy_raw_to_device(&cuda_ctx, &data)?;
 
-        let plan = CudaDispatchPlan::new(&[Stage::new(
+        let plan = CudaDispatchPlan::new([Stage::new(
             input_ptr,
             0,
             len as u32,
