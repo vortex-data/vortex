@@ -497,3 +497,71 @@ export function formatRowCount(n: number): string {
   if (n < 1000000) return `${(n / 1000).toFixed(1)}k`;
   return `${(n / 1000000).toFixed(1)}M`;
 }
+
+/**
+ * Convert an ArrayEncodingNode tree into LayoutTreeNode children
+ * so they can appear in the layout tree under a flat layout node.
+ */
+export function arrayTreeToLayoutChildren(
+  arrayTree: ArrayEncodingNode,
+  parentNode: LayoutTreeNode,
+): LayoutTreeNode[] {
+  function convert(
+    node: ArrayEncodingNode,
+    parentId: string,
+    name: string,
+  ): LayoutTreeNode {
+    const id = `${parentId}.$${name}`;
+
+    const children = node.children.map((child, i) => {
+      const childName = node.childNames[i] ?? `child ${i}`;
+      return convert(child, id, childName);
+    });
+
+    return {
+      id,
+      encoding: node.encoding,
+      dtype: node.dtype || parentNode.dtype,
+      rowCount: parentNode.rowCount,
+      rowOffset: parentNode.rowOffset,
+      metadataBytes: node.metadataBytes,
+      segmentIds: [],
+      childType: { kind: 'field', fieldName: name },
+      children,
+      isArrayNode: true,
+      bufferLengths: node.bufferLengths,
+      bufferNames: node.bufferNames,
+    };
+  }
+
+  // The root ArrayEncodingNode IS the flat layout's encoding.
+  // Its children become children of the flat layout node.
+  return arrayTree.children.map((child, i) => {
+    const childName = arrayTree.childNames[i] ?? `child ${i}`;
+    return convert(child, parentNode.id, childName);
+  });
+}
+
+/**
+ * Check if a layout node is a flat layout that can have array children.
+ */
+export function isFlatLayout(node: LayoutTreeNode): boolean {
+  return node.encoding === 'vortex.flat' && !node.isArrayNode;
+}
+
+/**
+ * Parse an array node ID into its layout node ID and array child path.
+ * Array node IDs use `$`-prefixed segments: "root.col.$values.$encoded"
+ * → layoutNodeId: "root.col", arrayPath: ["values", "encoded"]
+ */
+export function parseArrayNodeId(nodeId: string): { layoutNodeId: string; arrayPath: string[] } {
+  const parts = nodeId.split('.');
+  const firstArrayIdx = parts.findIndex((p) => p.startsWith('$'));
+  if (firstArrayIdx === -1) {
+    return { layoutNodeId: nodeId, arrayPath: [] };
+  }
+  return {
+    layoutNodeId: parts.slice(0, firstArrayIdx).join('.'),
+    arrayPath: parts.slice(firstArrayIdx).map((p) => p.slice(1)),
+  };
+}

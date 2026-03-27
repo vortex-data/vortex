@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { tableFromIPC } from 'apache-arrow';
 import { useSelection } from '../../contexts/SelectionContext';
 import { useVortexFile } from '../../contexts/VortexFileContext';
+import { parseArrayNodeId } from '../swimlane/utils';
 import { DataTable } from '../DataTable';
 
 const ROW_LIMIT = 5000;
@@ -28,15 +29,16 @@ function decodeArrow(ipcBytes: Uint8Array): {
 
 export function DataPreview() {
   const { state: selection } = useSelection();
-  const { previewData } = useVortexFile();
+  const { previewData, previewArrayData } = useVortexFile();
   const [ipcBytes, setIpcBytes] = useState<Uint8Array | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const nodeId = selection.selectedNodeId;
+  const selectedNodeId = selection.selectedNodeId;
+  const isArrayNode = selection.selectedNode?.isArrayNode ?? false;
 
   useEffect(() => {
-    if (!nodeId) {
+    if (!selectedNodeId) {
       setIpcBytes(null);
       setError(null);
       return;
@@ -46,7 +48,14 @@ export function DataPreview() {
     setLoading(true);
     setError(null);
 
-    previewData(nodeId, ROW_LIMIT)
+    const fetchPromise = isArrayNode
+      ? (() => {
+          const { layoutNodeId, arrayPath } = parseArrayNodeId(selectedNodeId);
+          return previewArrayData(layoutNodeId, arrayPath, ROW_LIMIT);
+        })()
+      : previewData(selectedNodeId, ROW_LIMIT);
+
+    fetchPromise
       .then((bytes) => {
         if (!cancelled) setIpcBytes(bytes);
       })
@@ -60,7 +69,7 @@ export function DataPreview() {
     return () => {
       cancelled = true;
     };
-  }, [nodeId, previewData]);
+  }, [selectedNodeId, isArrayNode, previewData, previewArrayData]);
 
   const decoded = useMemo(() => {
     if (!ipcBytes) return null;
@@ -72,7 +81,7 @@ export function DataPreview() {
     }
   }, [ipcBytes]);
 
-  if (!nodeId) {
+  if (!selectedNodeId) {
     return (
       <div className="h-full flex items-center justify-center text-[11px] text-vortex-grey-dark">
         Select a node to preview data

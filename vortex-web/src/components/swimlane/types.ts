@@ -29,14 +29,19 @@ export interface LayoutTreeNode {
   isArrayNode?: boolean;
   /** Buffer byte lengths for array nodes */
   bufferLengths?: number[];
+  /** Buffer names for array nodes */
+  bufferNames?: string[];
 }
 
 export interface ArrayEncodingNode {
   encoding: string;
+  dtype: string;
   metadataBytes: number;
   numBuffers: number;
   bufferLengths: number[];
+  bufferNames: string[];
   children: ArrayEncodingNode[];
+  childNames: string[];
 }
 
 export type LayoutChildKind =

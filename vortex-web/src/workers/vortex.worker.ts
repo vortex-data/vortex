@@ -33,8 +33,24 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({ type: 'result', id, data: result });
     } else if (type === 'fetchEncodingTree') {
       if (!fileHandle) throw new Error('No file open');
-      const json = await fileHandle.fetch_encoding_tree(e.data.segmentId);
+      const json = await fileHandle.fetch_encoding_tree(e.data.nodeId);
       self.postMessage({ type: 'result', id, data: JSON.parse(json) });
+    } else if (type === 'fetchArrayBuffer') {
+      if (!fileHandle) throw new Error('No file open');
+      const buf: Uint8Array = await fileHandle.fetch_array_buffer(
+        e.data.layoutNodeId,
+        e.data.arrayPath,
+        e.data.bufferIndex,
+      );
+      self.postMessage({ type: 'result', id, data: buf }, [buf.buffer]);
+    } else if (type === 'previewArrayData') {
+      if (!fileHandle) throw new Error('No file open');
+      const ipcBytes: Uint8Array = await fileHandle.preview_array_data(
+        e.data.layoutNodeId,
+        e.data.arrayPath,
+        e.data.rowLimit,
+      );
+      self.postMessage({ type: 'result', id, data: ipcBytes }, [ipcBytes.buffer]);
     } else if (type === 'previewData') {
       if (!fileHandle) throw new Error('No file open');
       const ipcBytes: Uint8Array = await fileHandle.preview_data(

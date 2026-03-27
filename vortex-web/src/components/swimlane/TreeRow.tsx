@@ -73,8 +73,15 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect,
 
   return (
     <div
+      data-node-id={node.id}
       className={`flex items-center gap-1.5 text-[11px] whitespace-nowrap hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.04] cursor-default ${opacity} ${fontStyle} ${selectedBg}`}
-      style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 10, paddingRight: 8 }}
+      title={node.isArrayNode ? 'Array encoding node' : undefined}
+      style={{
+        height: ROW_HEIGHT,
+        paddingLeft: node.isArrayNode ? 3 + depth * 10 : 6 + depth * 10,
+        paddingRight: 8,
+        borderLeft: node.isArrayNode ? `3px solid ${style.color}` : undefined,
+      }}
       onClick={onSelect}
       onMouseEnter={() => onHover?.(node.id)}
       onMouseLeave={() => onHover?.(null)}

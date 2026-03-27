@@ -41,7 +41,6 @@ use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutRef;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::segments::SegmentId;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use wasm_bindgen::prelude::*;
@@ -334,28 +333,204 @@ impl VortexFileHandle {
         Ok(js_sys::Uint8Array::from(buf.as_slice()))
     }
 
-    /// Fetch the array encoding tree for a flat layout segment.
+    /// Fetch the array encoding tree for a flat layout node.
     ///
-    /// Reads the segment data asynchronously and parses the encoding tree from it.
-    pub async fn fetch_encoding_tree(&self, segment_id: u32) -> Result<String, JsValue> {
+    /// Finds the layout by node ID, reads the segment, fully decodes the array
+    /// to extract dtype, child names, and buffer names from the encoding vtables.
+    pub async fn fetch_encoding_tree(&self, node_id: String) -> Result<String, JsValue> {
         let ctx = self
             .array_read_ctx
             .as_ref()
             .ok_or_else(|| JsValue::from_str("No array ReadContext available"))?;
 
+        let layout = find_layout_by_id(self.vxf.footer().layout(), &node_id)
+            .ok_or_else(|| JsValue::from_str(&format!("Layout node not found: {node_id}")))?;
+
+        let flat = layout
+            .as_opt::<Flat>()
+            .ok_or_else(|| JsValue::from_str("Node is not a flat layout"))?;
+
+        let segment_id = flat.segment_id();
+        let dtype = layout.dtype().clone();
+        let row_count = layout.row_count() as usize;
+
         let buf = self
             .vxf
             .segment_source()
-            .request(SegmentId::from(segment_id))
+            .request(segment_id)
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let parts = ArrayParts::try_from(buf)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let tree = build_array_encoding_tree(&parts, ctx);
+        let array = parts
+            .decode(&dtype, row_count, ctx, &self.session)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let tree = build_array_encoding_tree_from_array(&array);
         serde_json::to_string(&tree)
             .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {e}")))
+    }
+
+    /// Fetch a buffer from a decoded array node.
+    ///
+    /// `layout_node_id` identifies the flat layout, `array_path` is a list of
+    /// child names to navigate within the decoded array tree (e.g. `["values", "encoded"]`),
+    /// and `buffer_index` selects which buffer of the target array node to return.
+    pub async fn fetch_array_buffer(
+        &self,
+        layout_node_id: String,
+        array_path: Vec<String>,
+        buffer_index: usize,
+    ) -> Result<js_sys::Uint8Array, JsValue> {
+        use vortex::array::ArrayVisitor;
+
+        let ctx = self
+            .array_read_ctx
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("No array ReadContext available"))?;
+
+        let layout = find_layout_by_id(self.vxf.footer().layout(), &layout_node_id)
+            .ok_or_else(|| {
+                JsValue::from_str(&format!("Layout node not found: {layout_node_id}"))
+            })?;
+
+        let flat = layout
+            .as_opt::<Flat>()
+            .ok_or_else(|| JsValue::from_str("Node is not a flat layout"))?;
+
+        let segment_id = flat.segment_id();
+        let dtype = layout.dtype().clone();
+        let row_count = layout.row_count() as usize;
+
+        let buf = self
+            .vxf
+            .segment_source()
+            .request(segment_id)
+            .await
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let parts = ArrayParts::try_from(buf)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let root_array = parts
+            .decode(&dtype, row_count, ctx, &self.session)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        // Navigate the array tree by child names.
+        let mut current = root_array;
+        for child_name in &array_path {
+            let named = current.named_children();
+            let child = named
+                .into_iter()
+                .find(|(name, _)| name == child_name)
+                .map(|(_, arr)| arr)
+                .ok_or_else(|| {
+                    JsValue::from_str(&format!("Array child not found: {child_name}"))
+                })?;
+            current = child;
+        }
+
+        let handles = current.buffer_handles();
+        let handle = handles.get(buffer_index).ok_or_else(|| {
+            JsValue::from_str(&format!(
+                "Buffer index {buffer_index} out of range ({})",
+                handles.len()
+            ))
+        })?;
+
+        Ok(js_sys::Uint8Array::from(handle.as_host().as_slice()))
+    }
+
+    /// Preview data from a specific array node within a flat layout.
+    ///
+    /// Decodes the array from the flat layout's segment, navigates to the
+    /// target array child by name path, and returns Arrow IPC bytes.
+    pub async fn preview_array_data(
+        &self,
+        layout_node_id: String,
+        array_path: Vec<String>,
+        row_limit: u32,
+    ) -> Result<js_sys::Uint8Array, JsValue> {
+        use vortex::array::ArrayVisitor;
+
+        let ctx = self
+            .array_read_ctx
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("No array ReadContext available"))?;
+
+        let layout = find_layout_by_id(self.vxf.footer().layout(), &layout_node_id)
+            .ok_or_else(|| {
+                JsValue::from_str(&format!("Layout node not found: {layout_node_id}"))
+            })?;
+
+        let flat = layout
+            .as_opt::<Flat>()
+            .ok_or_else(|| JsValue::from_str("Node is not a flat layout"))?;
+
+        let segment_id = flat.segment_id();
+        let dtype = layout.dtype().clone();
+        let row_count = layout.row_count() as usize;
+
+        let buf = self
+            .vxf
+            .segment_source()
+            .request(segment_id)
+            .await
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let parts = ArrayParts::try_from(buf)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let root_array = parts
+            .decode(&dtype, row_count, ctx, &self.session)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        // Navigate to the target array node.
+        let mut current = root_array;
+        for child_name in &array_path {
+            let named = current.named_children();
+            let child = named
+                .into_iter()
+                .find(|(name, _)| name == child_name)
+                .map(|(_, arr)| arr)
+                .ok_or_else(|| {
+                    JsValue::from_str(&format!("Array child not found: {child_name}"))
+                })?;
+            current = child;
+        }
+
+        // Slice to row_limit.
+        let len = current.len().min(row_limit as usize);
+        if len < current.len() {
+            current = current
+                .slice(0..len)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        }
+
+        // Convert to Arrow IPC.
+        let array_dtype = current.dtype().clone();
+        let schema = dtype_to_schema(&array_dtype, "value")
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let arrow_schema = Arc::new(schema);
+
+        let batch = array_to_record_batch(current, &array_dtype, &arrow_schema)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let mut ipc_buf = Vec::new();
+        {
+            let mut writer = StreamWriter::try_new(&mut ipc_buf, &arrow_schema)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            writer
+                .write(&batch)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            writer
+                .finish()
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        }
+
+        Ok(js_sys::Uint8Array::from(ipc_buf.as_slice()))
     }
 }
 
@@ -438,23 +613,64 @@ fn sum_metadata_bytes(layout: &LayoutRef) -> VortexResult<u64> {
     Ok(total)
 }
 
-/// Recursively build the array encoding tree from `ArrayParts`.
+/// Recursively build the array encoding tree from `ArrayParts` (used for inline trees
+/// where we don't have a fully decoded array).
 fn build_array_encoding_tree(parts: &ArrayParts, ctx: &ReadContext) -> ArrayEncodingNodeJson {
     let encoding = ctx
         .resolve(parts.encoding_id())
         .map(|id| id.to_string())
         .unwrap_or_else(|| format!("unknown({})", parts.encoding_id()));
 
-    let children: Vec<ArrayEncodingNodeJson> = (0..parts.nchildren())
+    let nchildren = parts.nchildren();
+    let children: Vec<ArrayEncodingNodeJson> = (0..nchildren)
         .map(|i| build_array_encoding_tree(&parts.child(i), ctx))
         .collect();
 
     ArrayEncodingNodeJson {
         encoding,
+        dtype: String::new(),
         metadata_bytes: parts.metadata().len(),
         num_buffers: parts.nbuffers(),
         buffer_lengths: parts.buffer_lengths(),
+        buffer_names: Vec::new(),
         children,
+        child_names: (0..nchildren).map(|i| format!("child {i}")).collect(),
+    }
+}
+
+/// Recursively build the array encoding tree from a fully decoded array,
+/// extracting dtype, child names, and buffer names from the encoding vtables.
+fn build_array_encoding_tree_from_array(array: &ArrayRef) -> ArrayEncodingNodeJson {
+    use vortex::array::ArrayVisitor;
+
+    let encoding = array.encoding_id().to_string();
+    let dtype = array.dtype().to_string();
+    let buffer_names = array.buffer_names();
+    let buffer_handles = array.buffer_handles();
+    let buffer_lengths: Vec<usize> = buffer_handles.iter().map(|b| b.len()).collect();
+    let metadata_bytes = array
+        .metadata()
+        .ok()
+        .flatten()
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    let named_children = array.named_children();
+    let child_names: Vec<String> = named_children.iter().map(|(name, _)| name.clone()).collect();
+    let children: Vec<ArrayEncodingNodeJson> = named_children
+        .iter()
+        .map(|(_, child)| build_array_encoding_tree_from_array(child))
+        .collect();
+
+    ArrayEncodingNodeJson {
+        encoding,
+        dtype,
+        metadata_bytes,
+        num_buffers: buffer_lengths.len(),
+        buffer_lengths,
+        buffer_names,
+        children,
+        child_names,
     }
 }
 
@@ -590,10 +806,13 @@ struct LayoutTreeNodeJson {
 #[serde(rename_all = "camelCase")]
 struct ArrayEncodingNodeJson {
     encoding: String,
+    dtype: String,
     metadata_bytes: usize,
     num_buffers: usize,
     buffer_lengths: Vec<usize>,
+    buffer_names: Vec<String>,
     children: Vec<ArrayEncodingNodeJson>,
+    child_names: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]

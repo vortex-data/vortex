@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContext';
 import { useSelection } from '../../contexts/SelectionContext';
-import { flattenTree, filterTreeBySearch, findPathToNode } from '../swimlane/utils';
+import { flattenTree, filterTreeBySearch, findPathToNode, isFlatLayout, findNodeById } from '../swimlane/utils';
 import { TreeRow } from '../swimlane/TreeRow';
 import { TreeSearch } from '../swimlane/TreeSearch';
 
@@ -50,6 +50,19 @@ export function TreePanel() {
     });
   }, [selection.selectedNodeId, file.layoutTree, mode]);
 
+  // Scroll the selected node into the center of the tree view.
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!selection.selectedNodeId || !scrollContainerRef.current) return;
+    // Defer to let the DOM update after expansion.
+    requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      const el = container.querySelector(`[data-node-id="${CSS.escape(selection.selectedNodeId!)}"]`);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [selection.selectedNodeId, expanded]);
+
   const allRows = useMemo(
     () => flattenTree(file.layoutTree, expanded, null, mode),
     [file.layoutTree, expanded, mode],
@@ -59,6 +72,16 @@ export function TreePanel() {
     () => filterTreeBySearch(allRows, searchQuery, file.layoutTree),
     [allRows, searchQuery, file.layoutTree],
   );
+
+  // When a flat layout node is expanded, lazily attach array encoding children.
+  useEffect(() => {
+    for (const id of expanded) {
+      const node = findNodeById(file.layoutTree, id);
+      if (node && isFlatLayout(node) && !node.children.some((c) => c.isArrayNode)) {
+        file.expandArrayTree(id);
+      }
+    }
+  }, [expanded, file]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -87,7 +110,7 @@ export function TreePanel() {
       </div>
 
       {/* Tree rows */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden">
         {visibleRows.map((row) => (
           <TreeRow
             key={row.node.id}

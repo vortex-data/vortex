@@ -23,8 +23,16 @@ const EMPTY_TREE: LayoutTreeNode = {
  * Storybook decorator that wraps a story in VortexFileContext.Provider
  */
 export function withMockFileContext(state: VortexFileState): Decorator {
+  const value = {
+    ...state,
+    fetchEncodingTree: () => Promise.reject(new Error('Not implemented in storybook')),
+    previewData: () => Promise.reject(new Error('Not implemented in storybook')),
+    expandArrayTree: () => Promise.resolve(),
+    fetchArrayBuffer: () => Promise.reject(new Error('Not implemented in storybook')),
+    previewArrayData: () => Promise.reject(new Error('Not implemented in storybook')),
+  };
   return (Story) => (
-    <VortexFileProvider value={state}>
+    <VortexFileProvider value={value}>
       <Story />
     </VortexFileProvider>
   );

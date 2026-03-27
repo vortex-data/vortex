@@ -21,8 +21,14 @@ export interface VortexFileState {
 }
 
 export interface VortexFileContextValue extends VortexFileState {
-  fetchEncodingTree: (segmentId: number) => Promise<ArrayEncodingNode>;
+  fetchEncodingTree: (nodeId: string) => Promise<ArrayEncodingNode>;
   previewData: (nodeId: string, rowLimit: number) => Promise<Uint8Array>;
+  /** Fetch and attach array encoding tree children to a flat layout node. */
+  expandArrayTree: (nodeId: string) => Promise<void>;
+  /** Fetch a buffer from a decoded array node. */
+  fetchArrayBuffer: (layoutNodeId: string, arrayPath: string[], bufferIndex: number) => Promise<Uint8Array>;
+  /** Preview data from a specific array node, returning Arrow IPC bytes. */
+  previewArrayData: (layoutNodeId: string, arrayPath: string[], rowLimit: number) => Promise<Uint8Array>;
 }
 
 const VortexFileContext = createContext<VortexFileContextValue | null>(null);

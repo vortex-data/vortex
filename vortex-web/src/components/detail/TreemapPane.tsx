@@ -31,18 +31,40 @@ interface TreeNode {
 
 type RectNode = HierarchyRectangularNode<TreeNode>;
 
+/** Total buffer bytes for an array node subtree. */
+function arraySubtreeBytes(node: LayoutTreeNode): number {
+  const own = (node.bufferLengths ?? []).reduce((s, b) => s + b, 0);
+  const childBytes = node.children
+    .filter((c) => c.isArrayNode)
+    .reduce((s, c) => s + arraySubtreeBytes(c), 0);
+  return own + childBytes;
+}
+
 function buildTree(
   node: LayoutTreeNode,
   segmentMap: Map<number, SegmentMapEntry>,
 ): TreeNode {
   const color = DTYPE_COLORS[getDtypeCategory(node.dtype)];
   const name = getNodeDisplayName(node);
-  const bytes = collectSubtreeSegments(node).reduce(
-    (sum, id) => sum + (segmentMap.get(id)?.byteLength ?? 0),
-    0,
-  );
 
-  if (node.children.length === 0) {
+  // For array nodes, size by buffer bytes; for layout nodes, by segment bytes.
+  // Layout-level treemaps skip array children to avoid eager expansion.
+  const isArray = node.isArrayNode ?? false;
+  const bytes = isArray
+    ? arraySubtreeBytes(node)
+    : collectSubtreeSegments(node).reduce(
+        (sum, id) => sum + (segmentMap.get(id)?.byteLength ?? 0),
+        0,
+      );
+
+  // For layout nodes, skip array children of NON-flat layouts to avoid eager expansion.
+  // Flat layouts and array nodes show all their children (array tree is already fetched).
+  const isFlatOrArray = isArray || node.encoding === 'vortex.flat';
+  const childrenToShow = isFlatOrArray
+    ? node.children
+    : node.children.filter((c) => !c.isArrayNode);
+
+  if (childrenToShow.length === 0) {
     return { name, nodeId: node.id, color, bytes: Math.max(bytes, 1) };
   }
 
@@ -51,7 +73,7 @@ function buildTree(
     nodeId: node.id,
     color,
     bytes: Math.max(bytes, 1),
-    children: node.children.map((c) => buildTree(c, segmentMap)),
+    children: childrenToShow.map((c) => buildTree(c, segmentMap)),
   };
 }
 

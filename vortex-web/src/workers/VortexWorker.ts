@@ -54,12 +54,30 @@ export class VortexWorker {
     });
   }
 
-  /** Fetch the array encoding tree for a flat layout segment. */
-  fetchEncodingTree(segmentId: number): Promise<ArrayEncodingNode> {
+  /** Fetch the array encoding tree for a flat layout node by its ID. */
+  fetchEncodingTree(nodeId: string): Promise<ArrayEncodingNode> {
     const id = this.nextId++;
     return new Promise<ArrayEncodingNode>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: 'fetchEncodingTree', id, segmentId });
+      this.worker.postMessage({ type: 'fetchEncodingTree', id, nodeId });
+    });
+  }
+
+  /** Fetch a buffer from a decoded array node. */
+  fetchArrayBuffer(layoutNodeId: string, arrayPath: string[], bufferIndex: number): Promise<Uint8Array> {
+    const id = this.nextId++;
+    return new Promise<Uint8Array>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ type: 'fetchArrayBuffer', id, layoutNodeId, arrayPath, bufferIndex });
+    });
+  }
+
+  /** Preview data from a specific array node within a flat layout. */
+  previewArrayData(layoutNodeId: string, arrayPath: string[], rowLimit: number): Promise<Uint8Array> {
+    const id = this.nextId++;
+    return new Promise<Uint8Array>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ type: 'previewArrayData', id, layoutNodeId, arrayPath, rowLimit });
     });
   }
 

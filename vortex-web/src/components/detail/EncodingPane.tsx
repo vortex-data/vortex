@@ -35,7 +35,7 @@ export function EncodingPane({ node }: EncodingPaneProps) {
     setError(null);
     setFetchedTree(null);
 
-    fetchEncodingTree(node.segmentIds[0])
+    fetchEncodingTree(node.id)
       .then((result) => {
         if (!cancelled) setFetchedTree(result);
       })

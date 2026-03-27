@@ -142,6 +142,23 @@ function HeaderSummary({ stats }: { stats: ColumnStats }) {
       return <SparkHistogram histogram={stats.histogram} />;
     }
   }
+  if (stats.kind === 'boolean') {
+    const total = stats.trueCount! + stats.falseCount!;
+    if (total === 0) return null;
+    const allTrue = stats.falseCount === 0 && stats.nullCount === 0;
+    const allFalse = stats.trueCount === 0 && stats.nullCount === 0;
+    if (allTrue || allFalse) return <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>;
+    const pct = Math.round((stats.trueCount! / total) * 100);
+    return (
+      <div className="flex items-center gap-0.5 flex-shrink-0" title={`${stats.trueCount} true, ${stats.falseCount} false`}>
+        <div className="flex h-2 w-8 rounded-sm overflow-hidden">
+          <div className="bg-vortex-light-blue/60" style={{ width: `${pct}%` }} />
+          <div className="bg-vortex-grey-dark/20" style={{ width: `${100 - pct}%` }} />
+        </div>
+        <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">{pct}%</span>
+      </div>
+    );
+  }
   if (stats.kind === 'string' && stats.cardinality != null) {
     if (stats.cardinality === 1 && stats.nullCount === 0) {
       return (
@@ -181,6 +198,12 @@ function HeaderTooltip({ stats }: { stats: ColumnStats }) {
               <SparkHistogram histogram={stats.histogram} height={24} />
             </div>
           )}
+        </>
+      )}
+      {stats.kind === 'boolean' && (
+        <>
+          <div>true: {stats.trueCount!.toLocaleString()}</div>
+          <div>false: {stats.falseCount!.toLocaleString()}</div>
         </>
       )}
       {stats.kind === 'string' && (
