@@ -116,7 +116,13 @@ impl PatchedArray {
 }
 
 impl PatchedArray {
-    pub(crate) fn seek_to_lane(&self, chunk: usize, lane: usize) -> Range<usize> {
+    /// Get a range of indices that can be used to access the `indices` and `values` children
+    /// to retrieve all patches for a specified lane.
+    ///
+    /// # Panics
+    ///
+    /// Note that this function will panic if the caller requests out of bounds chunk/lane ordinals.
+    pub(crate) fn lane_range(&self, chunk: usize, lane: usize) -> Range<usize> {
         assert!(chunk < self.n_chunks);
         assert!(lane < self.n_lanes);
 
