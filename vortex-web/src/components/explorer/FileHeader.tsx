@@ -3,7 +3,11 @@
 
 import { useVortexFile } from '../../contexts/VortexFileContext';
 
-export function FileHeader() {
+interface FileHeaderProps {
+  onClose: () => void;
+}
+
+export function FileHeader({ onClose }: FileHeaderProps) {
   const file = useVortexFile();
 
   return (
@@ -17,6 +21,13 @@ export function FileHeader() {
       >
         v{file.version}
       </span>
+      <button
+        onClick={onClose}
+        className="ml-auto text-xs text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white transition-colors cursor-pointer"
+        title="Close file"
+      >
+        Close
+      </button>
     </div>
   );
 }
