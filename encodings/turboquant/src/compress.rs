@@ -7,6 +7,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
@@ -59,10 +60,17 @@ fn l2_norm(x: &[f32]) -> f32 {
 }
 
 /// Encode a FixedSizeListArray into a `TurboQuantMSEArray`.
+///
+/// The input must be non-nullable. TurboQuant is a lossy encoding that does not
+/// preserve null positions; callers must handle validity externally.
 pub fn turboquant_encode_mse(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
 ) -> VortexResult<TurboQuantMSEArray> {
+    vortex_ensure!(
+        fsl.dtype().nullability() == Nullability::NonNullable,
+        "TurboQuant requires non-nullable input, got nullable FixedSizeListArray"
+    );
     vortex_ensure!(
         config.bit_width >= 1 && config.bit_width <= 8,
         "MSE bit_width must be 1-8, got {}",
@@ -148,10 +156,16 @@ pub fn turboquant_encode_mse(
 /// Encode a FixedSizeListArray into a `TurboQuantQJLArray`.
 ///
 /// Produces a cascaded structure: QJLArray wrapping an MSEArray at `bit_width - 1`.
+/// The input must be non-nullable. TurboQuant is a lossy encoding that does not
+/// preserve null positions; callers must handle validity externally.
 pub fn turboquant_encode_qjl(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
 ) -> VortexResult<TurboQuantQJLArray> {
+    vortex_ensure!(
+        fsl.dtype().nullability() == Nullability::NonNullable,
+        "TurboQuant requires non-nullable input, got nullable FixedSizeListArray"
+    );
     vortex_ensure!(
         config.bit_width >= 2 && config.bit_width <= 9,
         "QJL bit_width must be 2-9, got {}",

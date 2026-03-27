@@ -17,10 +17,12 @@ use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
+use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::alp_encode;
@@ -39,6 +41,7 @@ use vortex::encodings::zstd::ZstdArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
+use vortex_buffer::BufferMut;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;
 
@@ -409,10 +412,6 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
 }
 
 // TurboQuant vector quantization benchmarks
-
-use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::validity::Validity;
-use vortex_buffer::BufferMut;
 
 const NUM_VECTORS: usize = 1_000;
 

@@ -7,12 +7,10 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_error::VortexResult;
+use vortex_turboquant::FIXED_SHAPE_TENSOR_EXT_ID;
 use vortex_turboquant::TurboQuantConfig;
+use vortex_turboquant::VECTOR_EXT_ID;
 use vortex_turboquant::turboquant_encode_qjl;
-
-/// Extension IDs for tensor types (from vortex-tensor).
-const VECTOR_EXT_ID: &str = "vortex.tensor.vector";
-const FIXED_SHAPE_TENSOR_EXT_ID: &str = "vortex.tensor.fixed_shape_tensor";
 
 /// Check if an extension array has a tensor extension type.
 pub(crate) fn is_tensor_extension(ext_array: &ExtensionArray) -> bool {

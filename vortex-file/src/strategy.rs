@@ -125,6 +125,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
 /// bulk decoding performance, and IOPS required to perform an indexed read.
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
+    turboquant_config: Option<vortex_turboquant::TurboQuantConfig>,
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
@@ -137,6 +138,7 @@ impl Default for WriteStrategyBuilder {
     fn default() -> Self {
         Self {
             compressor: None,
+            turboquant_config: None,
             row_block_size: 8192,
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
@@ -237,18 +239,19 @@ impl WriteStrategyBuilder {
     /// The TurboQuant array's children (norms, codes) are recursively compressed by the
     /// BtrBlocks compressor.
     ///
+    /// This can be combined with other builder methods. If a custom compressor is also set
+    /// via [`with_compressor`](Self::with_compressor), the custom compressor takes precedence
+    /// and the TurboQuant config is ignored.
+    ///
     /// # Examples
     ///
     /// ```ignore
     /// WriteStrategyBuilder::default()
-    ///     .with_vector_quantization(TurboQuantConfig { bit_width: 3, .. })
+    ///     .with_vector_quantization(TurboQuantConfig { bit_width: 3, seed: None })
     ///     .build()
     /// ```
     pub fn with_vector_quantization(mut self, config: vortex_turboquant::TurboQuantConfig) -> Self {
-        let btrblocks = BtrBlocksCompressorBuilder::default()
-            .with_turboquant(config)
-            .build();
-        self.compressor = Some(Arc::new(btrblocks));
+        self.turboquant_config = Some(config);
         self
     }
 
@@ -270,6 +273,14 @@ impl WriteStrategyBuilder {
         // 5. compress each chunk
         let compressing = if let Some(ref compressor) = self.compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone())
+        } else if let Some(tq_config) = self.turboquant_config {
+            let btrblocks = BtrBlocksCompressorBuilder::default()
+                .with_turboquant(tq_config)
+                .build();
+            CompressingStrategy::new_opaque(
+                buffered,
+                Arc::new(btrblocks) as Arc<dyn CompressorPlugin>,
+            )
         } else {
             CompressingStrategy::new_btrblocks(buffered, true)
         };

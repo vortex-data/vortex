@@ -332,6 +332,10 @@ pub fn vortex_turboquant::TurboQuantQJLMetadata::clear(&mut self)
 
 pub fn vortex_turboquant::TurboQuantQJLMetadata::encoded_len(&self) -> usize
 
+pub const vortex_turboquant::FIXED_SHAPE_TENSOR_EXT_ID: &str
+
+pub const vortex_turboquant::VECTOR_EXT_ID: &str
+
 pub fn vortex_turboquant::initialize(session: &mut vortex_session::VortexSession)
 
 pub fn vortex_turboquant::turboquant_encode_mse(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantMSEArray>

@@ -94,6 +94,12 @@ mod mse;
 mod qjl;
 pub mod rotation;
 
+/// Extension ID for the `Vector` type from `vortex-tensor`.
+pub const VECTOR_EXT_ID: &str = "vortex.tensor.vector";
+
+/// Extension ID for the `FixedShapeTensor` type from `vortex-tensor`.
+pub const FIXED_SHAPE_TENSOR_EXT_ID: &str = "vortex.tensor.fixed_shape_tensor";
+
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
@@ -108,6 +114,11 @@ pub fn initialize(session: &mut VortexSession) {
 mod tests {
     use std::sync::LazyLock;
 
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use rand_distr::Distribution;
+    use rand_distr::Normal;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -128,11 +139,6 @@ mod tests {
 
     /// Create a FixedSizeListArray of random f32 vectors (i.i.d. standard normal).
     fn make_fsl(num_rows: usize, dim: usize, seed: u64) -> FixedSizeListArray {
-        use rand::SeedableRng;
-        use rand::rngs::StdRng;
-        use rand_distr::Distribution;
-        use rand_distr::Normal;
-
         let mut rng = StdRng::seed_from_u64(seed);
         let normal = Normal::new(0.0f32, 1.0).unwrap();
 
@@ -339,6 +345,7 @@ mod tests {
     #[case(128, 6)]
     #[case(128, 8)]
     #[case(128, 9)]
+    #[case(768, 3)]
     fn roundtrip_qjl(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let fsl = make_fsl(10, dim, 42);
         let config = TurboQuantConfig {
@@ -357,6 +364,8 @@ mod tests {
     #[case(128, 6)]
     #[case(128, 8)]
     #[case(128, 9)]
+    #[case(768, 3)]
+    #[case(768, 4)]
     fn qjl_inner_product_bias(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
         let num_rows = 100;
         let fsl = make_fsl(num_rows, dim, 42);
@@ -367,14 +376,10 @@ mod tests {
         let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
 
         let num_pairs = 500;
-        let mut rng = {
-            use rand::SeedableRng;
-            rand::rngs::StdRng::seed_from_u64(0)
-        };
+        let mut rng = StdRng::seed_from_u64(0);
         let mut signed_errors = Vec::with_capacity(num_pairs);
 
         for _ in 0..num_pairs {
-            use rand::RngExt;
             let qi = rng.random_range(0..num_rows);
             let xi = rng.random_range(0..num_rows);
             if qi == xi {
