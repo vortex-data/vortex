@@ -45,8 +45,7 @@ impl SliceKernel for ParquetVariant {
             .map(|tv| tv.slice(range))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new_with_validity(validity, metadata, value, typed_value)?
-                .into_array(),
+            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -70,8 +69,7 @@ impl FilterKernel for ParquetVariant {
             .map(|tv| tv.filter(mask.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new_with_validity(validity, metadata, value, typed_value)?
-                .into_array(),
+            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -95,8 +93,7 @@ impl TakeExecute for ParquetVariant {
             .map(|tv| tv.take(indices.to_array()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new_with_validity(validity, metadata, value, typed_value)?
-                .into_array(),
+            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }

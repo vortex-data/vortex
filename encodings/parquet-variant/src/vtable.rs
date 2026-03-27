@@ -304,7 +304,7 @@ impl VTable for ParquetVariant {
             None
         };
 
-        ParquetVariantArray::try_new_with_validity(validity, variant_metadata, value, typed_value)
+        ParquetVariantArray::try_new(validity, variant_metadata, value, typed_value)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -371,6 +371,7 @@ mod tests {
     use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -411,19 +412,29 @@ mod tests {
         let inner_metadata =
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
         let inner_value = VarBinViewArray::from_iter_bin([b"\x02", b"\x03", b"\x04"]).into_array();
-        let inner_pv =
-            ParquetVariantArray::try_new(inner_metadata, Some(inner_value), None).unwrap();
+        let inner_pv = ParquetVariantArray::try_new(
+            Validity::NonNullable,
+            inner_metadata,
+            Some(inner_value),
+            None,
+        )
+        .unwrap();
         let typed_value = VariantArray::new(inner_pv.into_array()).into_array();
 
-        let outer_pv =
-            ParquetVariantArray::try_new(outer_metadata, None, Some(typed_value)).unwrap();
+        let outer_pv = ParquetVariantArray::try_new(
+            Validity::NonNullable,
+            outer_metadata,
+            None,
+            Some(typed_value),
+        )
+        .unwrap();
         let array = outer_pv.into_array();
         let decoded = roundtrip(array.clone());
 
         assert!(array.array_eq(&decoded, Precision::Value));
         let decoded_pv = decoded.as_opt::<ParquetVariant>().unwrap();
         let typed = decoded_pv.typed_value_array().unwrap();
-        assert_eq!(typed.dtype(), &DType::Variant(Nullability::Nullable));
+        assert_eq!(typed.dtype(), &DType::Variant(Nullability::NonNullable));
     }
 
     #[test]
@@ -431,11 +442,9 @@ mod tests {
         let metadata =
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11", b"\x12"]).into_array();
-        let validity =
-            vortex_array::validity::Validity::from(BitBuffer::from_iter([true, false, true]));
+        let validity = Validity::from(BitBuffer::from_iter([true, false, true]));
 
-        let pv = ParquetVariantArray::try_new_with_validity(validity, metadata, Some(value), None)
-            .unwrap();
+        let pv = ParquetVariantArray::try_new(validity, metadata, Some(value), None).unwrap();
         let array = pv.into_array();
         let decoded = roundtrip(array.clone());
 
@@ -452,8 +461,13 @@ mod tests {
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
         let typed_value = buffer![10i32, 20, 30].into_array();
 
-        let outer_pv =
-            ParquetVariantArray::try_new(outer_metadata, None, Some(typed_value)).unwrap();
+        let outer_pv = ParquetVariantArray::try_new(
+            Validity::NonNullable,
+            outer_metadata,
+            None,
+            Some(typed_value),
+        )
+        .unwrap();
         let array = outer_pv.into_array();
         let decoded = roundtrip(array.clone());
 

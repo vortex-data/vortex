@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use chrono::Timelike;
 use parquet_variant::Variant as PqVariant;
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -68,8 +69,8 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
 
 fn scalar_from_variant_storage(
     metadata: &[u8],
-    value: Option<&vortex_array::ArrayRef>,
-    typed_value: Option<&vortex_array::ArrayRef>,
+    value: Option<&ArrayRef>,
+    typed_value: Option<&ArrayRef>,
     index: usize,
 ) -> VortexResult<Scalar> {
     if let Some(typed_value) = typed_value
@@ -89,8 +90,8 @@ fn scalar_from_variant_storage(
 
 fn scalar_from_typed_value_array(
     metadata: &[u8],
-    value: Option<&vortex_array::ArrayRef>,
-    typed_value: &vortex_array::ArrayRef,
+    value: Option<&ArrayRef>,
+    typed_value: &ArrayRef,
     index: usize,
 ) -> VortexResult<Scalar> {
     let value_scalar = match value {

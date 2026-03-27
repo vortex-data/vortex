@@ -20,6 +20,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 /// Array storage for Arrow's canonical `arrow.parquet.variant` extension type.
@@ -59,17 +60,8 @@ pub struct ParquetVariantArray {
 }
 
 impl ParquetVariantArray {
-    /// Creates a Parquet Variant array that follows the canonical extension storage layout.
-    pub fn try_new(
-        metadata: ArrayRef,
-        value: Option<ArrayRef>,
-        typed_value: Option<ArrayRef>,
-    ) -> VortexResult<Self> {
-        Self::try_new_with_validity(Validity::AllValid, metadata, value, typed_value)
-    }
-
     /// Creates a Parquet Variant array with explicit outer validity.
-    pub fn try_new_with_validity(
+    pub fn try_new(
         validity: Validity,
         metadata: ArrayRef,
         value: Option<ArrayRef>,
@@ -81,17 +73,19 @@ impl ParquetVariantArray {
         );
         let len = metadata.len();
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
+            vortex_ensure_eq!(
+                validity_len,
+                len,
                 "validity length must match metadata length"
             );
         }
         if let Some(ref v) = value {
-            vortex_ensure!(v.len() == len, "value length must match metadata length");
+            vortex_ensure_eq!(v.len(), len, "value length must match metadata length");
         }
         if let Some(ref tv) = typed_value {
-            vortex_ensure!(
-                tv.len() == len,
+            vortex_ensure_eq!(
+                tv.len(),
+                len,
                 "typed_value length must match metadata length"
             );
         }
@@ -161,8 +155,7 @@ impl ParquetVariantArray {
             .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
 
-        let pv =
-            ParquetVariantArray::try_new_with_validity(validity, metadata, value, typed_value)?;
+        let pv = ParquetVariantArray::try_new(validity, metadata, value, typed_value)?;
         Ok(VariantArray::new(pv.into_array()).into_array())
     }
 
@@ -243,6 +236,7 @@ mod tests {
     use vortex_array::arrays::Variant;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
@@ -356,7 +350,8 @@ mod tests {
     fn test_to_arrow_basic() -> VortexResult<()> {
         let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
-        let pv_array = ParquetVariantArray::try_new(metadata, Some(value), None)?;
+        let pv_array =
+            ParquetVariantArray::try_new(Validity::NonNullable, metadata, Some(value), None)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let variant_arr = pv_array.to_arrow(&mut ctx)?;
@@ -373,7 +368,12 @@ mod tests {
         let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
         let typed_value = buffer![1i32, 2].into_array();
-        let pv_array = ParquetVariantArray::try_new(metadata, Some(value), Some(typed_value))?;
+        let pv_array = ParquetVariantArray::try_new(
+            Validity::NonNullable,
+            metadata,
+            Some(value),
+            Some(typed_value),
+        )?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let variant_arr = pv_array.to_arrow(&mut ctx)?;
