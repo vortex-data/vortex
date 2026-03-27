@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 
 pub(crate) mod arrays;
 pub mod arrow;
+pub(crate) mod classes;
 #[cfg(feature = "tui")]
 mod cli;
 mod compress;

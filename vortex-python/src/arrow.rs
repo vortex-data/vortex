@@ -35,6 +35,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
 use pyo3::types::PyTuple;
 
+use crate::classes::array_class;
+use crate::classes::data_type_class;
+use crate::classes::field_class;
+use crate::classes::record_batch_reader_class;
+use crate::classes::schema_class;
+
 const SCHEMA_NAME: &CStr = c_str!("arrow_schema");
 const ARRAY_NAME: &CStr = c_str!("arrow_array");
 const ARRAY_STREAM_NAME: &CStr = c_str!("arrow_array_stream");
@@ -92,9 +98,8 @@ impl<'py> FromPyArrow<'_, 'py> for DataType {
 impl ToPyArrow for DataType {
     fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
-        let module = py.import("pyarrow")?;
-        let class = module.getattr("DataType")?;
-        let dtype = class.call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
+        let dtype = data_type_class(py)?
+            .call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
         Ok(dtype.into())
     }
 }
@@ -124,9 +129,8 @@ impl<'py> FromPyArrow<'_, 'py> for Field {
 impl ToPyArrow for Field {
     fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
-        let module = py.import("pyarrow")?;
-        let class = module.getattr("Field")?;
-        let dtype = class.call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
+        let dtype = field_class(py)?
+            .call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
         Ok(dtype.into())
     }
 }
@@ -157,10 +161,8 @@ impl<'py> FromPyArrow<'_, 'py> for Schema {
 impl ToPyArrow for Schema {
     fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
-        let module = py.import("pyarrow")?;
-        let class = module.getattr("Schema")?;
-        let schema =
-            class.call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
+        let schema = schema_class(py)?
+            .call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
         Ok(schema.into())
     }
 }
@@ -207,9 +209,7 @@ impl ToPyArrow for ArrayData {
         let array = FFI_ArrowArray::new(self);
         let schema = FFI_ArrowSchema::try_from(self.data_type()).map_err(to_py_err)?;
 
-        let module = py.import("pyarrow")?;
-        let class = module.getattr("Array")?;
-        let array = class.call_method1(
+        let array = array_class(py)?.call_method1(
             "_import_from_c",
             (
                 addr_of!(array) as Py_uintptr_t,
@@ -323,10 +323,8 @@ impl IntoPyArrow for Box<dyn RecordBatchReader + Send> {
     fn into_pyarrow(self, py: Python) -> PyResult<Py<PyAny>> {
         let mut stream = FFI_ArrowArrayStream::new(self);
 
-        let module = py.import("pyarrow")?;
-        let class = module.getattr("RecordBatchReader")?;
         let args = PyTuple::new(py, [&raw mut stream as Py_uintptr_t])?;
-        let reader = class.call_method1("_import_from_c", args)?;
+        let reader = record_batch_reader_class(py)?.call_method1("_import_from_c", args)?;
 
         Ok(Py::from(reader))
     }
