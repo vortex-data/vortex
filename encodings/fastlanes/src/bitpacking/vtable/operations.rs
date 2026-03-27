@@ -31,11 +31,9 @@ impl OperationsVTable<BitPacked> for BitPacked {
 #[cfg(test)]
 mod test {
     use std::ops::Range;
-    use std::sync::LazyLock;
 
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::assert_arrays_eq;
@@ -46,7 +44,6 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
@@ -56,16 +53,12 @@ mod test {
     use crate::BitPacked;
     use crate::BitPackedArray;
 
-    static SESSION: LazyLock<vortex_session::VortexSession> =
-        LazyLock::new(|| vortex_session::VortexSession::empty().with::<ArraySession>());
-
-    fn slice_via_kernel(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
+    fn slice_via_reduce(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
         let array_ref = array.clone().into_array();
         let slice_array = SliceArray::new(array_ref.clone(), range);
-        let mut ctx = SESSION.create_execution_ctx();
         let sliced = array_ref
             .vtable()
-            .execute_parent(&array_ref, &slice_array.into_array(), 0, &mut ctx)
+            .reduce_parent(&array_ref, &slice_array.into_array(), 0)
             .expect("execute_parent failed")
             .expect("expected slice kernel to execute");
         sliced.as_::<BitPacked>().clone()
@@ -78,7 +71,7 @@ mod test {
             6,
         )
         .unwrap();
-        let sliced = slice_via_kernel(&arr, 1024..2048);
+        let sliced = slice_via_reduce(&arr, 1024..2048);
         assert_nth_scalar!(sliced, 0, 1024u32 % 64);
         assert_nth_scalar!(sliced, 1023, 2047u32 % 64);
         assert_eq!(sliced.offset(), 0);
@@ -92,7 +85,7 @@ mod test {
             6,
         )
         .unwrap();
-        let sliced = slice_via_kernel(&arr, 512..1434);
+        let sliced = slice_via_reduce(&arr, 512..1434);
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
@@ -132,12 +125,12 @@ mod test {
             6,
         )
         .unwrap();
-        let sliced = slice_via_kernel(&arr, 512..1434);
+        let sliced = slice_via_reduce(&arr, 512..1434);
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
-        let doubly_sliced = slice_via_kernel(&sliced, 127..911);
+        let doubly_sliced = slice_via_reduce(&sliced, 127..911);
         assert_nth_scalar!(doubly_sliced, 0, (512u32 + 127) % 64);
         assert_nth_scalar!(doubly_sliced, 783, (512u32 + 910) % 64);
         assert_eq!(doubly_sliced.offset(), 639);
@@ -155,7 +148,7 @@ mod test {
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
-        let sliced_bp = slice_via_kernel(&array, 0..64);
+        let sliced_bp = slice_via_reduce(&array, 0..64);
         assert!(sliced_bp.patches().is_none());
     }
 
