@@ -120,6 +120,7 @@ mod tests {
     use rand_distr::Distribution;
     use rand_distr::Normal;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
@@ -186,20 +187,18 @@ mod tests {
         total / num_rows as f32
     }
 
-    /// Encode via MSE and decode, returning (original, decoded) flat f32 slices.
-    fn encode_decode_mse(
+    /// Encode and decode, returning (original, decoded) flat f32 slices.
+    fn encode_decode(
         fsl: &FixedSizeListArray,
-        config: &TurboQuantConfig,
+        encode_fn: impl FnOnce(&FixedSizeListArray) -> VortexResult<ArrayRef>,
     ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
         let original: Vec<f32> = {
             let prim = fsl.elements().to_canonical().unwrap().into_primitive();
             prim.as_slice::<f32>().to_vec()
         };
-        let encoded = turboquant_encode_mse(fsl, config)?;
+        let encoded = encode_fn(fsl)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let decoded = encoded.execute::<FixedSizeListArray>(&mut ctx)?;
         let decoded_elements: Vec<f32> = {
             let prim = decoded.elements().to_canonical().unwrap().into_primitive();
             prim.as_slice::<f32>().to_vec()
@@ -207,25 +206,24 @@ mod tests {
         Ok((original, decoded_elements))
     }
 
-    /// Encode via QJL and decode, returning (original, decoded) flat f32 slices.
+    fn encode_decode_mse(
+        fsl: &FixedSizeListArray,
+        config: &TurboQuantConfig,
+    ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
+        let config = config.clone();
+        encode_decode(fsl, |fsl| {
+            Ok(turboquant_encode_mse(fsl, &config)?.into_array())
+        })
+    }
+
     fn encode_decode_qjl(
         fsl: &FixedSizeListArray,
         config: &TurboQuantConfig,
     ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
-        let original: Vec<f32> = {
-            let prim = fsl.elements().to_canonical().unwrap().into_primitive();
-            prim.as_slice::<f32>().to_vec()
-        };
-        let encoded = turboquant_encode_qjl(fsl, config)?;
-        let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        let decoded_elements: Vec<f32> = {
-            let prim = decoded.elements().to_canonical().unwrap().into_primitive();
-            prim.as_slice::<f32>().to_vec()
-        };
-        Ok((original, decoded_elements))
+        let config = config.clone();
+        encode_decode(fsl, |fsl| {
+            Ok(turboquant_encode_qjl(fsl, &config)?.into_array())
+        })
     }
 
     // -----------------------------------------------------------------------

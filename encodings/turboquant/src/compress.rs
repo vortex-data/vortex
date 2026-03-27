@@ -17,6 +17,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
+use crate::centroids::compute_boundaries;
 use crate::centroids::find_nearest_centroid;
 use crate::centroids::get_centroids;
 use crate::mse::array::TurboQuantMSEArray;
@@ -96,6 +97,7 @@ pub fn turboquant_encode_mse(
     let f32_elements = extract_f32_elements(fsl)?;
     #[allow(clippy::cast_possible_truncation)]
     let centroids = get_centroids(padded_dim as u32, config.bit_width)?;
+    let boundaries = compute_boundaries(&centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
     let mut norms_buf = BufferMut::<f32>::with_capacity(num_rows);
@@ -117,7 +119,7 @@ pub fn turboquant_encode_mse(
         rotation.rotate(&padded, &mut rotated);
 
         for j in 0..padded_dim {
-            all_indices.push(find_nearest_centroid(rotated[j], &centroids));
+            all_indices.push(find_nearest_centroid(rotated[j], &boundaries));
         }
     }
 
@@ -201,6 +203,7 @@ pub fn turboquant_encode_qjl(
     let f32_elements = extract_f32_elements(fsl)?;
     #[allow(clippy::cast_possible_truncation)]
     let centroids = get_centroids(padded_dim as u32, mse_bit_width)?;
+    let boundaries = compute_boundaries(&centroids);
 
     // QJL uses a different rotation than the MSE stage to ensure statistical
     // independence between the quantization noise and the sign projection.
@@ -232,7 +235,7 @@ pub fn turboquant_encode_qjl(
         rotation.rotate(&padded, &mut rotated);
 
         for j in 0..padded_dim {
-            let idx = find_nearest_centroid(rotated[j], &centroids);
+            let idx = find_nearest_centroid(rotated[j], &boundaries);
             dequantized_rotated[j] = centroids[idx as usize];
         }
 

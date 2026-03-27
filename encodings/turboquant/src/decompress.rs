@@ -17,6 +17,16 @@ use crate::mse::array::TurboQuantMSEArray;
 use crate::qjl::array::TurboQuantQJLArray;
 use crate::rotation::RotationMatrix;
 
+/// QJL correction scale factor: `sqrt(π/2) / padded_dim`.
+///
+/// Accounts for the SRHT normalization (`1/padded_dim^{3/2}` per transform)
+/// combined with `E[|z|] = sqrt(2/π)` for half-normal sign expectations.
+/// Verified empirically via the `qjl_inner_product_bias` test suite.
+#[inline]
+fn qjl_correction_scale(padded_dim: usize) -> f32 {
+    (std::f32::consts::FRAC_PI_2).sqrt() / (padded_dim as f32)
+}
+
 /// Decompress a `TurboQuantMSEArray` into a `FixedSizeListArray` of floats.
 ///
 /// Reads stored centroids and rotation signs from the array's children,
@@ -126,11 +136,7 @@ pub fn execute_decompress_qjl(
     let qjl_rot_signs_bool = array.rotation_signs.clone().execute::<BoolArray>(ctx)?;
     let qjl_rot = RotationMatrix::from_bool_array(&qjl_rot_signs_bool, dim)?;
 
-    // QJL correction scale: sqrt(π/2) / padded_dim.
-    // This accounts for the SRHT normalization (1/padded_dim^{3/2} per transform)
-    // combined with the E[|z|] = sqrt(2/π) expectation of half-normal signs.
-    // Verified empirically via the `qjl_inner_product_bias` test suite.
-    let qjl_scale = (std::f32::consts::FRAC_PI_2).sqrt() / (padded_dim as f32);
+    let qjl_scale = qjl_correction_scale(padded_dim);
 
     let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
     let mut qjl_signs_vec = vec![0.0f32; padded_dim];

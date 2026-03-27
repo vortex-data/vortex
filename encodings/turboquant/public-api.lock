@@ -2,7 +2,9 @@ pub mod vortex_turboquant
 
 pub mod vortex_turboquant::centroids
 
-pub fn vortex_turboquant::centroids::find_nearest_centroid(value: f32, centroids: &[f32]) -> u8
+pub fn vortex_turboquant::centroids::compute_boundaries(centroids: &[f32]) -> alloc::vec::Vec<f32>
+
+pub fn vortex_turboquant::centroids::find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8
 
 pub fn vortex_turboquant::centroids::get_centroids(dimension: u32, bit_width: u8) -> vortex_error::VortexResult<alloc::vec::Vec<f32>>
 

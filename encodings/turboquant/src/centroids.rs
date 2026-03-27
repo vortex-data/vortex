@@ -147,32 +147,24 @@ fn pdf_unnormalized(x_val: f64, exponent: f64) -> f64 {
     base.powf(exponent)
 }
 
-/// Find the index of the nearest centroid to the given value.
+/// Precompute decision boundaries (midpoints between adjacent centroids).
 ///
-/// Centroids must be sorted in ascending order. Uses binary search for efficiency.
+/// For `k` centroids, returns `k-1` boundaries. A value below `boundaries[0]` maps
+/// to centroid 0, a value in `[boundaries[i-1], boundaries[i])` maps to centroid `i`,
+/// and a value >= `boundaries[k-2]` maps to centroid `k-1`.
+pub fn compute_boundaries(centroids: &[f32]) -> Vec<f32> {
+    centroids.windows(2).map(|w| (w[0] + w[1]) * 0.5).collect()
+}
+
+/// Find the index of the nearest centroid using precomputed decision boundaries.
+///
+/// `boundaries` must be the output of [`compute_boundaries`] for the corresponding
+/// centroids. Uses binary search on the midpoints, avoiding distance comparisons
+/// in the inner loop.
 #[inline]
-pub fn find_nearest_centroid(value: f32, centroids: &[f32]) -> u8 {
-    debug_assert!(!centroids.is_empty());
-
-    let idx = centroids.partition_point(|&c_val| c_val < value);
-
-    if idx == 0 {
-        return 0;
-    }
-    if idx >= centroids.len() {
-        #[allow(clippy::cast_possible_truncation)]
-        return (centroids.len() - 1) as u8;
-    }
-
-    let dist_left = (value - centroids[idx - 1]).abs();
-    let dist_right = (value - centroids[idx]).abs();
-
-    #[allow(clippy::cast_possible_truncation)]
-    if dist_left <= dist_right {
-        (idx - 1) as u8
-    } else {
-        idx as u8
-    }
+#[allow(clippy::cast_possible_truncation)]
+pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
+    boundaries.partition_point(|&b| b < value) as u8
 }
 
 #[cfg(test)]
@@ -263,14 +255,15 @@ mod tests {
     #[test]
     fn find_nearest_basic() -> VortexResult<()> {
         let centroids = get_centroids(128, 2)?;
-        assert_eq!(find_nearest_centroid(-1.0, &centroids), 0);
+        let boundaries = compute_boundaries(&centroids);
+        assert_eq!(find_nearest_centroid(-1.0, &boundaries), 0);
         #[allow(clippy::cast_possible_truncation)]
         let last_idx = (centroids.len() - 1) as u8;
-        assert_eq!(find_nearest_centroid(1.0, &centroids), last_idx);
+        assert_eq!(find_nearest_centroid(1.0, &boundaries), last_idx);
         for (idx, &cv) in centroids.iter().enumerate() {
             #[allow(clippy::cast_possible_truncation)]
             let expected = idx as u8;
-            assert_eq!(find_nearest_centroid(cv, &centroids), expected);
+            assert_eq!(find_nearest_centroid(cv, &boundaries), expected);
         }
         Ok(())
     }
