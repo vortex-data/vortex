@@ -31,6 +31,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::ffi::Py_uintptr_t;
 use pyo3::ffi::c_str;
 use pyo3::import_exception;
+use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
 use pyo3::types::PyTuple;
@@ -75,13 +76,14 @@ pub trait IntoPyArrow {
 
 impl<'py> FromPyArrow<'_, 'py> for DataType {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-        if !value.hasattr("__arrow_c_schema__")? {
+        let py = value.py();
+        if !value.hasattr(intern!(py, "__arrow_c_schema__"))? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_schema__ attribute to be set.",
             ));
         }
 
-        let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
+        let capsule = value.getattr(intern!(py, "__arrow_c_schema__"))?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
 
         let schema_ptr = unsafe {
@@ -98,21 +100,24 @@ impl<'py> FromPyArrow<'_, 'py> for DataType {
 impl ToPyArrow for DataType {
     fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
-        let dtype = data_type_class(py)?
-            .call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
+        let dtype = data_type_class(py)?.call_method1(
+            intern!(py, "_import_from_c"),
+            (&raw const c_schema as Py_uintptr_t,),
+        )?;
         Ok(dtype.into())
     }
 }
 
 impl<'py> FromPyArrow<'_, 'py> for Field {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-        if !value.hasattr("__arrow_c_schema__")? {
+        let py = value.py();
+        if !value.hasattr(intern!(py, "__arrow_c_schema__"))? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_schema__ attribute to be set.",
             ));
         }
 
-        let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
+        let capsule = value.getattr(intern!(py, "__arrow_c_schema__"))?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
 
         let schema_ptr = unsafe {
@@ -129,21 +134,24 @@ impl<'py> FromPyArrow<'_, 'py> for Field {
 impl ToPyArrow for Field {
     fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
-        let dtype = field_class(py)?
-            .call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
+        let dtype = field_class(py)?.call_method1(
+            intern!(py, "_import_from_c"),
+            (&raw const c_schema as Py_uintptr_t,),
+        )?;
         Ok(dtype.into())
     }
 }
 
 impl<'py> FromPyArrow<'_, 'py> for Schema {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-        if !value.hasattr("__arrow_c_schema__")? {
+        let py = value.py();
+        if !value.hasattr(intern!(py, "__arrow_c_schema__"))? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_schema__ attribute to be set.",
             ));
         }
 
-        let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
+        let capsule = value.getattr(intern!(py, "__arrow_c_schema__"))?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
 
         let schema_ptr = unsafe {
@@ -161,21 +169,24 @@ impl<'py> FromPyArrow<'_, 'py> for Schema {
 impl ToPyArrow for Schema {
     fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
-        let schema = schema_class(py)?
-            .call_method1("_import_from_c", (&raw const c_schema as Py_uintptr_t,))?;
+        let schema = schema_class(py)?.call_method1(
+            intern!(py, "_import_from_c"),
+            (&raw const c_schema as Py_uintptr_t,),
+        )?;
         Ok(schema.into())
     }
 }
 
 impl<'py> FromPyArrow<'_, 'py> for ArrayData {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-        if !value.hasattr("__arrow_c_array__")? {
+        let py = value.py();
+        if !value.hasattr(intern!(py, "__arrow_c_array__"))? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_array__ attribute to be set.",
             ));
         }
 
-        let tuple = value.getattr("__arrow_c_array__")?.call0()?;
+        let tuple = value.getattr(intern!(py, "__arrow_c_array__"))?.call0()?;
 
         if !tuple.is_instance_of::<PyTuple>() {
             return Err(PyTypeError::new_err(
@@ -210,7 +221,7 @@ impl ToPyArrow for ArrayData {
         let schema = FFI_ArrowSchema::try_from(self.data_type()).map_err(to_py_err)?;
 
         let array = array_class(py)?.call_method1(
-            "_import_from_c",
+            intern!(py, "_import_from_c"),
             (
                 addr_of!(array) as Py_uintptr_t,
                 addr_of!(schema) as Py_uintptr_t,
@@ -222,13 +233,14 @@ impl ToPyArrow for ArrayData {
 
 impl<'py> FromPyArrow<'_, 'py> for RecordBatch {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-        if !value.hasattr("__arrow_c_array__")? {
+        let py = value.py();
+        if !value.hasattr(intern!(py, "__arrow_c_array__"))? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_array__ attribute to be set.",
             ));
         }
 
-        let tuple = value.getattr("__arrow_c_array__")?.call0()?;
+        let tuple = value.getattr(intern!(py, "__arrow_c_array__"))?.call0()?;
 
         if !tuple.is_instance_of::<PyTuple>() {
             return Err(PyTypeError::new_err(
@@ -286,20 +298,21 @@ impl ToPyArrow for RecordBatch {
         let reader = RecordBatchIterator::new(vec![Ok(self.clone())], self.schema());
         let reader: Box<dyn RecordBatchReader + Send> = Box::new(reader);
         let py_reader = reader.into_pyarrow(py)?;
-        py_reader.call_method0(py, "read_next_batch")
+        py_reader.call_method0(py, intern!(py, "read_next_batch"))
     }
 }
 
 /// Supports conversion from `pyarrow.RecordBatchReader` to [ArrowArrayStreamReader].
 impl<'py> FromPyArrow<'_, 'py> for ArrowArrayStreamReader {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-        if !value.hasattr("__arrow_c_stream__")? {
+        let py = value.py();
+        if !value.hasattr(intern!(py, "__arrow_c_stream__"))? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_stream__ attribute to be set.",
             ));
         }
 
-        let capsule = value.getattr("__arrow_c_stream__")?.call0()?;
+        let capsule = value.getattr(intern!(py, "__arrow_c_stream__"))?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
 
         let array_ptr = capsule
@@ -324,7 +337,8 @@ impl IntoPyArrow for Box<dyn RecordBatchReader + Send> {
         let mut stream = FFI_ArrowArrayStream::new(self);
 
         let args = PyTuple::new(py, [&raw mut stream as Py_uintptr_t])?;
-        let reader = record_batch_reader_class(py)?.call_method1("_import_from_c", args)?;
+        let reader =
+            record_batch_reader_class(py)?.call_method1(intern!(py, "_import_from_c"), args)?;
 
         Ok(Py::from(reader))
     }

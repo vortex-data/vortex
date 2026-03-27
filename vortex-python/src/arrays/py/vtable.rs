@@ -118,7 +118,7 @@ impl VTable for PythonVTable {
             }
 
             let bytes = obj
-                .call_method("__vx_metadata__", (), None)
+                .call_method(intern!(py, "__vx_metadata__"), (), None)
                 .map_err(|e| vortex_err!("{}", e))?
                 .cast::<PyBytes>()
                 .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?

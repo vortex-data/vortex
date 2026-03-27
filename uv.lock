@@ -1921,7 +1921,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.31.0" },
     { name = "pyarrow", specifier = ">=17.0.0" },
     { name = "ray", marker = "extra == 'ray'", specifier = ">=2.48" },
-    { name = "substrait", specifier = ">=0.23.0,<0.85.0" },
+    { name = "substrait", specifier = ">=0.23.0,<0.29.0" },
     { name = "typing-extensions", specifier = ">=4.5.0" },
 ]
 provides-extras = ["duckdb", "numpy", "pandas", "polars", "ray"]
