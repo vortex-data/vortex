@@ -74,10 +74,14 @@ export function TreePanel() {
   );
 
   // When a flat layout node is expanded, lazily attach array encoding children.
+  // Track which nodes we've already requested to avoid re-triggering on tree updates.
+  const expandedArrayRequests = useRef(new Set<string>());
   useEffect(() => {
     for (const id of expanded) {
+      if (expandedArrayRequests.current.has(id)) continue;
       const node = findNodeById(file.layoutTree, id);
       if (node && isFlatLayout(node) && !node.children.some((c) => c.isArrayNode)) {
+        expandedArrayRequests.current.add(id);
         file.expandArrayTree(id);
       }
     }

@@ -33,6 +33,7 @@ export function DetailPanel() {
         if ((selection.selectedNode.bufferLengths ?? []).length > 0) {
           result.push({ id: 'buffers', label: 'Buffers' });
         }
+        result.push({ id: 'treemap', label: 'Treemap' });
       } else {
         result.push({ id: 'segments', label: 'Segments' });
         result.push({ id: 'treemap', label: 'Treemap' });

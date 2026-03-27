@@ -74,23 +74,17 @@ function App() {
 
     const expandArrayTree = useCallback(
         async (nodeId: string) => {
-            if (!fileState) return;
-            const node = findNodeById(fileState.layoutTree, nodeId);
-            if (!node || node.encoding !== 'vortex.flat') return;
-
-            // Already expanded — array children are attached.
-            if (node.children.some((c) => c.isArrayNode)) return;
-
-            let arrayTree = node.arrayEncodingTree;
-            if (!arrayTree) {
-                arrayTree = await workerRef.current!.fetchEncodingTree(nodeId);
-            }
+            // Fetch the encoding tree (may be async).
+            const arrayTree = await workerRef.current!.fetchEncodingTree(nodeId);
             if (!arrayTree) return;
-
-            const arrayChildren = arrayTreeToLayoutChildren(arrayTree, node);
 
             setFileState((prev) => {
                 if (!prev) return prev;
+                const node = findNodeById(prev.layoutTree, nodeId);
+                if (!node || node.encoding !== 'vortex.flat') return prev;
+                if (node.children.some((c) => c.isArrayNode)) return prev;
+
+                const arrayChildren = arrayTreeToLayoutChildren(arrayTree, node);
                 const newTree = cloneTreeWithUpdate(prev.layoutTree, nodeId, (n) => ({
                     ...n,
                     arrayEncodingTree: arrayTree,
@@ -99,7 +93,7 @@ function App() {
                 return {...prev, layoutTree: newTree};
             });
         },
-        [fileState, cloneTreeWithUpdate],
+        [cloneTreeWithUpdate],
     );
 
     const fetchArrayBuffer = useCallback(

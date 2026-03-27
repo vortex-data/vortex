@@ -176,15 +176,18 @@ function HeaderSummary({ stats }: { stats: ColumnStats }) {
 
 // --- Header tooltip (shown on hover) ---
 
-function HeaderTooltip({ stats }: { stats: ColumnStats }) {
-  const fmt = (n: number) =>
-    Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
+function HeaderTooltip({ stats, approximate }: { stats: ColumnStats; approximate: boolean }) {
+  const p = approximate ? '~' : '';
+  const fmt = (n: number) => {
+    const s = Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
       ? n.toExponential(2)
       : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return p + s;
+  };
 
   return (
     <div className="text-[9px] font-normal text-vortex-fg-light dark:text-vortex-fg space-y-1 font-mono">
-      <div className="text-vortex-grey-dark">{stats.count.toLocaleString()} rows</div>
+      <div className="text-vortex-grey-dark">{stats.count.toLocaleString()} rows{approximate ? ' (sampled)' : ''}</div>
       {stats.nullCount > 0 && (
         <div className="text-vortex-grey-dark">{stats.nullCount.toLocaleString()} nulls</div>
       )}
@@ -215,7 +218,7 @@ function HeaderTooltip({ stats }: { stats: ColumnStats }) {
 
 // --- Hoverable header with tooltip ---
 
-function ColumnHeader({ name, stats }: { name: string; stats: ColumnStats }) {
+function ColumnHeader({ name, stats, approximate }: { name: string; stats: ColumnStats; approximate: boolean }) {
   const [showTip, setShowTip] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -236,7 +239,7 @@ function ColumnHeader({ name, stats }: { name: string; stats: ColumnStats }) {
       </div>
       {showTip && (
         <div className="absolute top-full left-0 mt-1 z-50 bg-vortex-white dark:bg-vortex-black border border-vortex-grey-light/40 dark:border-white/[0.08] rounded shadow-lg px-2 py-1.5 min-w-[120px]">
-          <HeaderTooltip stats={stats} />
+          <HeaderTooltip stats={stats} approximate={approximate} />
         </div>
       )}
     </div>
@@ -267,6 +270,8 @@ export interface DataTableProps {
   onRowHover?: (rowIndex: number | null) => void;
   /** Custom cell renderers keyed by column name. */
   cellRenderers?: Record<string, CellRenderer>;
+  /** If true, stats are approximate (data was truncated by a row limit). */
+  approximate?: boolean;
 }
 
 export function DataTable({
@@ -276,6 +281,7 @@ export function DataTable({
   onRowClick,
   onRowHover,
   cellRenderers,
+  approximate = false,
 }: DataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -302,7 +308,7 @@ export function DataTable({
       ...columns.map(
         (col): ColumnDef<Record<string, unknown>> => ({
           accessorKey: col,
-          header: () => <ColumnHeader name={col} stats={columnStats[col]} />,
+          header: () => <ColumnHeader name={col} stats={columnStats[col]} approximate={approximate} />,
           cell: (info) => {
             const renderer = cellRenderers?.[col];
             if (renderer) {

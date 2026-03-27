@@ -113,5 +113,11 @@ export function DataPreview() {
     );
   }
 
-  return <DataTable columns={decoded.columns} rows={decoded.rows} />;
+  return (
+    <DataTable
+      columns={decoded.columns}
+      rows={decoded.rows}
+      approximate={decoded.rows.length >= ROW_LIMIT}
+    />
+  );
 }
