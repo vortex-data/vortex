@@ -138,9 +138,9 @@ impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_fastlanes::Bi
 
 pub fn vortex_fastlanes::BitPacked::filter(array: &vortex_fastlanes::BitPackedArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::arrays::slice::SliceKernel for vortex_fastlanes::BitPacked
+impl vortex_array::arrays::slice::SliceReduce for vortex_fastlanes::BitPacked
 
-pub fn vortex_fastlanes::BitPacked::slice(array: &vortex_fastlanes::BitPackedArray, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::BitPacked::slice(array: &vortex_fastlanes::BitPackedArray, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::BitPacked
 

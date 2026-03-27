@@ -517,12 +517,8 @@ mod tests {
 
         let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
-        let slice_ref = bitpacked_array.clone().into_array().slice(67..3969)?;
-        let bitpacked_ref = bitpacked_array.into_array();
-        let sliced_array = bitpacked_ref
-            .vtable()
-            .reduce_parent(&bitpacked_ref, &slice_ref, 0)?
-            .expect("expected slice kernel to execute");
+        let sliced_array = bitpacked_array.into_array().slice(67..3969)?;
+        assert!(sliced_array.is::<BitPacked>());
         let cpu_result = sliced_array.to_canonical()?;
         let gpu_result = block_on(async {
             BitPackedExecutor
