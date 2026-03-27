@@ -145,15 +145,17 @@ pub enum DispatchPlan {
 
 /// A fused plan: stages, source buffers and shared-memory.
 ///
-/// The kernel runs in two phases:
+/// Stages are stored in kernel execution order. There are two phases:
 ///
-/// 1. `smem_stages` run first and decode their **entire** output into
-///    shared memory (e.g. all dict values, all run-end endpoints). This data
-///    stays resident for the output stage to index into.
-/// 2. `output_stage` then iterates over the input in tiles of
-///    `SMEM_TILE_SIZE` (1024) elements, decoding each tile into a scratch
-///    region of shared memory, applying scalar ops (which may reference the
-///    smem_stages data), and writing the result to global memory.
+/// 1. All stages except the last run first and decode their output
+///    into shared memory (e.g. all dict values, all run-end endpoints).
+///    This data stays resident for the output stage to index into.
+///
+/// 2. The last stage (the output stage) iterates over the input in tiles
+///    of `SMEM_TILE_SIZE` (1024) elements, decoding each tile into a
+///    scratch region of shared memory, applying scalar ops (which may
+///    reference data from the earlier stages), and writing the result to
+///    global memory.
 ///
 /// # Shared memory allocation
 ///
@@ -161,28 +163,26 @@ pub enum DispatchPlan {
 ///
 /// This is sufficient because:
 ///
-/// - `smem_stages` only originate from dict (values) and run-end
-///   (ends, values). `push_smem_stage` reserves
-///   the full auxiliary data length in `smem_cursor`, so each stage's source
-///   op has room to decode the complete input.
+/// - Earlier stages only originate from dict (values) and run-end (ends,
+///   values). `push_smem_stage` reserves the full auxiliary data length in
+///   `smem_cursor`, so each stage's source op has room to decode the complete
+///   input.
 ///
-/// - `output_stage` tiles at `SMEM_TILE_SIZE` (1024 elements), so its
-///   source op never writes more than 1024 elements into the scratch region,
-///   even though each block is responsible for `ELEMENTS_PER_BLOCK` (2048)
-///   output elements — it processes them in two passes through the scratch.
+/// - The output stage (last) tiles at `SMEM_TILE_SIZE` (1024 elements),
+///   so its source op never writes more than 1024 elements into the
+///   scratch region, even though each block is responsible for
+///   `ELEMENTS_PER_BLOCK` (2048) output elements — it processes them in
+///   two passes through the scratch.
 ///
 /// Note: `BITUNPACK` writes full FastLanes blocks (1024 elements), which can
 /// exceed `stage.len` by up to 1023 elements. This overflow is absorbed by
 /// the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
 pub struct FusedPlan {
-    /// Stages that decode fully into shared memory before the output stage
-    /// runs. Their data stays resident so the output stage can reference it.
-    smem_stages: Vec<(Stage, SmemOffset, StageLen)>,
-    /// The root stage that produces the final output. Iterates in tiles of
-    /// `SMEM_TILE_SIZE`, writing each to global memory. `None` only during
-    /// construction; always `Some` after [`build`](Self::build).
-    output_stage: Option<(Stage, SmemOffset, StageLen)>,
-    /// Shared memory elements reserved by `smem_stages` (fully decoded).
+    /// Stages in kernel execution order. All stages except the last decode
+    /// fully into persistent shared memory; the final stage produces the
+    /// output.
+    stages: Vec<(Stage, SmemOffset, StageLen)>,
+    /// Shared memory elements reserved by the preceding (non-output) stages.
     smem_cursor: SmemOffset,
     /// Source buffers. `None` entries are placeholder slots for pending subtrees,
     /// filled by [`materialize_with_subtrees`] before device copy.
@@ -246,8 +246,7 @@ impl FusedPlan {
 
         let mut pending_subtrees: Vec<ArrayRef> = Vec::new();
         let mut plan = Self {
-            smem_stages: Vec::new(),
-            output_stage: None,
+            stages: Vec::new(),
             smem_cursor: SmemOffset::from(0u32),
             source_buffers: Vec::new(),
             elem_bytes,
@@ -255,17 +254,17 @@ impl FusedPlan {
 
         let len = array.len() as u32;
         let output = plan.walk(array.clone(), &mut pending_subtrees)?;
-        plan.output_stage = Some((output, plan.smem_cursor, len));
+        plan.stages.push((output, plan.smem_cursor, len));
 
         Ok((plan, pending_subtrees))
     }
 
     /// Shared memory bytes needed to launch this plan.
     ///
-    /// `smem_cursor` covers the fully-decoded smem_stages (dict values,
-    /// run-end endpoints). `SMEM_TILE_SIZE` covers the output stage's
-    /// scratch region — the output stage processes `ELEMENTS_PER_BLOCK`
-    /// (2048) elements per block by tiling through this 1024-element window.
+    /// `smem_cursor` covers the preceding fully-decoded stages (dict values,
+    /// run-end ). `SMEM_TILE_SIZE` covers the output stage's scratch region —
+    /// the output stage processes `ELEMENTS_PER_BLOCK` (2048) elements per
+    /// block by tiling through this 1024-element window.
     fn shared_mem_bytes(&self) -> u32 {
         (self.smem_cursor + SMEM_TILE_SIZE) * self.elem_bytes
     }
@@ -311,9 +310,8 @@ impl FusedPlan {
         };
 
         let stages: Vec<MaterializedStage> = self
-            .smem_stages
+            .stages
             .iter()
-            .chain(self.output_stage.iter())
             .map(|(stage, smem_offset, len)| {
                 MaterializedStage::new(
                     resolve_ptr(stage),
@@ -592,7 +590,7 @@ impl FusedPlan {
     /// stage runs. Returns the shared memory offset where the data starts.
     fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
         let smem_offset = self.smem_cursor;
-        self.smem_stages.push((spec, smem_offset, len));
+        self.stages.push((spec, smem_offset, len));
         self.smem_cursor += len;
         smem_offset
     }
