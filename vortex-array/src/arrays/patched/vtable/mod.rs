@@ -301,10 +301,14 @@ impl VTable for Patched {
         let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
-            let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
-
             let offset = array.offset;
             let len = array.len;
+
+            // Slice the buffer and validity from the offset.
+            let buffer = buffer.slice_typed::<V>(offset..offset + len);
+            let validity = validity.slice(offset..offset + len)?;
+
+            let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
 
             apply_patches_primitive::<V>(
                 &mut output,
@@ -317,7 +321,7 @@ impl VTable for Patched {
                 values.as_slice::<V>(),
             );
 
-            let output = output.freeze().slice(offset..offset + len);
+            let output = output.freeze();
 
             PrimitiveArray::from_byte_buffer(output.into_byte_buffer(), ptype, validity)
         });
@@ -417,6 +421,38 @@ mod tests {
         expected[1] = 1;
         expected[2] = 1;
         expected[3] = 1;
+
+        assert_eq!(executed, expected.freeze());
+    }
+
+    #[test]
+    fn test_execute_sliced() {
+        let values = buffer![0u16; 1024].into_array();
+        let patches = Patches::new(
+            1024,
+            0,
+            buffer![1u32, 2, 3].into_array(),
+            buffer![1u16; 3].into_array(),
+            None,
+        )
+        .unwrap();
+
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
+        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+            .unwrap()
+            .slice(3..1024)
+            .unwrap();
+
+        let executed = array
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_primitive()
+            .into_buffer::<u16>();
+
+        let mut expected = buffer_mut![0u16; 1021];
+        expected[0] = 1;
 
         assert_eq!(executed, expected.freeze());
     }
