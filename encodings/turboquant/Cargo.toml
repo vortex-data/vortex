@@ -17,6 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+dashmap = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 vortex-array = { workspace = true }
@@ -25,7 +26,6 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
-parking_lot = { workspace = true }
 
 [dev-dependencies]
 rand_distr = { workspace = true }

@@ -10997,7 +10997,7 @@ dependencies = [
 name = "vortex-turboquant"
 version = "0.1.0"
 dependencies = [
- "parking_lot",
+ "dashmap",
  "prost 0.14.3",
  "rand 0.10.0",
  "rand_distr 0.6.0",

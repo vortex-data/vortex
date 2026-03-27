@@ -9,12 +9,11 @@
 //! which converges to `N(0, 1/d)`. The Max-Lloyd algorithm finds optimal quantization centroids
 //! that minimize MSE for this distribution.
 
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-use parking_lot::Mutex;
+use dashmap::DashMap;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_utils::aliases::hash_map::HashMap;
 
 /// Number of numerical integration points for computing conditional expectations.
 const INTEGRATION_POINTS: usize = 1000;
@@ -25,10 +24,8 @@ const CONVERGENCE_EPSILON: f64 = 1e-12;
 /// Maximum iterations for Max-Lloyd algorithm.
 const MAX_ITERATIONS: usize = 200;
 
-type CentroidCache = Mutex<HashMap<(u32, u8), Vec<f32>>>;
-
 /// Global centroid cache keyed by (dimension, bit_width).
-static CENTROID_CACHE: OnceLock<CentroidCache> = OnceLock::new();
+static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(DashMap::new);
 
 /// Get or compute cached centroids for the given dimension and bit width.
 ///
@@ -43,15 +40,12 @@ pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
         vortex_bail!("TurboQuant dimension must be >= 2, got {dimension}");
     }
 
-    let cache = CENTROID_CACHE.get_or_init(|| Mutex::new(HashMap::default()));
-    let mut guard = cache.lock();
-
-    if let Some(centroids) = guard.get(&(dimension, bit_width)) {
+    if let Some(centroids) = CENTROID_CACHE.get(&(dimension, bit_width)) {
         return Ok(centroids.clone());
     }
 
     let centroids = max_lloyd_centroids(dimension, bit_width);
-    guard.insert((dimension, bit_width), centroids.clone());
+    CENTROID_CACHE.insert((dimension, bit_width), centroids.clone());
     Ok(centroids)
 }
 
@@ -140,11 +134,7 @@ fn conditional_mean(lo: f64, hi: f64, exponent: f64) -> f64 {
 /// Unnormalized PDF of the coordinate distribution: `(1 - x^2)^exponent`.
 #[inline]
 fn pdf_unnormalized(x_val: f64, exponent: f64) -> f64 {
-    let base = 1.0 - x_val * x_val;
-    if base <= 0.0 {
-        return 0.0;
-    }
-    base.powf(exponent)
+    (1.0 - x_val * x_val).max(0.0).powf(exponent)
 }
 
 /// Precompute decision boundaries (midpoints between adjacent centroids).
@@ -164,6 +154,10 @@ pub fn compute_boundaries(centroids: &[f32]) -> Vec<f32> {
 #[inline]
 #[allow(clippy::cast_possible_truncation)]
 pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
+    debug_assert!(
+        boundaries.windows(2).all(|w| w[0] <= w[1]),
+        "boundaries must be sorted"
+    );
     boundaries.partition_point(|&b| b < value) as u8
 }
 

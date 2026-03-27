@@ -241,7 +241,7 @@ pub fn turboquant_encode_qjl(
 
         rotation.inverse_rotate(&dequantized_rotated, &mut dequantized);
         if norm > 0.0 {
-            for val in &mut dequantized {
+            for val in dequantized.iter_mut() {
                 *val *= norm;
             }
         }
