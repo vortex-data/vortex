@@ -50,10 +50,12 @@ export function TreePanel() {
     });
   }, [selection.selectedNodeId, file.layoutTree, mode]);
 
-  // Scroll the selected node into the center of the tree view.
+  // Scroll the selected node into view only when the selection changes.
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastScrolledTo = useRef<string | null>(null);
   useEffect(() => {
-    if (!selection.selectedNodeId || !scrollContainerRef.current) return;
+    if (!selection.selectedNodeId || selection.selectedNodeId === lastScrolledTo.current) return;
+    lastScrolledTo.current = selection.selectedNodeId;
     // Defer to let the DOM update after expansion.
     requestAnimationFrame(() => {
       const container = scrollContainerRef.current;

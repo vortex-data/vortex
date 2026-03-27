@@ -58,10 +58,16 @@ body {
 }
 
 /* Default app is dark themed */
+:root:not(.light) {
+  --array-node-bg: rgba(255, 255, 255, 0.03);
+}
 :root:not(.light) body {
   background: var(--color-vortex-black);
 }
 
+.light {
+  --array-node-bg: rgba(0, 0, 0, 0.025);
+}
 .light body {
   background: var(--color-vortex-white);
 }

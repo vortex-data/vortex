@@ -78,9 +78,9 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect,
       title={node.isArrayNode ? 'Array encoding node' : undefined}
       style={{
         height: ROW_HEIGHT,
-        paddingLeft: node.isArrayNode ? 3 + depth * 10 : 6 + depth * 10,
+        paddingLeft: 6 + depth * 10,
         paddingRight: 8,
-        borderLeft: node.isArrayNode ? `3px solid ${style.color}` : undefined,
+        backgroundColor: node.isArrayNode ? 'var(--array-node-bg)' : undefined,
       }}
       onClick={onSelect}
       onMouseEnter={() => onHover?.(node.id)}
