@@ -16,6 +16,7 @@ mod delta;
 mod dict;
 mod for_;
 mod fsst;
+mod patched;
 mod pco;
 mod rle;
 mod runend;
