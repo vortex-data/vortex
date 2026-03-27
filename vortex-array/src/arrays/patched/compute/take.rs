@@ -100,7 +100,7 @@ fn take_map<I: IntegerPType, V: NativePType>(
 
                 let index = chunk * 1024 + patch_idx as usize;
                 if index >= offset && index < offset + len {
-                    index_map.insert(index, patch_value);
+                    index_map.insert(index - offset, patch_value);
                 }
             }
         }
@@ -118,10 +118,13 @@ fn take_map<I: IntegerPType, V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
@@ -134,7 +137,8 @@ mod tests {
         base: &[u16],
         patch_indices: &[u32],
         patch_values: &[u16],
-    ) -> VortexResult<PatchedArray> {
+        slice: Range<usize>,
+    ) -> VortexResult<ArrayRef> {
         let values = PrimitiveArray::from_iter(base.iter().copied()).into_array();
         let patches = Patches::new(
             base.len(),
@@ -147,13 +151,13 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?.slice(slice)
     }
 
     #[test]
     fn test_take_basic() -> VortexResult<()> {
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
-        let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30])?.into_array();
+        let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
 
         // Take indices [0, 1, 2, 3, 4] - should get [0, 10, 0, 30, 0]
         let indices = buffer![0u32, 1, 2, 3, 4].into_array();
@@ -166,9 +170,22 @@ mod tests {
     }
 
     #[test]
+    fn test_take_sliced() -> VortexResult<()> {
+        let array = make_patched_array(&[0; 10], &[1, 3], &[100, 200], 2..10)?;
+
+        let indices = buffer![0u32, 1, 2, 3, 7].into_array();
+        let result = array.take(indices)?.to_canonical()?.into_array();
+
+        let expected = PrimitiveArray::from_iter([0u16, 200, 0, 0, 0]).into_array();
+        assert_arrays_eq!(expected, result);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_take_out_of_order() -> VortexResult<()> {
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
-        let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30])?.into_array();
+        let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
 
         // Take indices in reverse order
         let indices = buffer![4u32, 3, 2, 1, 0].into_array();
@@ -183,7 +200,7 @@ mod tests {
     #[test]
     fn test_take_duplicates() -> VortexResult<()> {
         // Array with base values [0, 0, 0, 0, 0] patched at index [2] with value [99]
-        let array = make_patched_array(&[0; 5], &[2], &[99])?.into_array();
+        let array = make_patched_array(&[0; 5], &[2], &[99], 0..5)?;
 
         // Take the same patched index multiple times
         let indices = buffer![2u32, 2, 0, 2].into_array();
@@ -204,7 +221,7 @@ mod tests {
         use crate::validity::Validity;
 
         // Array: 10 elements, base value 0, patches at indices 2, 5, 8 with values 20, 50, 80
-        let array = make_patched_array(&[0; 10], &[2, 5, 8], &[20, 50, 80])?.into_array();
+        let array = make_patched_array(&[0; 10], &[2, 5, 8], &[20, 50, 80], 0..10)?;
 
         // Take 10 indices, with nulls at positions 1, 4, 7
         // Indices: [0, 2, 2, 5, 8, 0, 5, 8, 3, 1]
