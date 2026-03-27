@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import type { LayoutTreeNode, Split, DtypeCategory, FlattenedRow, DisplayKind } from './types';
+import type { LayoutTreeNode, ArrayEncodingNode, Split, DtypeCategory, FlattenedRow, DisplayKind } from './types';
 
 // Encoding styles — keyed by encoding string, with fallback for unknown encodings
 export const ENCODING_STYLES: Record<string, { color: string; label: string }> = {
@@ -37,20 +37,24 @@ export function getEncodingStyle(encoding: string): { color: string; label: stri
 
 // Dtype colors (for flat chunk bars in swimlane)
 export const DTYPE_COLORS: Record<DtypeCategory, string> = {
-  bool: '#EEB3E1',
+  bool: '#D97BC6',
   int: '#2CB9D1',
   float: '#FB863D',
-  struct: '#5971FD',
-  list: '#CEE562',
-  other: '#8F8F8F',
+  utf8: '#5971FD',
+  datetime: '#8BB536',
+  list: '#A78BFA',
+  struct: '#999999',
+  other: '#777777',
 };
 
 export const DTYPE_CATEGORIES: DtypeCategory[] = [
   'bool',
   'int',
   'float',
-  'struct',
+  'utf8',
+  'datetime',
   'list',
+  'struct',
   'other',
 ];
 
@@ -65,9 +69,11 @@ export function getDtypeCategory(dtype?: string): DtypeCategory {
   if (!dtype) return 'other';
   const d = dtype.toLowerCase();
   if (d === 'bool' || d === 'boolean') return 'bool';
-  // Struct/list checks first — composite dtypes contain field names that would false-match int/float.
+  // Struct/list checks first — composite dtypes contain field names that would false-match others.
   if (d.startsWith('{') || d === 'struct') return 'struct';
   if (d.includes('list') || d.includes('array')) return 'list';
+  if (d.includes('utf8') || d.includes('string') || d.includes('binary')) return 'utf8';
+  if (d.includes('timestamp') || d.includes('date') || d.includes('time')) return 'datetime';
   if (d.includes('int') || d.includes('uint') || d.startsWith('i') || d.startsWith('u'))
     return 'int';
   if (d.includes('float') || d.includes('double') || d.includes('decimal') || d.startsWith('f'))

@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContext';
 import { useSelection } from '../../contexts/SelectionContext';
-import { getNodeDisplayName, findPathToNode } from '../swimlane/utils';
+import { getNodeDisplayName, findPathToNode, getDtypeCategory, DTYPE_COLORS } from '../swimlane/utils';
 import { SummaryPane } from './SummaryPane';
 import { EncodingPane } from './EncodingPane';
 import { SegmentsPane } from './SegmentsPane';
@@ -82,8 +82,6 @@ export function DetailPanel() {
           <div className="flex items-center gap-0.5 ml-auto text-[10px] text-vortex-grey-dark overflow-hidden">
             {breadcrumb.map((node, i) => {
               const isLast = i === breadcrumb.length - 1;
-              // When showing hover path: nodes shared with selected path are bright, others are dim.
-              // When showing selected path: last node is bright, others are clickable.
               const isShared = isHoverBreadcrumb && selectedIdSet.has(node.id);
               const dimClass = isHoverBreadcrumb && !isShared ? 'opacity-50' : '';
               return (
@@ -104,6 +102,20 @@ export function DetailPanel() {
                 </span>
               );
             })}
+            {(() => {
+              const tip = breadcrumb[breadcrumb.length - 1];
+              if (!tip) return null;
+              const cat = getDtypeCategory(tip.dtype);
+              return (
+                <span
+                  className="ml-1.5 px-1 py-0 rounded text-[9px] font-medium text-white flex-shrink-0"
+                  style={{ backgroundColor: DTYPE_COLORS[cat] }}
+                  title={tip.dtype}
+                >
+                  {cat}
+                </span>
+              );
+            })()}
           </div>
         )}
       </div>

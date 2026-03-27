@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -11,39 +11,35 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useState } from 'react';
 
-// --- Column statistics and sparkline helpers ---
+// --- Column statistics ---
 
 interface ColumnStats {
-  kind: 'numeric' | 'string' | 'other';
+  kind: 'numeric' | 'string' | 'boolean' | 'other';
   count: number;
   nullCount: number;
-  // numeric
   min?: number;
   max?: number;
   mean?: number;
   histogram?: number[];
-  // string
   cardinality?: number;
-  topValues?: [string, number][];
+  trueCount?: number;
+  falseCount?: number;
 }
 
 function computeStats(values: unknown[]): ColumnStats {
   const count = values.length;
   let nullCount = 0;
   const nums: number[] = [];
-  const strings: string[] = [];
+  let hasStrings = false;
 
   for (const v of values) {
     if (v == null) {
       nullCount++;
-      continue;
-    }
-    if (typeof v === 'number' || typeof v === 'bigint') {
+    } else if (typeof v === 'number' || typeof v === 'bigint') {
       nums.push(Number(v));
     } else if (typeof v === 'string') {
-      strings.push(v);
+      hasStrings = true;
     }
   }
 
@@ -54,10 +50,7 @@ function computeStats(values: unknown[]): ColumnStats {
       if (n > max) max = n;
       sum += n;
     }
-    const mean = sum / nums.length;
-
-    // Build histogram (16 bins).
-    const bins = 16;
+    const bins = 20;
     const histogram = new Array<number>(bins).fill(0);
     if (max > min) {
       const range = max - min;
@@ -68,44 +61,53 @@ function computeStats(values: unknown[]): ColumnStats {
     } else {
       histogram[0] = nums.length;
     }
-
-    return { kind: 'numeric', count, nullCount, min, max, mean, histogram };
+    return { kind: 'numeric', count, nullCount, min, max, mean: sum / nums.length, histogram };
   }
 
-  if (strings.length > 0) {
-    const freq = new Map<string, number>();
-    for (const s of strings) {
-      freq.set(s, (freq.get(s) ?? 0) + 1);
-    }
-    const topValues = [...freq.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5) as [string, number][];
-    return { kind: 'string', count, nullCount, cardinality: freq.size, topValues };
+  if (hasStrings) {
+    const uniq = new Set<string>();
+    for (const v of values) if (typeof v === 'string') uniq.add(v);
+    return { kind: 'string', count, nullCount, cardinality: uniq.size };
   }
 
   return { kind: 'other', count, nullCount };
 }
 
-function SparkHistogram({ histogram }: { histogram: number[] }) {
+// --- Sparkline ---
+
+function SparkHistogram({ histogram, height = 12 }: { histogram: number[]; height?: number }) {
   const max = Math.max(...histogram);
   if (max === 0) return null;
-  const barW = 3;
-  const gap = 1;
-  const h = 16;
-  const w = histogram.length * (barW + gap) - gap;
 
+  // Check if all values fell in a single bin (constant column).
+  const nonZero = histogram.filter((v) => v > 0).length;
+  if (nonZero <= 1) {
+    // Render a flat line to indicate constant/single-value.
+    const barW = 2;
+    const gap = 0.5;
+    const w = histogram.length * (barW + gap) - gap;
+    return (
+      <svg width={w} height={height} className="flex-shrink-0 opacity-50">
+        <line x1={0} y1={height / 2} x2={w} y2={height / 2} stroke="currentColor" strokeWidth={1} className="text-vortex-grey-dark" />
+      </svg>
+    );
+  }
+
+  const barW = 2;
+  const gap = 0.5;
+  const w = histogram.length * (barW + gap) - gap;
   return (
-    <svg width={w} height={h} className="inline-block align-middle ml-1">
+    <svg width={w} height={height} className="flex-shrink-0 opacity-70">
       {histogram.map((v, i) => {
-        const barH = (v / max) * h;
+        const barH = Math.max(0.5, (v / max) * height);
         return (
           <rect
             key={i}
             x={i * (barW + gap)}
-            y={h - barH}
+            y={height - barH}
             width={barW}
             height={barH}
-            className="fill-vortex-light-blue/60"
+            className="fill-vortex-light-blue"
           />
         );
       })}
@@ -113,65 +115,98 @@ function SparkHistogram({ histogram }: { histogram: number[] }) {
   );
 }
 
-function SparkBar({ values }: { values: [string, number][] }) {
-  const total = values.reduce((s, [, c]) => s + c, 0);
-  if (total === 0) return null;
+// --- Header summary (inline, compact) ---
+
+function HeaderSummary({ stats }: { stats: ColumnStats }) {
+  if (stats.kind === 'numeric') {
+    const isConst = stats.min === stats.max && stats.nullCount === 0;
+    if (isConst) {
+      return (
+        <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70" title={`constant: ${stats.min}`}>
+          const
+        </span>
+      );
+    }
+    if (stats.histogram) {
+      return <SparkHistogram histogram={stats.histogram} />;
+    }
+  }
+  if (stats.kind === 'string' && stats.cardinality != null) {
+    if (stats.cardinality === 1 && stats.nullCount === 0) {
+      return (
+        <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>
+      );
+    }
+    return (
+      <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">
+        {stats.cardinality}v
+      </span>
+    );
+  }
+  return null;
+}
+
+// --- Header tooltip (shown on hover) ---
+
+function HeaderTooltip({ stats }: { stats: ColumnStats }) {
+  const fmt = (n: number) =>
+    Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
+      ? n.toExponential(2)
+      : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
-    <div className="flex h-2.5 rounded-sm overflow-hidden mt-0.5 gap-px">
-      {values.map(([label, count], i) => {
-        const pct = (count / total) * 100;
-        const colors = [
-          'bg-vortex-light-blue/60',
-          'bg-vortex-light-blue/40',
-          'bg-vortex-light-blue/25',
-          'bg-vortex-grey-dark/30',
-          'bg-vortex-grey-dark/20',
-        ];
-        return (
-          <div
-            key={label}
-            className={`${colors[i]} rounded-sm`}
-            style={{ width: `${pct}%` }}
-            title={`${label}: ${count}`}
-          />
-        );
-      })}
+    <div className="text-[9px] font-normal text-vortex-fg-light dark:text-vortex-fg space-y-1 font-mono">
+      <div className="text-vortex-grey-dark">{stats.count.toLocaleString()} rows</div>
+      {stats.nullCount > 0 && (
+        <div className="text-vortex-grey-dark">{stats.nullCount.toLocaleString()} nulls</div>
+      )}
+      {stats.kind === 'numeric' && (
+        <>
+          <div>min: {fmt(stats.min!)}</div>
+          <div>max: {fmt(stats.max!)}</div>
+          <div>mean: {fmt(stats.mean!)}</div>
+          {stats.histogram && (
+            <div className="pt-0.5">
+              <SparkHistogram histogram={stats.histogram} height={24} />
+            </div>
+          )}
+        </>
+      )}
+      {stats.kind === 'string' && (
+        <div>{stats.cardinality!.toLocaleString()} distinct values</div>
+      )}
     </div>
   );
 }
 
-function ColumnSummary({ stats }: { stats: ColumnStats }) {
-  if (stats.kind === 'numeric') {
-    const fmt = (n: number) =>
-      Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
-        ? n.toExponential(1)
-        : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    return (
-      <div className="flex items-center gap-1.5 text-[9px] text-vortex-grey-dark font-normal whitespace-nowrap mt-0.5">
-        <span title="min">{fmt(stats.min!)}</span>
-        <span className="opacity-40">–</span>
-        <span title="max">{fmt(stats.max!)}</span>
-        <span className="opacity-40">μ</span>
-        <span title="mean">{fmt(stats.mean!)}</span>
-        {stats.histogram && <SparkHistogram histogram={stats.histogram} />}
+// --- Hoverable header with tooltip ---
+
+function ColumnHeader({ name, stats }: { name: string; stats: ColumnStats }) {
+  const [showTip, setShowTip] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const onEnter = () => {
+    clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setShowTip(true), 400);
+  };
+  const onLeave = () => {
+    clearTimeout(timeoutRef.current);
+    setShowTip(false);
+  };
+
+  return (
+    <div className="relative" onMouseEnter={onEnter} onMouseLeave={onLeave}>
+      <div className="flex items-center gap-1.5">
+        <span className="truncate">{name}</span>
+        <HeaderSummary stats={stats} />
       </div>
-    );
-  }
-  if (stats.kind === 'string') {
-    return (
-      <div className="text-[9px] text-vortex-grey-dark font-normal mt-0.5">
-        <span>{stats.cardinality} distinct</span>
-        {stats.nullCount > 0 && (
-          <span className="ml-1 opacity-60">({stats.nullCount} null)</span>
-        )}
-        {stats.topValues && stats.topValues.length > 0 && (
-          <SparkBar values={stats.topValues} />
-        )}
-      </div>
-    );
-  }
-  return null;
+      {showTip && (
+        <div className="absolute top-full left-0 mt-1 z-50 bg-vortex-white dark:bg-vortex-black border border-vortex-grey-light/40 dark:border-white/[0.08] rounded shadow-lg px-2 py-1.5 min-w-[120px]">
+          <HeaderTooltip stats={stats} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 // --- Formatting ---
@@ -188,15 +223,16 @@ function formatCell(value: unknown): string {
 
 // --- Main component ---
 
+export type CellRenderer = (value: unknown, row: Record<string, unknown>) => React.ReactNode;
+
 export interface DataTableProps {
-  /** Column definitions: name and optional type hint. */
   columns: string[];
-  /** Row data as array of arrays (column-major access via columnData) or row objects. */
   rows: Record<string, unknown>[];
-  /** Fixed row height in px. */
   rowHeight?: number;
-  /** If provided, called when a row is clicked. */
   onRowClick?: (rowIndex: number) => void;
+  onRowHover?: (rowIndex: number | null) => void;
+  /** Custom cell renderers keyed by column name. */
+  cellRenderers?: Record<string, CellRenderer>;
 }
 
 export function DataTable({
@@ -204,16 +240,16 @@ export function DataTable({
   rows,
   rowHeight = 24,
   onRowClick,
+  onRowHover,
+  cellRenderers,
 }: DataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Compute per-column stats.
   const columnStats = useMemo(() => {
     const stats: Record<string, ColumnStats> = {};
     for (const col of columns) {
-      const values = rows.map((r) => r[col]);
-      stats[col] = computeStats(values);
+      stats[col] = computeStats(rows.map((r) => r[col]));
     }
     return stats;
   }, [columns, rows]);
@@ -226,21 +262,18 @@ export function DataTable({
         size: 50,
         enableSorting: false,
         cell: (info) => (
-          <span className="text-vortex-grey-dark tabular-nums">
-            {info.row.index}
-          </span>
+          <span className="text-vortex-grey-dark tabular-nums">{info.row.index}</span>
         ),
       },
       ...columns.map(
         (col): ColumnDef<Record<string, unknown>> => ({
           accessorKey: col,
-          header: () => (
-            <div>
-              <div>{col}</div>
-              <ColumnSummary stats={columnStats[col]} />
-            </div>
-          ),
+          header: () => <ColumnHeader name={col} stats={columnStats[col]} />,
           cell: (info) => {
+            const renderer = cellRenderers?.[col];
+            if (renderer) {
+              return renderer(info.getValue(), info.row.original);
+            }
             const val = info.getValue();
             if (val == null) {
               return <span className="text-vortex-grey-dark italic">null</span>;
@@ -281,17 +314,20 @@ export function DataTable({
               {headerGroup.headers.map((header) => (
                 <th
                   key={header.id}
-                  className="px-2 py-1 text-left font-medium text-vortex-fg-light dark:text-vortex-fg border-b border-r border-vortex-grey-light/30 dark:border-white/[0.06] last:border-r-0 select-none"
+                  className="px-2 py-1 text-left font-medium text-vortex-fg-light dark:text-vortex-fg border-b border-r border-vortex-grey-light/30 dark:border-white/[0.06] last:border-r-0 select-none cursor-pointer"
                   style={{ width: header.getSize() }}
                   onClick={header.column.getToggleSortingHandler()}
-                  role={header.column.getCanSort() ? 'button' : undefined}
                 >
                   <div className="flex items-center gap-1">
                     {header.isPlaceholder
                       ? null
                       : flexRender(header.column.columnDef.header, header.getContext())}
-                    {header.column.getIsSorted() === 'asc' && ' ▲'}
-                    {header.column.getIsSorted() === 'desc' && ' ▼'}
+                    {header.column.getIsSorted() === 'asc' && (
+                      <span className="text-vortex-light-blue">▲</span>
+                    )}
+                    {header.column.getIsSorted() === 'desc' && (
+                      <span className="text-vortex-light-blue">▼</span>
+                    )}
                   </div>
                 </th>
               ))}
@@ -299,7 +335,6 @@ export function DataTable({
           ))}
         </thead>
         <tbody>
-          {/* Spacer for virtual scroll offset */}
           {virtualizer.getVirtualItems().length > 0 && (
             <tr>
               <td
@@ -316,6 +351,8 @@ export function DataTable({
                 className="border-b border-vortex-grey-light/20 dark:border-white/[0.03] hover:bg-vortex-grey-lightest/50 dark:hover:bg-white/[0.02] cursor-default"
                 style={{ height: rowHeight }}
                 onClick={() => onRowClick?.(virtualRow.index)}
+                onMouseEnter={() => onRowHover?.(virtualRow.index)}
+                onMouseLeave={() => onRowHover?.(null)}
               >
                 {row.getVisibleCells().map((cell) => (
                   <td
@@ -329,7 +366,6 @@ export function DataTable({
               </tr>
             );
           })}
-          {/* Bottom spacer */}
           {virtualizer.getVirtualItems().length > 0 && (
             <tr>
               <td

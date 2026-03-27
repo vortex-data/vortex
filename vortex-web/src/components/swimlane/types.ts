@@ -25,6 +25,10 @@ export interface LayoutTreeNode {
   children: LayoutTreeNode[];
   /** For flat layouts: the array encoding tree inside this layout */
   arrayEncodingTree?: ArrayEncodingNode;
+  /** True if this node represents an array encoding node (not a layout node) */
+  isArrayNode?: boolean;
+  /** Buffer byte lengths for array nodes */
+  bufferLengths?: number[];
 }
 
 export interface ArrayEncodingNode {
@@ -73,7 +77,7 @@ export interface FlattenedRow {
 }
 
 // Retained from original types
-export type DtypeCategory = 'bool' | 'int' | 'float' | 'struct' | 'list' | 'other';
+export type DtypeCategory = 'bool' | 'int' | 'float' | 'utf8' | 'datetime' | 'struct' | 'list' | 'other';
 
 export interface Split {
   id: string;
