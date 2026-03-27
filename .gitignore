@@ -239,5 +239,5 @@ sweep.timestamp
 trace*.json
 trace*.pb
 
-# pytest-benchmark output\
+# pytest-benchmark output
 vortex-python/.benchmarks/
