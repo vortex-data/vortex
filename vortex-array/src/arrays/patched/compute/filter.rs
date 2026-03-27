@@ -63,6 +63,7 @@ mod tests {
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
 
     #[test]
@@ -139,6 +140,43 @@ mod tests {
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MIN, u16::MIN]).into_array();
 
         assert_arrays_eq!(expected, reduced.unwrap());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_sliced() -> VortexResult<()> {
+        // Test filter on a sliced PatchedArray to exercise codepath where offset > 0.
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
+        // Create a larger array (6 chunks) so we can slice and still have room
+        // for the filter to prune chunks.
+        let array = buffer![u16::MIN; 6144].into_array();
+        // Patches at indices 2048 and 2049 (start of chunk 2).
+        let patched_indices = buffer![2048u16, 2049].into_array();
+        let patched_values = buffer![u16::MAX, u16::MAX].into_array();
+
+        let patches = Patches::new(6144, 0, patched_indices, patched_values, None)?;
+
+        let patched = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?;
+
+        // Slice at chunk boundary to create offset > 0. After slicing [1024..5120],
+        // we have 4096 elements and patches are at relative indices 1024 and 1025.
+        let sliced = patched.slice(1024..5120)?.into_array();
+        assert_eq!(sliced.len(), 4096);
+
+        // Filter that only touches the middle 2 chunks (chunks 1 and 2).
+        // Indices 1024 and 1025 fall in chunk 1, and 3000 falls in chunk 2.
+        let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
+
+        let filtered = sliced
+            .filter(mask)?
+            .optimize()?
+            .execute::<PrimitiveArray>(&mut ctx)?;
+
+        let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]);
+
+        assert_arrays_eq!(expected, filtered);
 
         Ok(())
     }

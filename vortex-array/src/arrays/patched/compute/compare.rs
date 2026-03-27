@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -14,7 +15,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayParts;
-use crate::arrays::patched::patch_lanes;
 use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
@@ -39,8 +39,11 @@ impl CompareKernel for Patched {
             return Ok(None);
         };
 
+        // NOTE: due to offset, it's possible that the inner.len != array.len.
+        //  We slice the inner before performing the comparison.
         let result = lhs
             .inner
+            .slice(lhs.offset..lhs.offset + lhs.len)?
             .binary(
                 ConstantArray::new(constant.clone(), lhs.len()).into_array(),
                 operator.into(),
@@ -57,46 +60,13 @@ impl CompareKernel for Patched {
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 
-        fn apply<V: NativePType, F>(
-            bits: &mut BitBufferMut,
-            lane_offsets: &[u32],
-            indices: &[u16],
-            values: &[V],
-            constant: V,
-            cmp: F,
-        ) -> VortexResult<()>
-        where
-            F: Fn(V, V) -> bool,
-        {
-            let n_lanes = patch_lanes::<V>();
-
-            for index in 0..(lane_offsets.len() - 1) {
-                let chunk = index / n_lanes;
-
-                let lane_start = lane_offsets[index] as usize;
-                let lane_end = lane_offsets[index + 1] as usize;
-
-                for (&patch_index, &patch_value) in std::iter::zip(
-                    &indices[lane_start..lane_end],
-                    &values[lane_start..lane_end],
-                ) {
-                    let bit_index = chunk * 1024 + patch_index as usize;
-                    if cmp(patch_value, constant) {
-                        bits.set(bit_index)
-                    } else {
-                        bits.unset(bit_index)
-                    }
-                }
-            }
-
-            Ok(())
-        }
-
         let lane_offsets = lhs.lane_offsets.as_host().reinterpret::<u32>();
         let indices = lhs.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let values = lhs.values.clone().execute::<PrimitiveArray>(ctx)?;
+        let n_lanes = lhs.n_lanes;
 
         match_each_native_ptype!(values.ptype(), |V| {
+            let offset = lhs.offset;
             let indices = indices.as_slice::<u16>();
             let values = values.as_slice::<V>();
             let constant = constant
@@ -108,6 +78,8 @@ impl CompareKernel for Patched {
                 CompareOperator::Eq => {
                     apply::<V, _>(
                         &mut bits,
+                        offset,
+                        n_lanes,
                         lane_offsets,
                         indices,
                         values,
@@ -118,6 +90,8 @@ impl CompareKernel for Patched {
                 CompareOperator::NotEq => {
                     apply::<V, _>(
                         &mut bits,
+                        offset,
+                        n_lanes,
                         lane_offsets,
                         indices,
                         values,
@@ -128,6 +102,8 @@ impl CompareKernel for Patched {
                 CompareOperator::Gt => {
                     apply::<V, _>(
                         &mut bits,
+                        n_lanes,
+                        offset,
                         lane_offsets,
                         indices,
                         values,
@@ -138,6 +114,8 @@ impl CompareKernel for Patched {
                 CompareOperator::Gte => {
                     apply::<V, _>(
                         &mut bits,
+                        n_lanes,
+                        offset,
                         lane_offsets,
                         indices,
                         values,
@@ -148,6 +126,8 @@ impl CompareKernel for Patched {
                 CompareOperator::Lt => {
                     apply::<V, _>(
                         &mut bits,
+                        n_lanes,
+                        offset,
                         lane_offsets,
                         indices,
                         values,
@@ -158,6 +138,8 @@ impl CompareKernel for Patched {
                 CompareOperator::Lte => {
                     apply::<V, _>(
                         &mut bits,
+                        n_lanes,
+                        offset,
                         lane_offsets,
                         indices,
                         values,
@@ -173,11 +155,53 @@ impl CompareKernel for Patched {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn apply<V: NativePType, F>(
+    bits: &mut BitBufferMut,
+    offset: usize,
+    n_lanes: usize,
+    lane_offsets: &[u32],
+    indices: &[u16],
+    values: &[V],
+    constant: V,
+    cmp: F,
+) -> VortexResult<()>
+where
+    F: Fn(V, V) -> bool,
+{
+    for index in 0..(lane_offsets.len() - 1) {
+        let chunk = index / n_lanes;
+
+        let lane_start = lane_offsets[index] as usize;
+        let lane_end = lane_offsets[index + 1] as usize;
+
+        for (&patch_index, &patch_value) in std::iter::zip(
+            &indices[lane_start..lane_end],
+            &values[lane_start..lane_end],
+        ) {
+            let bit_index = chunk * 1024 + patch_index as usize;
+            // Skip any indices < the offset.
+            if bit_index < offset {
+                continue;
+            }
+            let bit_index = bit_index - offset;
+            if cmp(patch_value, constant) {
+                bits.set(bit_index)
+            } else {
+                bits.unset(bit_index)
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -187,6 +211,7 @@ mod tests {
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
     use crate::scalar_fn::fns::binary::CompareKernel;
     use crate::scalar_fn::fns::operators::CompareOperator;
@@ -216,6 +241,43 @@ mod tests {
 
         let expected =
             BoolArray::from_indices(512, [509, 510, 511], Validity::NonNullable).into_array();
+
+        assert_arrays_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_with_offset() {
+        let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
+        let patches = Patches::new(
+            512,
+            0,
+            buffer![5u16, 510, 511].into_array(),
+            buffer![u32::MAX; 3].into_array(),
+            None,
+        )
+        .unwrap();
+
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
+        // Slice the array so that the first patch should be skipped.
+        let lhs = lhs
+            .slice(10..lhs.len())
+            .unwrap()
+            .optimize()
+            .unwrap()
+            .try_into::<Patched>()
+            .unwrap();
+
+        assert_eq!(lhs.len(), 502);
+
+        let rhs = ConstantArray::new(u32::MAX, lhs.len()).into_array();
+
+        let result = <Patched as CompareKernel>::compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx)
+            .unwrap()
+            .unwrap();
+
+        let expected = BoolArray::from_indices(502, [500, 501], Validity::NonNullable).into_array();
 
         assert_arrays_eq!(expected, result);
     }
