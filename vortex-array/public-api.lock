@@ -10752,9 +10752,9 @@ impl vortex_flatbuffers::FlatBufferRoot for vortex_array::dtype::DType
 
 impl vortex_flatbuffers::WriteFlatBuffer for vortex_array::dtype::DType
 
-pub type vortex_array::dtype::DType::Target<'a> = vortex_flatbuffers::dtype::DType<'a>
+pub type vortex_array::dtype::DType::Target = vortex_flatbuffers::dtype::root::DType
 
-pub fn vortex_array::dtype::DType::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
+pub fn vortex_array::dtype::DType::write_flatbuffer(&self, fbb: &mut planus::builder::Builder) -> vortex_error::VortexResult<planus::Offset<Self::Target>>
 
 impl<'a> core::convert::From<&'a vortex_array::dtype::DType> for vortex_array::compute::Input<'a>
 
@@ -11090,9 +11090,9 @@ impl core::convert::From<vortex_array::dtype::PType> for vortex_array::dtype::Fi
 
 pub fn vortex_array::dtype::FieldDType::from(value: vortex_array::dtype::PType) -> Self
 
-impl core::convert::From<vortex_array::dtype::PType> for vortex_flatbuffers::dtype::PType
+impl core::convert::From<vortex_array::dtype::PType> for vortex_flatbuffers::dtype::root::PType
 
-pub fn vortex_flatbuffers::dtype::PType::from(value: vortex_array::dtype::PType) -> Self
+pub fn vortex_flatbuffers::dtype::root::PType::from(value: vortex_array::dtype::PType) -> Self
 
 impl core::convert::From<vortex_array::dtype::PType> for vortex_proto::dtype::PType
 
@@ -11120,11 +11120,11 @@ pub type vortex_array::dtype::DecimalType::Error = vortex_error::VortexError
 
 pub fn vortex_array::dtype::DecimalType::try_from(value: vortex_array::dtype::PType) -> core::result::Result<Self, Self::Error>
 
-impl core::convert::TryFrom<vortex_flatbuffers::dtype::PType> for vortex_array::dtype::PType
+impl core::convert::TryFrom<vortex_flatbuffers::dtype::root::PType> for vortex_array::dtype::PType
 
 pub type vortex_array::dtype::PType::Error = vortex_error::VortexError
 
-pub fn vortex_array::dtype::PType::try_from(value: vortex_flatbuffers::dtype::PType) -> core::result::Result<Self, Self::Error>
+pub fn vortex_array::dtype::PType::try_from(value: vortex_flatbuffers::dtype::root::PType) -> core::result::Result<Self, Self::Error>
 
 impl core::default::Default for vortex_array::dtype::PType
 
@@ -20032,7 +20032,7 @@ impl<'a> vortex_array::serde::ArrayNodeFlatBuffer<'a>
 
 pub fn vortex_array::serde::ArrayNodeFlatBuffer<'a>::try_new(ctx: &'a vortex_array::ArrayContext, array: &'a dyn vortex_array::DynArray) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::serde::ArrayNodeFlatBuffer<'a>::try_write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<vortex_flatbuffers::array::ArrayNode<'fb>>>
+pub fn vortex_array::serde::ArrayNodeFlatBuffer<'a>::try_write_flatbuffer(&self, fbb: &mut planus::builder::Builder) -> vortex_error::VortexResult<planus::Offset<vortex_flatbuffers::array::root::ArrayNode>>
 
 pub struct vortex_array::serde::ArrayParts
 
@@ -20246,7 +20246,7 @@ pub fn vortex_array::stats::StatsSet::merge_unordered(self, other: &Self, dtype:
 
 impl vortex_array::stats::StatsSet
 
-pub fn vortex_array::stats::StatsSet::from_flatbuffer<'a>(fb: &vortex_flatbuffers::array::ArrayStats<'a>, array_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::stats::StatsSet::from_flatbuffer(fb: &vortex_flatbuffers::array::root::ArrayStats, array_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_array::stats::StatsSet
 
@@ -20286,9 +20286,9 @@ pub fn vortex_array::stats::StatsSet::into_iter(self) -> Self::IntoIter
 
 impl vortex_flatbuffers::WriteFlatBuffer for vortex_array::stats::StatsSet
 
-pub type vortex_array::stats::StatsSet::Target<'t> = vortex_flatbuffers::array::ArrayStats<'t>
+pub type vortex_array::stats::StatsSet::Target = vortex_flatbuffers::array::root::ArrayStats
 
-pub fn vortex_array::stats::StatsSet::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
+pub fn vortex_array::stats::StatsSet::write_flatbuffer(&self, fbb: &mut planus::builder::Builder) -> vortex_error::VortexResult<planus::Offset<Self::Target>>
 
 pub struct vortex_array::stats::StatsSetIntoIter(_)
 
@@ -20354,9 +20354,9 @@ pub fn vortex_array::stats::StatsSetRef<'_>::len(&self) -> usize
 
 impl vortex_flatbuffers::WriteFlatBuffer for vortex_array::stats::StatsSetRef<'_>
 
-pub type vortex_array::stats::StatsSetRef<'_>::Target<'t> = vortex_flatbuffers::array::ArrayStats<'t>
+pub type vortex_array::stats::StatsSetRef<'_>::Target = vortex_flatbuffers::array::root::ArrayStats
 
-pub fn vortex_array::stats::StatsSetRef<'_>::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
+pub fn vortex_array::stats::StatsSetRef<'_>::write_flatbuffer(&self, fbb: &mut planus::builder::Builder) -> vortex_error::VortexResult<planus::Offset<Self::Target>>
 
 pub struct vortex_array::stats::TypedStatsSetRef<'a, 'b>
 

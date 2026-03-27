@@ -289,9 +289,19 @@ impl ArrayChildren for &[ArrayRef] {
 /// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
 #[derive(Clone)]
 pub struct ArrayParts {
-    array: fba::Array,
-    root: fba::ArrayNode,
+    array_tree: FlatBuffer,
+    array_buffers: Arc<[fba::Buffer]>,
+    root: ArrayNodeMetadata,
     buffers: Arc<[BufferHandle]>,
+}
+
+#[derive(Clone)]
+struct ArrayNodeMetadata {
+    encoding: u16,
+    metadata: Option<Vec<u8>>,
+    child_paths: Arc<[Arc<[usize]>]>,
+    buffer_indices: Arc<[u16]>,
+    stats: Option<fba::ArrayStats>,
 }
 
 impl Debug for ArrayParts {
@@ -309,6 +319,70 @@ impl Debug for ArrayParts {
 }
 
 impl ArrayParts {
+    fn node_ref_at_path<'a>(
+        bytes: &'a [u8],
+        path: &[usize],
+    ) -> VortexResult<fba::ArrayNodeRef<'a>> {
+        let array = root::<fba::ArrayRef<'_>>(bytes)?;
+        let mut node = array
+            .root()?
+            .ok_or_else(|| vortex_err!("Array must have a root node"))?;
+
+        for &idx in path {
+            let children = node
+                .children()?
+                .ok_or_else(|| vortex_err!("Array node missing children at path {:?}", path))?;
+            let Some(child) = children.iter().nth(idx) else {
+                vortex_bail!(
+                    "Array child index {} out of bounds for path {:?}",
+                    idx,
+                    path
+                );
+            };
+            node = child?;
+        }
+
+        Ok(node)
+    }
+
+    fn load_node_metadata(
+        array_tree: &FlatBuffer,
+        path: &[usize],
+    ) -> VortexResult<ArrayNodeMetadata> {
+        let node = Self::node_ref_at_path(array_tree.as_ref(), path)?;
+        let child_paths: Arc<[Arc<[usize]>]> = node
+            .children()?
+            .map(|children| {
+                children
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, child)| {
+                        child?;
+                        let mut child_path = path.to_vec();
+                        child_path.push(idx);
+                        Ok(child_path.into())
+                    })
+                    .collect::<Result<Vec<_>, vortex_flatbuffers::planus::Error>>()
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into();
+        let buffer_indices: Arc<[u16]> = node
+            .buffers()?
+            .map(|buffers| buffers.iter().collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into();
+        let stats = node.stats()?.map(TryInto::try_into).transpose()?;
+
+        Ok(ArrayNodeMetadata {
+            encoding: node.encoding()?,
+            metadata: node.metadata()?.map(|metadata| metadata.to_vec()),
+            child_paths,
+            buffer_indices,
+            stats,
+        })
+    }
+
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
     pub fn decode(
         &self,
@@ -317,7 +391,7 @@ impl ArrayParts {
         ctx: &ReadContext,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let encoding_idx = self.flatbuffer().encoding;
+        let encoding_idx = self.root.encoding;
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
@@ -370,7 +444,7 @@ impl ArrayParts {
         );
 
         // Populate statistics from the serialized array.
-        if let Some(stats) = self.flatbuffer().stats.as_deref() {
+        if let Some(stats) = self.root.stats.as_ref() {
             decoded
                 .statistics()
                 .set_iter(StatsSet::from_flatbuffer(stats, dtype, session)?.into_iter());
@@ -381,63 +455,45 @@ impl ArrayParts {
 
     /// Returns the array encoding.
     pub fn encoding_id(&self) -> u16 {
-        self.flatbuffer().encoding
+        self.root.encoding
     }
 
     /// Returns the array metadata bytes.
     pub fn metadata(&self) -> &[u8] {
-        self.flatbuffer().metadata.as_deref().unwrap_or(&[])
+        self.root.metadata.as_deref().unwrap_or(&[])
     }
 
     /// Returns the number of children.
     pub fn nchildren(&self) -> usize {
-        self.flatbuffer()
-            .children
-            .as_deref()
-            .map_or(0, |children| children.len())
+        self.root.child_paths.len()
     }
 
     /// Returns the nth child of the array.
     pub fn child(&self, idx: usize) -> ArrayParts {
-        let children = self
-            .flatbuffer()
-            .children
-            .as_deref()
-            .vortex_expect("Expected array to have children");
-        let root = children.get(idx).cloned().unwrap_or_else(|| {
+        let path = self.root.child_paths.get(idx).cloned().unwrap_or_else(|| {
             vortex_panic!(
                 "Invalid child index {} for array with {} children",
                 idx,
-                children.len()
+                self.root.child_paths.len()
             )
         });
-        self.with_root(root)
+        self.with_root(path)
     }
 
     /// Returns the number of buffers.
     pub fn nbuffers(&self) -> usize {
-        self.flatbuffer()
-            .buffers
-            .as_deref()
-            .map_or(0, |buffers| buffers.len())
+        self.root.buffer_indices.len()
     }
 
     /// Returns the nth buffer of the current array.
     pub fn buffer(&self, idx: usize) -> VortexResult<BufferHandle> {
-        let buffer_idx = self
-            .flatbuffer()
-            .buffers
-            .as_deref()
-            .ok_or_else(|| vortex_err!("Array has no buffers"))?
-            .get(idx)
-            .copied()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Invalid buffer index {} for array with {} buffers",
-                    idx,
-                    self.nbuffers()
-                )
-            })?;
+        let buffer_idx = self.root.buffer_indices.get(idx).copied().ok_or_else(|| {
+            vortex_err!(
+                "Invalid buffer index {} for array with {} buffers",
+                idx,
+                self.nbuffers()
+            )
+        })?;
         self.buffers
             .get(buffer_idx as usize)
             .cloned()
@@ -455,13 +511,11 @@ impl ArrayParts {
     /// If buffer indices are contiguous, returns a zero-copy borrowed slice.
     /// Otherwise falls back to collecting each buffer individually.
     fn collect_buffers(&self) -> VortexResult<Cow<'_, [BufferHandle]>> {
-        let Some(fb_buffers) = self.flatbuffer().buffers.as_deref() else {
-            return Ok(Cow::Borrowed(&[]));
-        };
-        let count = fb_buffers.len();
-        if count == 0 {
+        let fb_buffers = self.root.buffer_indices.as_ref();
+        if fb_buffers.is_empty() {
             return Ok(Cow::Borrowed(&[]));
         }
+        let count = fb_buffers.len();
         let start = usize::from(*fb_buffers.first().vortex_expect("buffer list is non-empty"));
         let contiguous = fb_buffers
             .iter()
@@ -493,25 +547,34 @@ impl ArrayParts {
     /// serialized length of each buffer. This is useful for displaying buffer sizes
     /// without needing to access the actual buffer data.
     pub fn buffer_lengths(&self) -> Vec<usize> {
-        self.array
-            .buffers
-            .as_deref()
-            .map(|buffers| buffers.iter().map(|b| b.length as usize).collect())
-            .unwrap_or_default()
+        self.array_buffers
+            .iter()
+            .map(|buffer| buffer.length as usize)
+            .collect()
     }
 
     /// Validate and align the array tree flatbuffer, returning the parsed array and root node.
     fn validate_array_tree(
         array_tree: impl Into<ByteBuffer>,
-    ) -> VortexResult<(fba::Array, fba::ArrayNode)> {
-        let fb_buffer = FlatBuffer::align_from(array_tree.into());
-        let fb_array: fba::Array = root::<fba::ArrayRef<'_>>(fb_buffer.as_ref())?.try_into()?;
-        let fb_root = fb_array
-            .root
-            .as_deref()
-            .cloned()
+    ) -> VortexResult<(FlatBuffer, Arc<[fba::Buffer]>, ArrayNodeMetadata)> {
+        let array_tree = FlatBuffer::align_from(array_tree.into());
+        let array = root::<fba::ArrayRef<'_>>(array_tree.as_ref())?;
+        let array_buffers: Arc<[fba::Buffer]> = array
+            .buffers()?
+            .map(|buffers| {
+                buffers
+                    .iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, vortex_flatbuffers::planus::Error>>()
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into();
+        array
+            .root()?
             .ok_or_else(|| vortex_err!("Array must have a root node"))?;
-        Ok((fb_array, fb_root))
+        let root = Self::load_node_metadata(&array_tree, &[])?;
+        Ok((array_tree, array_buffers, root))
     }
 
     /// Create an [`ArrayParts`] from a pre-existing array tree flatbuffer and pre-resolved buffer
@@ -524,9 +587,10 @@ impl ArrayParts {
         array_tree: impl Into<ByteBuffer>,
         buffers: Vec<BufferHandle>,
     ) -> VortexResult<Self> {
-        let (array, root) = Self::validate_array_tree(array_tree)?;
+        let (array_tree, array_buffers, root) = Self::validate_array_tree(array_tree)?;
         Ok(ArrayParts {
-            array,
+            array_tree,
+            array_buffers,
             root,
             buffers: buffers.into(),
         })
@@ -541,24 +605,20 @@ impl ArrayParts {
     /// Note: Calling `buffer()` on the returned `ArrayParts` will fail since
     /// no actual buffer data is available.
     pub fn from_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<Self> {
-        let (array, root) = Self::validate_array_tree(array_tree)?;
+        let (array_tree, array_buffers, root) = Self::validate_array_tree(array_tree)?;
         Ok(ArrayParts {
-            array,
+            array_tree,
+            array_buffers,
             root,
             buffers: Arc::new([]),
         })
     }
 
-    /// Returns the root ArrayNode flatbuffer.
-    fn flatbuffer(&self) -> &fba::ArrayNode {
-        &self.root
-    }
-
     /// Returns a new [`ArrayParts`] with the given node as the root
-    // TODO(ngates): we may want a wrapper that avoids this clone.
-    fn with_root(&self, root: fba::ArrayNode) -> Self {
+    fn with_root(&self, path: Arc<[usize]>) -> Self {
         let mut this = self.clone();
-        this.root = root;
+        this.root = Self::load_node_metadata(&self.array_tree, &path)
+            .vortex_expect("array child path was validated when parent node was parsed");
         this
     }
 
@@ -590,13 +650,10 @@ impl ArrayParts {
         // for host-resident buffers. Device buffers are sliced directly.
         let segment = segment.ensure_aligned(Alignment::none())?;
 
-        let (array, root) = Self::validate_array_tree(array_tree)?;
+        let (array_tree, array_buffers, root) = Self::validate_array_tree(array_tree)?;
 
         let mut offset = 0;
-        let buffers = array
-            .buffers
-            .as_deref()
-            .unwrap_or(&[])
+        let buffers = array_buffers
             .iter()
             .enumerate()
             .map(|(idx, fb_buf)| {
@@ -618,7 +675,8 @@ impl ArrayParts {
             .collect::<VortexResult<Arc<[_]>>>()?;
 
         Ok(ArrayParts {
-            array,
+            array_tree,
+            array_buffers,
             root,
             buffers,
         })

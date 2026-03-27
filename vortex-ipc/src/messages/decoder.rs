@@ -33,7 +33,21 @@ enum State {
     #[default]
     Length,
     Header(usize),
-    Reading(FlatBuffer),
+    Reading {
+        body_length: usize,
+        header: DecodedHeader,
+    },
+}
+
+enum DecodedHeader {
+    Array {
+        encoding_ids: Arc<[ArrayId]>,
+        row_count: usize,
+    },
+    Buffer {
+        alignment: Alignment,
+    },
+    DType,
 }
 
 #[derive(Debug)]
@@ -75,9 +89,10 @@ impl MessageDecoder {
     /// this number of bytes otherwise it will be given the same `NeedMore` response.
     pub fn read_next<B: AlignedBuf>(&mut self, bytes: &mut B) -> VortexResult<PollRead> {
         loop {
-            match &self.state {
+            match std::mem::take(&mut self.state) {
                 State::Length => {
                     if bytes.remaining() < 4 {
+                        self.state = State::Length;
                         return Ok(PollRead::NeedMore(4));
                     }
 
@@ -85,40 +100,27 @@ impl MessageDecoder {
                     self.state = State::Header(msg_length as usize);
                 }
                 State::Header(msg_length) => {
-                    if bytes.remaining() < *msg_length {
-                        return Ok(PollRead::NeedMore(*msg_length));
+                    if bytes.remaining() < msg_length {
+                        self.state = State::Header(msg_length);
+                        return Ok(PollRead::NeedMore(msg_length));
                     }
 
-                    let msg_bytes = bytes.copy_to_const_aligned(*msg_length);
+                    let msg_bytes: FlatBuffer = bytes.copy_to_const_aligned(msg_length);
                     let msg = root::<fb::MessageRef<'_>>(msg_bytes.as_ref())?;
                     let version = msg.version()?;
                     if version != MessageVersion::V0 {
                         vortex_bail!("Unsupported message version {:?}", version);
                     }
 
-                    self.state = State::Reading(msg_bytes);
-                }
-                State::Reading(msg_bytes) => {
-                    let msg = root::<fb::MessageRef<'_>>(msg_bytes.as_ref())?;
-
-                    // Now we read the body
                     let body_size = msg.body_size()?;
                     let body_length = usize::try_from(body_size)
                         .map_err(|_| vortex_err!("body size {body_size} is too large for usize"))?;
-                    if bytes.remaining() < body_length {
-                        return Ok(PollRead::NeedMore(body_length));
-                    }
-
                     let header = msg
                         .header()?
                         .ok_or_else(|| vortex_err!("IPC message missing header"))?;
 
-                    match header {
+                    let header = match header {
                         MessageHeaderRef::ArrayMessage(header) => {
-                            // We don't care about alignment here since ArrayParts will handle it.
-                            let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
-                            let parts = ArrayParts::try_from(body)?;
-
                             let encoding_ids: Arc<[ArrayId]> = header
                                 .encodings()?
                                 .map(|encodings| {
@@ -130,26 +132,59 @@ impl MessageDecoder {
                                 .transpose()?
                                 .unwrap_or_default()
                                 .into();
-
-                            let ctx = ReadContext::new(encoding_ids);
                             let row_count = usize::try_from(header.row_count()?)
                                 .map_err(|_| vortex_err!("row count does not fit into usize"))?;
+
+                            DecodedHeader::Array {
+                                encoding_ids,
+                                row_count,
+                            }
+                        }
+                        MessageHeaderRef::BufferMessage(header) => DecodedHeader::Buffer {
+                            alignment: Alignment::from_exponent(header.alignment_exponent()?),
+                        },
+                        MessageHeaderRef::DTypeMessage(_) => DecodedHeader::DType,
+                    };
+
+                    self.state = State::Reading {
+                        body_length,
+                        header,
+                    };
+                }
+                State::Reading {
+                    body_length,
+                    header,
+                } => {
+                    if bytes.remaining() < body_length {
+                        self.state = State::Reading {
+                            body_length,
+                            header,
+                        };
+                        return Ok(PollRead::NeedMore(body_length));
+                    }
+
+                    match header {
+                        DecodedHeader::Array {
+                            encoding_ids,
+                            row_count,
+                        } => {
+                            // We don't care about alignment here since ArrayParts will handle it.
+                            let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
+                            let parts = ArrayParts::try_from(body)?;
+                            let ctx = ReadContext::new(encoding_ids.clone());
 
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::Array((
                                 parts, ctx, row_count,
                             ))));
                         }
-                        MessageHeaderRef::BufferMessage(header) => {
-                            let body = bytes.copy_to_aligned(
-                                body_length,
-                                Alignment::from_exponent(header.alignment_exponent()?),
-                            );
+                        DecodedHeader::Buffer { alignment } => {
+                            let body = bytes.copy_to_aligned(body_length, alignment);
 
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::Buffer(body)));
                         }
-                        MessageHeaderRef::DTypeMessage(_) => {
+                        DecodedHeader::DType => {
                             let dtype: FlatBuffer = bytes.copy_to_const_aligned::<8>(body_length);
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::DType(dtype)));

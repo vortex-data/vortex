@@ -3,6 +3,7 @@
 
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::FlatBufferBuilder;
@@ -20,6 +21,83 @@ use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;
 
+pub(crate) fn layout_at_path<'a>(
+    bytes: &'a [u8],
+    path: &[usize],
+) -> VortexResult<layout::LayoutRef<'a>> {
+    let mut fb_layout = root::<layout::LayoutRef<'_>>(bytes)?;
+
+    for &idx in path {
+        let children = fb_layout
+            .children()?
+            .ok_or_else(|| vortex_err!("Layout node missing children at path {:?}", path))?;
+        let Some(child) = children.iter().nth(idx) else {
+            vortex_bail!(
+                "Layout child index {} out of bounds for path {:?}",
+                idx,
+                path
+            );
+        };
+        fb_layout = child?;
+    }
+
+    Ok(fb_layout)
+}
+
+pub(crate) fn build_layout_from_path(
+    flatbuffer: FlatBuffer,
+    path: &[usize],
+    dtype: &DType,
+    layout_ctx: &ReadContext,
+    ctx: &ReadContext,
+    layouts: &LayoutRegistry,
+) -> VortexResult<LayoutRef> {
+    let flatbuffer_ref = flatbuffer.clone();
+    let fb_layout = layout_at_path(flatbuffer_ref.as_ref(), path)?;
+    build_layout_from_ref(flatbuffer, path, fb_layout, dtype, layout_ctx, ctx, layouts)
+}
+
+fn build_layout_from_ref(
+    flatbuffer: FlatBuffer,
+    path: &[usize],
+    fb_layout: layout::LayoutRef<'_>,
+    dtype: &DType,
+    layout_ctx: &ReadContext,
+    ctx: &ReadContext,
+    layouts: &LayoutRegistry,
+) -> VortexResult<LayoutRef> {
+    let encoding = fb_layout.encoding()?;
+    let encoding_id = layout_ctx
+        .resolve(encoding)
+        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", encoding))?;
+    let encoding = layouts
+        .find(&encoding_id)
+        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", encoding))?;
+
+    let viewed_children = ViewedLayoutChildren::new(
+        flatbuffer,
+        path,
+        fb_layout,
+        ctx.clone(),
+        layout_ctx.clone(),
+        layouts.clone(),
+    )?;
+
+    let segments = fb_layout
+        .segments()?
+        .map(|segments| segments.iter().map(SegmentId::from).collect())
+        .unwrap_or_default();
+
+    encoding.build(
+        dtype,
+        fb_layout.row_count()?,
+        fb_layout.metadata()?.unwrap_or(&[]),
+        segments,
+        &viewed_children,
+        ctx,
+    )
+}
+
 /// Parse a [`LayoutRef`] from a layout flatbuffer.
 pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
@@ -28,39 +106,7 @@ pub fn layout_from_flatbuffer(
     ctx: &ReadContext,
     layouts: &LayoutRegistry,
 ) -> VortexResult<LayoutRef> {
-    let fb_layout: layout::Layout =
-        root::<layout::LayoutRef<'_>>(flatbuffer.as_ref())?.try_into()?;
-    let encoding_id = layout_ctx
-        .resolve(fb_layout.encoding)
-        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding))?;
-    let encoding = layouts
-        .find(&encoding_id)
-        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding))?;
-
-    let viewed_children = ViewedLayoutChildren::new(
-        fb_layout.children.clone().unwrap_or_default().into(),
-        ctx.clone(),
-        layout_ctx.clone(),
-        layouts.clone(),
-    );
-
-    let layout = encoding.build(
-        dtype,
-        fb_layout.row_count,
-        fb_layout.metadata.as_deref().unwrap_or(&[]),
-        fb_layout
-            .segments
-            .as_deref()
-            .unwrap_or(&[])
-            .iter()
-            .copied()
-            .map(SegmentId::from)
-            .collect(),
-        &viewed_children,
-        ctx,
-    )?;
-
-    Ok(layout)
+    build_layout_from_path(flatbuffer, &[], dtype, layout_ctx, ctx, layouts)
 }
 
 impl dyn Layout + '_ {

@@ -5,16 +5,15 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutRef;
-use crate::segments::SegmentId;
+use crate::flatbuffers::build_layout_from_path;
 use crate::session::LayoutRegistry;
 
 /// Abstract way of accessing the children of a layout.
@@ -95,8 +94,15 @@ impl LayoutChildren for OwnedLayoutChildren {
 }
 
 #[derive(Clone)]
+struct ViewedLayoutChild {
+    path: Arc<[usize]>,
+    row_count: u64,
+}
+
+#[derive(Clone)]
 pub(crate) struct ViewedLayoutChildren {
-    children: Arc<[fbl::Layout]>,
+    flatbuffer: FlatBuffer,
+    children: Arc<[ViewedLayoutChild]>,
     array_read_ctx: ReadContext,
     layout_read_ctx: ReadContext,
     layouts: LayoutRegistry,
@@ -104,17 +110,43 @@ pub(crate) struct ViewedLayoutChildren {
 
 impl ViewedLayoutChildren {
     pub(super) fn new(
-        children: Arc<[fbl::Layout]>,
+        flatbuffer: FlatBuffer,
+        parent_path: &[usize],
+        parent: fbl::LayoutRef<'_>,
         array_read_ctx: ReadContext,
         layout_read_ctx: ReadContext,
         layouts: LayoutRegistry,
-    ) -> Self {
-        Self {
+    ) -> VortexResult<Self> {
+        let children: Arc<[ViewedLayoutChild]> = parent
+            .children()?
+            .map(|children| {
+                children
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, child)| {
+                        let child = child?;
+                        let mut path = parent_path.to_vec();
+                        path.push(idx);
+                        Ok::<ViewedLayoutChild, vortex_flatbuffers::planus::Error>(
+                            ViewedLayoutChild {
+                                path: path.into(),
+                                row_count: child.row_count()?,
+                            },
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into();
+
+        Ok(Self {
+            flatbuffer,
             children,
             array_read_ctx,
             layout_read_ctx,
             layouts,
-        }
+        })
     }
 }
 
@@ -127,38 +159,13 @@ impl LayoutChildren for ViewedLayoutChildren {
         if idx >= self.nchildren() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.nchildren());
         }
-        let fb_child = &self.children[idx];
-
-        let viewed_children = ViewedLayoutChildren::new(
-            fb_child.children.clone().unwrap_or_default().into(),
-            self.array_read_ctx.clone(),
-            self.layout_read_ctx.clone(),
-            self.layouts.clone(),
-        );
-
-        let encoding_id = self
-            .layout_read_ctx
-            .resolve(fb_child.encoding)
-            .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding))?;
-        let encoding = self
-            .layouts
-            .find(&encoding_id)
-            .ok_or_else(|| vortex_err!("Encoding not found in registry: {}", fb_child.encoding))?;
-
-        encoding.build(
+        build_layout_from_path(
+            self.flatbuffer.clone(),
+            self.children[idx].path.as_ref(),
             dtype,
-            fb_child.row_count,
-            fb_child.metadata.as_deref().unwrap_or(&[]),
-            fb_child
-                .segments
-                .as_deref()
-                .unwrap_or(&[])
-                .iter()
-                .copied()
-                .map(SegmentId::from)
-                .collect_vec(),
-            &viewed_children,
+            &self.layout_read_ctx,
             &self.array_read_ctx,
+            &self.layouts,
         )
     }
 

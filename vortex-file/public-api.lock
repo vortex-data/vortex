@@ -134,7 +134,7 @@ impl vortex_file::FileStatistics
 
 pub fn vortex_file::FileStatistics::dtypes(&self) -> &alloc::sync::Arc<[vortex_array::dtype::DType]>
 
-pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(fb: &vortex_flatbuffers::footer::FileStatistics<'a>, file_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_file::FileStatistics::from_flatbuffer(fb: &vortex_flatbuffers::footer::root::FileStatisticsRef<'_>, file_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_file::FileStatistics::get(&self, field_idx: usize) -> (&vortex_array::stats::stats_set::StatsSet, &vortex_array::dtype::DType)
 
@@ -156,9 +156,9 @@ impl vortex_flatbuffers::FlatBufferRoot for vortex_file::FileStatistics
 
 impl vortex_flatbuffers::WriteFlatBuffer for vortex_file::FileStatistics
 
-pub type vortex_file::FileStatistics::Target<'a> = vortex_flatbuffers::footer::FileStatistics<'a>
+pub type vortex_file::FileStatistics::Target = vortex_flatbuffers::footer::root::FileStatistics
 
-pub fn vortex_file::FileStatistics::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
+pub fn vortex_file::FileStatistics::write_flatbuffer(&self, fbb: &mut planus::builder::Builder) -> vortex_error::VortexResult<planus::Offset<Self::Target>>
 
 impl<'a> core::iter::traits::collect::IntoIterator for &'a vortex_file::FileStatistics
 
@@ -242,21 +242,25 @@ impl core::clone::Clone for vortex_file::SegmentSpec
 
 pub fn vortex_file::SegmentSpec::clone(&self) -> vortex_file::SegmentSpec
 
-impl core::convert::From<&vortex_file::SegmentSpec> for vortex_flatbuffers::footer::SegmentSpec
+impl core::convert::From<&vortex_file::SegmentSpec> for vortex_flatbuffers::footer::root::SegmentSpec
 
-pub fn vortex_flatbuffers::footer::SegmentSpec::from(value: &vortex_file::SegmentSpec) -> Self
+pub fn vortex_flatbuffers::footer::root::SegmentSpec::from(value: &vortex_file::SegmentSpec) -> Self
 
-impl core::convert::TryFrom<&vortex_flatbuffers::footer::SegmentSpec> for vortex_file::SegmentSpec
+impl core::convert::TryFrom<&vortex_flatbuffers::footer::root::SegmentSpec> for vortex_file::SegmentSpec
 
 pub type vortex_file::SegmentSpec::Error = vortex_error::VortexError
 
-pub fn vortex_file::SegmentSpec::try_from(value: &vortex_flatbuffers::footer::SegmentSpec) -> core::result::Result<Self, Self::Error>
+pub fn vortex_file::SegmentSpec::try_from(value: &vortex_flatbuffers::footer::root::SegmentSpec) -> core::result::Result<Self, Self::Error>
 
 impl core::fmt::Debug for vortex_file::SegmentSpec
 
 pub fn vortex_file::SegmentSpec::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl core::marker::Copy for vortex_file::SegmentSpec
+
+impl<'a> core::convert::From<vortex_flatbuffers::footer::root::SegmentSpecRef<'a>> for vortex_file::SegmentSpec
+
+pub fn vortex_file::SegmentSpec::from(value: vortex_flatbuffers::footer::root::SegmentSpecRef<'a>) -> Self
 
 pub struct vortex_file::VortexFile
 
