@@ -32,15 +32,26 @@ function computeStats(values: unknown[]): ColumnStats {
   let nullCount = 0;
   const nums: number[] = [];
   let hasStrings = false;
+  let trueCount = 0;
+  let falseCount = 0;
+  let hasBools = false;
 
   for (const v of values) {
     if (v == null) {
       nullCount++;
+    } else if (typeof v === 'boolean') {
+      hasBools = true;
+      if (v) trueCount++;
+      else falseCount++;
     } else if (typeof v === 'number' || typeof v === 'bigint') {
       nums.push(Number(v));
     } else if (typeof v === 'string') {
       hasStrings = true;
     }
+  }
+
+  if (hasBools) {
+    return { kind: 'boolean', count, nullCount, trueCount, falseCount };
   }
 
   if (nums.length > 0) {
