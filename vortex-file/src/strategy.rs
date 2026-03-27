@@ -21,6 +21,7 @@ use vortex_array::arrays::List;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::Null;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
@@ -104,6 +105,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     session.register(Delta);
     session.register(FoR);
     session.register(FSST);
+    session.register(Patched);
     session.register(Pco);
     session.register(RLE);
     session.register(RunEnd);
