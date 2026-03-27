@@ -1,39 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import type {
-  LayoutNode,
-  Split,
-  DtypeCategory,
-  LayoutType,
-  ChunkNode,
-  ZoneNode,
-  ChunkGroup,
-} from './types';
+import type { LayoutTreeNode, Split, DtypeCategory, FlattenedRow, DisplayKind } from './types';
 
-// Layout type styles (for tree badges) — using Vortex palette as hex
-export const LAYOUT_STYLES: Record<
-  LayoutType | 'chunk' | 'zone' | 'chunkGroup',
-  { color: string; label: string }
-> = {
-  struct: { color: '#5971FD', label: 'struct' }, // vortex-blue
-  chunked: { color: '#CEE562', label: 'chunked' }, // vortex-green
-  chunk: { color: '#CEE562', label: 'chunk' }, // vortex-green
-  chunkGroup: { color: '#CEE562', label: '···' }, // vortex-green
-  zonemap: { color: '#FB863D', label: 'zonemap' }, // vortex-orange
-  zone: { color: '#FB863D', label: 'zone' }, // vortex-orange
-  dict: { color: '#EEB3E1', label: 'dict' }, // vortex-pink
-  flat: { color: '#2CB9D1', label: 'flat' }, // vortex-light-blue
+// Encoding styles — keyed by encoding string, with fallback for unknown encodings
+export const ENCODING_STYLES: Record<string, { color: string; label: string }> = {
+  'vortex.struct': { color: '#5971FD', label: 'struct' },
+  'vortex.chunked': { color: '#CEE562', label: 'chunked' },
+  'vortex.flat': { color: '#2CB9D1', label: 'flat' },
+  'vortex.dict': { color: '#EEB3E1', label: 'dict' },
+  'vortex.zonemap': { color: '#FB863D', label: 'zonemap' },
+  'vortex.fsst': { color: '#EEB3E1', label: 'fsst' },
+  'vortex.roaring_bool': { color: '#EEB3E1', label: 'roaring' },
+  'vortex.roaring_int': { color: '#2CB9D1', label: 'roaring' },
+  'vortex.alp': { color: '#FB863D', label: 'alp' },
+  'vortex.alp_rd': { color: '#FB863D', label: 'alp-rd' },
+  'vortex.for': { color: '#CEE562', label: 'for' },
+  'vortex.bitpacked': { color: '#CEE562', label: 'bitpacked' },
+  'vortex.runend': { color: '#CEE562', label: 'run-end' },
+  'vortex.runend_bool': { color: '#CEE562', label: 'run-end' },
+  'vortex.zigzag': { color: '#2CB9D1', label: 'zigzag' },
+  'vortex.constant': { color: '#8F8F8F', label: 'const' },
+  'vortex.sparse': { color: '#8F8F8F', label: 'sparse' },
 };
 
-// Dtype colors (for flat chunk bars in swimlane) — using Vortex palette as hex
+const DEFAULT_ENCODING_STYLE = { color: '#8F8F8F', label: 'unknown' };
+
+export function getEncodingStyle(encoding: string): { color: string; label: string } {
+  return (
+    ENCODING_STYLES[encoding] ?? {
+      ...DEFAULT_ENCODING_STYLE,
+      label: encoding.split('.').pop() ?? encoding,
+    }
+  );
+}
+
+// Dtype colors (for flat chunk bars in swimlane)
 export const DTYPE_COLORS: Record<DtypeCategory, string> = {
-  bool: '#EEB3E1', // vortex-pink
-  int: '#2CB9D1', // vortex-light-blue
-  float: '#FB863D', // vortex-orange
-  struct: '#5971FD', // vortex-blue
-  list: '#CEE562', // vortex-green
-  other: '#8F8F8F', // vortex-grey-dark
+  bool: '#EEB3E1',
+  int: '#2CB9D1',
+  float: '#FB863D',
+  struct: '#5971FD',
+  list: '#CEE562',
+  other: '#8F8F8F',
 };
 
 export const DTYPE_CATEGORIES: DtypeCategory[] = [
@@ -56,9 +65,11 @@ export function getDtypeCategory(dtype?: string): DtypeCategory {
   if (!dtype) return 'other';
   const d = dtype.toLowerCase();
   if (d === 'bool' || d === 'boolean') return 'bool';
-  if (d.includes('int') || d.includes('uint')) return 'int';
-  if (d.includes('float') || d.includes('double') || d.includes('decimal')) return 'float';
-  if (d.includes('struct') && !d.includes('list')) return 'struct';
+  if (d.includes('int') || d.includes('uint') || d.startsWith('i') || d.startsWith('u'))
+    return 'int';
+  if (d.includes('float') || d.includes('double') || d.includes('decimal') || d.startsWith('f'))
+    return 'float';
+  if (d.startsWith('{') || d.includes('struct')) return 'struct';
   if (d.includes('list') || d.includes('array')) return 'list';
   return 'other';
 }
@@ -71,26 +82,14 @@ export function rangesOverlap(a: [number, number], b: [number, number]): boolean
 }
 
 /**
- * Collect all row boundaries from a layout tree
+ * Collect all row boundaries from a LayoutTreeNode tree
  */
-export function collectBoundaries(
-  node: LayoutNode | ChunkNode | ZoneNode,
-  set: Set<number> = new Set(),
-): Set<number> {
-  set.add(node.rowRange[0]);
-  set.add(node.rowRange[1]);
+export function collectBoundaries(node: LayoutTreeNode, set: Set<number> = new Set()): Set<number> {
+  set.add(node.rowOffset);
+  set.add(node.rowOffset + node.rowCount);
 
-  if ('chunks' in node && node.chunks) {
-    node.chunks.forEach((c) => collectBoundaries(c, set));
-  }
-  if ('zones' in node && node.zones) {
-    node.zones.forEach((z) => collectBoundaries(z, set));
-  }
-  if ('children' in node && node.children) {
-    node.children.forEach((c) => collectBoundaries(c, set));
-  }
-  if ('child' in node && node.child) {
-    collectBoundaries(node.child, set);
+  for (const child of node.children) {
+    collectBoundaries(child, set);
   }
 
   return set;
@@ -99,7 +98,7 @@ export function collectBoundaries(
 /**
  * Create splits from layout boundaries
  */
-export function createSplits(layout: LayoutNode): Split[] {
+export function createSplits(layout: LayoutTreeNode): Split[] {
   const boundaries = Array.from(collectBoundaries(layout)).sort((a, b) => a - b);
   return boundaries.slice(0, -1).map((start, i) => ({
     id: `s${i}`,
@@ -122,26 +121,340 @@ export function getSelectedRowRange(
 }
 
 /**
- * Group chunks into hierarchical groups of GROUP_SIZE
+ * Get the display name for a layout tree node based on its child type
  */
-export function groupChunks(chunks: ChunkNode[], parentId: string): ChunkGroup[] | null {
-  if (chunks.length <= GROUP_SIZE) return null;
+export function getNodeDisplayName(node: LayoutTreeNode): string {
+  const ct = node.childType;
+  switch (ct.kind) {
+    case 'root':
+      return 'root';
+    case 'field':
+      return ct.fieldName;
+    case 'chunk':
+      return `chunk ${ct.chunkIndex}`;
+    case 'transparent':
+      return ct.name;
+    case 'auxiliary':
+      return ct.name;
+  }
+}
 
-  const groups: ChunkGroup[] = [];
-  for (let i = 0; i < chunks.length; i += GROUP_SIZE) {
-    const groupChunks = chunks.slice(i, Math.min(i + GROUP_SIZE, chunks.length));
+/**
+ * Get a badge label for schema mode
+ */
+export function getSchemaLabel(node: LayoutTreeNode): string {
+  return node.dtype;
+}
+
+/**
+ * Get a badge label for layout mode
+ */
+export function getLayoutLabel(node: LayoutTreeNode): string {
+  const ct = node.childType;
+  switch (ct.kind) {
+    case 'root':
+      return getEncodingStyle(node.encoding).label;
+    case 'field':
+      return `[field] ${getEncodingStyle(node.encoding).label}`;
+    case 'chunk':
+      return `[chunk ${ct.chunkIndex}]`;
+    case 'transparent':
+      return `[transparent: ${ct.name}]`;
+    case 'auxiliary':
+      return `[aux: ${ct.name}]`;
+  }
+}
+
+/**
+ * Check if a node has expandable children
+ */
+export function hasExpandableChildren(node: LayoutTreeNode): boolean {
+  return node.children.length > 0;
+}
+
+/**
+ * Get the row range tuple for a node
+ */
+export function getNodeRowRange(node: LayoutTreeNode): [number, number] {
+  return [node.rowOffset, node.rowOffset + node.rowCount];
+}
+
+/**
+ * Check if a node is a "field" child — used in schema mode to identify logical columns
+ */
+function isFieldChild(node: LayoutTreeNode): boolean {
+  return node.childType.kind === 'field';
+}
+
+/**
+ * In schema mode, find the field-level children, skipping intermediate layout nodes.
+ * Returns the node itself if it has field children, or walks through transparent/chunk/aux
+ * nodes to find them.
+ */
+function collectSchemaChildren(node: LayoutTreeNode): LayoutTreeNode[] {
+  const fieldChildren = node.children.filter(isFieldChild);
+  if (fieldChildren.length > 0) return fieldChildren;
+  // No field children — this is a leaf or layout-only node
+  return [];
+}
+
+/**
+ * Group children into groups of GROUP_SIZE when there are too many.
+ * Returns null if grouping is not needed.
+ */
+export function groupChildren(
+  children: LayoutTreeNode[],
+  parentId: string,
+): { groups: LayoutTreeNode[]; isGrouped: true } | null {
+  if (children.length <= GROUP_SIZE) return null;
+
+  const groups: LayoutTreeNode[] = [];
+  for (let i = 0; i < children.length; i += GROUP_SIZE) {
+    const groupNodes = children.slice(i, Math.min(i + GROUP_SIZE, children.length));
     const startIdx = i;
-    const endIdx = Math.min(i + GROUP_SIZE - 1, chunks.length - 1);
+    const endIdx = Math.min(i + GROUP_SIZE - 1, children.length - 1);
+    const firstNode = groupNodes[0];
+    const lastNode = groupNodes[groupNodes.length - 1];
+
     groups.push({
       id: `${parentId}_group_${startIdx}_${endIdx}`,
-      name: `chunks ${startIdx}–${endIdx}`,
-      type: 'chunkGroup',
-      rowRange: [groupChunks[0].rowRange[0], groupChunks[groupChunks.length - 1].rowRange[1]],
-      chunks: groupChunks,
-      _isGroup: true,
+      encoding: 'group',
+      dtype: '',
+      rowCount: lastNode.rowOffset + lastNode.rowCount - firstNode.rowOffset,
+      rowOffset: firstNode.rowOffset,
+      metadataBytes: 0,
+      segmentIds: [],
+      childType: { kind: 'transparent', name: `chunks ${startIdx}–${endIdx}` },
+      children: groupNodes,
     });
   }
-  return groups;
+  return { groups, isGrouped: true };
+}
+
+/**
+ * Flatten a layout tree into rows for rendering.
+ *
+ * @param root - The root layout tree node
+ * @param expanded - Set of expanded node IDs
+ * @param selectedRange - Optional selected row range for filtering
+ * @param mode - 'schema' shows logical column hierarchy, 'layout' shows full layout tree
+ */
+export function flattenTree(
+  root: LayoutTreeNode,
+  expanded: Set<string>,
+  selectedRange: [number, number] | null,
+  mode: 'schema' | 'layout',
+): FlattenedRow[] {
+  const result: FlattenedRow[] = [];
+
+  function walk(node: LayoutTreeNode, depth: number) {
+    const rowRange = getNodeRowRange(node);
+    result.push({ node, depth, displayKind: 'normal', rowRange });
+
+    if (!expanded.has(node.id)) return;
+
+    let childrenToShow: LayoutTreeNode[];
+
+    if (mode === 'schema') {
+      // In schema mode, show field children at the top level.
+      // If a field child has no field sub-children, show its layout children when expanded.
+      const schemaChildren = collectSchemaChildren(node);
+      childrenToShow = schemaChildren.length > 0 ? schemaChildren : node.children;
+    } else {
+      childrenToShow = node.children;
+    }
+
+    // Apply chunk grouping if there are many children of the same type
+    const chunkChildren = childrenToShow.filter((c) => c.childType.kind === 'chunk');
+    const nonChunkChildren = childrenToShow.filter((c) => c.childType.kind !== 'chunk');
+
+    // Show non-chunk children first
+    for (const child of nonChunkChildren) {
+      walk(child, depth + 1);
+    }
+
+    // Group chunk children if needed
+    if (chunkChildren.length > 0) {
+      const groupResult = groupChildren(chunkChildren, node.id);
+
+      if (groupResult) {
+        const visibleGroups = selectedRange
+          ? groupResult.groups.filter((g) => rangesOverlap(getNodeRowRange(g), selectedRange))
+          : groupResult.groups;
+
+        for (const group of visibleGroups) {
+          const groupRowRange = getNodeRowRange(group);
+          result.push({
+            node: group,
+            depth: depth + 1,
+            displayKind: 'group',
+            groupedChildren: group.children,
+            rowRange: groupRowRange,
+          });
+
+          if (expanded.has(group.id)) {
+            const visibleInGroup = selectedRange
+              ? group.children.filter((c) => rangesOverlap(getNodeRowRange(c), selectedRange))
+              : group.children;
+
+            for (const child of visibleInGroup) {
+              walk(child, depth + 2);
+            }
+
+            if (selectedRange && visibleInGroup.length < group.children.length) {
+              addHiddenIndicator(
+                group,
+                group.children.length - visibleInGroup.length,
+                depth + 2,
+                'in group',
+              );
+            }
+          }
+        }
+
+        if (selectedRange && visibleGroups.length < groupResult.groups.length) {
+          addHiddenIndicator(
+            node,
+            groupResult.groups.length - visibleGroups.length,
+            depth + 1,
+            'groups',
+          );
+        }
+      } else {
+        const visible = selectedRange
+          ? chunkChildren.filter((c) => rangesOverlap(getNodeRowRange(c), selectedRange))
+          : chunkChildren;
+
+        for (const child of visible) {
+          walk(child, depth + 1);
+        }
+
+        if (selectedRange && visible.length < chunkChildren.length) {
+          addHiddenIndicator(node, chunkChildren.length - visible.length, depth + 1, 'chunks');
+        }
+      }
+    }
+  }
+
+  function addHiddenIndicator(
+    parent: LayoutTreeNode,
+    hiddenCount: number,
+    depth: number,
+    label: string,
+  ) {
+    const indicator: LayoutTreeNode = {
+      id: `${parent.id}_hidden_${label}`,
+      encoding: '',
+      dtype: '',
+      rowCount: parent.rowCount,
+      rowOffset: parent.rowOffset,
+      metadataBytes: 0,
+      segmentIds: [],
+      childType: { kind: 'transparent', name: `${hiddenCount} more ${label}` },
+      children: [],
+    };
+    result.push({
+      node: indicator,
+      depth,
+      displayKind: 'hiddenIndicator' as DisplayKind,
+      rowRange: getNodeRowRange(parent),
+    });
+  }
+
+  walk(root, 0);
+  return result;
+}
+
+/**
+ * Find a node by ID in a layout tree
+ */
+export function findNodeById(root: LayoutTreeNode, id: string): LayoutTreeNode | null {
+  if (root.id === id) return root;
+  for (const child of root.children) {
+    const found = findNodeById(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Find the path from root to a node (inclusive of both endpoints).
+ * Returns an empty array if the node is not found.
+ */
+export function findPathToNode(root: LayoutTreeNode, id: string): LayoutTreeNode[] {
+  if (root.id === id) return [root];
+  for (const child of root.children) {
+    const path = findPathToNode(child, id);
+    if (path.length > 0) return [root, ...path];
+  }
+  return [];
+}
+
+/**
+ * Collect all node IDs in a subtree
+ */
+export function collectSubtreeIds(node: LayoutTreeNode): Set<string> {
+  const ids = new Set<string>();
+  function walk(n: LayoutTreeNode) {
+    ids.add(n.id);
+    for (const child of n.children) walk(child);
+  }
+  walk(node);
+  return ids;
+}
+
+/**
+ * Collect all segment IDs reachable from a subtree
+ */
+export function collectSubtreeSegments(node: LayoutTreeNode): number[] {
+  const segments: number[] = [];
+  function walk(n: LayoutTreeNode) {
+    segments.push(...n.segmentIds);
+    for (const child of n.children) walk(child);
+  }
+  walk(node);
+  return segments;
+}
+
+/**
+ * Filter nodes matching a search query (and their ancestors)
+ */
+export function filterTreeBySearch(
+  rows: FlattenedRow[],
+  query: string,
+  root: LayoutTreeNode,
+): FlattenedRow[] {
+  if (!query.trim()) return rows;
+
+  const lowerQuery = query.toLowerCase();
+  const matchingIds = new Set<string>();
+
+  // Find all matching nodes
+  function findMatches(node: LayoutTreeNode) {
+    const name = getNodeDisplayName(node).toLowerCase();
+    const dtype = node.dtype.toLowerCase();
+    const encoding = node.encoding.toLowerCase();
+    if (name.includes(lowerQuery) || dtype.includes(lowerQuery) || encoding.includes(lowerQuery)) {
+      matchingIds.add(node.id);
+    }
+    for (const child of node.children) findMatches(child);
+  }
+  findMatches(root);
+
+  // Collect ancestors of matching nodes
+  const ancestorIds = new Set<string>();
+  function collectAncestors(node: LayoutTreeNode, path: string[]) {
+    if (matchingIds.has(node.id)) {
+      for (const id of path) ancestorIds.add(id);
+    }
+    for (const child of node.children) {
+      collectAncestors(child, [...path, node.id]);
+    }
+  }
+  collectAncestors(root, []);
+
+  const visibleIds = new Set([...matchingIds, ...ancestorIds]);
+  return rows.filter((row) => visibleIds.has(row.node.id));
 }
 
 /**
@@ -150,7 +463,8 @@ export function groupChunks(chunks: ChunkNode[], parentId: string): ChunkGroup[]
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 /**
@@ -165,19 +479,7 @@ export function formatRowRange(range: [number, number]): string {
  * Format row count to compact string (e.g., "27.1k")
  */
 export function formatRowCount(n: number): string {
-  return `${(n / 1000).toFixed(1)}k`;
-}
-
-/**
- * Check if a node has expandable children
- */
-export function hasExpandableChildren(
-  node: LayoutNode | ChunkNode | ZoneNode | ChunkGroup,
-): boolean {
-  if ('chunks' in node && node.chunks) return true;
-  if ('zones' in node && node.zones) return true;
-  if ('children' in node && node.children) return true;
-  if ('child' in node && node.child) return true;
-  if ('_isGroup' in node && node._isGroup) return true;
-  return false;
+  if (n < 1000) return String(n);
+  if (n < 1000000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1000000).toFixed(1)}M`;
 }

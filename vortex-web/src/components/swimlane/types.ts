@@ -1,91 +1,71 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// Layout node types for the columnar format visualizer
+// Unified layout tree type mirroring the Rust Layout trait.
+// Each node represents a layout in the Vortex file format.
 
-export type DtypeCategory = 'bool' | 'int' | 'float' | 'struct' | 'list' | 'other';
-
-export type LayoutType = 'struct' | 'chunked' | 'zonemap' | 'dict' | 'flat';
-
-export interface FlatMeta {
-  dtype: string;
-  bytes: number;
-  min?: string | number | boolean;
-  max?: string | number | boolean;
-}
-
-export interface ZoneMeta {
-  min: number;
-  max: number;
-}
-
-export interface BaseLayoutNode {
+export interface LayoutTreeNode {
+  /** Path-based ID, e.g. "root.customer.id.[0]" */
   id: string;
-  name: string;
+  /** Encoding name, e.g. "vortex.flat", "vortex.chunked" */
+  encoding: string;
+  /** DType string, e.g. "i64", "utf8", "{name=utf8, age=i32}" */
+  dtype: string;
+  /** Number of rows in this layout */
+  rowCount: number;
+  /** Absolute row offset in the file */
+  rowOffset: number;
+  /** Size of metadata for this layout in bytes */
+  metadataBytes: number;
+  /** Segment IDs referenced by this layout */
+  segmentIds: number[];
+  /** Relationship of this node to its parent */
+  childType: LayoutChildKind;
+  /** Child layout nodes */
+  children: LayoutTreeNode[];
+}
+
+export type LayoutChildKind =
+  | { kind: 'root' }
+  | { kind: 'field'; fieldName: string }
+  | { kind: 'chunk'; chunkIndex: number; rowOffset: number }
+  | { kind: 'transparent'; name: string }
+  | { kind: 'auxiliary'; name: string };
+
+export interface SegmentMapEntry {
+  index: number;
+  byteOffset: number;
+  byteLength: number;
+  alignment: number;
+  column: string | null;
+  /** Node ID path in the layout tree */
+  layoutPath: string;
+}
+
+export interface FileStructureInfo {
+  fileSize: number;
+  version: number;
+  postscriptSize: number;
+  totalDataBytes: number;
+  totalMetadataBytes: number;
+}
+
+// Rendering types (internal to swimlane)
+
+export type DisplayKind = 'normal' | 'group' | 'hiddenIndicator';
+
+export interface FlattenedRow {
+  node: LayoutTreeNode;
+  depth: number;
+  displayKind: DisplayKind;
+  groupedChildren?: LayoutTreeNode[];
   rowRange: [number, number];
 }
 
-export interface StructLayout extends BaseLayoutNode {
-  type: 'struct';
-  children: LayoutNode[];
-}
-
-export interface ChunkedLayout extends BaseLayoutNode {
-  type: 'chunked';
-  chunkCount: number;
-  chunks: ChunkNode[];
-}
-
-export interface ZonemapLayout extends BaseLayoutNode {
-  type: 'zonemap';
-  zoneCount: number;
-  zones: ZoneNode[];
-}
-
-export interface DictLayout extends BaseLayoutNode {
-  type: 'dict';
-  children: LayoutNode[];
-}
-
-export interface FlatLayout extends BaseLayoutNode {
-  type: 'flat';
-  meta: FlatMeta;
-}
-
-export interface ChunkNode extends BaseLayoutNode {
-  child: LayoutNode;
-}
-
-export interface ZoneNode extends BaseLayoutNode {
-  meta: ZoneMeta;
-  child: LayoutNode;
-}
-
-export type LayoutNode = StructLayout | ChunkedLayout | ZonemapLayout | DictLayout | FlatLayout;
+// Retained from original types
+export type DtypeCategory = 'bool' | 'int' | 'float' | 'struct' | 'list' | 'other';
 
 export interface Split {
   id: string;
   rowRange: [number, number];
-}
-
-// Internal types for tree flattening
-export interface FlattenedNode {
-  node: LayoutNode & {
-    _isPartition?: boolean;
-    _isGroup?: boolean;
-    chunks?: ChunkNode[];
-  };
-  depth: number;
-  isGroup?: boolean;
-  isHint?: boolean;
-  isHiddenIndicator?: boolean;
-}
-
-export interface ChunkGroup {
-  id: string;
-  name: string;
-  type: 'chunkGroup';
-  rowRange: [number, number];
-  chunks: ChunkNode[];
-  _isGroup: true;
 }

@@ -7,22 +7,26 @@ export type { LayoutSwimlaneProps } from './LayoutSwimlane';
 
 // Types
 export type {
-  LayoutNode,
-  StructLayout,
-  ChunkedLayout,
-  ZonemapLayout,
-  DictLayout,
-  FlatLayout,
-  ChunkNode,
-  ZoneNode,
+  LayoutTreeNode,
+  LayoutChildKind,
+  SegmentMapEntry,
+  FileStructureInfo,
+  FlattenedRow,
+  DisplayKind,
   Split,
   DtypeCategory,
-  LayoutType,
-  FlatMeta,
-  ZoneMeta,
 } from './types';
 
-// Utilities (for advanced usage)
+// Sub-components
+export { TreeRow } from './TreeRow';
+export { TreeSearch } from './TreeSearch';
+export { SwimlaneBar } from './SwimlaneBar';
+export { AxisBar } from './AxisBar';
+export { Tooltip } from './Tooltip';
+export { DtypeLegend } from './DtypeLegend';
+export { SplitRegion } from './SplitRegion';
+
+// Utilities
 export {
   getDtypeCategory,
   rangesOverlap,
@@ -30,7 +34,17 @@ export {
   formatBytes,
   formatRowRange,
   formatRowCount,
-  LAYOUT_STYLES,
+  getNodeDisplayName,
+  getNodeRowRange,
+  getEncodingStyle,
+  hasExpandableChildren,
+  flattenTree,
+  filterTreeBySearch,
+  findNodeById,
+  findPathToNode,
+  collectSubtreeIds,
+  collectSubtreeSegments,
+  ENCODING_STYLES,
   DTYPE_COLORS,
   DTYPE_CATEGORIES,
 } from './utils';
