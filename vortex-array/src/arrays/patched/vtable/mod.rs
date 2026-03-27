@@ -199,7 +199,10 @@ impl VTable for Patched {
         let ptype = dtype.as_ptype();
 
         let len = array.len();
-        array.inner.append_to_builder(builder, ctx)?;
+
+        // Slice the inner by its offset before appending it.
+        let sliced_inner = array.inner.slice(array.offset..array.offset + array.len)?;
+        sliced_inner.append_to_builder(builder, ctx)?;
 
         let offset = array.offset;
         let lane_offsets: Buffer<u32> =
@@ -364,7 +367,7 @@ fn apply_patches_primitive<V: NativePType>(
             }
 
             let value = values[idx];
-            output[index] = value;
+            output[index - offset] = value;
         }
     }
 }
@@ -446,6 +449,38 @@ mod tests {
         expected[1] = 10;
         expected[2] = 20;
         expected[3] = 30;
+        let expected = expected.into_array();
+
+        assert_arrays_eq!(expected, result);
+    }
+
+    #[test]
+    fn test_append_to_builder_sliced() {
+        let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
+        let patches = Patches::new(
+            1024,
+            0,
+            buffer![1u32, 2, 3].into_array(),
+            buffer![10u16, 20, 30].into_array(),
+            None,
+        )
+        .unwrap();
+
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
+        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+            .unwrap()
+            .slice(3..1024)
+            .unwrap();
+
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
+
+        let result = builder.finish();
+
+        let mut expected = buffer_mut![0u16; 1021];
+        expected[0] = 30;
         let expected = expected.into_array();
 
         assert_arrays_eq!(expected, result);
