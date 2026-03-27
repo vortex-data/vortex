@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+import type { LayoutTreeNode } from '../swimlane/types';
+import type { VortexFileState } from '../../contexts/VortexFileContext';
+import {
+  formatBytes,
+  formatRowCount,
+  getNodeDisplayName,
+  collectSubtreeSegments,
+} from '../swimlane/utils';
+
+interface SummaryPaneProps {
+  node: LayoutTreeNode | null;
+  file: VortexFileState;
+}
+
+export function SummaryPane({ node, file }: SummaryPaneProps) {
+  if (!node) {
+    // File-level summary
+    return (
+      <div className="text-xs space-y-2">
+        <h3 className="font-medium text-vortex-black dark:text-vortex-white">File Summary</h3>
+        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
+          <span>File</span>
+          <span className="text-vortex-black dark:text-vortex-white">{file.fileName}</span>
+          <span>Size</span>
+          <span className="text-vortex-black dark:text-vortex-white">
+            {formatBytes(file.fileSize)}
+          </span>
+          <span>Rows</span>
+          <span className="text-vortex-black dark:text-vortex-white">
+            {formatRowCount(file.rowCount)}
+          </span>
+          <span>Segments</span>
+          <span className="text-vortex-black dark:text-vortex-white">{file.segments.length}</span>
+          <span>Version</span>
+          <span className="text-vortex-black dark:text-vortex-white">v{file.version}</span>
+          <span>DType</span>
+          <span className="text-vortex-black dark:text-vortex-white font-mono text-[10px]">
+            {file.dtype}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Node-level summary
+  const name = getNodeDisplayName(node);
+  const subtreeSegmentIds = collectSubtreeSegments(node);
+  const reachableSegments = file.segments.filter((s) => subtreeSegmentIds.includes(s.index));
+  const totalBytes = reachableSegments.reduce((sum, s) => sum + s.byteLength, 0);
+
+  return (
+    <div className="text-xs space-y-2">
+      <h3 className="font-medium text-vortex-black dark:text-vortex-white">{name}</h3>
+      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
+        <span>Encoding</span>
+        <span className="text-vortex-black dark:text-vortex-white">{node.encoding}</span>
+        <span>DType</span>
+        <span className="text-vortex-black dark:text-vortex-white font-mono text-[10px]">
+          {node.dtype}
+        </span>
+        <span>Rows</span>
+        <span className="text-vortex-black dark:text-vortex-white">
+          {node.rowCount.toLocaleString()}
+        </span>
+        <span>Row offset</span>
+        <span className="text-vortex-black dark:text-vortex-white">
+          {node.rowOffset.toLocaleString()}
+        </span>
+        <span>Metadata</span>
+        <span className="text-vortex-black dark:text-vortex-white">
+          {formatBytes(node.metadataBytes)}
+        </span>
+        <span>Data size</span>
+        <span className="text-vortex-black dark:text-vortex-white">{formatBytes(totalBytes)}</span>
+        <span>Segments</span>
+        <span className="text-vortex-black dark:text-vortex-white">{reachableSegments.length}</span>
+        <span>Children</span>
+        <span className="text-vortex-black dark:text-vortex-white">{node.children.length}</span>
+      </div>
+    </div>
+  );
+}
