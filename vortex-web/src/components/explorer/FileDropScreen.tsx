@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useState, useCallback, type DragEvent } from 'react';
+import { ThemePicker } from '../ThemePicker';
 
 interface FileDropScreenProps {
   onFileLoaded: (file: File) => void;
@@ -44,7 +45,10 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
   }, [onFileLoaded]);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center text-white">
+    <div className="flex min-h-screen flex-col items-center justify-center text-vortex-black dark:text-vortex-white relative">
+      <div className="absolute top-4 right-4">
+        <ThemePicker />
+      </div>
       <h1 className="mb-8 font-funnel text-4xl font-light tracking-tight md:text-6xl">
         Vortex Explorer
       </h1>

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useVortexFile } from '../../contexts/VortexFileContext';
+import { ThemePicker } from '../ThemePicker';
 
 interface FileHeaderProps {
   onClose: () => void;
@@ -21,13 +22,16 @@ export function FileHeader({ onClose }: FileHeaderProps) {
       >
         v{file.version}
       </span>
-      <button
-        onClick={onClose}
-        className="ml-auto text-xs text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white transition-colors cursor-pointer"
-        title="Close file"
-      >
-        Close
-      </button>
+      <div className="ml-auto flex items-center gap-3">
+        <ThemePicker />
+        <button
+          onClick={onClose}
+          className="text-xs text-vortex-grey-dark hover:text-vortex-black dark:hover:text-vortex-white transition-colors cursor-pointer"
+          title="Close file"
+        >
+          Close
+        </button>
+      </div>
     </div>
   );
 }
