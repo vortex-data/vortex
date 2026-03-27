@@ -238,3 +238,6 @@ sweep.timestamp
 # Perfetto
 trace*.json
 trace*.pb
+
+# pytest-benchmark output\
+vortex-python/.benchmarks/
