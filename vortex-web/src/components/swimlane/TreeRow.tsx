@@ -4,11 +4,13 @@
 import type { FlattenedRow } from './types';
 import {
   ROW_HEIGHT,
+  DTYPE_COLORS,
   getEncodingStyle,
   getNodeDisplayName,
   hasExpandableChildren,
   formatRowRange,
   getDtypeCategory,
+  shortEncoding,
 } from './utils';
 
 interface TreeRowProps {
@@ -43,11 +45,15 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect,
   const name = getNodeDisplayName(node);
 
   let badgeText: string;
+  let badgeColor: string;
   if (isGroup) {
     badgeText = '···';
+    badgeColor = style.color;
   } else if (mode === 'schema') {
     const dtypeCat = getDtypeCategory(node.dtype);
-    badgeText = dtypeCat === 'struct' ? 'struct' : node.dtype.length > 20 ? node.dtype.slice(0, 18) + '…' : node.dtype;
+    const dtypeStr = shortEncoding(node.dtype);
+    badgeText = dtypeCat === 'struct' ? 'struct' : dtypeStr.length > 20 ? dtypeStr.slice(0, 18) + '…' : dtypeStr;
+    badgeColor = DTYPE_COLORS[dtypeCat];
   } else {
     const ct = node.childType;
     if (ct.kind === 'chunk') {
@@ -58,6 +64,7 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect,
         badgeText += ` (${node.children.length})`;
       }
     }
+    badgeColor = style.color;
   }
 
   const opacity = isGroup ? 'opacity-50' : isLeaf ? 'opacity-70' : '';
@@ -87,7 +94,7 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect,
       </span>
       <span
         className="text-[9px] px-1.5 py-0.5 rounded max-w-[120px] truncate"
-        style={{ color: style.color, backgroundColor: `${style.color}15` }}
+        style={{ color: badgeColor, backgroundColor: `${badgeColor}15` }}
       >
         {badgeText}
       </span>

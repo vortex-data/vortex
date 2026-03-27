@@ -54,10 +54,6 @@ export function SummaryPane({ node, file }: SummaryPaneProps) {
       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
         <span>Encoding</span>
         <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>{shortEncoding(node.encoding)}</span>
-        <span>DType</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg font-mono text-[10px]">
-          {node.dtype}
-        </span>
         <span>Rows</span>
         <span className="text-vortex-fg-light dark:text-vortex-fg">
           {node.rowCount.toLocaleString()}
