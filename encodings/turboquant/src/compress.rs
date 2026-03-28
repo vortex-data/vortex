@@ -137,6 +137,8 @@ pub fn turboquant_encode_mse(
     let norms_array = PrimitiveArray::new::<f32>(norms_buf.freeze(), Validity::NonNullable);
 
     // Store centroids as a child array.
+    // TODO(perf): `get_centroids` returns Vec<f32>; could avoid the copy by
+    // supporting Buffer::from(Vec<T>) or caching as Buffer directly.
     let mut centroids_buf = BufferMut::<f32>::with_capacity(centroids.len());
     centroids_buf.extend_from_slice(&centroids);
     let centroids_array = PrimitiveArray::new::<f32>(centroids_buf.freeze(), Validity::NonNullable);
@@ -194,6 +196,8 @@ pub fn turboquant_encode_qjl(
     };
     let mse_inner = turboquant_encode_mse(fsl, &mse_config)?;
 
+    // TODO(perf): `turboquant_encode_mse` above already constructs the same
+    // RotationMatrix from the same seed. Refactor to share it.
     let rotation = RotationMatrix::try_new(seed, dim)?;
     let padded_dim = rotation.padded_dim();
 
@@ -250,18 +254,20 @@ pub fn turboquant_encode_qjl(
             }
         }
 
-        // Compute residual.
-        residual.fill(0.0);
+        // Compute residual: r = x - x̂. Only [..dim] is written; tail stays zero
+        // from initialization and is never modified.
         for j in 0..dim {
             residual[j] = x[j] - dequantized[j];
         }
         let residual_norm = l2_norm(&residual[..dim]);
         residual_norms_buf.push(residual_norm);
 
-        // QJL: sign(S * r).
-        projected.fill(0.0);
+        // QJL: sign(S · r). rotate() writes all of `projected` when called;
+        // when residual_norm == 0 we must zero it since it has stale data.
         if residual_norm > 0.0 {
             qjl_rotation.rotate(&residual, &mut projected);
+        } else {
+            projected.fill(0.0);
         }
 
         let bit_offset = row * padded_dim;

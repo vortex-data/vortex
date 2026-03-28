@@ -645,4 +645,139 @@ mod tests {
         );
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Edge case and input format tests
+    // -----------------------------------------------------------------------
+
+    /// Verify that all-zero vectors roundtrip correctly (norm == 0 branch).
+    #[test]
+    fn all_zero_vectors_roundtrip() -> VortexResult<()> {
+        let num_rows = 10;
+        let dim = 128;
+        let buf = BufferMut::<f32>::full(0.0f32, num_rows * dim);
+        let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
+        let fsl = FixedSizeListArray::try_new(
+            elements.into_array(),
+            dim as u32,
+            Validity::NonNullable,
+            num_rows,
+        )?;
+
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(42),
+        };
+        let (original, decoded) = encode_decode_mse(&fsl, &config)?;
+        // All-zero vectors should decode to all-zero (norm=0 → 0 * anything = 0).
+        for (i, (&o, &d)) in original.iter().zip(decoded.iter()).enumerate() {
+            assert_eq!(o, 0.0, "original[{i}] not zero");
+            assert_eq!(d, 0.0, "decoded[{i}] not zero for all-zero input");
+        }
+        Ok(())
+    }
+
+    /// Verify that f64 input is accepted and encoded (converted to f32 internally).
+    #[test]
+    fn f64_input_encodes_successfully() -> VortexResult<()> {
+        let num_rows = 10;
+        let dim = 64;
+        let mut rng = StdRng::seed_from_u64(99);
+        let normal = Normal::new(0.0f64, 1.0).unwrap();
+
+        let mut buf = BufferMut::<f64>::with_capacity(num_rows * dim);
+        for _ in 0..(num_rows * dim) {
+            buf.push(normal.sample(&mut rng));
+        }
+        let elements = PrimitiveArray::new::<f64>(buf.freeze(), Validity::NonNullable);
+        let fsl = FixedSizeListArray::try_new(
+            elements.into_array(),
+            dim as u32,
+            Validity::NonNullable,
+            num_rows,
+        )?;
+
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(42),
+        };
+        // Verify encoding succeeds with f64 input (f64→f32 conversion).
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+        assert_eq!(encoded.norms().len(), num_rows);
+        assert_eq!(encoded.dimension(), dim as u32);
+        Ok(())
+    }
+
+    /// Verify serde roundtrip: serialize MSE array metadata + children, then rebuild.
+    #[test]
+    fn mse_serde_roundtrip() -> VortexResult<()> {
+        use vortex_array::DynArray;
+        use vortex_array::SerializeMetadata;
+        use vortex_array::vtable::VTable;
+
+        let fsl = make_fsl(10, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+
+        // Serialize metadata.
+        let metadata = <crate::mse::TurboQuantMSE as VTable>::metadata(&encoded)?;
+        let serialized = <crate::mse::TurboQuantMSE as VTable>::serialize(metadata)?
+            .expect("metadata should serialize");
+
+        // Collect children.
+        let nchildren = <crate::mse::TurboQuantMSE as VTable>::nchildren(&encoded);
+        assert_eq!(nchildren, 4);
+        let children: Vec<ArrayRef> = (0..nchildren)
+            .map(|i| <crate::mse::TurboQuantMSE as VTable>::child(&encoded, i))
+            .collect();
+
+        // Deserialize and rebuild.
+        let deserialized = <crate::mse::TurboQuantMSE as VTable>::deserialize(
+            &serialized,
+            encoded.dtype(),
+            encoded.len(),
+            &[],
+            &SESSION,
+        )?;
+
+        // Verify metadata fields survived roundtrip.
+        assert_eq!(deserialized.dimension, encoded.dimension());
+        assert_eq!(deserialized.bit_width, encoded.bit_width() as u32);
+        assert_eq!(deserialized.padded_dim, encoded.padded_dim());
+        assert_eq!(deserialized.rotation_seed, encoded.rotation_seed());
+
+        // Verify the rebuilt array decodes identically.
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded_original = encoded
+            .clone()
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let original_elements = decoded_original.elements().to_canonical()?.into_primitive();
+
+        // Rebuild from children (simulating deserialization).
+        let rebuilt = crate::mse::array::TurboQuantMSEArray::try_new(
+            encoded.dtype().clone(),
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+            children[3].clone(),
+            deserialized.dimension,
+            deserialized.bit_width as u8,
+            deserialized.padded_dim,
+            deserialized.rotation_seed,
+        )?;
+        let decoded_rebuilt = rebuilt
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let rebuilt_elements = decoded_rebuilt.elements().to_canonical()?.into_primitive();
+
+        assert_eq!(
+            original_elements.as_slice::<f32>(),
+            rebuilt_elements.as_slice::<f32>()
+        );
+        Ok(())
+    }
 }

@@ -146,6 +146,10 @@ pub fn execute_decompress_qjl(
         let mse_row = &mse_elements[row * dim..(row + 1) * dim];
         let residual_norm = residual_norms[row];
 
+        // TODO(perf): Per-element bit extraction + branch is hard to autovectorize.
+        // Unlike MSE rotation signs (which are amortized once for all rows), QJL
+        // signs change per row so they can't be pre-expanded. Consider reading raw
+        // bytes and using bitwise ops to generate ±1.0 f32s in bulk.
         let bit_offset = row * padded_dim;
         for idx in 0..padded_dim {
             qjl_signs_vec[idx] = if qjl_bit_buf.value(bit_offset + idx) {
