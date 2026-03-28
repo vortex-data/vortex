@@ -108,8 +108,7 @@ pub struct ParsedStage {
 
 /// A dispatch plan serialized as a packed byte buffer.
 ///
-/// Layout (matching the C-side `PlanHeader` + `PackedStage` format in
-/// `dynamic_dispatch.h`):
+/// Matching the C-side `PlanHeader` + `PackedStage` ABI in `dynamic_dispatch.h`:
 ///
 /// ```text
 /// [PlanHeader]                            — sizeof(PlanHeader) bytes
@@ -117,9 +116,6 @@ pub struct ParsedStage {
 /// [PackedStage 1][ScalarOp × N1]          — variable
 /// ...
 /// ```
-///
-/// This is uploaded to the device and cooperatively copied into shared memory
-/// by the kernel.
 #[derive(Clone)]
 pub struct CudaDispatchPlan {
     buffer: ByteBuffer,
