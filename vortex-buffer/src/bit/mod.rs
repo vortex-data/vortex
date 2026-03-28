@@ -27,6 +27,7 @@ pub use buf_mut::*;
 pub use set_indices::ScalarBitIndexIterator;
 pub use set_indices::collect_set_indices;
 pub use set_indices::collect_set_indices_scalar;
+pub use set_indices::collect_set_indices_with_count;
 
 /// Get the bit value at `index` out of `buf`.
 ///

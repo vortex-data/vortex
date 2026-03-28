@@ -13,6 +13,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::ScalarBitIndexIterator;
 use vortex_buffer::collect_set_indices;
 use vortex_buffer::collect_set_indices_scalar;
+use vortex_buffer::collect_set_indices_with_count;
 
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never
@@ -422,6 +423,20 @@ macro_rules! bench_density {
                     ));
                 });
             }
+
+            #[divan::bench]
+            fn [< d $density pct_ $dist _collect_precount >](bencher: Bencher) {
+                let buffer = $make_fn($density);
+                let true_count = buffer.true_count();
+                bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+                    divan::black_box(collect_set_indices_with_count(
+                        buffer.inner().as_slice(),
+                        buffer.offset(),
+                        buffer.len(),
+                        Some(true_count),
+                    ));
+                });
+            }
         }
     };
 }
@@ -508,6 +523,34 @@ fn d001pct_random_collect_simd(bencher: Bencher) {
             buffer.inner().as_slice(),
             buffer.offset(),
             buffer.len(),
+        ));
+    });
+}
+
+#[divan::bench]
+fn d001pct_uniform_collect_precount(bencher: Bencher) {
+    let buffer = make_very_sparse(10_000);
+    let true_count = buffer.true_count();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices_with_count(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+            Some(true_count),
+        ));
+    });
+}
+
+#[divan::bench]
+fn d001pct_random_collect_precount(bencher: Bencher) {
+    let buffer = make_very_sparse_random();
+    let true_count = buffer.true_count();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(collect_set_indices_with_count(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            buffer.len(),
+            Some(true_count),
         ));
     });
 }

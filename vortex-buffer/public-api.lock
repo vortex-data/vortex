@@ -252,7 +252,7 @@ pub fn vortex_buffer::BitBuffer::clear(&mut self)
 
 pub fn vortex_buffer::BitBuffer::collect_bool<F: core::ops::function::FnMut(usize) -> bool>(len: usize, f: F) -> Self
 
-pub fn vortex_buffer::BitBuffer::collect_set_indices(&self) -> alloc::vec::Vec<u32>
+pub fn vortex_buffer::BitBuffer::collect_set_indices(&self, true_count: core::option::Option<usize>) -> alloc::vec::Vec<u32>
 
 pub fn vortex_buffer::BitBuffer::empty() -> Self
 
@@ -1045,6 +1045,8 @@ pub fn B::copy_to_const_aligned<const A: usize>(&mut self, len: usize) -> vortex
 pub fn vortex_buffer::collect_set_indices(buffer: &[u8], offset: usize, len: usize) -> alloc::vec::Vec<u32>
 
 pub fn vortex_buffer::collect_set_indices_scalar(buffer: &[u8], offset: usize, len: usize) -> alloc::vec::Vec<u32>
+
+pub fn vortex_buffer::collect_set_indices_with_count(buffer: &[u8], offset: usize, len: usize, true_count: core::option::Option<usize>) -> alloc::vec::Vec<u32>
 
 pub fn vortex_buffer::get_bit(buf: &[u8], index: usize) -> bool
 

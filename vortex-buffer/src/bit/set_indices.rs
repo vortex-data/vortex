@@ -325,13 +325,23 @@ fn drain_word_to_vec(word: u64, base: u32, out: &mut Vec<u32>) {
 // Dispatch: pick the best available SIMD path
 // ---------------------------------------------------------------------------
 
-/// Collect set-bit indices using the best available method for this platform.
+/// Collect set-bit indices using the best available SIMD path.
 ///
-/// On x86-64 with AVX-512F + BMI2: uses density-aware dispatch. Dense bitmaps
-/// (>12.5% set) use AVX-512 VPCOMPRESSD which processes 16 bits per compress
-/// store. Sparse bitmaps use BMI2 BLSR/TZCNT with 4-word zero-skip. Both share
-/// the pre-computed popcount for exact allocation.
+/// If the true count is already known (e.g. from a validity buffer's cached
+/// null count), pass it via `true_count` to skip the `count_ones` pre-pass.
+/// This eliminates a full scan of the bitmap and makes the function
+/// competitive with the iterator even at very low densities.
 pub fn collect_set_indices(buffer: &[u8], offset: usize, len: usize) -> Vec<u32> {
+    collect_set_indices_with_count(buffer, offset, len, None)
+}
+
+/// Like [`collect_set_indices`], but with a pre-known true count.
+pub fn collect_set_indices_with_count(
+    buffer: &[u8],
+    offset: usize,
+    len: usize,
+    true_count: Option<usize>,
+) -> Vec<u32> {
     if len == 0 {
         return Vec::new();
     }
@@ -342,11 +352,8 @@ pub fn collect_set_indices(buffer: &[u8], offset: usize, len: usize) -> Vec<u32>
         let has_bmi2 = is_x86_feature_detected!("bmi2");
 
         if has_avx512 || has_bmi2 {
-            // count_ones is needed for pre-allocation in all SIMD paths.
-            let count = count_ones(buffer, offset, len);
+            let count = true_count.unwrap_or_else(|| count_ones(buffer, offset, len));
 
-            // Density > 12.5% (count * 8 > len): VPCOMPRESSD throughput
-            // beats serial BLSR. Below that, BLSR with zero-skip wins.
             if has_avx512 && count * 8 > len {
                 return unsafe { collect_set_indices_avx512(buffer, offset, len, count) };
             }

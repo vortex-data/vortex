@@ -25,7 +25,7 @@ use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
-use crate::bit::set_indices::collect_set_indices as collect_set_indices_fn;
+use crate::bit::set_indices::collect_set_indices_with_count as collect_set_indices_fn;
 use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
@@ -341,12 +341,11 @@ impl BitBuffer {
 
     /// Collect all set-bit indices into a `Vec<u32>`.
     ///
-    /// This is faster than `.set_indices().collect()` because it pre-allocates
-    /// the output, uses raw pointer writes to skip bounds checks, and leverages
-    /// BMI2 hardware instructions on x86-64. Particularly effective at high
-    /// density (3.1x faster than Arrow at 99% density).
-    pub fn collect_set_indices(&self) -> Vec<u32> {
-        collect_set_indices_fn(self.buffer.as_slice(), self.offset, self.len)
+    /// If the true count is already known (e.g. from a validity buffer's cached
+    /// null count), pass it to skip the internal `count_ones` scan. At low
+    /// densities (≤5%) this eliminates the dominant cost.
+    pub fn collect_set_indices(&self, true_count: Option<usize>) -> Vec<u32> {
+        collect_set_indices_fn(self.buffer.as_slice(), self.offset, self.len, true_count)
     }
 
     /// Iterator over set slices of the underlying buffer
