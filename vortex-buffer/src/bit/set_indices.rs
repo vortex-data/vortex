@@ -549,28 +549,32 @@ unsafe fn collect_set_indices_bmi2(
     let mut base = first_bits as u32;
     let mut remaining = len - first_bits;
 
-    // 4-word zero skip
-    while remaining >= 256 {
-        let avail = unsafe { end.offset_from(ptr) } as usize;
-        if avail < 32 {
-            break;
+    // 4-word zero skip only when sparse enough that ≥20% of groups skip.
+    // At density ~0.8% (count * 128 < len), ~25% of 4-word groups are all-zero.
+    // Above that, the OR + compare overhead costs more than it saves.
+    if count * 128 < len {
+        while remaining >= 256 {
+            let avail = unsafe { end.offset_from(ptr) } as usize;
+            if avail < 32 {
+                break;
+            }
+
+            let w0 = unsafe { read_u64_le(ptr) };
+            let w1 = unsafe { read_u64_le(ptr.add(8)) };
+            let w2 = unsafe { read_u64_le(ptr.add(16)) };
+            let w3 = unsafe { read_u64_le(ptr.add(24)) };
+
+            if (w0 | w1 | w2 | w3) != 0 {
+                dst = unsafe { drain_word_bmi2(w0, base, dst) };
+                dst = unsafe { drain_word_bmi2(w1, base + 64, dst) };
+                dst = unsafe { drain_word_bmi2(w2, base + 128, dst) };
+                dst = unsafe { drain_word_bmi2(w3, base + 192, dst) };
+            }
+
+            ptr = unsafe { ptr.add(32) };
+            base += 256;
+            remaining -= 256;
         }
-
-        let w0 = unsafe { read_u64_le(ptr) };
-        let w1 = unsafe { read_u64_le(ptr.add(8)) };
-        let w2 = unsafe { read_u64_le(ptr.add(16)) };
-        let w3 = unsafe { read_u64_le(ptr.add(24)) };
-
-        if (w0 | w1 | w2 | w3) != 0 {
-            dst = unsafe { drain_word_bmi2(w0, base, dst) };
-            dst = unsafe { drain_word_bmi2(w1, base + 64, dst) };
-            dst = unsafe { drain_word_bmi2(w2, base + 128, dst) };
-            dst = unsafe { drain_word_bmi2(w3, base + 192, dst) };
-        }
-
-        ptr = unsafe { ptr.add(32) };
-        base += 256;
-        remaining -= 256;
     }
 
     while remaining >= 64 {

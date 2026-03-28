@@ -392,6 +392,7 @@ fn make_random_arrow(density_pct: usize) -> Arrow<BooleanBuffer> {
 macro_rules! bench_density {
     ($density:literal, $dist:ident, $make_fn:ident, $make_arrow_fn:ident) => {
         ::paste::paste! {
+            // Arrow: iterate set_indices (no alloc)
             #[divan::bench]
             fn [< d $density pct_ $dist _arrow >](bencher: Bencher) {
                 let buffer = $make_arrow_fn($density);
@@ -402,6 +403,16 @@ macro_rules! bench_density {
                 });
             }
 
+            // Arrow: collect into Vec<usize> (allocates)
+            #[divan::bench]
+            fn [< d $density pct_ $dist _arrow_collect >](bencher: Bencher) {
+                let buffer = $make_arrow_fn($density);
+                bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+                    divan::black_box(buffer.0.set_indices().collect::<Vec<usize>>());
+                });
+            }
+
+            // Vortex scalar iterator (no alloc)
             #[divan::bench]
             fn [< d $density pct_ $dist _vortex >](bencher: Bencher) {
                 let buffer = $make_fn($density);
@@ -412,18 +423,7 @@ macro_rules! bench_density {
                 });
             }
 
-            #[divan::bench]
-            fn [< d $density pct_ $dist _collect_simd >](bencher: Bencher) {
-                let buffer = $make_fn($density);
-                bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-                    divan::black_box(collect_set_indices(
-                        buffer.inner().as_slice(),
-                        buffer.offset(),
-                        buffer.len(),
-                    ));
-                });
-            }
-
+            // Vortex SIMD bulk collect with pre-known count (allocates)
             #[divan::bench]
             fn [< d $density pct_ $dist _collect_precount >](bencher: Bencher) {
                 let buffer = $make_fn($density);
@@ -474,6 +474,14 @@ fn d001pct_uniform_arrow(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn d001pct_uniform_arrow_collect(bencher: Bencher) {
+    let buffer = make_very_sparse_arrow(10_000);
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(buffer.0.set_indices().collect::<Vec<usize>>());
+    });
+}
+
+#[divan::bench]
 fn d001pct_uniform_vortex(bencher: Bencher) {
     let buffer = make_very_sparse(10_000);
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
@@ -484,13 +492,15 @@ fn d001pct_uniform_vortex(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn d001pct_uniform_collect_simd(bencher: Bencher) {
+fn d001pct_uniform_collect_precount(bencher: Bencher) {
     let buffer = make_very_sparse(10_000);
+    let true_count = buffer.true_count();
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        divan::black_box(collect_set_indices(
+        divan::black_box(collect_set_indices_with_count(
             buffer.inner().as_slice(),
             buffer.offset(),
             buffer.len(),
+            Some(true_count),
         ));
     });
 }
@@ -506,38 +516,20 @@ fn d001pct_random_arrow(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn d001pct_random_arrow_collect(bencher: Bencher) {
+    let buffer = make_very_sparse_random_arrow();
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(buffer.0.set_indices().collect::<Vec<usize>>());
+    });
+}
+
+#[divan::bench]
 fn d001pct_random_vortex(bencher: Bencher) {
     let buffer = make_very_sparse_random();
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         for idx in buffer.set_indices() {
             divan::black_box(idx);
         }
-    });
-}
-
-#[divan::bench]
-fn d001pct_random_collect_simd(bencher: Bencher) {
-    let buffer = make_very_sparse_random();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        divan::black_box(collect_set_indices(
-            buffer.inner().as_slice(),
-            buffer.offset(),
-            buffer.len(),
-        ));
-    });
-}
-
-#[divan::bench]
-fn d001pct_uniform_collect_precount(bencher: Bencher) {
-    let buffer = make_very_sparse(10_000);
-    let true_count = buffer.true_count();
-    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
-        divan::black_box(collect_set_indices_with_count(
-            buffer.inner().as_slice(),
-            buffer.offset(),
-            buffer.len(),
-            Some(true_count),
-        ));
     });
 }
 
