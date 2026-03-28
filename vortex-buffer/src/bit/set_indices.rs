@@ -354,7 +354,7 @@ pub fn collect_set_indices_with_count(
         if has_avx512 || has_bmi2 {
             let count = true_count.unwrap_or_else(|| count_ones(buffer, offset, len));
 
-            if has_avx512 && count * 8 > len {
+            if has_avx512 {
                 return unsafe { collect_set_indices_avx512(buffer, offset, len, count) };
             }
             if has_bmi2 {
@@ -367,7 +367,7 @@ pub fn collect_set_indices_with_count(
 }
 
 // ---------------------------------------------------------------------------
-// AVX-512 implementation — VPCOMPRESSD + 512-bit zero-skip
+// AVX-512 implementation — 8-word scan + per-word BLSR/VPCOMPRESSD
 // ---------------------------------------------------------------------------
 
 #[cfg(target_arch = "x86_64")]
@@ -380,6 +380,7 @@ unsafe fn collect_set_indices_avx512(
     count: usize,
 ) -> Vec<u32> {
     use std::arch::x86_64::*;
+
     let mut out: Vec<u32> = Vec::with_capacity(count);
     let mut dst = out.as_mut_ptr();
 
@@ -394,15 +395,14 @@ unsafe fn collect_set_indices_avx512(
     let mut base = first_bits as u32;
     let mut remaining = len - first_bits;
 
-    // Main loop: 8 words (512 bits) at a time.
-    // _mm512_test_epi64_mask checks all 8 qwords for zero in one instruction.
-    // Returns an 8-bit mask of non-zero qwords — we only process those.
-    while remaining >= 512 {
-        let avail = unsafe { end.offset_from(ptr) } as usize;
-        if avail < 64 {
-            break;
-        }
+    let avail_bytes = unsafe { end.offset_from(ptr) } as usize;
 
+    // Main loop: 8 words (512 bits) at a time.
+    // _mm512_test_epi64_mask checks all 8 qwords in one instruction.
+    // At low density, this skips zero words cheaply. At high density,
+    // per-word drain_word_avx512 picks BLSR or VPCOMPRESSD automatically.
+    let n_groups = (remaining / 512).min(avail_bytes / 64);
+    for _ in 0..n_groups {
         let chunk = unsafe { _mm512_loadu_si512(ptr as *const __m512i) };
         let nz_mask = _mm512_test_epi64_mask(chunk, chunk);
 
@@ -411,30 +411,28 @@ unsafe fn collect_set_indices_avx512(
             while m != 0 {
                 let i = m.trailing_zeros() as usize;
                 let word = unsafe { *(ptr as *const u64).add(i) };
-                let word_base = base + (i as u32 * 64);
-                dst = unsafe { drain_word_avx512(word, word_base, dst) };
+                dst = unsafe { drain_word_avx512(word, base + (i as u32 * 64), dst) };
                 m &= m - 1;
             }
         }
 
         ptr = unsafe { ptr.add(64) };
         base += 512;
-        remaining -= 512;
     }
+    remaining -= n_groups * 512;
 
-    // Tail: one word at a time with AVX-512 extraction.
-    while remaining >= 64 {
-        let avail = unsafe { end.offset_from(ptr) } as usize;
-        if avail < 8 {
-            break;
-        }
+    // Tail: remaining full words that don't fill an 8-word group.
+    let avail_bytes_tail = unsafe { end.offset_from(ptr) } as usize;
+    let n_tail_words = (remaining / 64).min(avail_bytes_tail / 8);
+    for _ in 0..n_tail_words {
         let word = unsafe { read_u64_le(ptr) };
         dst = unsafe { drain_word_avx512(word, base, dst) };
         ptr = unsafe { ptr.add(8) };
         base += 64;
-        remaining -= 64;
     }
+    remaining -= n_tail_words * 64;
 
+    // Final partial word.
     if remaining > 0 {
         let avail = unsafe { end.offset_from(ptr) } as usize;
         let word = unsafe { load_partial_u64(ptr, avail) };
