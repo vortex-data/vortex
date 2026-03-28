@@ -224,11 +224,12 @@ impl DispatchPlan {
 }
 
 impl FusedPlan {
-    /// Maximum shared memory per block in bytes (96 KB).
+    /// Maximum shared memory per block in bytes (48 KB).
     ///
-    /// NVIDIA GPUs from Fermi (CC 2.x) through Blackwell (CC 10.0)
-    /// use 96 KB as their default limit for shared memory per block.
-    const MAX_SHARED_MEM_BYTES: u32 = 96 * 1024;
+    /// 48 KB is the default per-block dynamic shared memory limit across
+    /// all CUDA architectures. Higher limits (up to 227 KB on Hopper)
+    /// require an explicit opt-in via `cuFuncSetAttribute`.
+    const MAX_SHARED_MEM_BYTES: u32 = 48 * 1024;
 
     /// Build a plan by walking the encoding tree from root to leaf.
     ///
