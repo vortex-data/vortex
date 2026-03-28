@@ -67,16 +67,22 @@ include = [
     { path = "python/vortex/py.typed", format = "sdist" },
 ]
 
-[tool.basedpyright]
-exclude = ["python/vortex/_lib/store/**.pyi"]
-
 [dependency-groups]
 dev = [
-    "basedpyright>=1.31",
+    "duckdb>=1.1.2",
+    "maturin>=1.7.2",
     "numpy>=2.2.2",
     "pandas-stubs>=2.2.3.241126",
+    "pandas[output-formatting]>=2.2.3",
     "pcodec>=0.3.3",
+    "polars>=1.9.0",
     "pyarrow-stubs>=17.16",
     "pytest-benchmark>=5.1.0",
     "pytest-xdist>=3.5.0",
+    "ray>=2.48",
+    # forced transitive bumps
+    "protobuf>=6.33.5",
 ]
+
+[tool.basedpyright]
+exclude = ["python/vortex/_lib/store/**.pyi"]

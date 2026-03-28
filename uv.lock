@@ -1904,13 +1904,18 @@ ray = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "basedpyright" },
+    { name = "duckdb" },
+    { name = "maturin" },
     { name = "numpy" },
+    { name = "pandas", extra = ["output-formatting"] },
     { name = "pandas-stubs" },
     { name = "pcodec" },
+    { name = "polars" },
+    { name = "protobuf" },
     { name = "pyarrow-stubs" },
     { name = "pytest-benchmark" },
     { name = "pytest-xdist" },
+    { name = "ray" },
 ]
 
 [package.metadata]
@@ -1928,13 +1933,18 @@ provides-extras = ["duckdb", "numpy", "pandas", "polars", "ray"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "basedpyright", specifier = ">=1.31" },
+    { name = "duckdb", specifier = ">=1.1.2" },
+    { name = "maturin", specifier = ">=1.7.2" },
     { name = "numpy", specifier = ">=2.2.2" },
+    { name = "pandas", extras = ["output-formatting"], specifier = ">=2.2.3" },
     { name = "pandas-stubs", specifier = ">=2.2.3.241126" },
     { name = "pcodec", specifier = ">=0.3.3" },
+    { name = "polars", specifier = ">=1.9.0" },
+    { name = "protobuf", specifier = ">=6.33.5" },
     { name = "pyarrow-stubs", specifier = ">=17.16" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
+    { name = "ray", specifier = ">=2.48" },
 ]
 
 [[package]]
@@ -2085,20 +2095,10 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
-    { name = "duckdb" },
     { name = "filelock" },
     { name = "ipython" },
-    { name = "maturin" },
-    { name = "pandas", extra = ["output-formatting"] },
-    { name = "pandas-stubs" },
-    { name = "pcodec" },
     { name = "pip" },
-    { name = "polars" },
-    { name = "protobuf" },
-    { name = "pyarrow-stubs" },
     { name = "pytest" },
-    { name = "pytest-benchmark" },
-    { name = "ray" },
     { name = "ruff" },
     { name = "urllib3" },
 ]
@@ -2113,21 +2113,10 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.31" },
-    { name = "duckdb", specifier = ">=1.1.2" },
     { name = "filelock", specifier = ">=3.20.3" },
     { name = "ipython", specifier = ">=8.26.0" },
-    { name = "maturin", specifier = ">=1.7.2" },
-    { name = "pandas", extras = ["output-formatting"], specifier = ">=2.2.3" },
-    { name = "pandas-stubs", specifier = ">=2.2.3.241126" },
-    { name = "pcodec", specifier = ">=0.3.3" },
     { name = "pip", specifier = ">=23.3.2" },
-    { name = "polars", specifier = ">=1.9.0" },
-    { name = "protobuf", specifier = ">=6.33.5" },
-    { name = "pyarrow-stubs", specifier = ">=17.16" },
     { name = "pytest", specifier = ">=7.4.0" },
-    { name = "pytest-benchmark", specifier = ">=4.0.0" },
-    { name = "pytest-benchmark", specifier = ">=5.1.0" },
-    { name = "ray", specifier = ">=2.48" },
     { name = "ruff", specifier = ">=0.7.1" },
     { name = "urllib3", specifier = ">=2.6.3" },
 ]
