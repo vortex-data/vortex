@@ -14,19 +14,15 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::fastlanes::BitPacked;
-use vortex::encodings::fastlanes::BitPackedArrayParts;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::runend::RunEnd;
-use vortex::encodings::runend::RunEndArrayParts;
 use vortex::encodings::sequence::Sequence;
-use vortex::encodings::sequence::SequenceArrayParts;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -55,44 +51,35 @@ pub struct MaterializedPlan {
 fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
     if id == ALP::ID {
-        if let Ok(a) = array.clone().try_into::<ALP>() {
-            return a.patches().is_none() && a.dtype().as_ptype() == PType::F32;
-        }
-        return false;
+        let arr = array.as_::<ALP>();
+        return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked::ID {
-        if let Ok(a) = array.clone().try_into::<BitPacked>() {
-            return a.patches().is_none();
-        }
-        return false;
+        return array.as_::<BitPacked>().patches().is_none();
     }
     if id == Dict::ID {
-        if let Ok(a) = array.clone().try_into::<Dict>() {
-            // As of now the dict dyn dispatch kernel requires
-            // codes and values to have the same byte width.
-            return match (
-                PType::try_from(a.values().dtype()),
-                PType::try_from(a.codes().dtype()),
-            ) {
-                (Ok(values), Ok(codes)) => values.byte_width() == codes.byte_width(),
-                _ => false,
-            };
-        }
-        return false;
+        let arr = array.as_::<Dict>();
+        // As of now the dict dyn dispatch kernel requires
+        // codes and values to have the same byte width.
+        return match (
+            PType::try_from(arr.values().dtype()),
+            PType::try_from(arr.codes().dtype()),
+        ) {
+            (Ok(values), Ok(codes)) => values.byte_width() == codes.byte_width(),
+            _ => false,
+        };
     }
     if id == RunEnd::ID {
-        if let Ok(a) = array.clone().try_into::<RunEnd>() {
-            // As of now the run-end dyn dispatch kernel requires
-            // ends and values to have the same byte width.
-            return match (
-                PType::try_from(a.ends().dtype()),
-                PType::try_from(a.values().dtype()),
-            ) {
-                (Ok(e), Ok(v)) => e.byte_width() == v.byte_width(),
-                _ => false,
-            };
-        }
-        return false;
+        let arr = array.as_::<RunEnd>();
+        // As of now the run-end dyn dispatch kernel requires
+        // ends and values to have the same byte width.
+        return match (
+            PType::try_from(arr.ends().dtype()),
+            PType::try_from(arr.values().dtype()),
+        ) {
+            (Ok(e), Ok(v)) => e.byte_width() == v.byte_width(),
+            _ => false,
+        };
     }
     id == FoR::ID
         || id == ZigZag::ID
@@ -429,33 +416,23 @@ impl FusedPlan {
     }
 
     fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Stage> {
-        let prim = array.to_canonical()?.into_primitive();
-        let PrimitiveArrayParts { buffer, .. } = prim.into_parts();
+        let prim = array.as_::<Primitive>();
         let buf_index = self.source_buffers.len();
-        self.source_buffers.push(Some(buffer));
+        self.source_buffers.push(Some(prim.buffer_handle().clone()));
         Ok(Stage::new(SourceOp::load(), Some(buf_index)))
     }
 
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
-        let bp = array
-            .try_into::<BitPacked>()
-            .map_err(|_| vortex_err!("Expected BitPackedArray"))?;
-        let BitPackedArrayParts {
-            offset,
-            bit_width,
-            packed,
-            patches,
-            ..
-        } = bp.into_parts();
+        let bp = array.as_::<BitPacked>();
 
-        if patches.is_some() {
+        if bp.patches().is_some() {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
 
         let buf_index = self.source_buffers.len();
-        self.source_buffers.push(Some(packed));
+        self.source_buffers.push(Some(bp.packed().clone()));
         Ok(Stage::new(
-            SourceOp::bitunpack(bit_width, offset),
+            SourceOp::bitunpack(bp.bit_width(), bp.offset()),
             Some(buf_index),
         ))
     }
@@ -465,9 +442,7 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let for_arr = array
-            .try_into::<FoR>()
-            .map_err(|_| vortex_err!("Expected FoRArray"))?;
+        let for_arr = array.as_::<FoR>();
         let ref_pvalue = for_arr
             .reference_scalar()
             .as_primitive()
@@ -488,9 +463,7 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let zz = array
-            .try_into::<ZigZag>()
-            .map_err(|_| vortex_err!("Expected ZigZagArray"))?;
+        let zz = array.as_::<ZigZag>();
         let encoded = zz.encoded().clone();
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
@@ -503,9 +476,7 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let alp = array
-            .try_into::<ALP>()
-            .map_err(|_| vortex_err!("Expected ALPArray"))?;
+        let alp = array.as_::<ALP>();
 
         if alp.patches().is_some() {
             vortex_bail!("Dynamic dispatch does not support ALPArray with patches");
@@ -534,9 +505,7 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let dict = array
-            .try_into::<Dict>()
-            .map_err(|_| vortex_err!("Expected DictArray"))?;
+        let dict = array.as_::<Dict>();
         let values = dict.values().clone();
         let codes = dict.codes().clone();
 
@@ -550,15 +519,10 @@ impl FusedPlan {
     }
 
     fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<Stage> {
-        let seq = array
-            .try_into::<Sequence>()
-            .map_err(|_| vortex_err!("Expected SequenceArray"))?;
-        let SequenceArrayParts {
-            base, multiplier, ..
-        } = seq.into_parts();
+        let seq = array.as_::<Sequence>();
 
         Ok(Stage::new(
-            SourceOp::sequence(base.cast()?, multiplier.cast()?),
+            SourceOp::sequence(seq.base().cast()?, seq.multiplier().cast()?),
             None,
         ))
     }
@@ -568,11 +532,10 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let re = array
-            .try_into::<RunEnd>()
-            .map_err(|_| vortex_err!("Expected RunEndArray"))?;
+        let re = array.as_::<RunEnd>();
         let offset = re.offset() as u64;
-        let RunEndArrayParts { ends, values } = re.into_parts();
+        let ends = re.ends().clone();
+        let values = re.values().clone();
         let num_runs = ends.len() as u32;
         let num_values = values.len() as u32;
 
