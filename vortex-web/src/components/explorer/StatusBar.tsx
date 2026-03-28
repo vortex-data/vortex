@@ -4,11 +4,7 @@
 import { useMemo } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContext';
 import { useSelection } from '../../contexts/SelectionContext';
-import {
-  formatBytes,
-  formatRowCount,
-  collectSubtreeSegments,
-} from '../swimlane/utils';
+import { formatBytes, formatRowCount, collectSubtreeSegments } from '../swimlane/utils';
 
 export function StatusBar() {
   const file = useVortexFile();
@@ -23,9 +19,8 @@ export function StatusBar() {
     const segIds = new Set(collectSubtreeSegments(activeNode));
     const reachable = file.segments.filter((s) => segIds.has(s.index));
     const totalBytes = reachable.reduce((sum, s) => sum + s.byteLength, 0);
-    const pct = file.fileStructure.fileSize > 0
-      ? (totalBytes / file.fileStructure.fileSize) * 100
-      : 0;
+    const pct =
+      file.fileStructure.fileSize > 0 ? (totalBytes / file.fileStructure.fileSize) * 100 : 0;
 
     return {
       rows: activeNode.rowCount,

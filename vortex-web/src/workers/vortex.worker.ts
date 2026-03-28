@@ -53,10 +53,7 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({ type: 'result', id, data: ipcBytes }, [ipcBytes.buffer]);
     } else if (type === 'previewData') {
       if (!fileHandle) throw new Error('No file open');
-      const ipcBytes: Uint8Array = await fileHandle.preview_data(
-        e.data.nodeId,
-        e.data.rowLimit,
-      );
+      const ipcBytes: Uint8Array = await fileHandle.preview_data(e.data.nodeId, e.data.rowLimit);
       self.postMessage({ type: 'result', id, data: ipcBytes }, [ipcBytes.buffer]);
     }
   } catch (err) {

@@ -79,11 +79,7 @@ export function SegmentsPane({ node, segments }: SegmentsPaneProps) {
   );
 
   if (rows.length === 0) {
-    return (
-      <div className="text-xs text-vortex-grey-dark p-2.5">
-        No segments for this node.
-      </div>
-    );
+    return <div className="text-xs text-vortex-grey-dark p-2.5">No segments for this node.</div>;
   }
 
   return (

@@ -2,7 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import type { LayoutTreeNode } from './types';
-import { getDtypeCategory, formatBytes, getNodeDisplayName, getNodeRowRange, shortEncoding } from './utils';
+import {
+  getDtypeCategory,
+  formatBytes,
+  getNodeDisplayName,
+  getNodeRowRange,
+  shortEncoding,
+} from './utils';
 import { DTYPE_COLORS } from './styles';
 
 interface TooltipProps {
@@ -43,7 +49,9 @@ export function Tooltip({ node, position }: TooltipProps) {
         {node.encoding && (
           <>
             <span>encoding</span>
-            <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>{shortEncoding(node.encoding)}</span>
+            <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>
+              {shortEncoding(node.encoding)}
+            </span>
           </>
         )}
         {node.metadataBytes > 0 && (

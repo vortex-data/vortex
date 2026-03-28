@@ -38,7 +38,14 @@ function selectionReducer(state: SelectionState, action: SelectionAction): Selec
     case 'selectSegment':
       return { ...state, selectedSegmentIndex: action.index };
     case 'clearSelection':
-      return { selectedNodeId: null, selectedNode: null, hoveredNodeId: null, hoveredNode: null, hoveredSegmentIndex: null, selectedSegmentIndex: null };
+      return {
+        selectedNodeId: null,
+        selectedNode: null,
+        hoveredNodeId: null,
+        hoveredNode: null,
+        hoveredSegmentIndex: null,
+        selectedSegmentIndex: null,
+      };
   }
 }
 
@@ -94,7 +101,9 @@ export function SelectionProvider({
   const clearSelection = useCallback(() => dispatch({ type: 'clearSelection' }), []);
 
   return (
-    <SelectionContext.Provider value={{ state, selectNode, hoverNode, hoverSegment, selectSegment, clearSelection }}>
+    <SelectionContext.Provider
+      value={{ state, selectNode, hoverNode, hoverSegment, selectSegment, clearSelection }}
+    >
       {children}
     </SelectionContext.Provider>
   );

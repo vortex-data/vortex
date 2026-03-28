@@ -72,10 +72,7 @@ export function MainArea() {
         />
 
         {/* Data preview — resizable bottom section */}
-        <div
-          className="flex-shrink-0 overflow-hidden"
-          style={{ height: previewHeight }}
-        >
+        <div className="flex-shrink-0 overflow-hidden" style={{ height: previewHeight }}>
           <DataPreview />
         </div>
       </div>

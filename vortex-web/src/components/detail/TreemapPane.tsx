@@ -40,10 +40,7 @@ function arraySubtreeBytes(node: LayoutTreeNode): number {
   return own + childBytes;
 }
 
-function buildTree(
-  node: LayoutTreeNode,
-  segmentMap: Map<number, SegmentMapEntry>,
-): TreeNode {
+function buildTree(node: LayoutTreeNode, segmentMap: Map<number, SegmentMapEntry>): TreeNode {
   const color = DTYPE_COLORS[getDtypeCategory(node.dtype)];
   const name = getNodeDisplayName(node);
 
@@ -127,10 +124,7 @@ export function TreemapPane({ node, segments, onSelectNode, onHoverNode }: Treem
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const segmentMap = useMemo(
-    () => new Map(segments.map((s) => [s.index, s])),
-    [segments],
-  );
+  const segmentMap = useMemo(() => new Map(segments.map((s) => [s.index, s])), [segments]);
 
   const tree = useMemo(() => buildTree(node, segmentMap), [node, segmentMap]);
   const { theme: themeChoice } = useTheme();

@@ -79,7 +79,8 @@ export function FileMap() {
     const imgW = imgData.width;
     const imgH = imgData.height;
 
-    const dark = document.documentElement.classList.contains('dark') ||
+    const dark =
+      document.documentElement.classList.contains('dark') ||
       window.matchMedia('(prefers-color-scheme: dark)').matches;
 
     // Base: neutral
@@ -89,7 +90,9 @@ export function FileMap() {
     const baseA = dark ? 80 : 100;
 
     // Highlight color (vortex light blue #2CB9D1)
-    const hlR = 44, hlG = 185, hlB = 209;
+    const hlR = 44,
+      hlG = 185,
+      hlB = 209;
 
     const hasSubtree = subtreeSegments.length > 0;
     const hasHover = hoverSegments.length > 0;
@@ -151,17 +154,32 @@ export function FileMap() {
       let r: number, g: number, b: number, a: number;
       if (isHovered) {
         // Hover always wins — bright highlight
-        r = hlR; g = hlG; b = hlB; a = 255;
+        r = hlR;
+        g = hlG;
+        b = hlB;
+        a = 255;
       } else if (isFocused) {
-        r = hlR; g = hlG; b = hlB; a = 255;
+        r = hlR;
+        g = hlG;
+        b = hlB;
+        a = 255;
       } else if (isSubtree && !focusedSegment) {
         // No segment selected: all subtree segments are bright
-        r = hlR; g = hlG; b = hlB; a = dark ? 140 : 160;
+        r = hlR;
+        g = hlG;
+        b = hlB;
+        a = dark ? 140 : 160;
       } else if (isSubtree) {
         // A segment is selected: other subtree segments are dimmed
-        r = hlR; g = hlG; b = hlB; a = dark ? 90 : 110;
+        r = hlR;
+        g = hlG;
+        b = hlB;
+        a = dark ? 90 : 110;
       } else {
-        r = baseR; g = baseG; b = baseB; a = baseA;
+        r = baseR;
+        g = baseG;
+        b = baseB;
+        a = baseA;
       }
 
       const dprPxStart = Math.round(px * dpr);

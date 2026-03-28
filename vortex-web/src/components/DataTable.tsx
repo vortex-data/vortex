@@ -55,7 +55,9 @@ function computeStats(values: unknown[]): ColumnStats {
   }
 
   if (nums.length > 0) {
-    let min = Infinity, max = -Infinity, sum = 0;
+    let min = Infinity,
+      max = -Infinity,
+      sum = 0;
     for (const n of nums) {
       if (n < min) min = n;
       if (n > max) max = n;
@@ -99,7 +101,15 @@ function SparkHistogram({ histogram, height = 12 }: { histogram: number[]; heigh
     const w = histogram.length * (barW + gap) - gap;
     return (
       <svg width={w} height={height} className="flex-shrink-0 opacity-50">
-        <line x1={0} y1={height / 2} x2={w} y2={height / 2} stroke="currentColor" strokeWidth={1} className="text-vortex-grey-dark" />
+        <line
+          x1={0}
+          y1={height / 2}
+          x2={w}
+          y2={height / 2}
+          stroke="currentColor"
+          strokeWidth={1}
+          className="text-vortex-grey-dark"
+        />
       </svg>
     );
   }
@@ -133,7 +143,10 @@ function HeaderSummary({ stats }: { stats: ColumnStats }) {
     const isConst = stats.min === stats.max && stats.nullCount === 0;
     if (isConst) {
       return (
-        <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70" title={`constant: ${stats.min}`}>
+        <span
+          className="text-[8px] text-vortex-grey-dark font-normal opacity-70"
+          title={`constant: ${stats.min}`}
+        >
           const
         </span>
       );
@@ -147,10 +160,14 @@ function HeaderSummary({ stats }: { stats: ColumnStats }) {
     if (total === 0) return null;
     const allTrue = stats.falseCount === 0 && stats.nullCount === 0;
     const allFalse = stats.trueCount === 0 && stats.nullCount === 0;
-    if (allTrue || allFalse) return <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>;
+    if (allTrue || allFalse)
+      return <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>;
     const pct = Math.round((stats.trueCount! / total) * 100);
     return (
-      <div className="flex items-center gap-0.5 flex-shrink-0" title={`${stats.trueCount} true, ${stats.falseCount} false`}>
+      <div
+        className="flex items-center gap-0.5 flex-shrink-0"
+        title={`${stats.trueCount} true, ${stats.falseCount} false`}
+      >
         <div className="flex h-2 w-8 rounded-sm overflow-hidden">
           <div className="bg-vortex-light-blue/60" style={{ width: `${pct}%` }} />
           <div className="bg-vortex-grey-dark/20" style={{ width: `${100 - pct}%` }} />
@@ -161,9 +178,7 @@ function HeaderSummary({ stats }: { stats: ColumnStats }) {
   }
   if (stats.kind === 'string' && stats.cardinality != null) {
     if (stats.cardinality === 1 && stats.nullCount === 0) {
-      return (
-        <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>
-      );
+      return <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>;
     }
     return (
       <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">
@@ -179,15 +194,18 @@ function HeaderSummary({ stats }: { stats: ColumnStats }) {
 function HeaderTooltip({ stats, approximate }: { stats: ColumnStats; approximate: boolean }) {
   const p = approximate ? '~' : '';
   const fmt = (n: number) => {
-    const s = Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
-      ? n.toExponential(2)
-      : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const s =
+      Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
+        ? n.toExponential(2)
+        : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
     return p + s;
   };
 
   return (
     <div className="text-[9px] font-normal text-vortex-fg-light dark:text-vortex-fg space-y-1 font-mono">
-      <div className="text-vortex-grey-dark">{stats.count.toLocaleString()} rows{approximate ? ' (sampled)' : ''}</div>
+      <div className="text-vortex-grey-dark">
+        {stats.count.toLocaleString()} rows{approximate ? ' (sampled)' : ''}
+      </div>
       {stats.nullCount > 0 && (
         <div className="text-vortex-grey-dark">{stats.nullCount.toLocaleString()} nulls</div>
       )}
@@ -209,16 +227,22 @@ function HeaderTooltip({ stats, approximate }: { stats: ColumnStats; approximate
           <div>false: {stats.falseCount!.toLocaleString()}</div>
         </>
       )}
-      {stats.kind === 'string' && (
-        <div>{stats.cardinality!.toLocaleString()} distinct values</div>
-      )}
+      {stats.kind === 'string' && <div>{stats.cardinality!.toLocaleString()} distinct values</div>}
     </div>
   );
 }
 
 // --- Hoverable header with tooltip ---
 
-function ColumnHeader({ name, stats, approximate }: { name: string; stats: ColumnStats; approximate: boolean }) {
+function ColumnHeader({
+  name,
+  stats,
+  approximate,
+}: {
+  name: string;
+  stats: ColumnStats;
+  approximate: boolean;
+}) {
   const [showTip, setShowTip] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -308,7 +332,9 @@ export function DataTable({
       ...columns.map(
         (col): ColumnDef<Record<string, unknown>> => ({
           accessorKey: col,
-          header: () => <ColumnHeader name={col} stats={columnStats[col]} approximate={approximate} />,
+          header: () => (
+            <ColumnHeader name={col} stats={columnStats[col]} approximate={approximate} />
+          ),
           cell: (info) => {
             const renderer = cellRenderers?.[col];
             if (renderer) {
@@ -412,8 +438,7 @@ export function DataTable({
                 colSpan={columnDefs.length}
                 style={{
                   height:
-                    virtualizer.getTotalSize() -
-                    (virtualizer.getVirtualItems().at(-1)?.end ?? 0),
+                    virtualizer.getTotalSize() - (virtualizer.getVirtualItems().at(-1)?.end ?? 0),
                   padding: 0,
                 }}
               />

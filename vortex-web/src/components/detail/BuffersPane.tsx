@@ -18,9 +18,7 @@ export function BuffersPane({ node }: BuffersPaneProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const bufferNames: string[] = bufferLengths.map((_, i) =>
-    node.bufferNames?.[i] ?? `buffer ${i}`,
-  );
+  const bufferNames: string[] = bufferLengths.map((_, i) => node.bufferNames?.[i] ?? `buffer ${i}`);
 
   const loadBuffer = useCallback(
     async (index: number) => {
@@ -53,11 +51,7 @@ export function BuffersPane({ node }: BuffersPaneProps) {
   }, [node.id, bufferLengths.length, loadBuffer]);
 
   if (bufferLengths.length === 0) {
-    return (
-      <div className="text-xs text-vortex-grey-dark p-2.5">
-        No buffers for this node.
-      </div>
-    );
+    return <div className="text-xs text-vortex-grey-dark p-2.5">No buffers for this node.</div>;
   }
 
   return (
@@ -87,12 +81,8 @@ export function BuffersPane({ node }: BuffersPaneProps) {
         {selectedBuffer === null && (
           <div className="text-xs text-vortex-grey-dark">Select a buffer to view its contents.</div>
         )}
-        {loading && (
-          <div className="text-xs text-vortex-grey-dark">Loading…</div>
-        )}
-        {error && (
-          <div className="text-xs text-red-500">Error: {error}</div>
-        )}
+        {loading && <div className="text-xs text-vortex-grey-dark">Loading…</div>}
+        {error && <div className="text-xs text-red-500">Error: {error}</div>}
         {bufferData && <HexView data={bufferData} />}
       </div>
     </div>
@@ -139,7 +129,12 @@ function HexView({ data }: { data: Uint8Array }) {
           <span className="flex-shrink-0">
             {Array.from({ length: BYTES_PER_ROW }, (_, j) => {
               const b = row.bytes[j];
-              if (!b) return <span key={j} className="inline-block w-[22px]">   </span>;
+              if (!b)
+                return (
+                  <span key={j} className="inline-block w-[22px]">
+                    {' '}
+                  </span>
+                );
               const isHl = hovered === b.absIndex;
               const gap = j === 8 ? ' ' : '';
               return (
@@ -181,7 +176,8 @@ function HexView({ data }: { data: Uint8Array }) {
       ))}
       {truncated && (
         <div className="text-vortex-grey-dark mt-1">
-          … {Math.ceil(data.length / BYTES_PER_ROW) - MAX_ROWS} more rows ({formatBytes(data.length)} total)
+          … {Math.ceil(data.length / BYTES_PER_ROW) - MAX_ROWS} more rows (
+          {formatBytes(data.length)} total)
         </div>
       )}
     </div>

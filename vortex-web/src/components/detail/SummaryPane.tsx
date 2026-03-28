@@ -57,11 +57,11 @@ export function SummaryPane({ node, file }: SummaryPaneProps) {
       <h3 className="font-medium text-vortex-fg-light dark:text-vortex-fg">{name}</h3>
       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
         <span>Encoding</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>{shortEncoding(node.encoding)}</span>
-        <span>Rows</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatNum(node.rowCount)}
+        <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>
+          {shortEncoding(node.encoding)}
         </span>
+        <span>Rows</span>
+        <span className="text-vortex-fg-light dark:text-vortex-fg">{formatNum(node.rowCount)}</span>
         <span>Row offset</span>
         <span className="text-vortex-fg-light dark:text-vortex-fg">
           {formatNum(node.rowOffset)}

@@ -23,7 +23,15 @@ interface TreeRowProps {
   onHover?: (nodeId: string | null) => void;
 }
 
-export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect, onHover }: TreeRowProps) {
+export function TreeRow({
+  row,
+  isExpanded,
+  isSelected,
+  mode,
+  onToggle,
+  onSelect,
+  onHover,
+}: TreeRowProps) {
   const { node, depth, displayKind } = row;
 
   if (displayKind === 'hiddenIndicator') {
@@ -52,7 +60,12 @@ export function TreeRow({ row, isExpanded, isSelected, mode, onToggle, onSelect,
   } else if (mode === 'schema') {
     const dtypeCat = getDtypeCategory(node.dtype);
     const dtypeStr = shortEncoding(node.dtype);
-    badgeText = dtypeCat === 'struct' ? 'struct' : dtypeStr.length > 20 ? dtypeStr.slice(0, 18) + '…' : dtypeStr;
+    badgeText =
+      dtypeCat === 'struct'
+        ? 'struct'
+        : dtypeStr.length > 20
+          ? dtypeStr.slice(0, 18) + '…'
+          : dtypeStr;
     badgeColor = DTYPE_COLORS[dtypeCat];
   } else {
     const ct = node.childType;

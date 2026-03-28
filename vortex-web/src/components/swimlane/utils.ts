@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import type { LayoutTreeNode, ArrayEncodingNode, Split, DtypeCategory, FlattenedRow, DisplayKind } from './types';
+import type {
+  LayoutTreeNode,
+  ArrayEncodingNode,
+  Split,
+  DtypeCategory,
+  FlattenedRow,
+  DisplayKind,
+} from './types';
 
 // Encoding styles — keyed by encoding string, with fallback for unknown encodings
 export const ENCODING_STYLES: Record<string, { color: string; label: string }> = {
@@ -521,11 +528,7 @@ export function arrayTreeToLayoutChildren(
   arrayTree: ArrayEncodingNode,
   parentNode: LayoutTreeNode,
 ): LayoutTreeNode[] {
-  function convert(
-    node: ArrayEncodingNode,
-    parentId: string,
-    name: string,
-  ): LayoutTreeNode {
+  function convert(node: ArrayEncodingNode, parentId: string, name: string): LayoutTreeNode {
     const id = `${parentId}.$${name}`;
 
     const children = node.children.map((child, i) => {

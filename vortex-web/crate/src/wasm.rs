@@ -308,8 +308,8 @@ impl VortexFileHandle {
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let schema = dtype_to_schema(&dtype, "value")
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let schema =
+            dtype_to_schema(&dtype, "value").map_err(|e| JsValue::from_str(&e.to_string()))?;
         let arrow_schema = Arc::new(schema);
 
         let mut buf = Vec::new();
@@ -361,8 +361,7 @@ impl VortexFileHandle {
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let parts = ArrayParts::try_from(buf)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let parts = ArrayParts::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let array = parts
             .decode(&dtype, row_count, ctx, &self.session)
@@ -391,8 +390,8 @@ impl VortexFileHandle {
             .as_ref()
             .ok_or_else(|| JsValue::from_str("No array ReadContext available"))?;
 
-        let layout = find_layout_by_id(self.vxf.footer().layout(), &layout_node_id)
-            .ok_or_else(|| {
+        let layout =
+            find_layout_by_id(self.vxf.footer().layout(), &layout_node_id).ok_or_else(|| {
                 JsValue::from_str(&format!("Layout node not found: {layout_node_id}"))
             })?;
 
@@ -411,8 +410,7 @@ impl VortexFileHandle {
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let parts = ArrayParts::try_from(buf)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let parts = ArrayParts::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let root_array = parts
             .decode(&dtype, row_count, ctx, &self.session)
@@ -460,8 +458,8 @@ impl VortexFileHandle {
             .as_ref()
             .ok_or_else(|| JsValue::from_str("No array ReadContext available"))?;
 
-        let layout = find_layout_by_id(self.vxf.footer().layout(), &layout_node_id)
-            .ok_or_else(|| {
+        let layout =
+            find_layout_by_id(self.vxf.footer().layout(), &layout_node_id).ok_or_else(|| {
                 JsValue::from_str(&format!("Layout node not found: {layout_node_id}"))
             })?;
 
@@ -480,8 +478,7 @@ impl VortexFileHandle {
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let parts = ArrayParts::try_from(buf)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let parts = ArrayParts::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let root_array = parts
             .decode(&dtype, row_count, ctx, &self.session)
@@ -656,7 +653,10 @@ fn build_array_encoding_tree_from_array(array: &ArrayRef) -> ArrayEncodingNodeJs
         .unwrap_or(0);
 
     let named_children = array.named_children();
-    let child_names: Vec<String> = named_children.iter().map(|(name, _)| name.clone()).collect();
+    let child_names: Vec<String> = named_children
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect();
     let children: Vec<ArrayEncodingNodeJson> = named_children
         .iter()
         .map(|(_, child)| build_array_encoding_tree_from_array(child))

@@ -2,11 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import type { LayoutTreeNode } from '../swimlane/types';
-import {
-  formatBytes,
-  getNodeDisplayName,
-  shortEncoding,
-} from '../swimlane/utils';
+import { formatBytes, getNodeDisplayName, shortEncoding } from '../swimlane/utils';
 
 interface ArraySummaryPaneProps {
   node: LayoutTreeNode;

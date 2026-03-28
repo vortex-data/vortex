@@ -4,7 +4,13 @@
 import { useMemo, useState } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContext';
 import { useSelection } from '../../contexts/SelectionContext';
-import { getNodeDisplayName, findPathToNode, getDtypeCategory, shortEncoding, DTYPE_COLORS } from '../swimlane/utils';
+import {
+  getNodeDisplayName,
+  findPathToNode,
+  getDtypeCategory,
+  shortEncoding,
+  DTYPE_COLORS,
+} from '../swimlane/utils';
 import { SummaryPane } from './SummaryPane';
 import { ArraySummaryPane } from './ArraySummaryPane';
 import { EncodingPane } from './EncodingPane';
@@ -57,10 +63,7 @@ export function DetailPanel() {
 
   const breadcrumb = hoveredPath.length > 0 ? hoveredPath : selectedPath;
 
-  const selectedIdSet = useMemo(
-    () => new Set(selectedPath.map((n) => n.id)),
-    [selectedPath],
-  );
+  const selectedIdSet = useMemo(() => new Set(selectedPath.map((n) => n.id)), [selectedPath]);
   const isHoverBreadcrumb = hoveredPath.length > 0;
 
   const currentTab = tabs.find((t) => t.id === activeTab) ? activeTab : tabs[0]?.id;
@@ -98,7 +101,10 @@ export function DetailPanel() {
               return (
                 <span key={node.id} className={`flex items-center gap-0.5 min-w-0 ${dimClass}`}>
                   {isArrayBoundary && (
-                    <span className="opacity-40 flex-shrink-0 mx-0.5" title={`array: ${shortEncoding(prevNode.encoding)}`}>
+                    <span
+                      className="opacity-40 flex-shrink-0 mx-0.5"
+                      title={`array: ${shortEncoding(prevNode.encoding)}`}
+                    >
                       ›
                     </span>
                   )}
@@ -149,7 +155,12 @@ export function DetailPanel() {
             <SegmentsPane node={selection.selectedNode} segments={file.segments} />
           )}
           {currentTab === 'treemap' && selection.selectedNode && (
-            <TreemapPane node={selection.selectedNode} segments={file.segments} onSelectNode={selectNode} onHoverNode={hoverNode} />
+            <TreemapPane
+              node={selection.selectedNode}
+              segments={file.segments}
+              onSelectNode={selectNode}
+              onHoverNode={hoverNode}
+            />
           )}
           {currentTab === 'buffers' && selection.selectedNode && (
             <BuffersPane node={selection.selectedNode} />

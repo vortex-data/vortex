@@ -28,10 +28,7 @@ export class VortexWorker {
   private nextId = 0;
 
   constructor() {
-    this.worker = new Worker(
-      new URL('./vortex.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
+    this.worker = new Worker(new URL('./vortex.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent) => {
       const { type, id, data, error } = e.data;
       const req = this.pending.get(id);
@@ -64,16 +61,30 @@ export class VortexWorker {
   }
 
   /** Fetch a buffer from a decoded array node. */
-  fetchArrayBuffer(layoutNodeId: string, arrayPath: string[], bufferIndex: number): Promise<Uint8Array> {
+  fetchArrayBuffer(
+    layoutNodeId: string,
+    arrayPath: string[],
+    bufferIndex: number,
+  ): Promise<Uint8Array> {
     const id = this.nextId++;
     return new Promise<Uint8Array>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: 'fetchArrayBuffer', id, layoutNodeId, arrayPath, bufferIndex });
+      this.worker.postMessage({
+        type: 'fetchArrayBuffer',
+        id,
+        layoutNodeId,
+        arrayPath,
+        bufferIndex,
+      });
     });
   }
 
   /** Preview data from a specific array node within a flat layout. */
-  previewArrayData(layoutNodeId: string, arrayPath: string[], rowLimit: number): Promise<Uint8Array> {
+  previewArrayData(
+    layoutNodeId: string,
+    arrayPath: string[],
+    rowLimit: number,
+  ): Promise<Uint8Array> {
     const id = this.nextId++;
     return new Promise<Uint8Array>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });

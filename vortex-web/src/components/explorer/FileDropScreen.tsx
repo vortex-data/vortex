@@ -88,7 +88,9 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
         onDrop={handleDrop}
         onClick={handleClick}
         className={`dashed-top dashed-bottom flex h-64 w-full max-w-lg cursor-pointer flex-col items-center justify-center transition-colors ${
-          isDragging ? 'bg-vortex-light-blue/10' : 'hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.03]'
+          isDragging
+            ? 'bg-vortex-light-blue/10'
+            : 'hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.03]'
         }`}
       >
         {busy ? (
@@ -133,9 +135,7 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
       </form>
 
       {(error || urlError) && (
-        <p className="mt-4 max-w-lg font-mono text-sm text-vortex-red">
-          {urlError || error}
-        </p>
+        <p className="mt-4 max-w-lg font-mono text-sm text-vortex-red">{urlError || error}</p>
       )}
     </div>
   );

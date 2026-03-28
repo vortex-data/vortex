@@ -4,7 +4,13 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContext';
 import { useSelection } from '../../contexts/SelectionContext';
-import { flattenTree, filterTreeBySearch, findPathToNode, isFlatLayout, findNodeById } from '../swimlane/utils';
+import {
+  flattenTree,
+  filterTreeBySearch,
+  findPathToNode,
+  isFlatLayout,
+  findNodeById,
+} from '../swimlane/utils';
 import { TreeRow } from '../swimlane/TreeRow';
 import { TreeSearch } from '../swimlane/TreeSearch';
 
@@ -60,7 +66,9 @@ export function TreePanel() {
     requestAnimationFrame(() => {
       const container = scrollContainerRef.current;
       if (!container) return;
-      const el = container.querySelector(`[data-node-id="${CSS.escape(selection.selectedNodeId!)}"]`);
+      const el = container.querySelector(
+        `[data-node-id="${CSS.escape(selection.selectedNodeId!)}"]`,
+      );
       el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
   }, [selection.selectedNodeId, expanded]);

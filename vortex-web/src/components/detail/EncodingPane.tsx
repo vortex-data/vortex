@@ -52,15 +52,11 @@ export function EncodingPane({ node }: EncodingPaneProps) {
   }, [node.id, node.arrayEncodingTree, node.segmentIds, fetchEncodingTree]);
 
   if (loading) {
-    return (
-      <div className="text-xs text-vortex-grey-dark">Loading encoding tree…</div>
-    );
+    return <div className="text-xs text-vortex-grey-dark">Loading encoding tree…</div>;
   }
 
   if (error) {
-    return (
-      <div className="text-xs text-red-500">Error: {error}</div>
-    );
+    return <div className="text-xs text-red-500">Error: {error}</div>;
   }
 
   if (!tree) {
