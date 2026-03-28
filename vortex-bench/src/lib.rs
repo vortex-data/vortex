@@ -4,6 +4,8 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
+use std::alloc::{GlobalAlloc, Layout};
+
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -63,9 +65,52 @@ pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-// All benchmarks run with mimalloc for consistency.
+/// A wrapper around mimalloc that forces all allocations to be at least 256-byte aligned.
+///
+/// This ensures that small heap objects (e.g. `ArcInner`) start on a cache-line boundary,
+/// preventing false sharing with neighboring allocations.
+struct CacheAlignedMiMalloc;
+
+unsafe impl GlobalAlloc for CacheAlignedMiMalloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let aligned = layout
+            .align_to(256)
+            .expect("alignment overflow")
+            .pad_to_align();
+        unsafe { mimalloc::MiMalloc.alloc(aligned) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let aligned = layout
+            .align_to(256)
+            .expect("alignment overflow")
+            .pad_to_align();
+        unsafe { mimalloc::MiMalloc.dealloc(ptr, aligned) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let aligned = layout
+            .align_to(256)
+            .expect("alignment overflow")
+            .pad_to_align();
+        unsafe { mimalloc::MiMalloc.alloc_zeroed(aligned) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let aligned = layout
+            .align_to(256)
+            .expect("alignment overflow")
+            .pad_to_align();
+        let new_layout = Layout::from_size_align(new_size, 256)
+            .expect("layout overflow")
+            .pad_to_align();
+        unsafe { mimalloc::MiMalloc.realloc(ptr, aligned, new_layout.size()) }
+    }
+}
+
+// All benchmarks run with mimalloc (256-byte aligned) for consistency.
 #[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static GLOBAL: CacheAlignedMiMalloc = CacheAlignedMiMalloc;
 
 pub static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_tokio());
