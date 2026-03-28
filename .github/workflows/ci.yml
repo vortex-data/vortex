@@ -69,7 +69,9 @@ jobs:
       - name: Python Lint - PyRight
         env:
           MATURIN_PEP517_ARGS: "--profile dev"
-        run: uv run basedpyright vortex-python
+        run: |
+          uv sync --all-packages
+          uv run basedpyright vortex-python
 
   python-test:
     name: "Python (test)"
