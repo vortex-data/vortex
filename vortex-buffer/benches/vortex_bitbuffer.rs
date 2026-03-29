@@ -592,3 +592,99 @@ bench_density!(20, clustered, make_clustered, make_uniform_arrow);
 
 // 50% density (for reference)
 bench_density!(50, uniform, make_uniform, make_uniform_arrow);
+
+// =========================================================================
+// Memory bandwidth baselines — measure the floor
+// =========================================================================
+
+/// Baseline: read 125KB bitmap + popcount (no output writes).
+/// Measures the pure read + compute cost without any output bandwidth.
+#[divan::bench]
+fn baseline_read_popcount_1m(bencher: Bencher) {
+    let buffer = make_random(5);
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        divan::black_box(buffer.true_count());
+    });
+}
+
+/// Baseline: write N u32 values sequentially (no read, no computation).
+/// Measures the pure output write bandwidth floor.
+macro_rules! bench_write_baseline {
+    ($count:literal) => {
+        ::paste::paste! {
+            #[divan::bench]
+            #[allow(clippy::uninit_vec)]
+            fn [< baseline_write_ $count _u32 >](bencher: Bencher) {
+                bencher
+                    .with_inputs(|| {
+                        let mut v: Vec<u32> = Vec::with_capacity($count);
+                        // SAFETY: we immediately overwrite all elements in the benchmark body.
+                        unsafe { v.set_len($count) };
+                        v
+                    })
+                    .bench_refs(|v| {
+                        let ptr = v.as_mut_ptr();
+                        for i in 0..$count as u32 {
+                            unsafe { ptr.add(i as usize).write(i) };
+                        }
+                        divan::black_box(&v);
+                    });
+            }
+        }
+    };
+}
+
+// Write baselines matching typical set-bit counts at various densities:
+// 1% of 1M = 10K, 5% = 50K, 10% = 100K, 20% = 200K, 50% = 500K
+bench_write_baseline!(10_000);
+bench_write_baseline!(50_000);
+bench_write_baseline!(100_000);
+bench_write_baseline!(200_000);
+bench_write_baseline!(500_000);
+
+/// Baseline: read 125KB bitmap sequentially (memcpy-like scan).
+/// Measures the pure input read bandwidth.
+#[divan::bench]
+fn baseline_read_bitmap_125kb(bencher: Bencher) {
+    let buffer = make_random(5);
+    bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
+        let bytes = buffer.inner().as_slice();
+        let mut acc = 0u64;
+        let ptr = bytes.as_ptr() as *const u64;
+        let n = bytes.len() / 8;
+        for i in 0..n {
+            acc ^= unsafe { *ptr.add(i) };
+        }
+        divan::black_box(acc);
+    });
+}
+
+/// Baseline: read 125KB + write 50K u32 (combined bandwidth, no real computation).
+/// This is the absolute floor for 5% density: just touch all the memory.
+#[divan::bench]
+#[allow(clippy::uninit_vec)]
+fn baseline_read125kb_write50k(bencher: Bencher) {
+    let buffer = make_random(5);
+    bencher
+        .with_inputs(|| {
+            let mut v: Vec<u32> = Vec::with_capacity(50_000);
+            unsafe { v.set_len(50_000) };
+            (&buffer, v)
+        })
+        .bench_refs(|(buffer, v)| {
+            let bytes = buffer.inner().as_slice();
+            let src = bytes.as_ptr() as *const u64;
+            let dst = v.as_mut_ptr();
+            let n_words = bytes.len() / 8;
+            let mut idx = 0u32;
+            for i in 0..n_words {
+                let w = unsafe { *src.add(i) };
+                let pc = w.count_ones();
+                for j in 0..pc {
+                    unsafe { dst.add(idx as usize).write(idx + j) };
+                }
+                idx += pc;
+            }
+            divan::black_box(&v);
+        });
+}

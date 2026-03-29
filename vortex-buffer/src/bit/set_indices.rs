@@ -454,9 +454,6 @@ unsafe fn collect_set_indices_avx512(
 /// Drain set bits using per-word popcount dispatch: counted BLSR for sparse
 /// words (≤8 set bits), VPCOMPRESSD for dense words (>8 set bits).
 ///
-/// Uses a counted `for` loop instead of `while w != 0` to eliminate
-/// branch misprediction from variable loop-exit timing on random data.
-///
 /// # Safety
 /// Caller must ensure `dst` has room for `word.count_ones()` elements.
 #[cfg(target_arch = "x86_64")]
