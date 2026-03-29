@@ -220,25 +220,14 @@ impl AggregateFnVTable for Mean {
             .map(|(s, c)| if *c == 0 { 0.0 } else { s / *c as f64 })
             .collect();
 
-        let validity = match validity_mask {
-            Mask::AllTrue(_) => {
-                let valid_bits: Vec<bool> = count_values.iter().map(|c| *c > 0).collect();
-                if valid_bits.iter().all(|v| *v) {
-                    Validity::AllValid
-                } else {
-                    Validity::from_iter(valid_bits)
-                }
-            }
-            Mask::AllFalse(_) => Validity::AllInvalid,
-            Mask::Values(v) => {
-                let valid_bits: Vec<bool> = count_values
-                    .iter()
-                    .zip(v.bit_buffer().iter())
-                    .map(|(c, group_valid)| group_valid && *c > 0)
-                    .collect();
-                Validity::from_iter(valid_bits)
-            }
-        };
+        // A mean is valid when the group itself was valid AND had at least one
+        // non-null element (count > 0).
+        let validity = Validity::from_iter(
+            count_values
+                .iter()
+                .enumerate()
+                .map(|(i, c)| validity_mask.value(i) && *c > 0),
+        );
 
         Ok(PrimitiveArray::new(means, validity).into_array())
     }
