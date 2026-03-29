@@ -551,10 +551,34 @@ fn d001pct_random_collect_precount(bencher: Bencher) {
 bench_density!(1, uniform, make_uniform, make_uniform_arrow);
 bench_density!(1, random, make_random, make_random_arrow);
 
+// 2% density
+bench_density!(2, uniform, make_uniform, make_uniform_arrow);
+bench_density!(2, random, make_random, make_random_arrow);
+
+// 3% density — near the sparse/medium boundary
+bench_density!(3, uniform, make_uniform, make_uniform_arrow);
+bench_density!(3, random, make_random, make_random_arrow);
+
+// 4% density
+bench_density!(4, uniform, make_uniform, make_uniform_arrow);
+bench_density!(4, random, make_random, make_random_arrow);
+
 // 5% density
 bench_density!(5, uniform, make_uniform, make_uniform_arrow);
 bench_density!(5, random, make_random, make_random_arrow);
 bench_density!(5, clustered, make_clustered, make_uniform_arrow);
+
+// 6% density
+bench_density!(6, uniform, make_uniform, make_uniform_arrow);
+bench_density!(6, random, make_random, make_random_arrow);
+
+// 7% density
+bench_density!(7, uniform, make_uniform, make_uniform_arrow);
+bench_density!(7, random, make_random, make_random_arrow);
+
+// 8% density
+bench_density!(8, uniform, make_uniform, make_uniform_arrow);
+bench_density!(8, random, make_random, make_random_arrow);
 
 // 10% density
 bench_density!(10, uniform, make_uniform, make_uniform_arrow);

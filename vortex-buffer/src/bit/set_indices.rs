@@ -451,8 +451,11 @@ unsafe fn collect_set_indices_avx512(
     out
 }
 
-/// Drain set bits using per-word popcount dispatch: BLSR for sparse words
-/// (≤8 set bits), VPCOMPRESSD for dense words (>8 set bits).
+/// Drain set bits using per-word popcount dispatch: counted BLSR for sparse
+/// words (≤8 set bits), VPCOMPRESSD for dense words (>8 set bits).
+///
+/// Uses a counted `for` loop instead of `while w != 0` to eliminate
+/// branch misprediction from variable loop-exit timing on random data.
 ///
 /// # Safety
 /// Caller must ensure `dst` has room for `word.count_ones()` elements.
@@ -466,9 +469,14 @@ unsafe fn drain_word_hybrid(word: u64, base: u32, mut dst: *mut u32) -> *mut u32
         return dst;
     }
 
-    if word.count_ones() <= 8 {
+    let pc = word.count_ones();
+
+    if pc <= 8 {
+        // Counted loop: runs exactly `pc` iterations.
+        // The counter-based exit avoids branch misprediction from
+        // testing `w != 0` which varies word-to-word on random data.
         let mut w = word;
-        while w != 0 {
+        for _ in 0..pc {
             unsafe {
                 dst.write(base + w.trailing_zeros());
                 dst = dst.add(1);
