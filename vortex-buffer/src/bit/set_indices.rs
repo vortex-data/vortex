@@ -391,7 +391,7 @@ unsafe fn collect_set_indices_avx512(
     let end = unsafe { bytes.as_ptr().add(bytes.len()) };
 
     let (first_word, first_bits) = unsafe { load_first_word(&mut ptr, end, start_bit, len) };
-    dst = unsafe { drain_word_avx512(first_word, 0, dst) };
+    dst = unsafe { drain_word_hybrid(first_word, 0, dst) };
     let mut base = first_bits as u32;
     let mut remaining = len - first_bits;
 
@@ -399,8 +399,8 @@ unsafe fn collect_set_indices_avx512(
 
     // Main loop: 8 words (512 bits) at a time.
     // _mm512_test_epi64_mask checks all 8 qwords in one instruction.
-    // At low density, this skips zero words cheaply. At high density,
-    // per-word drain_word_avx512 picks BLSR or VPCOMPRESSD automatically.
+    // At low density this skips zero words cheaply. At high density,
+    // per-word hybrid picks BLSR or VPCOMPRESSD based on popcount.
     let n_groups = (remaining / 512).min(avail_bytes / 64);
     for _ in 0..n_groups {
         let chunk = unsafe { _mm512_loadu_si512(ptr as *const __m512i) };
@@ -411,7 +411,7 @@ unsafe fn collect_set_indices_avx512(
             while m != 0 {
                 let i = m.trailing_zeros() as usize;
                 let word = unsafe { *(ptr as *const u64).add(i) };
-                dst = unsafe { drain_word_avx512(word, base + (i as u32 * 64), dst) };
+                dst = unsafe { drain_word_hybrid(word, base + (i as u32 * 64), dst) };
                 m &= m - 1;
             }
         }
@@ -426,7 +426,7 @@ unsafe fn collect_set_indices_avx512(
     let n_tail_words = (remaining / 64).min(avail_bytes_tail / 8);
     for _ in 0..n_tail_words {
         let word = unsafe { read_u64_le(ptr) };
-        dst = unsafe { drain_word_avx512(word, base, dst) };
+        dst = unsafe { drain_word_hybrid(word, base, dst) };
         ptr = unsafe { ptr.add(8) };
         base += 64;
     }
@@ -441,7 +441,7 @@ unsafe fn collect_set_indices_avx512(
         } else {
             word
         };
-        dst = unsafe { drain_word_avx512(masked, base, dst) };
+        dst = unsafe { drain_word_hybrid(masked, base, dst) };
     }
 
     let written = unsafe { dst.offset_from(out.as_ptr()) } as usize;
@@ -451,33 +451,22 @@ unsafe fn collect_set_indices_avx512(
     out
 }
 
-/// Drain set bits from a u64 word using AVX-512 VPCOMPRESSD for dense words
-/// and BMI1 BLSR for sparse words.
-///
-/// VPCOMPRESSD takes a 16-element vector `[base, base+1, ..., base+15]` and a
-/// 16-bit mask (from the bitmap), and writes only the elements where the mask
-/// bit is set, in order. This processes 16 bitmap bits per instruction.
-///
-/// For sparse words (≤8 set bits), the serial BLSR/TZCNT loop is faster because
-/// it does ~2 cycles per bit vs VPCOMPRESSD's fixed ~16 cycles per word.
+/// Drain set bits using per-word popcount dispatch: BLSR for sparse words
+/// (≤8 set bits), VPCOMPRESSD for dense words (>8 set bits).
 ///
 /// # Safety
 /// Caller must ensure `dst` has room for `word.count_ones()` elements.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,bmi1,bmi2,popcnt")]
 #[inline]
-unsafe fn drain_word_avx512(word: u64, base: u32, mut dst: *mut u32) -> *mut u32 {
-    use std::arch::x86_64::*;
+unsafe fn drain_word_hybrid(word: u64, base: u32, mut dst: *mut u32) -> *mut u32 {
+    use std::arch::x86_64::_blsr_u64;
 
     if word == 0 {
         return dst;
     }
 
-    let pc = word.count_ones();
-
-    // Sparse path: BLSR loop is faster for ≤8 set bits (~2 cycles/bit vs
-    // VPCOMPRESSD's fixed ~16 cycles for 4 chunks).
-    if pc <= 8 {
+    if word.count_ones() <= 8 {
         let mut w = word;
         while w != 0 {
             unsafe {
@@ -489,7 +478,31 @@ unsafe fn drain_word_avx512(word: u64, base: u32, mut dst: *mut u32) -> *mut u32
         return dst;
     }
 
-    // Dense path: VPCOMPRESSD processes 16 bits per instruction.
+    unsafe { drain_word_vpcompressd(word, base, dst) }
+}
+
+/// Drain set bits from a u64 word using AVX-512 VPCOMPRESSD.
+///
+/// VPCOMPRESSD takes a 16-element vector `[base, base+1, ..., base+15]` and a
+/// 16-bit mask (from the bitmap), and writes only the elements where the mask
+/// bit is set, in order. Four compress operations cover the full 64-bit word.
+///
+/// Branchless: fixed ~16 cycles/word regardless of popcount. Eliminates
+/// branch misprediction from variable-length BLSR loops on random data.
+///
+/// # Safety
+/// Caller must ensure `dst` has room for `word.count_ones()` elements.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,bmi1,bmi2,popcnt")]
+#[inline]
+unsafe fn drain_word_vpcompressd(word: u64, base: u32, mut dst: *mut u32) -> *mut u32 {
+    use std::arch::x86_64::*;
+
+    if word == 0 {
+        return dst;
+    }
+
+    // VPCOMPRESSD processes 16 bits per instruction.
     // Split the 64-bit word into 4 × 16-bit chunks.
     let offsets = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 
